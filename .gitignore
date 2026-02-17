@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+
+# macOS
+.DS_Store
+
+# Data
+data/export/
+*.csv
+
+# Proto raw sources
+infra/finam/proto_src/
+infra/finam/third_party/
+
+# Logs
+*.log

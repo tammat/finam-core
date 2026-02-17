@@ -1,0 +1,21 @@
+{
+  "dataset": "data/export/ngh6_dataset.csv",
+  "n_train": 135,
+  "n_val": 28,
+  "n_test": 30,
+  "features": [
+    "return_1",
+    "return_mean",
+    "volatility",
+    "z_score",
+    "momentum"
+  ],
+  "threshold": 0.35,
+  "val_f1": 1.0,
+  "test": {
+    "accuracy": 1.0,
+    "f1": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+  }
+}
