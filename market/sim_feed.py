@@ -4,7 +4,7 @@ import random
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from domain.events import MarketEvent, SignalEvent
+from core.events import MarketEvent, SignalEvent
 
 
 class SimMarketFeed:

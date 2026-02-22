@@ -7,7 +7,7 @@ from execution.oms import OMS
 from accounting.position_manager import PositionManager
 from accounting.portfolio_manager import PortfolioManager
 from risk.risk_engine import RiskEngine
-from domain.events import SignalEvent
+from core.events import SignalEvent
 
 
 DSN = "dbname=finam_core user=finam password=finam host=localhost port=5432"

@@ -1,5 +1,6 @@
-from typing import Dict
 from dataclasses import dataclass
+from typing import Dict
+from collections import defaultdict
 
 
 @dataclass
@@ -8,47 +9,50 @@ class Position:
     qty: float = 0.0
     avg_price: float = 0.0
     realized_pnl: float = 0.0
+    market_price: float = 0.0
 
 
 class PositionManager:
 
-    def __init__(self):
-        self.positions: Dict[str, Position] = {}
+    def __init__(self, starting_cash: float = 0.0):
+        self.cash = float(starting_cash)
 
-    # ====================================================
-    # FILL HANDLING
-    # ====================================================
+        self.positions: Dict[str, Position] = defaultdict(
+            lambda: Position(symbol="")
+        )
 
-    def on_fill(self, fill) -> None:
-        """
-        Update position state after execution fill.
-        """
+        self.processed_fills = set()
+        self._peak_equity = float(starting_cash)
 
-        symbol = fill.symbol
-        side = fill.side.upper()
-        qty = fill.qty
-        price = fill.price
+    # --------------------------------------------------
 
-        if symbol not in self.positions:
-            self.positions[symbol] = Position(symbol=symbol)
+    def apply_fill(self, fill):
 
-        pos = self.positions[symbol]
+        if fill.fill_id in self.processed_fills:
+            return
 
-        signed_qty = qty if side == "BUY" else -qty
+        self.processed_fills.add(fill.fill_id)
 
-        # If same direction — adjust average price
+        pos = self.positions[fill.symbol]
+
+        signed_qty = fill.qty if fill.side == "BUY" else -fill.qty
+
+        # Increase / open
         if pos.qty == 0 or (pos.qty > 0 and signed_qty > 0) or (pos.qty < 0 and signed_qty < 0):
             new_qty = pos.qty + signed_qty
+
             if new_qty != 0:
                 pos.avg_price = (
-                    (pos.avg_price * abs(pos.qty) + price * abs(signed_qty))
-                    / abs(new_qty)
-                )
+                    pos.qty * pos.avg_price + signed_qty * fill.price
+                ) / new_qty
+
             pos.qty = new_qty
+
+        # Reduce / close
         else:
-            # Opposite direction → closing or flipping
-            closing_qty = min(abs(pos.qty), abs(signed_qty))
-            pnl = closing_qty * (price - pos.avg_price)
+            closing = min(abs(pos.qty), abs(signed_qty))
+            pnl = closing * (fill.price - pos.avg_price)
+
             if pos.qty < 0:
                 pnl = -pnl
 
@@ -58,16 +62,61 @@ class PositionManager:
             if pos.qty == 0:
                 pos.avg_price = 0.0
 
-    # ====================================================
-    # AGGREGATES
-    # ====================================================
+        # Cash update
+        self.cash -= signed_qty * fill.price
+        self.cash -= fill.commission
 
-    def total_unrealized(self) -> float:
-        # Unrealized not implemented without live mark price
-        return 0.0
+    # --------------------------------------------------
 
-    def total_realized(self) -> float:
-        return sum(p.realized_pnl for p in self.positions.values())
+    def update_market_price(self, symbol: str, price: float):
+        pos = self.positions[symbol]
+        pos.market_price = price
 
-    def total_exposure(self) -> float:
-        return sum(abs(p.qty) * p.avg_price for p in self.positions.values())
+    # --------------------------------------------------
+
+    def total_equity(self):
+
+        market_value = sum(
+            p.qty * (p.market_price if p.market_price else p.avg_price)
+            for p in self.positions.values()
+        )
+
+        equity = self.cash + market_value
+
+        if equity > self._peak_equity:
+            self._peak_equity = equity
+
+        return equity
+
+    # --------------------------------------------------
+
+    def current_drawdown(self):
+
+        equity = self.total_equity()
+
+        if self._peak_equity == 0:
+            return 0.0
+
+        return (equity - self._peak_equity) / self._peak_equity
+
+    # --------------------------------------------------
+
+    def get_context(self):
+
+        gross_exposure = sum(
+            abs(p.qty * (p.market_price if p.market_price else p.avg_price))
+            for p in self.positions.values()
+        )
+
+        equity = self.total_equity()
+
+        return type("Context", (), {
+            "cash": self.cash,
+            "gross_exposure": gross_exposure,
+            "equity": equity,
+        })()
+
+    # --------------------------------------------------
+
+    def on_fill(self, fill):
+        self.apply_fill(fill)

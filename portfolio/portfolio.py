@@ -1,80 +1,93 @@
+from collections import defaultdict
 from dataclasses import dataclass
-from data.asset_metadata import get_asset_metadata
+from risk.context import RiskContext
 
 @dataclass
 class Position:
-    symbol: str
-    asset_class: str
     qty: float = 0.0
     avg_price: float = 0.0
     realized_pnl: float = 0.0
-    unrealized_pnl: float = 0.0
 
+class PositionManager:
 
-class Portfolio:
-    """
-    Institutional-ready portfolio model.
-    Tracks:
-    - cash
-    - positions
-    - basic exposure
-    """
+    def __init__(self, starting_cash: float = 100_000):
+        self.cash = starting_cash
+        self.starting_cash = starting_cash
+        self.positions = defaultdict(Position)
+        self.processed_fills = set()  # idempotency
+        self.last_prices = {}  # mark-to-market
 
-    def __init__(self, starting_cash=100_000.0):
-        self.cash = float(starting_cash)
-        self.positions = {}
+    # ---------- CONTEXT ----------
+    def get_context(self) -> RiskContext:
 
-    def on_fill(self, fill):
-        metadata = get_asset_metadata(fill.symbol)
-        asset_class = metadata["asset_class"]
-        pos = self.positions.get(fill.symbol)
-
-        signed_qty = fill.quantity if fill.side == "BUY" else -fill.quantity
-
-        if not pos:
-            pos = Position(
-                symbol=fill.symbol,
-                asset_class=asset_class,
-                qty=0.0,
-                avg_price=0.0,
-            )
-
-        new_qty = pos.qty + signed_qty
-
-        # average price update (simple version)
-        if new_qty != 0:
-            total_cost = pos.avg_price * abs(pos.qty) + fill.price * abs(signed_qty)
-            pos.avg_price = total_cost / (abs(pos.qty) + abs(signed_qty))
-
-        pos.qty = new_qty
-
-        self.positions[fill.symbol] = pos
-
-        # update cash
-        self.cash -= signed_qty * fill.price
-
-    def total_exposure_fraction(self):
-        exposure = sum(abs(p.qty) for p in self.positions.values())
-        return exposure / 1000.0
-
-    def calculate_position_size(self, signal):
-        return 1.0
-
-    def current_equity(self, price_resolver=None):
-        """
-        Equity = cash + unrealized PnL
-        price_resolver: функция получения последней цены
-        """
+        gross = 0.0
+        net = 0.0
         unrealized = 0.0
 
-        if price_resolver:
-            for symbol, pos in self.positions.items():
-                if pos.qty == 0:
-                    continue
+        for symbol, pos in self.positions.items():
+            price = self.last_prices.get(symbol, pos.avg_price)
+            notional = pos.qty * price
+            gross += abs(notional)
+            net += notional
+            unrealized += (price - pos.avg_price) * pos.qty
 
-                current_price = price_resolver(symbol)
-                unrealized += (current_price - pos.avg_price) * pos.qty
+        equity = self.cash + unrealized
 
-                pos.unrealized_pnl = (current_price - pos.avg_price) * pos.qty
+        return RiskContext(
+            equity=equity,
+            cash=self.cash,
+            gross_exposure=gross,
+            net_exposure=net,
+        )
 
-        return self.cash + unrealized
+    # ---------- APPLY FILL ----------
+    def apply_fill(self, fill):
+
+        if fill.fill_id in self.processed_fills:
+            return  # idempotency
+
+        pos = self.positions[fill.symbol]
+
+        if fill.side == "BUY":
+
+            if pos.qty >= 0:
+                total_cost = pos.qty * pos.avg_price + fill.qty * fill.price
+                pos.qty += fill.qty
+                pos.avg_price = total_cost / pos.qty
+            else:
+                # short closing
+                closing_qty = min(abs(pos.qty), fill.qty)
+                pnl = (pos.avg_price - fill.price) * closing_qty
+                pos.realized_pnl += pnl
+                pos.qty += fill.qty
+                if pos.qty > 0:
+                    pos.avg_price = fill.price
+
+            self.cash -= fill.qty * fill.price + fill.commission
+
+        elif fill.side == "SELL":
+
+            if pos.qty <= 0:
+                total_cost = abs(pos.qty) * pos.avg_price + fill.qty * fill.price
+                pos.qty -= fill.qty
+                pos.avg_price = total_cost / abs(pos.qty)
+            else:
+                closing_qty = min(pos.qty, fill.qty)
+                pnl = (fill.price - pos.avg_price) * closing_qty
+                pos.realized_pnl += pnl
+                pos.qty -= fill.qty
+                if pos.qty < 0:
+                    pos.avg_price = fill.price
+
+            self.cash += fill.qty * fill.price - fill.commission
+
+        self.processed_fills.add(fill.fill_id)
+
+    # ---------- MARKET UPDATE ----------
+    def update_market_price(self, symbol, price):
+        self.last_prices[symbol] = price
+
+    # ---------- DRAWDOWN ----------
+    def current_drawdown(self):
+        context = self.get_context()
+        return (context.equity - self.starting_cash) / self.starting_cash

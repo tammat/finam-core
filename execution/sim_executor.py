@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from domain.events import FillEvent
+from core.events import FillEvent
 from execution.execution_engine import ExecutionEngine
 
 
@@ -31,6 +31,7 @@ class SimExecutionEngine(ExecutionEngine):
                 continue
 
             fill = FillEvent(
+                event_id=str(uuid4()),
                 fill_id=str(uuid4()),
                 order_id=order.order_id,
                 symbol=order.symbol,
@@ -40,7 +41,6 @@ class SimExecutionEngine(ExecutionEngine):
                 commission=0.0,
                 timestamp=ts,
             )
-
             # КРИТИЧНО: фиксируем исполнение в ордере (если модель поддерживает)
             if hasattr(order, "add_fill"):
                 order.add_fill(fill)

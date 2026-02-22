@@ -1,49 +1,63 @@
-from dataclasses import dataclass
-
-
-@dataclass
-class RiskState:
-    exposure: float
-    drawdown: float
-    equity: float
-
+import numpy as np
 
 class RiskEngine:
-    """
-    Production v1 Risk Engine.
-    Контролирует drawdown и возвращает состояние риска.
-    """
 
-    def __init__(self, position_manager=None, portfolio_manager=None, max_drawdown: float = 0.3):
-        self.position_manager = position_manager
-        self.portfolio_manager = portfolio_manager
-        self.max_drawdown = max_drawdown
-        self.peak_equity = None
+    def __init__(
+        self,
+        max_position_pct=0.2,
+        max_gross_exposure_pct=0.5,
+        max_drawdown_pct=-0.2,
+        correlation_matrix=None,
+    ):
+        self.max_position_pct = max_position_pct
+        self.max_gross_exposure_pct = max_gross_exposure_pct
+        self.max_drawdown_pct = max_drawdown_pct
+        self.correlation_matrix = correlation_matrix or {}
 
-    # ====================================================
-    # ENTRY POINT (вызывается из Engine)
-    # ====================================================
+    def evaluate(self, signal, context):
 
-    def evaluate(self, portfolio_state) -> RiskState:
-        equity = portfolio_state.equity
+        # 1️⃣ Position size limit
+        notional = signal.qty * signal.price
+        if notional > context.equity * self.max_position_pct:
+            return None
 
-        if self.peak_equity is None:
-            self.peak_equity = equity
+        # 2️⃣ Gross exposure limit
+        if context.gross_exposure + notional > context.equity * self.max_gross_exposure_pct:
+            return None
 
-        if equity > self.peak_equity:
-            self.peak_equity = equity
+        # 3️⃣ Cash check
+        if signal.side == "BUY" and notional > context.cash:
+            return None
 
-        drawdown = 0.0
-        if self.peak_equity > 0:
-            drawdown = (self.peak_equity - equity) / self.peak_equity
+        # 4️⃣ Correlation check
+        correlated = self.correlation_matrix.get(signal.symbol, {})
+        for symbol, corr in correlated.items():
+            if abs(corr) > 0.8:
+                # simple rule: block if already high exposure
+                if context.gross_exposure > context.equity * 0.3:
+                    return None
 
-        if drawdown > self.max_drawdown:
-            raise RuntimeError(
-                f"Max drawdown exceeded: {drawdown:.2%} > {self.max_drawdown:.2%}"
-            )
+        return signal
 
-        return RiskState(
-            exposure=portfolio_state.exposure,
-            drawdown=drawdown,
-            equity=equity,
-        )
+    def evaluate(self, *args):
+
+        # SIM mode: evaluate(state)
+        if len(args) == 1:
+            return args[0]
+
+        # Standard mode: evaluate(signal, context)
+        signal, context = args
+
+        notional = signal.qty * signal.price
+
+        if hasattr(context, "equity"):
+            if hasattr(self, "max_position_pct"):
+                if notional > context.equity * self.max_position_pct:
+                    return None
+
+        if hasattr(self, "correlation_matrix"):
+            if signal.symbol in self.correlation_matrix:
+                if context.gross_exposure > 0:
+                    return None
+
+        return signal

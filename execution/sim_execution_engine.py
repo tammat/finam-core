@@ -18,12 +18,16 @@ class SimExecutionEngine(BaseExecutionEngine):
             price = order.price or 0.0
 
         fill = FillEvent(
+            event_id=str(uuid4()),
+            fill_id=str(uuid4()),
+            order_id=order.order_id,
             symbol=order.symbol,
-            quantity=order.quantity,
-            price=price,
             side=order.side,
+            qty=qty,
+            price=float(market_price),
+            commission=0.0,
+            timestamp=ts,
         )
-
         if self.event_bus:
             self.event_bus.publish(fill)
 

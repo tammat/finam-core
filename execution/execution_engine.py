@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from execution.order_model import Order
-from domain.events import FillEvent
+from core.events import FillEvent
 from datetime import datetime
 
 

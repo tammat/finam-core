@@ -1,21 +1,26 @@
-# Комментарии:
-# EventBus — простая FIFO очередь событий.
-# Никакого pub/sub.
-# Engine сам решает, как маршрутизировать события.
-
-from collections import deque
+from collections import defaultdict
+from typing import Callable, Type
 
 
 class EventBus:
+    """
+    Central synchronous event dispatcher.
+    """
 
     def __init__(self):
-        self._queue = deque()
+        self._subscribers = defaultdict(list)
+
+    def subscribe(self, event_type: Type, handler: Callable):
+        """
+        Register handler for specific event type.
+        """
+        self._subscribers[event_type].append(handler)
 
     def publish(self, event):
-        self._queue.append(event)
+        """
+        Dispatch event to all subscribed handlers.
+        """
+        handlers = self._subscribers.get(type(event), [])
 
-    def has_events(self):
-        return len(self._queue) > 0
-
-    def get(self):
-        return self._queue.popleft()
+        for handler in handlers:
+            handler(event)
