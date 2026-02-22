@@ -1,8 +1,7 @@
-psycopg2-binary==2.9.9
-numpy==1.26.4
-pandas==2.2.1
+numpy
+pandas
 scikit-learn==1.5.2
-joblib==1.4.2
+joblib
 numpy
 protobuf
 googleapis-common-protos
@@ -10,4 +9,5 @@ grpcio
 grpcio-tools
 requests
 python-dotenv
-psycopg[binary]
+psycopg2-binary
+pandas

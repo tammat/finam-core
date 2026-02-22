@@ -1,77 +1,120 @@
 from dataclasses import dataclass
-from core.events import OrderEvent, RiskRejectedEvent
+from typing import List
+from risk.models import RiskDecision
 
 
 @dataclass
-class RiskConfig:
-    max_risk_per_trade: float = 0.02
-    daily_loss_limit: float = 0.05
-    exposure_limit: float = 0.30
-    kill_switch: bool = False
+class RiskContext:
+    symbol: str
+    side: str
+    qty: float
+    price: float
+    current_position_qty: float
+    current_portfolio_exposure: float
+    current_drawdown: float
 
+
+class RiskRule:
+    def evaluate(self, ctx: RiskContext) -> RiskDecision:
+        raise NotImplementedError
+
+
+# ======================================================
+# RULES
+# ======================================================
+
+class MaxPositionSizeRule(RiskRule):
+
+    def __init__(self, max_qty: float):
+        self.max_qty = max_qty
+
+    def evaluate(self, ctx: RiskContext):
+
+        signed = ctx.qty if ctx.side == "BUY" else -ctx.qty
+        projected = ctx.current_position_qty + signed
+
+        if abs(projected) > self.max_qty:
+            return RiskDecision(False, "MaxPositionSize", "Position size exceeded")
+
+        return RiskDecision(True)
+
+
+class MaxPortfolioExposureRule(RiskRule):
+
+    def __init__(self, max_exposure: float):
+        self.max_exposure = max_exposure
+
+    def evaluate(self, ctx: RiskContext):
+
+        projected_exposure = ctx.current_portfolio_exposure + abs(ctx.qty * ctx.price)
+
+        if projected_exposure > self.max_exposure:
+            return RiskDecision(False, "MaxPortfolioExposure", "Exposure limit exceeded")
+
+        return RiskDecision(True)
+
+
+class MaxDrawdownRule(RiskRule):
+
+    def __init__(self, max_drawdown: float):
+        self.max_drawdown = max_drawdown
+
+    def evaluate(self, ctx: RiskContext):
+
+        if ctx.current_drawdown > self.max_drawdown:
+            return RiskDecision(False, "MaxDrawdown", "Drawdown limit breached")
+
+        return RiskDecision(True)
+
+
+# ======================================================
+# ENGINE
+# ======================================================
 
 class RiskEngine:
-    """
-    Centralized institutional risk engine.
-    Now equity-aware.
-    """
 
-    def __init__(self, portfolio, event_bus, price_resolver, config=None):
-        self.portfolio = portfolio
-        self.event_bus = event_bus
-        self.config = config or RiskConfig()
-        self.daily_pnl = 0.0  # placeholder for v1.2+
-        self.price_resolver = price_resolver
+    def __init__(
+        self,
+        position_manager,
+        portfolio_manager,
+        max_position_size=10,
+        max_exposure=1_000_000,
+        max_drawdown=50_000,
+    ):
+        self.position_manager = position_manager
+        self.portfolio_manager = portfolio_manager
 
-    def on_signal(self, signal):
-        # 1️⃣ Kill switch
-        if self.config.kill_switch:
-            self._reject(signal, "KILL_SWITCH")
-            return
+        self.rules: List[RiskRule] = [
+            MaxPositionSizeRule(max_position_size),
+            MaxPortfolioExposureRule(max_exposure),
+            MaxDrawdownRule(max_drawdown),
+        ]
 
-        # 2️⃣ Daily loss control (placeholder logic)
-        if self.daily_pnl < -abs(self.config.daily_loss_limit):
-            self._reject(signal, "DAILY_LOSS_LIMIT")
-            return
+    # --------------------------------------------------
+    # PRE-TRADE CHECK
+    # --------------------------------------------------
 
-        # 3️⃣ Exposure control
-        if self.portfolio.total_exposure_fraction() > self.config.exposure_limit:
-            self._reject(signal, "EXPOSURE_LIMIT")
-            return
+    def pre_trade_check(self, symbol: str, side: str, qty: float, price: float, timestamp):
 
-        # 4️⃣ Equity-aware sizing (v1.1 simplified)
-        equity = self.portfolio.current_equity(self.price_resolver)
-        max_capital_at_risk = equity * self.config.max_risk_per_trade
-
-        qty = self.portfolio.calculate_position_size(signal)
-
-        if qty <= 0:
-            self._reject(signal, "ZERO_QTY")
-            return
-
-        side = "BUY" if signal.signal_type == "LONG" else "SELL"
-
-        self.event_bus.publish(
-            OrderEvent(
-                symbol=signal.symbol,
-                side=side,
-                quantity=qty,
-                timestamp=signal.timestamp,
-                meta={
-                    "risk_checked": True,
-                    "equity": equity,
-                    "max_capital_at_risk": max_capital_at_risk,
-                }
-            )
+        position = self.position_manager.get(symbol)
+        portfolio_state = self.portfolio_manager.compute_state(
+            self.position_manager,
+            timestamp,
         )
 
-    def _reject(self, signal, reason):
-        self.event_bus.publish(
-            RiskRejectedEvent(
-                symbol=signal.symbol,
-                signal_type=signal.signal_type,
-                reason=reason,
-                timestamp=signal.timestamp,
-                meta={}
-            )
+        ctx = RiskContext(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            price=price,
+            current_position_qty=position.qty,
+            current_portfolio_exposure=self.position_manager.total_exposure(),
+            current_drawdown=portfolio_state.drawdown,
         )
+
+        for rule in self.rules:
+            decision = rule.evaluate(ctx)
+            if not decision.allowed:
+                return decision
+
+        return RiskDecision(True)

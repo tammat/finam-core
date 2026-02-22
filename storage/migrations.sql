@@ -1,97 +1,153 @@
--- Trades
-CREATE TABLE IF NOT EXISTS trades (
-    id BIGSERIAL PRIMARY KEY,
-    symbol TEXT,
-    side TEXT,
-    quantity DOUBLE PRECISION,
-    price DOUBLE PRECISION,
-    ts TIMESTAMPTZ
-);
+-- ===============================
+-- EXTENSIONS
+-- ===============================
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Orders
-CREATE TABLE IF NOT EXISTS orders (
-    id BIGSERIAL PRIMARY KEY,
-    order_id TEXT UNIQUE,
-    symbol TEXT,
-    side TEXT,
-    quantity DOUBLE PRECISION,
-    status TEXT,
-    ts TIMESTAMPTZ
-);
--- Market ticks
-CREATE TABLE IF NOT EXISTS market_ticks (
-    id BIGSERIAL PRIMARY KEY,
-    symbol TEXT,
-    price DOUBLE PRECISION,
-    volume DOUBLE PRECISION,
-    ts TIMESTAMPTZ
-);
-
--- Signals
-CREATE TABLE IF NOT EXISTS signals (
-    id BIGSERIAL PRIMARY KEY,
-    symbol TEXT,
-    signal_type TEXT,
-    strength DOUBLE PRECISION,
-    ts TIMESTAMPTZ
-);
-
--- Risk events
-CREATE TABLE IF NOT EXISTS risk_events (
-    id BIGSERIAL PRIMARY KEY,
-    symbol TEXT,
-    reason TEXT,
-    ts TIMESTAMPTZ
-);
-
--- Historical prices
-CREATE TABLE IF NOT EXISTS historical_prices (
+-- ===============================
+-- MARKET DATA
+-- ===============================
+CREATE TABLE IF NOT EXISTS market_data (
     id BIGSERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
-    ts TIMESTAMPTZ NOT NULL,
+    timeframe TEXT NOT NULL DEFAULT '1m',
+    open DOUBLE PRECISION,
+    high DOUBLE PRECISION,
+    low DOUBLE PRECISION,
     close DOUBLE PRECISION NOT NULL,
     volume DOUBLE PRECISION,
-    UNIQUE(symbol, ts)
+    ts TIMESTAMPTZ NOT NULL,
+    UNIQUE(symbol, timeframe, ts)
 );
 
-CREATE INDEX IF NOT EXISTS idx_hist_symbol_ts
-ON historical_prices(symbol, ts);
--- Feature store
-CREATE TABLE IF NOT EXISTS features (
-    id BIGSERIAL PRIMARY KEY,
+CREATE INDEX IF NOT EXISTS idx_market_symbol_ts
+ON market_data(symbol, ts DESC);
+
+-- ===============================
+-- SIGNALS
+-- ===============================
+CREATE TABLE IF NOT EXISTS signals (
+    event_id UUID PRIMARY KEY,
+    correlation_id UUID,
+    strategy TEXT NOT NULL,
     symbol TEXT NOT NULL,
+    signal_type TEXT NOT NULL,
+    strength DOUBLE PRECISION,
     ts TIMESTAMPTZ NOT NULL,
+    processed BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_signals_symbol_ts
+ON signals(symbol, ts DESC);
+
+-- ===============================
+-- SIGNAL FEATURES
+-- ===============================
+CREATE TABLE IF NOT EXISTS signal_features (
+    id BIGSERIAL PRIMARY KEY,
+    event_id UUID REFERENCES signals(event_id) ON DELETE CASCADE,
     feature_name TEXT NOT NULL,
     feature_value DOUBLE PRECISION,
-    UNIQUE(symbol, ts, feature_name)
+    ts TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_features_symbol_ts
-ON features(symbol, ts);
--- Model registry
-CREATE TABLE IF NOT EXISTS model_registry (
-    id BIGSERIAL PRIMARY KEY,
-    model_name TEXT NOT NULL,
-    version TEXT NOT NULL,
-    dataset_path TEXT NOT NULL,
-    features JSONB NOT NULL,
-    threshold DOUBLE PRECISION,
-    metrics JSONB NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(model_name, version)
-);
--- Inference log
-CREATE TABLE IF NOT EXISTS inference_log (
-    id BIGSERIAL PRIMARY KEY,
-    model_name TEXT NOT NULL,
-    model_version TEXT NOT NULL,
+-- ===============================
+-- ORDERS (OMS)
+-- ===============================
+CREATE TABLE IF NOT EXISTS orders (
+    order_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    signal_event_id UUID REFERENCES signals(event_id),
     symbol TEXT NOT NULL,
-    ts TIMESTAMPTZ NOT NULL,
-    probability DOUBLE PRECISION NOT NULL,
-    predicted_label TEXT NOT NULL,
-    features JSONB NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    side TEXT NOT NULL,
+    qty DOUBLE PRECISION NOT NULL,
+    limit_price DOUBLE PRECISION,
+    stop_price DOUBLE PRECISION,
+    status TEXT NOT NULL,
+    exchange_order_id TEXT,
+    created_ts TIMESTAMPTZ NOT NULL,
+    updated_ts TIMESTAMPTZ NOT NULL,
+    raw_json JSONB
 );
 
-CREATE INDEX IF NOT EXISTS idx_inference_symbol_ts
-ON inference_log(symbol, ts);
+CREATE INDEX IF NOT EXISTS idx_orders_symbol
+ON orders(symbol);
+
+-- ===============================
+-- FILLS
+-- ===============================
+CREATE TABLE IF NOT EXISTS fills (
+    fill_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID REFERENCES orders(order_id),
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    qty DOUBLE PRECISION NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    commission DOUBLE PRECISION DEFAULT 0,
+    ts TIMESTAMPTZ NOT NULL,
+    raw_json JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_fills_symbol
+ON fills(symbol);
+
+-- ===============================
+-- POSITIONS (CURRENT STATE)
+-- ===============================
+CREATE TABLE IF NOT EXISTS positions (
+    symbol TEXT PRIMARY KEY,
+    qty DOUBLE PRECISION NOT NULL,
+    avg_price DOUBLE PRECISION NOT NULL,
+    realized_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+    unrealized_pnl DOUBLE PRECISION NOT NULL DEFAULT 0,
+    exposure DOUBLE PRECISION,
+    updated_ts TIMESTAMPTZ NOT NULL
+);
+
+-- ===============================
+-- POSITIONS HISTORY
+-- ===============================
+CREATE TABLE IF NOT EXISTS positions_history (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    qty DOUBLE PRECISION NOT NULL,
+    avg_price DOUBLE PRECISION NOT NULL,
+    realized_pnl DOUBLE PRECISION NOT NULL,
+    unrealized_pnl DOUBLE PRECISION NOT NULL,
+    exposure DOUBLE PRECISION,
+    ts TIMESTAMPTZ NOT NULL
+);
+
+-- ===============================
+-- PORTFOLIO SNAPSHOTS
+-- ===============================
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    equity DOUBLE PRECISION NOT NULL,
+    cash DOUBLE PRECISION NOT NULL,
+    margin_used DOUBLE PRECISION,
+    exposure DOUBLE PRECISION,
+    drawdown DOUBLE PRECISION,
+    ts TIMESTAMPTZ NOT NULL
+);
+
+-- ===============================
+-- RISK EVENTS
+-- ===============================
+CREATE TABLE IF NOT EXISTS risk_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_id UUID,
+    symbol TEXT,
+    rule_name TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    reason TEXT,
+    ts TIMESTAMPTZ NOT NULL
+);
+
+-- ===============================
+-- ENGINE METRICS
+-- ===============================
+CREATE TABLE IF NOT EXISTS engine_metrics (
+    id BIGSERIAL PRIMARY KEY,
+    metric_name TEXT NOT NULL,
+    metric_value DOUBLE PRECISION,
+    ts TIMESTAMPTZ NOT NULL
+);
