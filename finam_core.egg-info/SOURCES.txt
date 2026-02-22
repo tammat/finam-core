@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+finam_core.egg-info/PKG-INFO
+finam_core.egg-info/SOURCES.txt
+finam_core.egg-info/dependency_links.txt
+finam_core.egg-info/top_level.txt
+tests/test_accounts.py
+tests/test_auth.py
+tests/test_auth_clean.py
+tests/test_auth_min.py
+tests/test_full_pipeline.py
+tests/test_real_connection.py
+tests/test_sim_pipeline.py
