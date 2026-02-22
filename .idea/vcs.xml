@@ -3,7 +3,6 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/FinamGrpcClientPython" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/infra/vendor_finam" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/vendor/FinamGrpcClientPython" vcs="Git" />
   </component>
 </project>

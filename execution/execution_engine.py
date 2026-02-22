@@ -1,6 +1,13 @@
-from abc import ABC, abstractmethod
+# execution/execution_engine.py
 
-class BaseExecutionEngine(ABC):
+from abc import ABC, abstractmethod
+from execution.order_model import Order
+from domain.events import FillEvent
+from datetime import datetime
+
+
+class ExecutionEngine(ABC):
+
     @abstractmethod
-    def execute(self, order):
+    def execute(self, order: Order, market_price: float, ts: datetime) -> list[FillEvent]:
         pass
