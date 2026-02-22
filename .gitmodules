@@ -1,0 +1,3 @@
+[submodule "vendor/FinamGrpcClientPython"]
+	path = vendor/FinamGrpcClientPython
+	url = https://github.com/DanteA11/FinamGrpcClientPython.git

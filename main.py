@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+
+SDK_PATH = Path(__file__).parent / "infra" / "finam" / "sdk"
+sys.path.append(str(SDK_PATH))
 from core.event_bus import EventBus
 from core.engine import Engine
 from data.market_data import DummyMarketData

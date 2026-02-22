@@ -17,4 +17,11 @@ infra/finam/proto_src/
 infra/finam/third_party/
 
 # Logs
-*.log
+*.log.env
+.env
+venv/
+FinamGrpcClientPython/venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
