@@ -3,3 +3,11 @@ numpy==1.26.4
 pandas==2.2.1
 scikit-learn==1.5.2
 joblib==1.4.2
+numpy
+protobuf
+googleapis-common-protos
+grpcio
+grpcio-tools
+requests
+python-dotenv
+psycopg[binary]
