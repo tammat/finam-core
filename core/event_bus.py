@@ -38,30 +38,35 @@ class EventBus:
     def publish(self, event):
         """
         Append-first deterministic dispatch.
-        No handler runs before persistence.
         """
 
-        # 1️⃣ Persist event first (consistency boundary)
         if self._event_store:
+
+            if not hasattr(event, "stream"):
+                raise RuntimeError("Event missing 'stream'")
+            if not hasattr(event, "id"):
+                raise RuntimeError("Event missing 'id'")
+            if not hasattr(event, "type"):
+                raise RuntimeError("Event missing 'type'")
+            if not hasattr(event, "to_dict"):
+                raise RuntimeError("Event missing 'to_dict()'")
+
+            current_version = self._event_store.get_stream_version(event.stream)
+
+            # ✅ ТОЛЬКО ИМЕНОВАННЫЕ АРГУМЕНТЫ
             self._event_store.append(
                 stream=event.stream,
+                event_id=str(event.id),
                 event_type=event.type,
                 payload=event.to_dict(),
+                expected_version=current_version,
             )
 
-        # 2️⃣ Dispatch synchronously
         results = []
-        event_cls = type(event)
 
         for subscribed_type, handlers in self._subscribers.items():
-            if issubclass(event_cls, subscribed_type):
+            if issubclass(type(event), subscribed_type):
                 for handler in handlers:
-                    try:
-                        results.append(handler(event))
-                    except Exception as e:
-                        raise RuntimeError(
-                            f"[EventBus] handler_failure: "
-                            f"{handler.__name__} -> {e}"
-                        ) from e
+                    results.append(handler(event))
 
         return results

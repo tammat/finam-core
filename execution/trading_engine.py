@@ -21,17 +21,21 @@ class TradingEngine:
     def __init__(
             self,
             portfolio_manager=None,
-            risk_engine=None,
             order_manager=None,
+            risk_engine=None,
             portfolio_manager_cls=None,
-            event_bus=None,
             event_store=None,
+            snapshot_store=None,
             dsn=None,
+            event_bus=None,
     ):
+        from core.event_bus import EventBus
         from storage.postgres_event_store import PostgresEventStore
         from storage.postgres_snapshot_store import PostgresSnapshotStore
 
-        # --- Event Store ---
+        # -------------------------
+        # Event Store
+        # -------------------------
         if event_store is not None:
             self.event_store = event_store
         else:
@@ -39,30 +43,30 @@ class TradingEngine:
                 raise ValueError("Either event_store or dsn must be provided")
             self.event_store = PostgresEventStore(dsn)
 
-        # --- Snapshot Store ---
-        if dsn is not None:
+        # -------------------------
+        # Snapshot Store
+        # -------------------------
+        if snapshot_store is not None:
+            self.snapshot_store = snapshot_store
+        elif dsn is not None:
             self.snapshot_store = PostgresSnapshotStore(dsn)
         else:
             self.snapshot_store = None
 
-        self.snapshot_interval = 50
-
-        # --- Event Bus ---
+        # -------------------------
+        # Event Bus
+        # -------------------------
         self.bus = event_bus or EventBus(event_store=self.event_store)
 
-        # --- Core modules ---
-        if risk_engine is None:
-            raise ValueError("risk_engine is required")
-
+        # -------------------------
+        # Core components
+        # -------------------------
         self.risk = risk_engine
+        self.oms = order_manager
 
-        # Ensure OMS is always initialized
-        if order_manager is not None:
-            self.oms = order_manager
-        else:
-            self.oms = OrderManager()
-
-        # --- Portfolio ---
+        # -------------------------
+        # Portfolio
+        # -------------------------
         if portfolio_manager is not None:
             self.live_pm = portfolio_manager
             self.portfolio_cls = portfolio_manager_cls or type(portfolio_manager)
@@ -73,12 +77,14 @@ class TradingEngine:
             self.live_pm = self.portfolio_cls()
 
         self.portfolio_stream = "portfolio-1"
-        # --- Bootstrap ---
+
+        # -------------------------
+        # Bootstrap
+        # -------------------------
         if self.snapshot_store is not None:
             self._bootstrap_stream(self.portfolio_stream, self.live_pm)
 
         self._wire()
-
     # ---------------------------------------------------
     # Wiring
     # ---------------------------------------------------

@@ -274,5 +274,24 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_last_seq
 ON stream_snapshots(last_seq);
 CREATE INDEX IF NOT EXISTS idx_transactions_ts
     ON transactions(ts DESC);
+-- ===============================
+-- EVENT STORE (event sourcing)
+-- ===============================
+CREATE TABLE IF NOT EXISTS events (
+    seq BIGSERIAL PRIMARY KEY,
+    stream TEXT NOT NULL,
+    event_id UUID NOT NULL,
+    event_type TEXT NOT NULL,
+    event_version INT NOT NULL DEFAULT 1,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_stream_event_id
+    ON events(stream, event_id);
+
+CREATE INDEX IF NOT EXISTS idx_events_stream_seq
+    ON events(stream, seq);
+ALTER TABLE events
+ADD CONSTRAINT events_id_unique UNIQUE (id);
 COMMIT;

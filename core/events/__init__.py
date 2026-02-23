@@ -1,133 +1,114 @@
-from dataclasses import dataclass
-from typing import Any, Dict
-from dataclasses import asdict
-
-__all__ = [
-    "StrategySignalEvent",
-    "ExecutionEvent",
-    "OrderCreateRequestedEvent",
-    "RiskCheckRequestedEvent",
-    "RiskApprovedEvent",
-    "RiskRejectedEvent",
-    "PortfolioUpdatedEvent",
-]
+import uuid
+from datetime import datetime
 
 
-@dataclass(frozen=True)
-class StrategySignalEvent:
-    symbol: str
-    side: str
-    qty: float
-    price: float
-    metadata: Dict[str, Any] | None = None
-    stream: str = "portfolio-1"
+class EventBase:
+    def __init__(self, stream: str = "portfolio-1"):
+        self.stream = stream
+        self.id = uuid.uuid4()
+        self.created_at = datetime.utcnow()
 
     @property
-    def type(self) -> str:
+    def type(self):
         return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+
+    def to_dict(self):
+        return {
+            k: (
+                str(v) if isinstance(v, uuid.UUID)
+                else v.isoformat() if hasattr(v, "isoformat")
+                else v
+            )
+            for k, v in self.__dict__.items()
+        }
 
 
-@dataclass(frozen=True)
-class ExecutionEvent:
-    symbol: str
-    side: str
-    qty: float
-    price: float
-    commission: float = 0.0
-    fill_id: str | None = None
-    stream: str = "portfolio-1"
+# =========================================================
+# Strategy
+# =========================================================
 
-    @property
-    def type(self) -> str:
-        return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+class StrategySignalEvent(EventBase):
+    def __init__(self, symbol, side, qty, price):
+        super().__init__(stream="portfolio-1")
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
 
 
-@dataclass(frozen=True)
-class OrderCreateRequestedEvent:
-    symbol: str
-    side: str
-    qty: float
-    price: float
-    request_id: str | None = None
-    metadata: Dict[str, Any] | None = None
-    stream: str = "portfolio-1"
+# =========================================================
+# Order
+# =========================================================
 
-    @property
-    def type(self) -> str:
-        return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+class OrderCreateRequestedEvent(EventBase):
+    def __init__(self, symbol, side, qty, price):
+        super().__init__()
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
 
 
-@dataclass(frozen=True)
-class RiskCheckRequestedEvent:
-    symbol: str
-    side: str
-    qty: float
-    price: float
-    request_id: str | None = None
-    metadata: Dict[str, Any] | None = None
-    stream: str = "portfolio-1"
-
-    @property
-    def type(self) -> str:
-        return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+class OrderCreatedEvent(EventBase):
+    def __init__(self, symbol, side, qty, price):
+        super().__init__()
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
 
 
-@dataclass(frozen=True)
-class RiskApprovedEvent:
-    symbol: str
-    side: str
-    qty: float
-    price: float
-    request_id: str | None = None
-    metadata: Dict[str, Any] | None = None
-    stream: str = "portfolio-1"
+# =========================================================
+# Risk
+# =========================================================
 
-    @property
-    def type(self) -> str:
-        return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+class RiskCheckRequestedEvent(EventBase):
+    def __init__(self, symbol, side, qty, price):
+        super().__init__()
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
 
 
-@dataclass(frozen=True)
-class RiskRejectedEvent:
-    symbol: str
-    side: str
-    qty: float
-    price: float
-    reason: str
-    request_id: str | None = None
-    metadata: Dict[str, Any] | None = None
-    stream: str = "portfolio-1"
-
-    @property
-    def type(self) -> str:
-        return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+class RiskApprovedEvent(EventBase):
+    def __init__(self, symbol, side, qty, price):
+        super().__init__()
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
 
 
-@dataclass(frozen=True)
-class PortfolioUpdatedEvent:
-    cash: float
-    equity: float
-    realized_pnl: float
-    unrealized_pnl: float
-    exposure: float
-    drawdown: float
-    metadata: Dict[str, Any] | None = None
-    stream: str = "portfolio-1"
+class RiskRejectedEvent(EventBase):
+    def __init__(self, symbol, side, qty, price, reason=""):
+        super().__init__()
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
+        self.reason = reason
 
-    @property
-    def type(self) -> str:
-        return self.__class__.__name__
-    def to_dict(self) -> dict:
-        return asdict(self)
+
+# =========================================================
+# Execution
+# =========================================================
+
+class ExecutionEvent(EventBase):
+    def __init__(self, symbol, side, qty, price, fill_id=None):
+        super().__init__()
+        self.symbol = symbol
+        self.side = side
+        self.qty = qty
+        self.price = price
+        self.fill_id = fill_id
+
+
+# =========================================================
+# Portfolio
+# =========================================================
+
+class PortfolioUpdatedEvent(EventBase):
+    def __init__(self, state: dict):
+        super().__init__()
+        self.state = state
