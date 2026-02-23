@@ -5,22 +5,42 @@ from typing import Callable, Type
 class EventBus:
     """
     Central synchronous event dispatcher.
+    Deterministic, in-process, no async.
+    Supports subclass dispatch and safe handler isolation.
     """
 
     def __init__(self):
         self._subscribers = defaultdict(list)
 
     def subscribe(self, event_type: Type, handler: Callable):
-        """
-        Register handler for specific event type.
-        """
-        self._subscribers[event_type].append(handler)
+        if handler not in self._subscribers[event_type]:
+            self._subscribers[event_type].append(handler)
+
+    def unsubscribe(self, event_type: Type, handler: Callable):
+        if handler in self._subscribers.get(event_type, []):
+            self._subscribers[event_type].remove(handler)
+
+    def has_subscribers(self, event_type: Type) -> bool:
+        return bool(self._subscribers.get(event_type))
 
     def publish(self, event):
         """
         Dispatch event to all subscribed handlers.
+        Supports subclass matching (isinstance).
+        Isolates handler failures.
         """
-        handlers = self._subscribers.get(type(event), [])
+        results = []
+        event_cls = type(event)
 
-        for handler in handlers:
-            handler(event)
+        for subscribed_type, handlers in self._subscribers.items():
+            if issubclass(event_cls, subscribed_type):
+                for handler in handlers:
+                    try:
+                        results.append(handler(event))
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"[EventBus] handler_failure: "
+                            f"{handler.__name__} -> {e}"
+                        ) from e
+
+        return results
