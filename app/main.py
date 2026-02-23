@@ -80,5 +80,8 @@ def engine_now_utc():
     return datetime.now(timezone.utc)
 
 
+from app.bootstrap import build_pipeline
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    pipeline = build_pipeline()
+    pipeline.run_once()
