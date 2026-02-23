@@ -258,7 +258,20 @@ CREATE TABLE IF NOT EXISTS transactions (
     ts TIMESTAMPTZ NOT NULL,
     raw_json JSONB
 );
+CREATE TABLE IF NOT EXISTS stream_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    stream TEXT NOT NULL,
+    last_seq BIGINT NOT NULL,
+    state JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(stream, last_seq)
+);
 
+CREATE INDEX IF NOT EXISTS idx_snapshots_stream
+ON stream_snapshots(stream);
+
+CREATE INDEX IF NOT EXISTS idx_snapshots_last_seq
+ON stream_snapshots(last_seq);
 CREATE INDEX IF NOT EXISTS idx_transactions_ts
     ON transactions(ts DESC);
 

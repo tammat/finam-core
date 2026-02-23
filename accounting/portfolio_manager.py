@@ -189,3 +189,45 @@ class PortfolioManager:
             exposure=float(exposure),
             drawdown=float(drawdown),
         )
+
+    # ====================================================
+    # EVENT ADAPTER (EventStore → Domain Model)
+    # ====================================================
+
+    def handle_event(self, event_dict: dict):
+        event_type = event_dict.get("event_type")
+        payload = event_dict.get("payload", {})
+
+        if not event_type:
+            return
+
+        # ---- EXECUTION EVENT ----
+        if event_type == "ExecutionEvent":
+            fill = self._build_fill_from_payload(payload)
+            self.on_fill(fill)
+
+        # ---- EXTENSION POINT ----
+        # elif event_type == "SomethingElse":
+        #     ...
+
+    # ----------------------------------------------------
+    # INTERNAL ADAPTER HELPERS
+    # ----------------------------------------------------
+
+    class _ReplayFill:
+        def __init__(self, data: dict):
+            self.fill_id = data.get("fill_id")
+            self.symbol = data.get("symbol")
+            self.side = data.get("side")
+            self.qty = data.get("qty")
+            self.price = data.get("price")
+            self.commission = data.get("commission", 0.0)
+
+    def _build_fill_from_payload(self, payload: dict):
+        required = ["fill_id", "side", "qty", "price"]
+
+        for field in required:
+            if field not in payload:
+                raise RuntimeError(f"REPLAY_EVENT_INVALID: missing {field}")
+
+        return self._ReplayFill(payload)
