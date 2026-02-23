@@ -3,25 +3,25 @@ def test_volatility_sizing():
 
     class DummyContext:
         equity = 100_000
+        drawdown = 0.0
 
     class DummySignal:
         def __init__(self):
             self.price = 100
-            self.qty = 0
             self.atr = 5
 
     sizing = SizingEngine(
-        risk_per_trade=0.02,
-        mode="volatility",
-        atr_multiplier=2
+        risk_pct=0.02,
+        atr_multiplier=2.0,
+        max_position_pct=1.0
     )
 
     signal = DummySignal()
     context = DummyContext()
 
-    sized = sizing.size(signal, context)
+    qty = sizing.size(signal, context)
 
-    # risk capital = 2000
+    # risk capital = 100_000 * 0.02 = 2000
     # stop_distance = 5 * 2 = 10
     # qty = 2000 / 10 = 200
-    assert round(sized.qty, 2) == 200
+    assert round(qty, 2) == 200.0
