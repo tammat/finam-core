@@ -1,21 +1,18 @@
-from dataclasses import dataclass
 from .base_event import BaseEvent
 
 
-@dataclass(frozen=True)
-class RiskCheckRequestedEvent(BaseEvent):
-    symbol: str
-    qty: float
+class RiskEvent(BaseEvent):
+    def __init__(self, approved: bool, reason: str, symbol: str):
+        super().__init__()
+        self.approved = approved
+        self.reason = reason
+        self.symbol = symbol
 
-
-@dataclass(frozen=True)
-class RiskApprovedEvent(BaseEvent):
-    symbol: str
-    qty: float
-
-
-@dataclass(frozen=True)
-class RiskRejectedEvent(BaseEvent):
-    symbol: str
-    qty: float
-    reason: str
+    def __repr__(self):
+        return (
+            f"RiskEvent("
+            f"event_id={self.event_id}, "
+            f"symbol={self.symbol}, "
+            f"approved={self.approved}, "
+            f"reason={self.reason})"
+        )

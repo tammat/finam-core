@@ -2,11 +2,9 @@ from core.event_bus import EventBus
 from core.events import (
     StrategySignalEvent,
     OrderCreateRequestedEvent,
-    RiskCheckRequestedEvent,
-    RiskApprovedEvent,
-    RiskRejectedEvent,
     ExecutionEvent,
     PortfolioUpdatedEvent,
+    RiskEvent,
 )
 from storage.postgres_event_store import PostgresEventStore
 from execution.order_manager import OrderManager
@@ -93,8 +91,6 @@ class TradingEngine:
 
         self.bus.subscribe(StrategySignalEvent, self._on_signal)
         self.bus.subscribe(OrderCreateRequestedEvent, self._on_order_create)
-        self.bus.subscribe(RiskCheckRequestedEvent, self._on_risk_check)
-        self.bus.subscribe(RiskApprovedEvent, self._on_risk_approved)
         self.bus.subscribe(ExecutionEvent, self._on_execution)
 
     # ---------------------------------------------------
@@ -132,12 +128,34 @@ class TradingEngine:
     # Public API
     # ---------------------------------------------------
 
-    def process_signal(self, symbol: str, side: str, qty: float, price: float):
-        self.bus.publish(
-            StrategySignalEvent(symbol, side, qty, price)
+    from core.events import RiskEvent
+
+    def process_signal(self, signal):
+
+        # Получаем контекст позиций
+        context = self.position_manager.get_context()
+
+        decision = self.risk_engine.evaluate(
+            symbol=signal.symbol,
+            side=signal.signal_type,
+            qty=1.0,  # пока фиксированная модель
+            price=0.0,
+            equity=self.portfolio_manager.equity,
+            current_exposure=context.get("exposure", 0.0),
+            current_position_notional=context.get("positions", {}).get(signal.symbol, 0.0),
+            daily_realized_pnl=self.position_manager.daily_realized_pnl,
         )
 
-    # ---------------------------------------------------
+        # Если риск отклоняет — возвращаем RiskEvent
+        if not decision.approved:
+            return RiskEvent(
+                approved=False,
+                reason=decision.reason,
+                symbol=signal.symbol,
+            )
+
+        # Если одобрено — создаём ордер
+        return self.oms.create_order(signal)    # ---------------------------------------------------
     # Handlers
     # ---------------------------------------------------
 
@@ -152,62 +170,30 @@ class TradingEngine:
         )
 
     def _on_order_create(self, event: OrderCreateRequestedEvent):
-        self.bus.publish(
-            RiskCheckRequestedEvent(
-                symbol=event.symbol,
-                side=event.side,
-                qty=event.qty,
-                price=event.price,
-            )
-        )
 
-    def _on_risk_check(self, event: RiskCheckRequestedEvent):
-        allowed, reason = self.risk.validate(
-            self.live_pm.compute_state(),
-            event.symbol,
-            event.side,
-            event.qty,
-            event.price,
-        )
-
-        if allowed:
-            self.bus.publish(
-                RiskApprovedEvent(
-                    symbol=event.symbol,
-                    side=event.side,
-                    qty=event.qty,
-                    price=event.price,
-                )
-            )
-        else:
-            self.bus.publish(
-                RiskRejectedEvent(
-                    symbol=event.symbol,
-                    side=event.side,
-                    qty=event.qty,
-                    price=event.price,
-                    reason=reason,
-                )
-            )
-
-    def _on_risk_approved(self, event: RiskApprovedEvent):
-        order = self.oms.create_order(
+        decision = self.risk_engine.check(
             symbol=event.symbol,
             side=event.side,
             qty=event.qty,
             price=event.price,
         )
 
-        self.bus.publish(
-            ExecutionEvent(
-                symbol=order.symbol,
-                side=order.side,
-                qty=order.qty,
-                price=order.price,
-                commission=order.commission,
-                realized_pnl=0.0,
+        if not decision.approved:
+            self.bus.publish(
+                RiskEvent(
+                    approved=False,
+                    reason=decision.reason,
+                    symbol=event.symbol,
+                    side=event.side,
+                    qty=event.qty,
+                    price=event.price,
+                )
             )
-        )
+            return
+
+        # Risk approved → создаём ордер
+        order = self.oms.create_order_from_request(event)
+        self.oms.submit(order)
     def _on_execution(self, event: ExecutionEvent):
         # --- LIVE UPDATE ---
         self.live_pm.on_fill(event.fill)
