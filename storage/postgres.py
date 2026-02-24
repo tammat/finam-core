@@ -71,8 +71,14 @@ class PostgresStorage:
         symbol = getattr(event, "symbol", None)
         signal_type = getattr(event, "signal_type", None)
         strength = getattr(event, "strength", None)
+        from datetime import datetime, timezone
+
         timestamp = getattr(event, "timestamp", None)
 
+        if timestamp is None:
+            timestamp = datetime.now(timezone.utc)
+        elif isinstance(timestamp, (int, float)):
+            timestamp = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         if strength is None:
             strength = 1.0
 
@@ -108,7 +114,16 @@ class PostgresStorage:
                     False,
                 ),
             )
+        # storage/postgres.py (внутри log_signal)
+        from datetime import datetime, timezone
 
+        timestamp = getattr(event, "timestamp", None)
+
+        if timestamp is None:
+            timestamp = datetime.now(timezone.utc)
+        elif isinstance(timestamp, (int, float)):
+            timestamp = datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+        # если это datetime — оставляем как есть
         self.conn.commit()
     def log_fill(self, event):
         with self.conn.cursor() as cur:
@@ -316,8 +331,24 @@ class PostgresStorage:
         """
         from datetime import datetime, timezone
 
+        from datetime import datetime, timezone
+
         created_ts = getattr(order, "created_ts", None)
         updated_ts = getattr(order, "updated_ts", None)
+
+        # Normalize timestamps to proper datetime
+        if isinstance(created_ts, (int, float)):
+            created_ts = datetime.fromtimestamp(created_ts, tz=timezone.utc)
+
+        if isinstance(updated_ts, (int, float)):
+            updated_ts = datetime.fromtimestamp(updated_ts, tz=timezone.utc)
+
+        # Coalesce if missing
+        if created_ts is None:
+            created_ts = datetime.now(timezone.utc)
+
+        if updated_ts is None:
+            updated_ts = created_ts
 
         # Coalesce timestamps to satisfy NOT NULL constraints
         if created_ts is None:

@@ -2,8 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from accounting.position_manager import PositionManager
-from domain.fill_event import FillEvent
-
+from core.events import FillEvent
 
 def make_fill(fill_id):
     return FillEvent(

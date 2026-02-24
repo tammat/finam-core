@@ -1,12 +1,19 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict
 from .base_event import BaseEvent
 
 
-@dataclass
+@dataclass(frozen=True)
 class SignalEvent(BaseEvent):
+    event_id: str
     symbol: str
     signal_type: str
     strength: float
-    features: Optional[Dict[str, Any]] = None
+    timestamp: datetime
+    features: Optional[Dict] = None
+
+
+@dataclass(frozen=True)
+class StrategySignalEvent(SignalEvent):
+    pass
