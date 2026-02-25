@@ -1,10 +1,6 @@
-from core.strategy_manager import StrategyManager
-
-
-class PipelineResult:
-    def __init__(self, status="NO_ACTION", order=None):
-        self.status = status
-        self.order = order
+from core.strategy_stack import StrategyStack
+from core.signal_router import SignalRouter
+from domain.pipeline_result import PipelineResult
 
 
 class TradingPipeline:
@@ -18,7 +14,8 @@ class TradingPipeline:
             execution=None,
             accounting=None,
             storage=None,
-            position_sizer=None,  # ← добавили
+            position_sizer=None,
+            telegram_bot=None,   # ← добавили
     ):
         self.market_data = market_data
         self.strategy = strategy
@@ -27,80 +24,61 @@ class TradingPipeline:
         self.execution = execution
         self.accounting = accounting
         self.storage = storage
+        self.telegram_bot = telegram_bot
         # Optional position sizing layer
         self.position_sizer = position_sizer
 
         # Новый слой (пока не используется тестами)
-        self.strategy_manager = StrategyManager()
-        if strategy:
-            self.strategy_manager.register(strategy)
+        # StrategyStack + SignalRouter (production-grade)
+        self.signal_router = None
+
 
     def run_once(self):
-        """
-        Legacy full pipeline flow expected by tests.
-        """
 
-        # 1️⃣ Market data
-        data = None
-        if self.market_data and hasattr(self.market_data, "get_latest"):
-            data = self.market_data.get_latest()
+        event = self.market_data.get_next_event()
+        if event is None:
+            return PipelineResult(status="NO_ACTION", order=None)
 
-        # 2️⃣ Strategy
-        signal = None
-        if self.strategy and hasattr(self.strategy, "generate_signal"):
-            signal = self.strategy.generate_signal(data)
+        intents = self.strategy.generate(event)
 
-        if not signal:
-            return PipelineResult()
+        if intents is None:
+            return PipelineResult(status="NO_ACTION", order=None)
 
-        # 3️⃣ Risk
-        approved = signal
-        if self.risk_engine and hasattr(self.risk_engine, "evaluate"):
-            approved = self.risk_engine.evaluate(signal, self.portfolio)
+        if not isinstance(intents, list):
+            intents = [intents]
 
-        if not approved:
-            return PipelineResult()
+        if not intents:
+            return PipelineResult(status="NO_ACTION", order=None)
 
-        # 4️⃣ Execution
-        order = None
+        if self.signal_router:
+            intents = self.signal_router.route(intents)
+            if not intents:
+                return PipelineResult(status="NO_ACTION", order=None)
 
-        if self.execution and hasattr(self.execution, "execute"):
+        for intent in intents:
 
-            # ---------------- Position Sizing (Immutable) ----------------
-            execution_signal = approved
+            context = self.portfolio.build_risk_context()
+            risk_result = self.risk_engine.evaluate(intent, context)
 
-            if (
-                self.position_sizer is not None
-                and self.portfolio is not None
-                and hasattr(self.portfolio, "build_context")
-            ):
-                try:
-                    context = self.portfolio.build_context()
-                    sizing_result = self.position_sizer.size(approved, context)
+            if not getattr(risk_result, "allowed", False):
+                continue
 
-                    if hasattr(sizing_result, "size") and sizing_result.size is not None:
-                        # Create shallow copy of signal to avoid mutation
-                        if hasattr(approved, "__dict__"):
-                            execution_signal = approved.__class__(**approved.__dict__)
-                            if hasattr(execution_signal, "qty"):
-                                execution_signal.qty = sizing_result.size
-                except Exception:
-                    execution_signal = approved  # fail-safe fallback
+            if hasattr(self.execution, "place"):
+                execution_result = self.execution.place(intent)
+            else:
+                execution_result = self.execution.execute(intent)
 
-            order = self.execution.execute(execution_signal)
-        # 5️⃣ Accounting
-        if self.accounting and hasattr(self.accounting, "process"):
-            self.accounting.process(order)
+            if execution_result is None:
+                continue
 
-        # 6️⃣ Portfolio
-        if self.portfolio and hasattr(self.portfolio, "update"):
-            self.portfolio.update(order)
+            self.accounting.apply(execution_result)
 
-        # 7️⃣ Storage
-        if self.storage and hasattr(self.storage, "persist"):
-            self.storage.persist(order)
+            if self.storage:
+                self.storage.append(execution_result)
 
-        return PipelineResult(
-            status="ORDER_EXECUTED",
-            order=order,
-        )
+            return PipelineResult(
+                status="ORDER_EXECUTED",
+                order=execution_result,
+            )
+
+        return PipelineResult(status="NO_ACTION", order=None)

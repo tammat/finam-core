@@ -109,17 +109,18 @@ CREATE INDEX IF NOT EXISTS idx_orders_status_updated
 -- FILLS (execution results)
 -- ===============================
 CREATE TABLE IF NOT EXISTS fills (
-    fill_id TEXT PRIMARY KEY,
-    order_id TEXT NOT NULL REFERENCES orders(order_id) ON DELETE CASCADE,
-    symbol TEXT NOT NULL,
-    side TEXT NOT NULL,
-    qty DOUBLE PRECISION NOT NULL,
-    price DOUBLE PRECISION NOT NULL,
-    commission DOUBLE PRECISION NOT NULL DEFAULT 0,
-    ts TIMESTAMPTZ NOT NULL,
-    raw_json JSONB
+  fill_id TEXT PRIMARY KEY,
+  ts TIMESTAMPTZ NOT NULL,
+  symbol TEXT NOT NULL,
+  side TEXT NOT NULL,
+  qty DOUBLE PRECISION NOT NULL,
+  price DOUBLE PRECISION NOT NULL,
+  commission DOUBLE PRECISION DEFAULT 0,
+  order_id TEXT
 );
 
+CREATE INDEX IF NOT EXISTS idx_fills_ts ON fills(ts);
+CREATE INDEX IF NOT EXISTS idx_fills_symbol_ts ON fills(symbol, ts);
 CREATE INDEX IF NOT EXISTS idx_fills_order_id
     ON fills(order_id);
 

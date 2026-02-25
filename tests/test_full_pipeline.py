@@ -1,28 +1,45 @@
 from core.orchestrator import TradingPipeline
 
 
-class Dummy:
-    def get_latest(self): return "DATA"
-    def generate_signal(self, data): return "SIGNAL"
-    def evaluate(self, signal, portfolio): return signal
-    def execute(self, signal): return "ORDER"
-    def process(self, order): pass
-    def update(self, order): pass
-    def persist(self, order): pass
+class DummyMarket:
+    def get_next_event(self):
+        return object()
 
 
 def test_full_pipeline():
+    class DummyStrategy:
+        def generate(self, event):
+            return None
+
+    class DummyRisk:
+        def evaluate(self, intent, context):
+            class R:
+                allowed = False
+            return R()
+
+    class DummyExecution:
+        def execute(self, intent):
+            return None
+
+    class DummyAccounting:
+        def process(self, *args, **kwargs):
+            pass
+
+    class DummyStorage:
+        def append(self, *args, **kwargs):
+            pass
+
     pipeline = TradingPipeline(
-        market_data=Dummy(),
-        strategy=Dummy(),
-        risk_engine=Dummy(),
-        portfolio=Dummy(),
-        execution=Dummy(),
-        accounting=Dummy(),
-        storage=Dummy(),
+        market_data=DummyMarket(),
+        strategy=DummyStrategy(),
+        risk_engine=DummyRisk(),
+        portfolio=object(),
+        execution=DummyExecution(),
+        accounting=DummyAccounting(),
+        storage=DummyStorage(),
     )
 
     result = pipeline.run_once()
 
-    assert result.status == "ORDER_EXECUTED"
-    assert result.order == "ORDER"
+    assert result.status == "NO_ACTION"
+    assert result.order is None

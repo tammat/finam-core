@@ -7,6 +7,13 @@ from sizing_engine import FixedFractionSizing
 from config.settings import Settings
 sizing_engine = FixedFractionSizing(0.1)
 from risk.risk_engine import RiskEngine
+from telegram_bot import TelegramBot
+import os
+
+bot = TelegramBot(
+    token=os.getenv("TG_TOKEN"),
+    chat_id=os.getenv("TG_CHAT_ID"),
+)
 from risk.rules.core_rules import (
     DailyLossLimitRule,
     MaxDrawdownRule,
@@ -28,6 +35,8 @@ pipeline = TradingPipeline(
     execution=...,
     accounting=...,
     storage=...,
+    telegram_bot=bot,
+)
 )
 def build_pipeline():
 

@@ -10,8 +10,11 @@ src/core/orchestrator.py
 src/core/position_manager.py
 src/core/price_provider.py
 src/core/result.py
+src/core/signal.py
+src/core/signal_router.py
 src/core/state.py
 src/core/strategy_manager.py
+src/core/strategy_stack.py
 src/core/validator.py
 src/core/events/__init__.py
 src/core/events/base_event.py
@@ -23,7 +26,6 @@ src/core/events/risk_event.py
 src/core/events/signal_event.py
 src/core/pipeline/__init__.py
 src/core/pipeline/full_pipeline.py
-src/finam_core/__init__.py
 src/finam_core.egg-info/PKG-INFO
 src/finam_core.egg-info/SOURCES.txt
 src/finam_core.egg-info/dependency_links.txt
@@ -47,16 +49,20 @@ tests/test_correlation_and_drawdown.py
 tests/test_daily_loss_limit.py
 tests/test_drawdown_control.py
 tests/test_engine_restart_simulation.py
+tests/test_equity_tracker.py
 tests/test_event_append_and_replay.py
 tests/test_event_replay.py
 tests/test_full_pipeline.py
 tests/test_idempotent_append.py
 tests/test_mark_to_market.py
+tests/test_metrics.py
 tests/test_mtm_stress.py
+tests/test_orchestrator_pipeline.py
 tests/test_order_state_machine.py
 tests/test_portfolio_heat.py
 tests/test_position_idempotency.py
 tests/test_position_manager.py
+tests/test_postgres_storage_integration.py
 tests/test_pre_trade_risk.py
 tests/test_realized_unrealized_pnl.py
 tests/test_risk_freeze_state.py
@@ -66,3 +72,6 @@ tests/test_sizing.py
 tests/test_sizing_engine.py
 tests/test_snapshot_bootstrap.py
 tests/test_state_validator.py
+tests/test_telegram_bot.py
+tests/test_telegram_integration.py
+tests/test_trade_log.py

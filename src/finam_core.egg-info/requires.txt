@@ -1,4 +1,1 @@
-numpy
-psycopg2-binary>=2.9
-python-dotenv
-finam-grpc-client
+psycopg[binary]>=3.1

@@ -1,3 +1,0 @@
-finam-grpc-client
-python-dotenv
-psycopg2-binary>=2.9

@@ -1,5 +1,4 @@
 app
 core
-finam_core
 infra
 scripts
