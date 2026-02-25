@@ -11,6 +11,7 @@ src/core/position_manager.py
 src/core/price_provider.py
 src/core/result.py
 src/core/state.py
+src/core/strategy_manager.py
 src/core/validator.py
 src/core/events/__init__.py
 src/core/events/base_event.py

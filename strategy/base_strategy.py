@@ -1,6 +1,24 @@
-class BaseStrategy:
-    def __init__(self, event_bus):
-        self.event_bus = event_bus
+# strategy/base_strategy.py
 
-    def on_market(self, event):
+class BaseStrategy:
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def on_market_event(self, event, context):
+        """
+        event  → MarketEvent
+        context → PortfolioContext
+
+        Return:
+            None
+            or Signal
+        """
         raise NotImplementedError
+
+    def on_fill(self, fill_event, context):
+        """
+        Позволяет стратегии обновлять внутреннее состояние.
+        Необязательно для v1.
+        """
+        pass

@@ -1,6 +1,6 @@
 # core/engine.py
 from datetime import datetime, timezone
-
+from core.strategy_manager import StrategyManager
 
 class Engine:
 
@@ -17,6 +17,7 @@ class Engine:
         self.portfolio_manager = portfolio_manager
         self.risk_engine = risk_engine
         self.storage = storage
+        self.strategy_manager = StrategyManager()
 
         self._processed = 0
 

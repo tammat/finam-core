@@ -1,24 +1,17 @@
-from core.events import (
-    MarketEvent,
-    SignalEvent,
-    OrderEvent,
-    FillEvent,
-)
+from core.strategy_manager import StrategyManager
 
 
 class PipelineResult:
-    def __init__(self, status, order=None):
+    def __init__(self, status="NO_ACTION", order=None):
         self.status = status
         self.order = order
 
 
 class TradingPipeline:
-    """
-    Full event-driven trading pipeline (minimal compatible version for tests)
-    """
 
     def __init__(
         self,
+        *,
         market_data=None,
         strategy=None,
         risk_engine=None,
@@ -26,8 +19,6 @@ class TradingPipeline:
         execution=None,
         accounting=None,
         storage=None,
-        sizing_engine=None,
-        bus=None,
     ):
         self.market_data = market_data
         self.strategy = strategy
@@ -36,37 +27,59 @@ class TradingPipeline:
         self.execution = execution
         self.accounting = accounting
         self.storage = storage
-        self.sizing_engine = sizing_engine
-        self.bus = bus
+
+        # Новый слой (пока не используется тестами)
+        self.strategy_manager = StrategyManager()
+        if strategy:
+            self.strategy_manager.register(strategy)
 
     def run_once(self):
+        """
+        Legacy full pipeline flow expected by tests.
+        """
 
-        # -------------------------------------------------
-        # 1. Strategy
-        # -------------------------------------------------
-        if not self.strategy or not hasattr(self.strategy, "generate"):
-            return PipelineResult(status="ORDER_EXECUTED", order="ORDER")
+        # 1️⃣ Market data
+        data = None
+        if self.market_data and hasattr(self.market_data, "get_latest"):
+            data = self.market_data.get_latest()
 
-        signal = self.strategy.generate()
+        # 2️⃣ Strategy
+        signal = None
+        if self.strategy and hasattr(self.strategy, "generate_signal"):
+            signal = self.strategy.generate_signal(data)
 
-        # -------------------------------------------------
-        # 2. Sizing
-        # -------------------------------------------------
-        if self.sizing_engine and signal and hasattr(self.portfolio, "get_context"):
-            context = self.portfolio.get_context()
-            signal = self.sizing_engine.size(signal, context)
+        if not signal:
+            return PipelineResult()
 
-        # -------------------------------------------------
-        # 3. Risk
-        # -------------------------------------------------
-        if self.risk_engine and signal and hasattr(self.portfolio, "get_context"):
-            context = self.portfolio.get_context()
-            signal = self.risk_engine.evaluate(signal, context)
+        # 3️⃣ Risk
+        approved = signal
+        if self.risk_engine and hasattr(self.risk_engine, "evaluate"):
+            approved = self.risk_engine.evaluate(signal, self.portfolio)
 
-        if signal is None:
-            return PipelineResult(status="BLOCKED")
+        if not approved:
+            return PipelineResult()
 
-        # -------------------------------------------------
-        # Minimal test-compatible return
-        # -------------------------------------------------
-        return PipelineResult(status="ORDER_EXECUTED", order="ORDER")
+        # 4️⃣ Execution
+        order = None
+        if self.execution and hasattr(self.execution, "execute"):
+            order = self.execution.execute(approved)
+
+        if not order:
+            return PipelineResult()
+
+        # 5️⃣ Accounting
+        if self.accounting and hasattr(self.accounting, "process"):
+            self.accounting.process(order)
+
+        # 6️⃣ Portfolio
+        if self.portfolio and hasattr(self.portfolio, "update"):
+            self.portfolio.update(order)
+
+        # 7️⃣ Storage
+        if self.storage and hasattr(self.storage, "persist"):
+            self.storage.persist(order)
+
+        return PipelineResult(
+            status="ORDER_EXECUTED",
+            order=order,
+        )
