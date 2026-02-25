@@ -1,57 +1,28 @@
-from datetime import datetime, timezone
-
-from core.events import SignalEvent
-from strategy.feature_engine import FeatureEngine
+from strategy.signal import Signal
+from strategy.base_strategy import BaseStrategy
 
 
-class MomentumStrategy:
-    """
-    Simple momentum strategy using FeatureEngine.
-    Generates LONG / SHORT signals based on z-score.
-    """
+class SimpleMomentumStrategy(BaseStrategy):
 
-    def __init__(self, event_bus):
-        self.event_bus = event_bus
-        self.features = FeatureEngine(window=10)
+    def __init__(self, symbol: str, quantity: float = 1.0):
+        self.symbol = symbol
+        self.quantity = quantity
+        self._prices = []
 
-    # ----------------------------------------
-    # MARKET EVENT HANDLER
-    # ----------------------------------------
+    def update_prices(self, prices):
+        self._prices = prices
 
-    def on_market(self, event):
+    def generate(self):
+        if len(self._prices) < 2:
+            return None
 
-        # 1️⃣ обновляем rolling окно
-        self.features.update(event.price)
+        last = self._prices[-1]
+        prev = self._prices[-2]
 
-        # 2️⃣ проверяем готовность
-        if not self.features.ready():
-            return
+        if last > prev:
+            return Signal(self.symbol, "BUY", self.quantity)
 
-        feature_dict = self.features.compute()
+        if last < prev:
+            return Signal(self.symbol, "SELL", self.quantity)
 
-        if feature_dict is None:
-            return
-
-        # 3️⃣ Простая логика сигнала
-        z = feature_dict["z_score"]
-
-        signal_type = None
-
-        if z > 1.5:
-            signal_type = "SHORT"
-        elif z < -1.5:
-            signal_type = "LONG"
-
-        if not signal_type:
-            return
-
-        # 4️⃣ Публикуем сигнал
-        self.event_bus.publish(
-            SignalEvent(
-                symbol=event.symbol,
-                signal_type=signal_type,
-                strength=abs(z),
-                features=feature_dict,
-                timestamp=datetime.now(timezone.utc),
-            )
-        )
+        return None

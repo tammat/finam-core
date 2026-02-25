@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from core.strategy_manager import StrategyManager
 
+
 class Engine:
 
     def __init__(
@@ -45,7 +46,7 @@ class Engine:
 
     def _handle_market(self, event):
 
-        # сохраняем цену
+        # 1️⃣ Логируем рыночную цену
         self.storage.log_market_price(
             symbol=event.symbol,
             price=event.price,
@@ -53,39 +54,46 @@ class Engine:
             timestamp=event.timestamp,
         )
 
+        # 2️⃣ Генерируем один агрегированный сигнал (policy="first")
+        signal = self.strategy_manager.generate(event, policy="first")
+
+        # Если сигналов нет — выходим
+        if signal is None:
+            return
+
+        # 3️⃣ Публикуем сигнал в очередь событий (если storage поддерживает),
+        # иначе обрабатываем напрямую
+        if hasattr(self.storage, "publish_event"):
+            self.storage.publish_event(signal)
+        else:
+            self._handle_signal(signal)
+
     # ------------------------------------------------------------
     # ------------------- Signal Handler -------------------------
-    # ------------------------------------------------------------
-
+    # -------------------------------------------------------------
     def _handle_signal(self, event):
 
-        # 1️⃣ Создаем ордер
-        order = self.oms.create_order(event)
+        # --- Поддержка SignalIntent ---
+        if hasattr(event, "direction"):
+            order = self.oms.create_order_from_intent(event)
+        else:
+            order = self.oms.create_order(event)
 
-        # 2️⃣ Получаем текущую рыночную цену
         market_price = getattr(event, "price", 0.0)
         ts = event.timestamp
 
-        # 3️⃣ Исполняем (partial fills)
         fills = self.oms.process_order(order, market_price, ts)
 
-        # 4️⃣ Accounting на каждый fill
         for fill in fills:
-
             self.position_manager.on_fill(fill)
-
             state = self.portfolio_manager.on_fill(fill)
-
-            # 5️⃣ Risk check после обновления портфеля
             self.risk_engine.evaluate(state)
 
-        # 6️⃣ Логируем сигнал
         self.storage.log_signal(event)
 
-        # 7️⃣ Логируем фичи если есть
         if hasattr(event, "features"):
             self.storage.log_features(
-                event_id=event.event_id,
+                event_id=getattr(event, "event_id", None),
                 features=event.features,
                 timestamp=event.timestamp,
             )

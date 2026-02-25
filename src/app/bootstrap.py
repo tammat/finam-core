@@ -4,7 +4,7 @@ from risk.MaxPositionPctRule import MaxPositionPctRule
 from risk.MaxGrossExposureRule import MaxGrossExposureRule
 from risk.DrawdownRule import DrawdownRule
 from sizing_engine import FixedFractionSizing
-
+from config.settings import Settings
 sizing_engine = FixedFractionSizing(0.1)
 
 pipeline = TradingPipeline(
@@ -20,11 +20,10 @@ def build_pipeline():
 
     # ---- Risk 2.0 ----
     risk_engine = RiskEngine([
-        MaxPositionPctRule(0.2),
-        MaxGrossExposureRule(1.5),
-        DrawdownRule(0.15),
+        MaxPositionPctRule(Settings.MAX_POSITION_PCT or 0.2),
+        MaxGrossExposureRule(Settings.MAX_GROSS_EXPOSURE_PCT or 1.5),
+        DrawdownRule(Settings.MAX_DRAWDOWN_PCT or 0.15),
     ])
-
     pipeline = TradingPipeline(
         market_data=...,
         strategy=...,
@@ -35,4 +34,4 @@ def build_pipeline():
         storage=...,
     )
 
-    return pipelinecnjg
+    return pipeline

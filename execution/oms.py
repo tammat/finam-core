@@ -42,3 +42,15 @@ class OMS:
         )
 
         return fills
+
+    # ------------------------------------------------------------
+    # ---------------- SignalIntent Support ----------------------
+    # ------------------------------------------------------------
+
+    def create_order_from_intent(self, intent):
+        """
+        Convert SignalIntent → Order.
+        Currently proxies to existing create_order logic.
+        """
+
+        return self.create_order(intent)
