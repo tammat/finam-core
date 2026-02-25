@@ -22,7 +22,7 @@ def test_postgres_append_and_load():
         quantity=1.0,
         price=100.0,
         commission=0.0,
-        order_id=None,
+        order_id="test-order",
     )
 
     storage.append_fill(fill)
