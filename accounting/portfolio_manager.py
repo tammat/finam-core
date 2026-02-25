@@ -4,7 +4,8 @@ from decimal import Decimal
 from core.validator import StateValidator
 from core.state import PortfolioState as CorePortfolioState, Position
 from domain.position_manager import PositionManager
-
+from datetime import datetime
+from risk.risk_engine import RiskContext
 
 @dataclass
 class PortfolioState:
@@ -14,6 +15,31 @@ class PortfolioState:
     unrealized_pnl: float
     exposure: float
     drawdown: float
+    # ------------------------------------------------------------
+    # ------------------- RiskContext Builder --------------------
+    # ------------------------------------------------------------
+
+    def build_context(self) -> RiskContext:
+        """
+        Строит неизменяемый snapshot состояния для RiskEngine.
+        Никаких мутаций.
+        """
+
+        equity = getattr(self, "equity", 0.0)
+        daily_pnl = getattr(self, "daily_pnl", 0.0)
+        drawdown_pct = getattr(self, "drawdown_pct", 0.0)
+
+        positions = getattr(self, "positions", {})
+        exposure_by_asset = getattr(self, "exposure_by_asset", {})
+
+        return RiskContext(
+            equity=equity,
+            daily_pnl=daily_pnl,
+            drawdown_pct=drawdown_pct,
+            positions=positions,
+            exposure_by_asset=exposure_by_asset,
+            timestamp=datetime.utcnow(),
+        )
 
 
 class PortfolioManager:

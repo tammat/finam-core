@@ -4,11 +4,33 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
 
+# ============================================================
+# ---------------------- Risk Context ------------------------
+# ============================================================
+
+@dataclass(frozen=True)
+class RiskContext:
+    equity: float
+    daily_pnl: float
+    drawdown_pct: float
+    positions: dict
+    exposure_by_asset: dict
+    timestamp: datetime
+@dataclass
+class RuleEvaluation:
+    rule_name: str
+    allowed: bool
+    reason: str | None = None
+    hard: bool = False
+
+@dataclass(frozen=True)
 class RiskDecision:
-    def __init__(self, approved: bool, reason: str | None = None):
-        self.approved = approved
-        self.reason = reason
+    approved: bool
+    reason: str | None = None
+    trace: list[RuleEvaluation] | None = None
 
 class RiskEngine:
     """
@@ -43,8 +65,10 @@ class RiskEngine:
         self.correlation_matrix = correlation_matrix or {}
         self.correlation_threshold = correlation_threshold
 
-        self.rules = rules or []
-
+        self.rules = sorted(
+            rules or [],
+            key=lambda r: getattr(r, "priority", 100)
+        )
         # freeze-state
         self.is_frozen: bool = False
         self.freeze_date = None
@@ -53,46 +77,94 @@ class RiskEngine:
         self.base_risk_multiplier = 1.0
         self.current_risk_multiplier = 1.0
         self.equity_high_watermark: float | None = None
-        self.last_reject_reason: str | None = None
+        self.rule_trace: list[RuleEvaluation] = []
+        self.last_decision: RiskDecision | None = None
 
     def evaluate(self, signal: Any = None, context: Any = None):
         self.last_reject_reason = None
+        self.rule_trace = []
+        self.last_decision = None
         self._daily_reset()
         self._update_drawdown(context)
 
         if self._check_freeze():
             self.last_reject_reason = "ENGINE_FROZEN"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
 
         if self._check_daily_loss(context):
             self.last_reject_reason = "DAILY_LOSS_LIMIT"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
 
         if self._check_global_drawdown(context):
             self.last_reject_reason = "MAX_DRAWDOWN_LIMIT"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
 
         if self._check_custom_rules(signal, context):
             self.last_reject_reason = "CUSTOM_RULE_REJECT"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
         if signal is None or context is None:
             return signal
 
         if self._check_position_limit(signal, context):
             self.last_reject_reason = "POSITION_LIMIT"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
         if self._check_gross_exposure(signal, context):
             self.last_reject_reason = "GROSS_EXPOSURE_LIMIT"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
 
         if self._check_portfolio_heat(signal, context):
             self.last_reject_reason = "PORTFOLIO_HEAT_LIMIT"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
 
         if self._check_correlation(signal, context):
             self.last_reject_reason = "CORRELATION_BLOCK"
+            self.last_decision = RiskDecision(
+                approved=False,
+                reason=self.last_reject_reason,
+                trace=list(self.rule_trace),
+            )
             return None
 
+        self.last_decision = RiskDecision(
+            approved=True,
+            reason=None,
+            trace=list(self.rule_trace),
+        )
         return signal
 
     def _daily_reset(self):
@@ -169,9 +241,26 @@ class RiskEngine:
 
     def _check_custom_rules(self, signal, context):
         for rule in self.rules:
-            res = rule(signal=signal, context=context)
-            if res is False:
+            result = rule.evaluate(signal, context)
+
+            rule_name = rule.__class__.__name__
+            allowed = getattr(result, "allowed", True)
+            reason = getattr(result, "reason", None)
+
+            self.rule_trace.append(
+                RuleEvaluation(
+                    rule_name=rule_name,
+                    allowed=allowed,
+                    reason=reason,
+                    hard=getattr(rule, "hard", False),
+                )
+            )
+
+            if not allowed:
+                if getattr(rule, "hard", False) or getattr(result, "freeze", False):
+                    self.is_frozen = True
                 return True
+
         return False
 
     def _check_position_limit(self, signal, context):
@@ -234,3 +323,12 @@ class RiskEngine:
             if abs(pos_qty) > 0 and abs(float(corr)) >= float(self.correlation_threshold):                return True
 
         return False
+class BaseRiskRule:
+
+    def __init__(self, priority: int = 100, hard: bool = False):
+        # lower priority value → higher execution order
+        self.priority = priority
+        self.hard = hard  # hard rule may trigger freeze
+
+    def evaluate(self, intent, context: RiskContext) -> RiskResult:
+        raise NotImplementedError

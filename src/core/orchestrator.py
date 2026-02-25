@@ -10,15 +10,15 @@ class PipelineResult:
 class TradingPipeline:
 
     def __init__(
-        self,
-        *,
-        market_data=None,
-        strategy=None,
-        risk_engine=None,
-        portfolio=None,
-        execution=None,
-        accounting=None,
-        storage=None,
+            self,
+            market_data=None,
+            strategy=None,
+            risk_engine=None,
+            portfolio=None,
+            execution=None,
+            accounting=None,
+            storage=None,
+            position_sizer=None,  # ← добавили
     ):
         self.market_data = market_data
         self.strategy = strategy
@@ -27,6 +27,8 @@ class TradingPipeline:
         self.execution = execution
         self.accounting = accounting
         self.storage = storage
+        # Optional position sizing layer
+        self.position_sizer = position_sizer
 
         # Новый слой (пока не используется тестами)
         self.strategy_manager = StrategyManager()
@@ -61,12 +63,31 @@ class TradingPipeline:
 
         # 4️⃣ Execution
         order = None
+
         if self.execution and hasattr(self.execution, "execute"):
-            order = self.execution.execute(approved)
 
-        if not order:
-            return PipelineResult()
+            # ---------------- Position Sizing (Immutable) ----------------
+            execution_signal = approved
 
+            if (
+                self.position_sizer is not None
+                and self.portfolio is not None
+                and hasattr(self.portfolio, "build_context")
+            ):
+                try:
+                    context = self.portfolio.build_context()
+                    sizing_result = self.position_sizer.size(approved, context)
+
+                    if hasattr(sizing_result, "size") and sizing_result.size is not None:
+                        # Create shallow copy of signal to avoid mutation
+                        if hasattr(approved, "__dict__"):
+                            execution_signal = approved.__class__(**approved.__dict__)
+                            if hasattr(execution_signal, "qty"):
+                                execution_signal.qty = sizing_result.size
+                except Exception:
+                    execution_signal = approved  # fail-safe fallback
+
+            order = self.execution.execute(execution_signal)
         # 5️⃣ Accounting
         if self.accounting and hasattr(self.accounting, "process"):
             self.accounting.process(order)

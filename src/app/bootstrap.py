@@ -6,7 +6,20 @@ from risk.DrawdownRule import DrawdownRule
 from sizing_engine import FixedFractionSizing
 from config.settings import Settings
 sizing_engine = FixedFractionSizing(0.1)
+from risk.risk_engine import RiskEngine
+from risk.rules.core_rules import (
+    DailyLossLimitRule,
+    MaxDrawdownRule,
+    MaxExposureRule,
+)
 
+risk_engine = RiskEngine(
+    rules=[
+        DailyLossLimitRule(limit=50000),
+        MaxDrawdownRule(max_dd=0.2),
+        MaxExposureRule(limit=0.3),
+    ]
+)
 pipeline = TradingPipeline(
     market_data=...,
     strategy=...,

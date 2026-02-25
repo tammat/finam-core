@@ -1,99 +1,75 @@
-# core/engine.py
-from datetime import datetime, timezone
-from core.strategy_manager import StrategyManager
+# risk/risk_engine.py
+
+from dataclasses import dataclass
+from typing import List, Optional
+from datetime import datetime
 
 
-class Engine:
+# ============================================================
+# ---------------------- Risk Context ------------------------
+# ============================================================
 
-    def __init__(
-        self,
-        oms,
-        position_manager,
-        portfolio_manager,
-        risk_engine,
-        storage,
-    ):
-        self.oms = oms
-        self.position_manager = position_manager
-        self.portfolio_manager = portfolio_manager
-        self.risk_engine = risk_engine
-        self.storage = storage
-        self.strategy_manager = StrategyManager()
+@dataclass(frozen=True)
+class RiskContext:
+    equity: float
+    daily_pnl: float
+    drawdown_pct: float
+    positions: dict
+    exposure_by_asset: dict
+    timestamp: datetime
 
-        self._processed = 0
 
-    # ------------------------------------------------------------
-    # ------------------- Main Loop ------------------------------
-    # ------------------------------------------------------------
+# ============================================================
+# ---------------------- Risk Result -------------------------
+# ============================================================
 
-    def run(self):
+@dataclass
+class RiskResult:
+    allowed: bool
+    reason: Optional[str] = None
+    freeze: bool = False
 
-        for event in self.storage.get_pending_events():
 
-            if event.__class__.__name__ == "MarketEvent":
-                self._handle_market(event)
+# ============================================================
+# ---------------------- Base Rule ---------------------------
+# ============================================================
 
-            elif event.__class__.__name__ == "SignalEvent":
-                self._handle_signal(event)
+class BaseRiskRule:
+    def evaluate(self, intent, context: RiskContext) -> RiskResult:
+        raise NotImplementedError
 
-            self._processed += 1
 
-        return self._processed
+# ============================================================
+# ---------------------- Risk Engine -------------------------
+# ============================================================
 
-    # ------------------------------------------------------------
-    # ------------------- Market Handler -------------------------
-    # ------------------------------------------------------------
+class RiskEngine:
 
-    def _handle_market(self, event):
+    def __init__(self, rules: Optional[List[BaseRiskRule]] = None):
+        self.rules = rules or []
+        self._frozen = False
 
-        # 1️⃣ Логируем рыночную цену
-        self.storage.log_market_price(
-            symbol=event.symbol,
-            price=event.price,
-            volume=getattr(event, "volume", 0.0),
-            timestamp=event.timestamp,
-        )
+    def is_frozen(self) -> bool:
+        return self._frozen
 
-        # 2️⃣ Генерируем один агрегированный сигнал (policy="first")
-        signal = self.strategy_manager.generate(event, policy="first")
+    def reset_freeze(self) -> None:
+        self._frozen = False
 
-        # Если сигналов нет — выходим
-        if signal is None:
-            return
+    def evaluate(self, intent, context: RiskContext) -> RiskResult:
+        """
+        Deterministic rule evaluation.
+        First blocking rule stops evaluation.
+        """
 
-        # 3️⃣ Публикуем сигнал в очередь событий (если storage поддерживает),
-        # иначе обрабатываем напрямую
-        if hasattr(self.storage, "publish_event"):
-            self.storage.publish_event(signal)
-        else:
-            self._handle_signal(signal)
+        if self._frozen:
+            return RiskResult(False, "GLOBAL_FREEZE", freeze=True)
 
-    # ------------------------------------------------------------
-    # ------------------- Signal Handler -------------------------
-    # -------------------------------------------------------------
-    def _handle_signal(self, event):
+        for rule in self.rules:
+            result = rule.evaluate(intent, context)
 
-        # --- Поддержка SignalIntent ---
-        if hasattr(event, "direction"):
-            order = self.oms.create_order_from_intent(event)
-        else:
-            order = self.oms.create_order(event)
+            if not result.allowed:
+                if result.freeze:
+                    self._frozen = True
+                return result
 
-        market_price = getattr(event, "price", 0.0)
-        ts = event.timestamp
-
-        fills = self.oms.process_order(order, market_price, ts)
-
-        for fill in fills:
-            self.position_manager.on_fill(fill)
-            state = self.portfolio_manager.on_fill(fill)
-            self.risk_engine.evaluate(state)
-
-        self.storage.log_signal(event)
-
-        if hasattr(event, "features"):
-            self.storage.log_features(
-                event_id=getattr(event, "event_id", None),
-                features=event.features,
-                timestamp=event.timestamp,
-            )
+        return RiskResult(True)
