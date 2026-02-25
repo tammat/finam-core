@@ -51,9 +51,9 @@ class RiskEngine:
 
     def evaluate(self, signal: Any = None, context: Any = None):
         # -------- daily reset --------
-        today = datetime.utcnow().date()
-        if self.freeze_date and self.freeze_date != today:
-            self.is_frozen = False
+        from datetime import datetime, UTC
+        from datetime import datetime, UTC
+        today = datetime.now(UTC).date()f             self.is_frozen = False
             self.freeze_date = None
 
         # -------- HWM drawdown tracking --------
