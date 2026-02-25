@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: finam-core
+Version: 0.1.0
+Summary: Event-driven trading core
+Requires-Python: >=3.11
+Requires-Dist: numpy
+Requires-Dist: psycopg2-binary>=2.9
+Requires-Dist: python-dotenv
+Requires-Dist: finam-grpc-client

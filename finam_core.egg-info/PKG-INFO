@@ -2,3 +2,6 @@ Metadata-Version: 2.4
 Name: finam_core
 Version: 0.1.0
 Requires-Python: >=3.11
+Requires-Dist: finam-grpc-client
+Requires-Dist: python-dotenv
+Requires-Dist: psycopg2-binary>=2.9

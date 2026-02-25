@@ -1,12 +1,23 @@
-[project]
-name = "finam_core"
-version = "0.1.0"
-requires-python = ">=3.11"
-
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "finam-core"
+version = "0.1.0"
+description = "Event-driven trading core"
+requires-python = ">=3.11"
+
+dependencies = [
+    "numpy",
+    "psycopg2-binary>=2.9",
+    "python-dotenv",
+    "finam-grpc-client"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["finam_core*"]
+where = ["src"]
+exclude = ["tests*", "venv*", ".venv*", "vendor*", ".idea*"]

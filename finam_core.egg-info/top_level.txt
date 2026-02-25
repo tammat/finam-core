@@ -1,1 +1,15 @@
-
+accounting
+ai
+config
+data
+domain
+execution
+market
+migrations
+portfolio
+protoc_gen_openapiv2
+research
+risk
+src
+storage
+strategy
