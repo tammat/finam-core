@@ -3,13 +3,12 @@ from accounting.portfolio_manager import PortfolioState
 
 
 def main():
-
     config = RiskConfig(
-        max_risk_per_trade=10000.0,  # high enough so exposure rule can trigger
-        max_total_exposure=5000.0,
-        daily_loss_limit=2000.0,
+        max_risk_per_trade=100_000,
+        max_total_exposure=500_000,
+        daily_loss_limit=50_000,
+        max_portfolio_heat=2.0,
     )
-
     engine = PreTradeRiskEngine(config)
 
     state = PortfolioState(
