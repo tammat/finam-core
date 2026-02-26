@@ -1,1 +1,1 @@
-{"schema": 1, "data": {"applied_fills": [], "cash": 100000.0, "realized_pnl": 500, "positions": {"NG": {"qty": 5, "avg_price": 100, "mark_price": 110}}}}
+{"schema": 1, "data": {"seq": 0, "applied_fills": [], "cash": 100000.0, "realized_pnl": 500, "daily_realized_pnl": 0.0, "peak_equity": 100000.0, "positions": {"NG": {"qty": 5, "avg_price": 100, "mark_price": 110, "realized_pnl": 0.0}}, "risk_state": {"frozen": false, "freeze_reason": null, "freeze_ts": null}}}

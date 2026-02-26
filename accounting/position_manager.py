@@ -20,11 +20,16 @@ class PositionManager:
             recover: bool = False,
             enable_wal: bool = False,
     ):
+        from domain.risk.risk_stack import RiskStack
+
+        self.risk_stack = RiskStack(rules=[])
+        self._seq = 0
+        self._fill_counter = 0
+        self._snapshot_interval = 100  # configurable
         self.enable_wal = enable_wal
         self.journal = FillJournal() if enable_wal else None
         self.cash = float(starting_cash)
         self._applied_fills = set()
-        self.journal = FillJournal()
         self.positions: Dict[str, Position] = defaultdict(
             lambda: Position(symbol="")
         )
@@ -34,9 +39,16 @@ class PositionManager:
         self.processed_fills = set()
         self._peak_equity = float(starting_cash)
         self.daily_realized_pnl = 0.0
+        self.risk_engine = None
 
         # TEMP: recovery disabled
         self.snapshot_repo = SnapshotRepository()
+
+    def attach_risk_engine(self, risk_engine):
+        """
+        Attach external RiskEngine instance to PositionManager.
+        """
+        self.risk_engine = risk_engine
     # --------------------------------------------------
     def apply_fill(self, fill, from_replay: bool = False):
         """
@@ -46,12 +58,20 @@ class PositionManager:
             - do NOT write to WAL
             - still respect idempotency
         """
-
+        if self.risk_engine:
+            if not self.risk_engine.validate(fill):
+                return
+        if not from_replay:
+            self._seq += 1
+            fill_seq = self._seq
+        else:
+            fill_seq = getattr(fill, "seq", None)
         # --------------------------------------------------
         # 1) WAL append (only for live fills)
         # --------------------------------------------------
         if self.enable_wal and not from_replay:
             fill_dict = {
+                "seq": fill_seq,
                 "symbol": fill.symbol,
                 "qty": fill.qty,
                 "price": fill.price,
@@ -121,56 +141,22 @@ class PositionManager:
         # 5) Recalculate unrealized PnL
         # --------------------------------------------------
         self._recalculate_unrealized()
+        self._fill_counter += 1
 
-        # --------------------------------------------------
-        # 6) Optional snapshot (safe but can be throttled later)
-        # --------------------------------------------------
-        if hasattr(self, "snapshot_repo") and not from_replay:
-            self.snapshot_repo.save(self.get_snapshot())
+        if self._fill_counter >= self._snapshot_interval:
+            self.save_snapshot_and_rotate()
+            self._fill_counter = 0
+        # ---------------------      #
 
-            # Idempotency: prefer fill_id if present, otherwise fall back to event_id
-            fill_id = getattr(fill, "fill_id", None) or getattr(fill, "event_id", None)
-
-            if fill_id is not None:
-                if fill_id in self.processed_fills:
-                    return
-                self.processed_fills.add(fill_id)
-            pos = self.positions[fill.symbol]
-
-            signed_qty = fill.qty if fill.side == "BUY" else -fill.qty
-
-            # Increase / open
-            if pos.qty == 0 or (pos.qty > 0 and signed_qty > 0) or (pos.qty < 0 and signed_qty < 0):
-                new_qty = pos.qty + signed_qty
-
-                if new_qty != 0:
-                    pos.avg_price = (
-                                            pos.qty * pos.avg_price + signed_qty * fill.price
-                                    ) / new_qty
-
-                pos.qty = new_qty
-
-            # Reduce / close
-            else:
-                closing = min(abs(pos.qty), abs(signed_qty))
-                pnl = closing * (fill.price - pos.avg_price)
-
-                if pos.qty < 0:
-                    pnl = -pnl
-
-                pos.realized_pnl += pnl
-                pos.qty += signed_qty
-
-                if pos.qty == 0:
-                    pos.avg_price = 0.0
-
-            # Cash update
-            self.cash -= signed_qty * fill.price
-            self.cash -= getattr(fill, "commission", 0.0)
-
-            if hasattr(self, "snapshot_repo"):
-                self.snapshot_repo.save(self.get_snapshot())
-        # --------------------------------------------------
+        if from_replay and fill_seq:
+            if fill_seq > self._seq:
+                self._seq = fill_seq
+        # ---------------------------
+        if from_replay:
+            fill_seq = getattr(fill, "seq", None)
+            if fill_seq and fill_seq > self._seq:
+                self._seq = fill_seq
+        #---------------------
 
     def update_market_price(self, symbol: str, price: float):
         pos = self.positions[symbol]
@@ -307,25 +293,34 @@ class PositionManager:
 
     def get_snapshot(self) -> dict:
         return {
-            "applied_fills": list(self.processed_fills),            "cash": self.cash,
+            "seq": self._seq,
+            "applied_fills": list(self.processed_fills),
+            "cash": self.cash,
             "realized_pnl": self.realized_pnl,
+            "daily_realized_pnl": self.daily_realized_pnl,
+            "peak_equity": self._peak_equity,
             "positions": {
                 symbol: {
                     "qty": pos.qty,
                     "avg_price": pos.avg_price,
                     "mark_price": pos.mark_price,
+                    "realized_pnl": pos.realized_pnl,
                 }
                 for symbol, pos in self.positions.items()
             },
+            "risk_state": self.risk_stack.get_state(),  # ← добавлено
         }
 
     def load_snapshot(self, snapshot: dict) -> None:
+        if not snapshot:
+            return
         self.processed_fills = set(snapshot.get("applied_fills", []))
         self.cash = snapshot["cash"]
         self.realized_pnl = snapshot["realized_pnl"]
-
+        self._seq = snapshot.get("seq", 0)
         self.positions.clear()
-
+        if "risk_state" in snapshot:
+            self.risk_stack.load_state(snapshot["risk_state"])
         for symbol, data in snapshot["positions"].items():
             pos = self.positions[symbol]
             pos.qty = data["qty"]
@@ -336,25 +331,45 @@ class PositionManager:
         if not self.enable_wal or self.journal is None:
             return
 
+        snapshot_seq = self._seq
+
         for record in self.journal.read_all():
 
-            # WAL format: {"ts": ..., "fill": {...}}
-            fill_data = record.get("fill")
+            if not isinstance(record, dict):
+                continue
 
-            if not fill_data:
+            # WAL may store either:
+            # 1) {"seq": ..., ...}
+            # 2) {"ts": ..., "fill": {...}}
+            fill_data = record.get("fill", record)
+
+            if not isinstance(fill_data, dict):
+                continue
+
+            record_seq = fill_data.get("seq")
+
+            # Apply fencing ONLY if seq is present (new WAL format).
+            # Legacy WAL entries without seq must always be applied.
+            if record_seq is not None and record_seq <= snapshot_seq:
+                continue
+
+            # Skip malformed or incomplete WAL entries
+            # (e.g. corrupted lines or wrapper records without symbol)
+            if "symbol" not in fill_data:
                 continue
 
             class DummyFill:
                 pass
 
             fill = DummyFill()
-
             for k, v in fill_data.items():
                 setattr(fill, k, v)
 
-            # CRITICAL: no WAL write during replay
-            self.apply_fill(fill, from_replay=True)
+            # Skip malformed WAL entries missing required fields
+            if not hasattr(fill, "symbol") or fill.symbol is None:
+                continue
 
+            self.apply_fill(fill, from_replay=True)
     def restore_from_snapshot(self, snapshot: dict):
         if not snapshot:
             return
@@ -378,3 +393,33 @@ class PositionManager:
                 mark_price=data.get("mark_price", 0.0),
             )
             self.positions[symbol] = pos
+
+    def save_snapshot_and_rotate(self):
+        if not hasattr(self, "snapshot_repo"):
+            return
+
+        snapshot = self.get_snapshot()
+        self.snapshot_repo.save(snapshot)
+        if self.enable_wal:
+            self.journal.reset()
+
+    def commit_snapshot(self):
+        with self._snapshot_lock:
+            snapshot = self.get_snapshot()
+
+            # 1. save snapshot atomically
+            self.snapshot_repo.save_atomic(snapshot)
+
+            # 2. fsync directory (защита от power-loss)
+            self.snapshot_repo.fsync_dir()
+
+            # 3. reset WAL only after snapshot committed
+            if self.enable_wal:
+                self.journal.reset()
+
+    def persist_state(self, snapshot_repo: SnapshotRepository):
+        snapshot = self.get_snapshot()
+        snapshot_repo.save(snapshot)
+
+        if self.enable_wal and self.journal:
+            self.journal.reset()

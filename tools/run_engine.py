@@ -1,3 +1,5 @@
+import signal
+import sys
 from accounting.position_manager import PositionManager
 from storage.snapshot_repository import SnapshotRepository
 
@@ -33,5 +35,13 @@ def main():
     print("Realized PnL:", pm.realized_pnl)
 
 
+
+def shutdown(pm):
+    print("Shutting down safely...")
+    pm.save_snapshot_and_rotate()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, lambda s, f: shutdown(pm))
+signal.signal(signal.SIGTERM, lambda s, f: shutdown(pm))
 if __name__ == "__main__":
     main()
