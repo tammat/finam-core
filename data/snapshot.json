@@ -1,0 +1,1 @@
+{"schema": 1, "data": {"applied_fills": ["5b2825fe-088f-4b3b-91a5-83e56544ffa4", "f22eb4a2-b219-4969-a0e3-941ceb9c054a"], "cash": -100.0, "realized_pnl": 0.0, "positions": {"TEST": {"qty": 1.0, "avg_price": 100.0, "mark_price": 0.0}}}}

@@ -50,6 +50,30 @@ class LatencyRecorder:
     def max_ms(self) -> float:
         return self.max_ns / 1_000_000.0
 
+    def _percentile(self, p: float) -> float:
+        """
+        p in [0, 100]
+        """
+        if not self.samples:
+            return 0.0
+
+        latencies = sorted(s.latency_ns for s in self.samples)
+        k = int((p / 100.0) * (len(latencies) - 1))
+        return latencies[k] / 1_000_000.0  # ms
+
+    def snapshot(self) -> dict:
+        """
+        Lightweight metrics snapshot
+        """
+        return {
+            "count": self.count,
+            "mean_ms": self.mean_ms(),
+            "max_ms": self.max_ms(),
+            "p50_ms": self._percentile(50),
+            "p95_ms": self._percentile(95),
+            "p99_ms": self._percentile(99),
+        }
+
 class PreTradeRiskEngine:
 
     def __init__(self, config: RiskConfig):
