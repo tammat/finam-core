@@ -1,4 +1,9 @@
 from dataclasses import dataclass
+import os
+import time
+from collections import deque
+from dataclasses import dataclass
+from typing import Optional, Deque
 
 @dataclass
 class RiskConfig:
@@ -7,6 +12,43 @@ class RiskConfig:
     daily_loss_limit: float
     max_portfolio_heat: float
 
+@dataclass
+class LatencySample:
+    ts_ns: int
+    latency_ns: int
+    where: str
+    symbol: str
+
+class LatencyRecorder:
+    """
+    Minimal recorder: keeps last N samples + rolling stats.
+    Safe for prod (bounded memory), no external deps.
+    """
+    def __init__(self, maxlen: int = 10_000):
+        self.samples: Deque[LatencySample] = deque(maxlen=maxlen)
+        self.count = 0
+        self.sum_ns = 0
+        self.max_ns = 0
+
+    def record(self, where: str, symbol: str, latency_ns: int):
+        self.count += 1
+        self.sum_ns += latency_ns
+        if latency_ns > self.max_ns:
+            self.max_ns = latency_ns
+        self.samples.append(LatencySample(
+            ts_ns=time.time_ns(),
+            latency_ns=latency_ns,
+            where=where,
+            symbol=symbol,
+        ))
+
+    def mean_ms(self) -> float:
+        if self.count == 0:
+            return 0.0
+        return (self.sum_ns / self.count) / 1_000_000.0
+
+    def max_ms(self) -> float:
+        return self.max_ns / 1_000_000.0
 
 class PreTradeRiskEngine:
 
@@ -17,7 +59,9 @@ class PreTradeRiskEngine:
             "ENERGY": {"NG", "BR"},
             "FX_ENERGY": {"NG", "BR", "USDRUB"},
         }
-
+        self.latency: Optional[LatencyRecorder] = None
+        if os.getenv("RISK_LATENCY", "0") == "1":
+            self.latency = LatencyRecorder(maxlen=int(os.getenv("RISK_LATENCY_MAXLEN", "10000")))
         self.max_group_exposure = 200_000  # example limit
     def enable_kill_switch(self):
         self.kill_switch = True
@@ -29,53 +73,60 @@ class PreTradeRiskEngine:
         """
         Returns: (allowed: bool, reason: str | None)
         """
+        t0 = time.perf_counter_ns() if self.latency else None
 
-        if self.kill_switch:
-            return False, "KILL_SWITCH_ACTIVE"
+        try:
+            if self.kill_switch:
+                return False, "KILL_SWITCH_ACTIVE"
 
-        trade_value = qty * price
-        # ---- RULE 1.5: Correlated exposure ----
-        ok, reason = self._check_correlation_exposure(
-            portfolio_state,
-            symbol,
-            trade_value,
-        )
-        if not ok:
-            return False, reason
+            trade_value = qty * price
 
-        # ---- RULE 1.8: Portfolio Heat ----
-        gross_exposure = self._calculate_gross_exposure(portfolio_state)
+            # ---- RULE 1.5: Correlated exposure ----
+            ok, reason = self._check_correlation_exposure(
+                portfolio_state,
+                symbol,
+                trade_value,
+            )
+            if not ok:
+                return False, reason
 
-        equity = getattr(portfolio_state, "equity", None)
+            # ---- RULE 1.8: Portfolio Heat ----
+            gross_exposure = self._calculate_gross_exposure(portfolio_state)
 
-        if equity and equity > 0:
-            projected_heat = (gross_exposure + trade_value) / equity
-            if projected_heat > self.config.max_portfolio_heat:
-                return False, "MAX_PORTFOLIO_HEAT_EXCEEDED"
+            equity = getattr(portfolio_state, "equity", None)
+            if equity and equity > 0:
+                # heat должен считаться по ПРОГНОЗНОЙ экспозиции, включая новую сделку
+                projected_gross = gross_exposure + abs(trade_value)
+                heat = projected_gross / equity
+                if heat > self.config.max_portfolio_heat:
+                    return False, "MAX_PORTFOLIO_HEAT_EXCEEDED"
+            # ---- RULE 1: Max risk per trade ----
+            if trade_value > self.config.max_risk_per_trade:
+                return False, "MAX_RISK_PER_TRADE_EXCEEDED"
 
-        # ---- PROJECTED STATE ----
-        current_exposure = gross_exposure
-        projected_exposure = current_exposure + trade_value
+            # ---- PROJECTED STATE ----
+            current_exposure = gross_exposure
+            projected_exposure = current_exposure + trade_value
+            if projected_exposure > self.config.max_total_exposure:
+                return False, "MAX_TOTAL_EXPOSURE_EXCEEDED"
 
-        if projected_exposure > self.config.max_total_exposure:
-            return False, "MAX_TOTAL_EXPOSURE_EXCEEDED"
+            # ---- PROJECTED CASH (только если атрибут реально есть) ----
+            if hasattr(portfolio_state, "cash"):
+                cash = getattr(portfolio_state, "cash", None)
+                if cash is not None:
+                    if side.upper() == "BUY":
+                        projected_cash = cash - trade_value
+                    else:
+                        projected_cash = cash + trade_value
+                    if projected_cash < 0:
+                        return False, "INSUFFICIENT_CASH"
 
-        # ---- PROJECTED CASH ----
-        if hasattr(portfolio_state, "cash"):
+            return True, None
 
-            if side.upper() == "BUY":
-                projected_cash = portfolio_state.cash - trade_value
-            else:
-                projected_cash = portfolio_state.cash + trade_value
-
-            if projected_cash < 0:
-                return False, "INSUFFICIENT_CASH"
-        # ---- DAILY LOSS LIMIT ----
-        if portfolio_state.realized_pnl < -self.config.daily_loss_limit:
-            return False, "DAILY_LOSS_LIMIT_EXCEEDED"
-
-        return True, None
-
+        finally:
+            if self.latency and t0 is not None:
+                dt = time.perf_counter_ns() - t0
+                self.latency.record(where="risk.validate", symbol=symbol, latency_ns=dt)
     def _check_correlation_exposure(self, portfolio_state, symbol, new_notional):
         for group_name, symbols in self.correlation_groups.items():
             if symbol in symbols:

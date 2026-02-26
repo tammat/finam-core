@@ -55,6 +55,27 @@ def main():
     assert reason == "NEGATIVE_CASH"
     print("ok: pre-trade risk works")
 
+import os
 
+def test_risk_validate_records_latency(monkeypatch):
+    monkeypatch.setenv("RISK_LATENCY", "1")
+
+    from risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
+    from accounting.position_manager import PositionManager
+
+    engine = PreTradeRiskEngine(RiskConfig(
+        max_risk_per_trade=1_000_000,
+        max_total_exposure=1_000_000,
+        daily_loss_limit=1_000_000,
+        max_portfolio_heat=10.0,
+    ))
+
+    pm = PositionManager(starting_cash=100_000)
+    ctx = pm.get_context()
+
+    allowed, reason = engine.validate(ctx, "SI", "BUY", 1, 100)
+
+    assert engine.latency is not None
+    assert engine.latency.count >= 1
 if __name__ == "__main__":
     raise SystemExit(main())
