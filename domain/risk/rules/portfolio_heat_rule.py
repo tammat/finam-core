@@ -11,7 +11,7 @@ class PortfolioHeatRule:
 
         if context.portfolio_heat > self.max_heat_pct:
             return RiskDecision.deny(
-                reason="portfolio_heat_exceeded",
+                "portfolio_heat_exceeded",
                 rule=self.__class__.__name__,
             )
 

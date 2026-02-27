@@ -1,48 +1,30 @@
-from domain.risk.risk_stack import RiskDecision
+from domain.risk.risk_decision import RiskDecision
+from domain.risk.risk_context import RiskContext
 
 
 class ExposureRule:
 
-    def __init__(
-        self,
-        max_total_exposure: float = 0.6,   # 60%
-        max_symbol_exposure: float = 0.2,  # 20%
-    ):
+    def __init__(self, max_total_exposure: float, max_symbol_exposure: float):
         self.max_total_exposure = max_total_exposure
         self.max_symbol_exposure = max_symbol_exposure
 
-    def evaluate(self, intent, portfolio):
+    def evaluate(self, context: RiskContext) -> RiskDecision:
 
-        equity = portfolio.total_equity()
+        if context.equity <= 0:
+            return RiskDecision.deny("zero_equity", rule=self.__class__.__name__)
 
-        if equity <= 0:
-            return RiskDecision(False, "zero equity")
+        new_total = context.total_exposure + context.trade_value
+        if new_total > self.max_total_exposure:
+            return RiskDecision.deny(
+                "max_total_exposure_exceeded",
+                rule=self.__class__.__name__,
+            )
 
-        # ---- Текущая общая нагрузка ----
-        total_exposure = sum(
-            abs(pos.qty * pos.mark_price)
-            for pos in portfolio.positions.values()
-        )
+        new_symbol = context.current_symbol_exposure + context.trade_value
+        if new_symbol > self.max_symbol_exposure:
+            return RiskDecision.deny(
+                "max_symbol_exposure_exceeded",
+                rule=self.__class__.__name__,
+            )
 
-        # ---- Симуляция после сделки ----
-        current_position = portfolio.positions.get(intent.symbol)
-
-        current_qty = current_position.qty if current_position else 0.0
-        current_price = current_position.mark_price if current_position else intent.price
-
-        new_qty = current_qty + (intent.qty if intent.side == "BUY" else -intent.qty)
-
-        new_symbol_exposure = abs(new_qty * intent.price)
-
-        # новая общая нагрузка
-        simulated_total = total_exposure - abs(current_qty * current_price) + new_symbol_exposure
-
-        # ---- Проверка общей нагрузки ----
-        if simulated_total / equity > self.max_total_exposure:
-            return RiskDecision(False, "total exposure limit")
-
-        # ---- Проверка нагрузки на инструмент ----
-        if new_symbol_exposure / equity > self.max_symbol_exposure:
-            return RiskDecision(False, "symbol exposure limit")
-
-        return RiskDecision(True)
+        return RiskDecision.allow()

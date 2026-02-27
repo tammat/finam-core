@@ -15,6 +15,10 @@ class PortfolioState:
     unrealized_pnl: float
     exposure: float
     drawdown: float
+
+    @property
+    def total_abs_notional(self) -> float:
+        return sum(abs(p.notional) for p in self.positions.values())
     # ------------------------------------------------------------
     # ------------------- RiskContext Builder --------------------
     # ------------------------------------------------------------

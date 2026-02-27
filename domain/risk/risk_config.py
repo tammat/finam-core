@@ -1,18 +1,14 @@
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass
 class RiskConfig:
-    """
-    Конфигурация риск-лимитов.
+    trading_enabled: bool = True
 
-    frozen=True:
-    - запрет мутаций после создания
-    - детерминированность
-    - безопасность для продакшена
-    """
+    max_total_exposure: float = 1_000_000
+    max_symbol_exposure: float = 1_000_000
 
-    max_total_exposure: float = 0.6       # макс доля капитала в рынке
-    max_symbol_exposure: float = 0.2      #     # макс доля на один инструмент
-    max_drawdown: float = 0.2   # ← ДОБАВИТЬ
-    max_daily_loss: float = 0.05   # ← добавить
+    daily_loss_limit: float = 1.0        # в долях (0.05 = 5%)
+    max_drawdown: float = 1.0            # в долях
+
+    max_portfolio_heat: float = 2.0      # абсолютная доля (0.2 = 20%)
