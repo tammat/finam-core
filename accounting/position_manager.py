@@ -3,6 +3,8 @@ from typing import Dict
 from collections import defaultdict
 from storage.snapshot_repository import SnapshotRepository
 from storage.fill_journal import FillJournal
+from domain.risk.risk_factory import build_risk_stack
+from domain.risk.risk_context import RiskContext
 @dataclass
 class Position:
     symbol: str
@@ -13,35 +15,44 @@ class Position:
 
 
 class PositionManager:
+    from domain.risk.risk_factory import build_risk_stack
 
     def __init__(
             self,
             starting_cash: float = 0.0,
             recover: bool = False,
             enable_wal: bool = False,
-    ):
-        from domain.risk.risk_stack import RiskStack
-
-        self.risk_stack = RiskStack(rules=[])
+            risk_stack=None,
+    ):        # ВАЖНО: ничего не ломаем
+        # Если стек передан — используем его
+        # Иначе создаём дефолтный через factory
+        if risk_stack is not None:
+            self.risk_stack = risk_stack
+        else:
+            self.risk_stack = build_risk_stack()
         self._seq = 0
         self._fill_counter = 0
-        self._snapshot_interval = 100  # configurable
+        self._snapshot_interval = 100
+
         self.enable_wal = enable_wal
         self.journal = FillJournal() if enable_wal else None
+
         self.cash = float(starting_cash)
+        self.starting_cash = float(starting_cash)
+
         self._applied_fills = set()
+        self.processed_fills = set()
+
         self.positions: Dict[str, Position] = defaultdict(
             lambda: Position(symbol="")
         )
-        self.starting_cash = starting_cash
+
         self.realized_pnl = 0.0
         self.unrealized_pnl = 0.0
-        self.processed_fills = set()
-        self._peak_equity = float(starting_cash)
         self.daily_realized_pnl = 0.0
-        self.risk_engine = None
+        self._peak_equity = float(starting_cash)
 
-        # TEMP: recovery disabled
+        self.risk_engine = None
         self.snapshot_repo = SnapshotRepository()
 
     def attach_risk_engine(self, risk_engine):
@@ -174,84 +185,23 @@ class PositionManager:
             for p in self.positions.values()
         )
 
-        equity = self.cash + market_value
-
-        if equity > self._peak_equity:
-            self._peak_equity = equity
-
-        return equity
-
-    # --------------------------------------------------
-
-    def current_drawdown(self):
-
-        equity = self.total_equity()
-
-        if self._peak_equity == 0:
-            return 0.0
-
-        return (equity - self._peak_equity) / self._peak_equity
-
+        return self.cash + market_value
     # --------------------------------------------------
 
     def get_context(self):
 
-        class Context:
-            pass
 
-        context = Context()
+        equity = self.total_equity()
 
-        # -------------------------------
-        # Equity
-        # -------------------------------
-        context.equity = self.total_equity()
-        context.realized_pnl = self.realized_pnl
-        context.unrealized_pnl = self.unrealized_pnl        # -------------------------------
-        # Peak equity (capital protection)
-        # -------------------------------
-        if not hasattr(self, "peak_equity"):
-            self.peak_equity = float(self.starting_cash)
-
-        if context.equity > self.peak_equity:
-            self.peak_equity = context.equity
-
-        context.peak_equity = self.peak_equity
-
-        # drawdown (negative value)
-        if self.peak_equity != 0:
-            context.drawdown = (
-                    (context.equity - self.peak_equity)
-                    / self.peak_equity
-            )
-        else:
-            context.drawdown = 0.0
-        # -------------------------------
-        # Daily loss
-        # -------------------------------
-        daily_pnl = getattr(self, "daily_realized_pnl", 0.0)
-
-        context.daily_realized_pnl = daily_pnl
-
-        if self.starting_cash != 0:
-            context.daily_drawdown = daily_pnl / self.starting_cash
-        else:
-            context.daily_drawdown = 0.0
-        # -------------------------------
-        # Gross exposure
-        # -------------------------------
-        context.gross_exposure = sum(
+        gross_exposure = sum(
             abs(pos.qty) * pos.avg_price
             for pos in self.positions.values()
         )
 
-        context.positions = self.positions
-
-        # -------------------------------
-        # Portfolio Heat
-        # -------------------------------
+        # ---- Portfolio heat calculation ----
         portfolio_heat = 0.0
 
-        for symbol, pos in self.positions.items():
+        for pos in self.positions.values():
             if pos.qty == 0:
                 continue
 
@@ -262,11 +212,22 @@ class PositionManager:
             else:
                 portfolio_heat += abs(pos.qty) * pos.avg_price
 
-        context.portfolio_heat = portfolio_heat
+        return RiskContext(
+            symbol=None,
+            trade_value=0.0,
+            portfolio_value=equity,
+            current_symbol_exposure=0.0,
+            total_exposure=gross_exposure,
 
-        return context
-    # --------------------------------------------------
-
+            equity=equity,
+            gross_exposure=gross_exposure,
+            portfolio_heat=portfolio_heat,
+            positions=self.positions,
+            realized_pnl=self.realized_pnl,
+            unrealized_pnl=self.unrealized_pnl,
+            daily_realized_pnl=self.daily_realized_pnl,
+            starting_capital=self.starting_cash,
+        )
     def on_fill(self, fill):
         self.apply_fill(fill)
 
@@ -423,3 +384,21 @@ class PositionManager:
 
         if self.enable_wal and self.journal:
             self.journal.reset()
+
+    def current_drawdown(self):
+        """
+        Backward-compatible helper.
+        Real drawdown logic now lives in risk layer.
+        """
+        equity = self.total_equity()
+
+        if self.starting_cash == 0:
+            return 0.0
+
+        return (equity - self.starting_cash) / self.starting_cash
+
+    def current_drawdown(self):
+        equity = self.total_equity()
+        if self.starting_cash == 0:
+            return 0.0
+        return (equity - self.starting_cash) / self.starting_cash

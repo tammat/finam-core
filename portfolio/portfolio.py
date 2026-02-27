@@ -87,7 +87,4 @@ class PositionManager:
     def update_market_price(self, symbol, price):
         self.last_prices[symbol] = price
 
-    # ---------- DRAWDOWN ----------
-    def current_drawdown(self):
-        context = self.get_context()
-        return (context.equity - self.starting_cash) / self.starting_cash
+
