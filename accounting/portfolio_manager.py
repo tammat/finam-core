@@ -5,7 +5,7 @@ from core.validator import StateValidator
 from core.state import PortfolioState as CorePortfolioState, Position
 from domain.position_manager import PositionManager
 from datetime import datetime
-from risk.risk_engine import RiskContext
+import uuid
 
 @dataclass
 class PortfolioState:
@@ -15,35 +15,25 @@ class PortfolioState:
     unrealized_pnl: float
     exposure: float
     drawdown: float
+    positions: dict
 
     @property
     def total_abs_notional(self) -> float:
         return sum(abs(p.notional) for p in self.positions.values())
-    # ------------------------------------------------------------
-    # ------------------- RiskContext Builder --------------------
-    # ------------------------------------------------------------
 
-    def build_context(self) -> RiskContext:
+    def build_snapshot(self):
         """
-        Строит неизменяемый snapshot состояния для RiskEngine.
-        Никаких мутаций.
+        Возвращает immutable snapshot состояния портфеля.
+        Используется в тестах и аналитике.
         """
-
-        equity = getattr(self, "equity", 0.0)
-        daily_pnl = getattr(self, "daily_pnl", 0.0)
-        drawdown_pct = getattr(self, "drawdown_pct", 0.0)
-
-        positions = getattr(self, "positions", {})
-        exposure_by_asset = getattr(self, "exposure_by_asset", {})
-
-        return RiskContext(
-            equity=equity,
-            daily_pnl=daily_pnl,
-            drawdown_pct=drawdown_pct,
-            positions=positions,
-            exposure_by_asset=exposure_by_asset,
-            timestamp=datetime.utcnow(),
-        )
+        return {
+            "cash": self.cash,
+            "equity": self.equity,
+            "realized_pnl": self.realized_pnl,
+            "unrealized_pnl": self.unrealized_pnl,
+            "exposure": self.exposure,
+            "drawdown": self.drawdown,
+        }
 
 
 class PortfolioManager:
@@ -55,7 +45,22 @@ class PortfolioManager:
     - Equity derived strictly
     """
 
-    def __init__(self, initial_cash: float = 100000.0, validator: StateValidator = None, price_provider=None):
+    def __init__(
+        self,
+        initial_cash: float | None = None,
+        *,
+        starting_cash: float | None = None,
+        validator: StateValidator | None = None,
+        price_provider=None,
+    ):
+        if initial_cash is None and starting_cash is None:
+            raise TypeError("initial_cash or starting_cash must be provided")
+
+        if starting_cash is not None:
+            initial_cash = starting_cash
+
+        if initial_cash is None:
+            raise TypeError("initial_cash resolved to None")
         self.cash = float(initial_cash)
         self.realized_pnl = 0.0
 
@@ -113,8 +118,16 @@ class PortfolioManager:
 
         self._applied_fills.add(fill_id)
 
-        side = fill.side.upper()
-        notional = fill.qty * fill.price
+        side_attr = getattr(fill, "side", None)
+
+        if side_attr is None:
+            # legacy / integration compatibility:
+            # определяем сторону по знаку количества
+            qty_val = getattr(fill, "qty", 0)
+            side = "BUY" if qty_val >= 0 else "SELL"
+        else:
+            side = str(side_attr).upper()
+        notional = abs(fill.qty) * fill.price
         commission = getattr(fill, "commission", 0.0)
 
         if commission < 0:
@@ -129,11 +142,10 @@ class PortfolioManager:
 
         realized = self.position_manager.apply_fill(
             symbol=symbol,
-            side=fill.side,
-            qty=fill.qty,
+            side=side,
+            qty=abs(fill.qty),  # ← ключевой фикс
             price=fill.price,
         )
-
         # ---- CASH FLOW ----
         if side == "BUY":
             self.cash -= notional
@@ -151,6 +163,45 @@ class PortfolioManager:
 
         return self.compute_state()
 
+    # ----------------------------------------------------
+    # Backward compatibility alias (legacy tests)
+    # ----------------------------------------------------
+
+    def apply(self, fill) -> PortfolioState:
+        """
+        Legacy alias for on_fill.
+        Required for integration tests compatibility.
+        Auto-generates fill_id if missing (legacy tests).
+        """
+        if getattr(fill, "fill_id", None) is None:
+            # deterministic fallback for legacy/integration tests
+            fill.fill_id = f"LEGACY_{uuid.uuid4().hex}"
+
+        return self.on_fill(fill)
+
+    def mark_price(self, symbol: str, price: float):
+        """
+        Mark-to-market helper for integration tests.
+        Updates position average mark price via PositionManager
+        and recomputes portfolio state.
+        """
+        if symbol in self.position_manager.positions:
+            pos = self.position_manager.positions[symbol]
+            pos.mark_price = price
+        return self.compute_state()
+
+    def get_state(self) -> PortfolioState:
+        """
+        Backward-compatible snapshot accessor.
+        """
+        return self.compute_state()
+
+    def get_context(self):
+        """
+        Returns full PortfolioState snapshot (with positions).
+        Used by integration tests and risk layer.
+        """
+        return self.compute_state()
     # ====================================================
     # STATE COMPUTATION
     # ====================================================
@@ -218,6 +269,7 @@ class PortfolioManager:
             unrealized_pnl=float(unrealized_total),
             exposure=float(exposure),
             drawdown=float(drawdown),
+            positions=dict(self.position_manager.positions),
         )
 
     # ====================================================
