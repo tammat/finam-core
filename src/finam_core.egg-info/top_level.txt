@@ -1,4 +1,5 @@
 app
 core
+finam_proto
 infra
 scripts

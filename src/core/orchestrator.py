@@ -62,8 +62,11 @@ class TradingPipeline:
             telegram_bot=None,
             regime_detector=None,  # NEW
             regime_sizer=None,  # NEW
+            performance_tracker=None,
+            portfolio_vol_controller=None,
             # ← добавили
     ):
+        self.performance_tracker = performance_tracker
         self.position_sizer = position_sizer
         self.regime_detector = regime_detector
         self.regime_sizer = regime_sizer
@@ -75,8 +78,8 @@ class TradingPipeline:
         self.accounting = accounting
         self.storage = storage
         self.telegram_bot = telegram_bot
+        self.portfolio_vol_controller = portfolio_vol_controller
         # Optional position sizing layer
-        self.position_sizer = position_sizer
 
         # Новый слой (пока не используется тестами)
         # StrategyStack + SignalRouter (production-grade)
@@ -136,7 +139,32 @@ class TradingPipeline:
                 if intent2 is None:
                     continue
                 intent = intent2
+            # -------------------------------------------------
+            # Optional portfolio-level volatility targeting
+            # -------------------------------------------------
+            if self.portfolio_vol_controller:
+                decision = self.portfolio_vol_controller.evaluate(
+                    intent=intent,
+                    event=event,
+                    portfolio=self.portfolio,
+                    regime=regime,
+                )
 
+                # None -> "no opinion"
+                if decision is not None:
+                    if not getattr(decision, "allowed", True):
+                        continue
+
+                    scale = float(getattr(decision, "scale", 1.0) or 1.0)
+
+                    # Defensive: do not allow negative scaling
+                    if scale <= 0:
+                        continue
+
+                    # Apply scaling only if intent has qty/quantity
+                    if hasattr(intent, "qty") or hasattr(intent, "quantity"):
+                        new_qty = _get_qty(intent) * scale
+                        intent = _set_qty(intent, new_qty)
             # Skip zero-size trades
             # Skip zero-size trades only if quantity field exists
             if hasattr(intent, "qty") or hasattr(intent, "quantity"):
@@ -158,15 +186,27 @@ class TradingPipeline:
             else:
                 # Case 3: façade returns intent
                 intent = risk_result
-            if hasattr(self.execution, "place"):
-                execution_result = self.execution.place(intent)
-            else:
-                execution_result = self.execution.execute(intent)
+            # ---- EXECUTION LAYER (backward-compatible) ----
 
+            if hasattr(self.execution, "requires_market_state") and getattr(self.execution, "requires_market_state"):
+                execution_result = self.execution.execute(intent, event)
+            else:
+                if hasattr(self.execution, "place"):
+                    execution_result = self.execution.place(intent)
+                else:
+                    execution_result = self.execution.execute(intent)
             if execution_result is None:
                 continue
 
             self.accounting.apply(execution_result)
+            if self.portfolio_vol_controller and hasattr(self.portfolio_vol_controller, "on_fill"):
+                self.portfolio_vol_controller.on_fill(
+                    fill=execution_result,
+                    portfolio=self.portfolio,
+                )
+            if self.performance_tracker:
+                equity = self.portfolio.total_equity()
+                self.performance_tracker.update(equity)
 
             if self.storage:
                 self.storage.append(execution_result)
