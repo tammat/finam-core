@@ -1,6 +1,5 @@
 from execution.order import Order, OrderStatus
-from execution.order_events import FillEvent
-
+from src.core.events.fill_event import FillEvent
 
 class OrderManager:
     def __init__(self):

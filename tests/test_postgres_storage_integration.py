@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from storage.postgres_storage import PostgresStorage
-from domain.fill_event import FillEvent
+from src.core.events.fill_event import FillEvent
 
 
 @pytest.mark.integration
@@ -19,7 +19,7 @@ def test_postgres_append_and_load():
         timestamp=datetime.now(tz=timezone.utc),
         symbol="SI",
         side="BUY",
-        quantity=1.0,
+        qty=1.0,
         price=100.0,
         commission=0.0,
         order_id="test-order",

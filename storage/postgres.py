@@ -493,3 +493,14 @@ class PostgresStorage:
                 ),
             )
         self.conn.commit()
+
+    def execute_many(self, sql: str, rows: list[dict]):
+        with self._conn.cursor() as cur:
+            for row in rows:
+                cur.execute(sql, row)
+        self._conn.commit()
+
+    def fetch_one(self, sql: str, params=None):
+        with self._conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()

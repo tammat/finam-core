@@ -1,15 +1,28 @@
-import pathlib
+from pathlib import Path
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-TARGET = ROOT / "finam_proto"
+ROOT = Path("src/finam_proto")
 
-count = 0
-
-for path in TARGET.rglob("*.py"):
+def patch_file(path: Path):
     text = path.read_text()
-    if "from grpc." in text:
-        text = text.replace("from grpc.", "from finam_proto.grpc.")
-        path.write_text(text)
-        count += 1
 
-print(f"Patched {count} files")
+    text = text.replace(
+        "from grpc.tradeapi",
+        "from finam_proto.grpc.tradeapi"
+    )
+
+    text = text.replace(
+        "import grpc.tradeapi",
+        "import finam_proto.grpc.tradeapi"
+    )
+
+    path.write_text(text)
+
+
+def main():
+    for py in ROOT.rglob("*_pb2*.py"):
+        patch_file(py)
+    print("PROTO PATCH DONE")
+
+
+if __name__ == "__main__":
+    main()

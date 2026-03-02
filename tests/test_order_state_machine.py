@@ -1,5 +1,5 @@
 from execution.order_manager import OrderManager
-from execution.order_events import FillEvent
+from src.core.events.fill_event import FillEvent
 from execution.order import OrderStatus
 
 

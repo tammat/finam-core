@@ -1,11 +1,27 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from uuid import uuid4
 
 
-class BaseEvent:
-    def __init__(self, event_id=None, timestamp=None):
-        self.event_id = event_id or str(uuid4())
-        self.timestamp = timestamp or datetime.now(timezone.utc)
+UTC = timezone.utc
 
-    def __repr__(self):
-        return f"{self.__class__.__name__}(event_id={self.event_id}, ts={self.timestamp})"
+
+def ensure_utc(ts: datetime | None) -> datetime:
+    """
+    Normalize timestamp to timezone-aware UTC.
+    If naive datetime is provided — treat it as UTC.
+    """
+    if ts is None:
+        return datetime.now(UTC)
+
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=UTC)
+
+    return ts.astimezone(UTC)
+
+
+class BaseEvent:
+    def __init__(self, event_id: str | None = None, timestamp: datetime | None = None):
+        self.event_id = event_id or str(uuid4())
+        self.timestamp = ensure_utc(timestamp)

@@ -6,9 +6,12 @@ from pathlib import Path
 from config.settings import Settings
 from storage.postgres import PostgresStorage
 
-from execution.sim_executor import SimExecutionEngine
+from execution.execution_engine import ExecutionEngine
+from src.infra.brokers.sim_broker import SimBrokerAdapter
 from execution.oms import OMS
-
+from execution.execution_engine import ExecutionEngine
+from src.infra.brokers.finam_rest import FinamRESTAdapter
+import os
 from accounting.position_manager import PositionManager
 from accounting.portfolio_manager import PortfolioManager
 
@@ -22,7 +25,13 @@ def main() -> int:
     print("ENV_PATH:", ENV_PATH)
     print("ENV_EXISTS:", ENV_PATH.exists())
     print("POSTGRES_DSN:", "SET" if os.getenv("POSTGRES_DSN") else "MISSING")
+    token = os.getenv("FINAM_TOKEN")
 
+    broker = FinamRESTAdapter(token=token)
+    engine = ExecutionEngine(broker)
+
+    accounts = broker.get_accounts()
+    print(accounts)
     dsn = os.getenv("POSTGRES_DSN")
     if not dsn:
         raise RuntimeError(
@@ -37,7 +46,7 @@ def main() -> int:
     storage = PostgresStorage(dsn)
 
     # --- Execution ---
-    execution_engine = SimExecutionEngine()
+    execution_engine = ExecutionEngine(SimBrokerAdapter())
     oms = OMS(storage=storage, execution_engine=execution_engine)
 
     # --- Accounting ---

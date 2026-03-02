@@ -19,8 +19,7 @@ class FillEvent(BaseEvent):
     ):
         super().__init__(
             event_id=event_id or str(uuid4()),
-            timestamp=timestamp or datetime.now(timezone.utc),
-        )
+            timestamp=timestamp        )
 
         self.fill_id = fill_id or str(uuid4())
         self.order_id = order_id

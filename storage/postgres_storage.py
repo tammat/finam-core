@@ -1,11 +1,24 @@
 import psycopg
-from domain.fill_event import FillEvent
+from src.core.events.fill_event import FillEvent
+
 
 
 class PostgresStorage:
+
     def __init__(self, dsn: str):
         self.dsn = dsn
 
+    def execute(self, sql: str, params: dict | None = None):
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+            conn.commit()
+
+    def execute_many(self, sql: str, params_list: list[dict]):
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.executemany(sql, params_list)
+            conn.commit()
     def append_fill(self, fill: FillEvent):
         """
         Append fill to Postgres.
@@ -60,3 +73,9 @@ class PostgresStorage:
                         commission=row[6],
                         order_id=row[7],
                     )
+
+    def fetch_one(self, sql: str, params=None):
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                return cur.fetchone()

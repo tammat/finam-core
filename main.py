@@ -9,7 +9,8 @@ from ai.ml_strategy import MLStrategy
 
 from portfolio.portfolio import Portfolio
 from risk.risk_engine import RiskEngine
-from execution.sim_execution_engine import SimExecutionEngine
+from execution.execution_engine import ExecutionEngine
+from src.infra.brokers.sim_broker import SimBrokerAdapter
 from storage.postgres import PostgresStorage
 
 
@@ -20,8 +21,7 @@ def build_execution_engine(mode: str, event_bus: EventBus, storage: PostgresStor
     REAL: FinamExecutionEngine (through infra/finam/adapter.py + vendor finam_grpc_client)
     """
     if mode.upper() != "REAL":
-        return SimExecutionEngine(event_bus=event_bus, price_resolver=storage.last_price)
-
+        return ExecutionEngine(SimBrokerAdapter(price_resolver=storage.last_price))
     # REAL mode
     token = os.getenv("FINAM_TOKEN")
     account_id = os.getenv("FINAM_ACCOUNT_ID")

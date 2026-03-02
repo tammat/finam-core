@@ -2,9 +2,9 @@
 name = "finam_core"
 version = "0.1.0"
 dependencies = [
-    "python-dotenv"
-    "requests"
-    "websocket-client""
+    "python-dotenv",
+    "requests",
+    "websocket-client",
     "pydantic"
 ]
 
