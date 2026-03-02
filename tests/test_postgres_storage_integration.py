@@ -19,7 +19,7 @@ def test_postgres_append_and_load():
         timestamp=datetime.now(tz=timezone.utc),
         symbol="SI",
         side="BUY",
-        qty=1.0,
+        qен=1.0,
         price=100.0,
         commission=0.0,
         order_id="test-order",

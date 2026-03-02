@@ -8,9 +8,9 @@ DSN = "postgresql://test:test@localhost:5432/test_db"
 
 
 def test_full_sim_pipeline():
+    from storage.sqlite_storage import SQLiteStorage
 
-    storage = PostgresStorage(DSN)
-
+    storage = SQLiteStorage(":memory:")
     broker = SimBrokerAdapter()
     executor = ExecutionEngine(broker=broker)
 

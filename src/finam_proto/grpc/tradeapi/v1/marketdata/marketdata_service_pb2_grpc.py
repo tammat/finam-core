@@ -4,7 +4,6 @@ import grpc
 import warnings
 
 from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2 as grpc_dot_tradeapi_dot_v1_dot_marketdata_dot_marketdata__service__pb2
-
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
