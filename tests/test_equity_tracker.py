@@ -1,5 +1,5 @@
-from analytics.equity_tracker import EquityTracker
-from analytics.trade_log import TradeRecord
+from finam_core.analytics.equity_tracker import EquityTracker
+from finam_core.analytics.trade_log import TradeRecord
 from datetime import datetime
 
 

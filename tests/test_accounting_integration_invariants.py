@@ -1,6 +1,6 @@
 import pytest
 
-from accounting.portfolio_manager import PortfolioManager
+from finam_core.accounting.portfolio_manager import PortfolioManager
 
 
 class DummyFill:

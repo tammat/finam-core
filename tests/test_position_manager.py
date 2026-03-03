@@ -1,4 +1,4 @@
-from domain.position_manager import PositionManager
+from finam_core.domain.position_manager import PositionManager
 
 
 def main():

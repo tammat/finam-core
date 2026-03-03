@@ -1,6 +1,6 @@
 def test_fixed_risk_sizing():
 
-    from risk.sizing_engine import SizingEngine
+    from finam_core.risk.sizing_engine import SizingEngine
 
     class DummyContext:
         equity = 100_000

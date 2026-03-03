@@ -1,5 +1,5 @@
-from risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
-from accounting.portfolio_manager import PortfolioState
+from finam_core.risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
+from finam_core.accounting.portfolio_manager import PortfolioState
 
 
 def main():
@@ -60,8 +60,8 @@ import os
 def test_risk_validate_records_latency(monkeypatch):
     monkeypatch.setenv("RISK_LATENCY", "1")
 
-    from risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
-    from accounting.position_manager import PositionManager
+    from finam_core.risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
+    from finam_core.accounting.position_manager import PositionManager
 
     engine = PreTradeRiskEngine(RiskConfig(
         max_risk_per_trade=1_000_000,
@@ -80,8 +80,8 @@ def test_risk_validate_records_latency(monkeypatch):
 def test_latency_percentiles(monkeypatch):
     monkeypatch.setenv("RISK_LATENCY", "1")
 
-    from risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
-    from accounting.position_manager import PositionManager
+    from finam_core.risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
+    from finam_core.accounting.position_manager import PositionManager
 
     engine = PreTradeRiskEngine(RiskConfig(
         max_risk_per_trade=1_000_000,

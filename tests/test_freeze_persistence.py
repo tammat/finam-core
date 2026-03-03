@@ -1,6 +1,6 @@
-from accounting.position_manager import PositionManager
-from domain.risk.risk_stack import RiskStack
-from storage.snapshot_repository import SnapshotRepository
+from finam_core.accounting.position_manager import PositionManager
+from finam_core.domain.risk.risk_stack import RiskStack
+from finam_core.storage.snapshot_repository import SnapshotRepository
 
 def test_freeze_survives_snapshot(tmp_path):
     snap = tmp_path / "snap.json"

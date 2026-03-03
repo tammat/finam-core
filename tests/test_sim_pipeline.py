@@ -1,14 +1,14 @@
 # tests/test_sim_pipeline.py
 
-from execution.execution_engine import ExecutionEngine
+from finam_core.execution.execution_engine import ExecutionEngine
 from src.infra.brokers.sim_broker import SimBrokerAdapter
-from storage.postgres_storage import PostgresStorage
+from finam_core.storage.postgres_storage import PostgresStorage
 from src.core.events.fill_event import FillEvent
 DSN = "postgresql://test:test@localhost:5432/test_db"
 
 
 def test_full_sim_pipeline():
-    from storage.sqlite_storage import SQLiteStorage
+    from finam_core.storage.sqlite_storage import SQLiteStorage
 
     storage = SQLiteStorage(":memory:")
     broker = SimBrokerAdapter()

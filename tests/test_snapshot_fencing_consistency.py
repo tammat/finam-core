@@ -1,6 +1,6 @@
-from accounting.position_manager import PositionManager
-from storage.fill_journal import FillJournal
-from storage.snapshot_repository import SnapshotRepository
+from finam_core.accounting.position_manager import PositionManager
+from finam_core.storage.fill_journal import FillJournal
+from finam_core.storage.snapshot_repository import SnapshotRepository
 from tests.test_position_idempotency import make_fill
 def test_snapshot_fencing_consistency(tmp_path):
     wal_path = tmp_path / "wal.jsonl"

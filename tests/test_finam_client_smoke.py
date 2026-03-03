@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from ingestion.finam_client import FinamClient
+from finam_core.ingestion.finam_client import FinamClient
 from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2 as md_pb2
 
 

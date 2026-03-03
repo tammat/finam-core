@@ -1,5 +1,5 @@
-from analytics.metrics import win_rate, profit_factor
-from analytics.trade_log import TradeRecord
+from finam_core.analytics.metrics import win_rate, profit_factor
+from finam_core.analytics.trade_log import TradeRecord
 from datetime import datetime
 
 

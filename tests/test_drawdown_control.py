@@ -1,6 +1,6 @@
 import pytest
-from risk.risk_engine import RiskEngine
-from accounting.position_manager import PositionManager
+from finam_core.risk.risk_engine import RiskEngine
+from finam_core.accounting.position_manager import PositionManager
 
 
 def test_max_drawdown_block():

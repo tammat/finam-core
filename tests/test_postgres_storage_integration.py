@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from storage.postgres_storage import PostgresStorage
+from finam_core.storage.postgres_storage import PostgresStorage
 from src.core.events.fill_event import FillEvent
 
 

@@ -1,7 +1,7 @@
 from decimal import Decimal
 
-from core.state import PortfolioState, Position
-from core.validator import StateValidator
+from finam_core.core.state import PortfolioState, Position
+from finam_core.core.validator import StateValidator
 
 
 def _must_fail(fn, contains: str) -> None:

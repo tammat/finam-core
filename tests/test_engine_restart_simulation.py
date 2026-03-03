@@ -1,10 +1,10 @@
 import os
 from dotenv import load_dotenv
 
-from storage.postgres_event_store import PostgresEventStore
-from execution.trading_engine import TradingEngine
-from accounting.portfolio_manager import PortfolioManager
-from risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
+from finam_core.storage.postgres_event_store import PostgresEventStore
+from finam_core.execution.trading_engine import TradingEngine
+from finam_core.accounting.portfolio_manager import PortfolioManager
+from finam_core.risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
 
 
 STREAM = "portfolio-1"

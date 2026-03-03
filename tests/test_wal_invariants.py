@@ -1,6 +1,6 @@
 import copy
-from accounting.position_manager import PositionManager
-from storage.fill_journal import FillJournal
+from finam_core.accounting.position_manager import PositionManager
+from finam_core.storage.fill_journal import FillJournal
 
 
 def test_wal_deterministic_replay(tmp_path):

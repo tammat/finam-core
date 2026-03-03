@@ -1,5 +1,5 @@
-from domain.risk.risk_decision import RiskDecision
-from domain.risk.risk_context import RiskContext
+from finam_core.domain.risk.risk_decision import RiskDecision
+from finam_core.domain.risk.risk_context import RiskContext
 
 
 class PortfolioHeatRule:

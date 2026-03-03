@@ -1,4 +1,4 @@
-from accounting.portfolio_manager import PortfolioManager
+from finam_core.accounting.portfolio_manager import PortfolioManager
 
 class DummyFill:
     def __init__(self, fill_id, side, qty, price, commission=0.0, realized_pnl=0.0):

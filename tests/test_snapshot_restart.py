@@ -1,5 +1,5 @@
-from accounting.position_manager import PositionManager
-from storage.snapshot_repository import SnapshotRepository
+from finam_core.accounting.position_manager import PositionManager
+from finam_core.storage.snapshot_repository import SnapshotRepository
 
 
 def test_snapshot_restart():
@@ -30,8 +30,8 @@ def test_snapshot_restart():
     assert pm2.positions["NG"].mark_price == pm.positions["NG"].mark_price
 
 import json
-from storage.fill_journal import FillJournal
-from accounting.position_manager import PositionManager
+from finam_core.storage.fill_journal import FillJournal
+from finam_core.accounting.position_manager import PositionManager
 
 
 def test_wal_corrupted_line_recovery(tmp_path):

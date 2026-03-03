@@ -1,6 +1,6 @@
-from domain.regime.vol_target_sizer import VolatilityTargetSizer
-from domain.regime.regime_detector import RegimeState, VolatilityRegime
-from strategy.signal import Signal
+from finam_core.domain.regime.vol_target_sizer import VolatilityTargetSizer
+from finam_core.domain.regime.regime_detector import RegimeState, VolatilityRegime
+from finam_core.strategy.signal import Signal
 
 
 def test_scales_down_when_vol_high():

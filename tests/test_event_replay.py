@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-from storage.postgres_event_store import PostgresEventStore
-from accounting.portfolio_manager import PortfolioManager
+from finam_core.storage.postgres_event_store import PostgresEventStore
+from finam_core.accounting.portfolio_manager import PortfolioManager
 
 
 def main():

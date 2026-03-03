@@ -1,6 +1,6 @@
 import pytest
 
-from core.orchestrator import TradingPipeline
+from finam_core.core.orchestrator import TradingPipeline
 
 
 class DummyEvent:

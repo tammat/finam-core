@@ -1,7 +1,7 @@
 import os
-from accounting.position_manager import PositionManager
-from storage.fill_journal import FillJournal
-from storage.snapshot_repository import SnapshotRepository
+from finam_core.accounting.position_manager import PositionManager
+from finam_core.storage.fill_journal import FillJournal
+from finam_core.storage.snapshot_repository import SnapshotRepository
 
 
 def test_double_crash_recovery(tmp_path):

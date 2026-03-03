@@ -1,5 +1,5 @@
 def test_volatility_sizing():
-    from risk.sizing_engine import SizingEngine
+    from finam_core.risk.sizing_engine import SizingEngine
 
     class DummyContext:
         equity = 100_000

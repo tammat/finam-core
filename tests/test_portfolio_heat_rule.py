@@ -1,4 +1,4 @@
-from risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
+from finam_core.risk.pre_trade_risk import PreTradeRiskEngine, RiskConfig
 
 
 class DummyPosition:

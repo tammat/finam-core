@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from accounting.position_manager import PositionManager
-from core.events import FillEvent
+from finam_core.accounting.position_manager import PositionManager
+from finam_core.core.events import FillEvent
 
 def make_fill(fill_id):
     return FillEvent(

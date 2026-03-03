@@ -1,6 +1,6 @@
-from execution.order_manager import OrderManager
+from finam_core.execution.order_manager import OrderManager
 from src.core.events.fill_event import FillEvent
-from execution.order import OrderStatus
+from finam_core.execution.order import OrderStatus
 
 
 def main():

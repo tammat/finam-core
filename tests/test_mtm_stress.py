@@ -1,5 +1,5 @@
-from accounting.portfolio_manager import PortfolioManager
-from core.price_provider import InMemoryPriceProvider
+from finam_core.accounting.portfolio_manager import PortfolioManager
+from finam_core.core.price_provider import InMemoryPriceProvider
 
 
 class DummyFill:

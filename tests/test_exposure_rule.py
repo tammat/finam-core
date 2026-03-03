@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from domain.risk.risk_decision import RiskDecision
+from finam_core.domain.risk.risk_decision import RiskDecision
 
 @dataclass
 class ExposureRule:

@@ -1,7 +1,7 @@
 import pytest
 
-from risk.risk_config import RiskConfig
-from risk.pre_trade_risk_engine import PreTradeRiskEngine
+from finam_core.risk.risk_config import RiskConfig
+from finam_core.risk.pre_trade_risk_engine import PreTradeRiskEngine
 
 
 def build_engine(trading_enabled=True):

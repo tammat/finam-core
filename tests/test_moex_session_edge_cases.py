@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import random
 
-from domain.session.moex import MoexSession
+from finam_core.domain.session.moex import MoexSession
 
 TZ = ZoneInfo("Europe/Moscow")
 

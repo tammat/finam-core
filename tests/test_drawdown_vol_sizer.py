@@ -1,6 +1,6 @@
-from domain.regime.drawdown_vol_sizer import DrawdownAdaptiveVolSizer
-from domain.regime.regime_detector import RegimeState, VolatilityRegime
-from strategy.signal import Signal
+from finam_core.domain.regime.drawdown_vol_sizer import DrawdownAdaptiveVolSizer
+from finam_core.domain.regime.regime_detector import RegimeState, VolatilityRegime
+from finam_core.strategy.signal import Signal
 
 
 class DummyPortfolio:

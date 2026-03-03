@@ -1,5 +1,5 @@
-from domain.regime.position_sizer import RegimePositionSizer
-from domain.regime.regime_detector import RegimeState, VolatilityRegime
+from finam_core.domain.regime.position_sizer import RegimePositionSizer
+from finam_core.domain.regime.regime_detector import RegimeState, VolatilityRegime
 
 
 def test_low_regime_scales_up():

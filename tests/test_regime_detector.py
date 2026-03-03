@@ -1,6 +1,6 @@
 # tests/test_regime_detector.py
 
-from domain.regime.regime_detector import (
+from finam_core.domain.regime.regime_detector import (
     RegimeDetector,
     VolatilityRegime,
 )
