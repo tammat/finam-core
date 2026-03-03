@@ -1,8 +1,13 @@
 README.md
 pyproject.toml
+src/accounting/__init__.py
+src/accounting/portfolio_manager.py
+src/accounting/position_manager.py
 src/app/__init__.py
 src/app/bootstrap.py
 src/app/main.py
+src/clients/__init__.py
+src/clients/finam_client.py
 src/core/__init__.py
 src/core/engine.py
 src/core/event_bus.py
