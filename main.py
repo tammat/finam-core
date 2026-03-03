@@ -7,7 +7,7 @@ from data.market_data import DummyMarketData
 from strategy.momentum import MomentumStrategy
 from ai.ml_strategy import MLStrategy
 
-from portfolio.portfolio import Portfolio
+from portfolio import Portfolio
 from risk.risk_engine import RiskEngine
 from execution.execution_engine import ExecutionEngine
 from src.infra.brokers.sim_broker import SimBrokerAdapter
