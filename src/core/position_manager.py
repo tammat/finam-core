@@ -1,52 +1,53 @@
-from dataclasses import dataclass
-from datetime import datetime
-from collections import defaultdict
-
-
-@dataclass
-class Position:
-    symbol: str
-    qty: float = 0.0
-    avg_price: float = 0.0
-    realized_pnl: float = 0.0
-
-
 class PositionManager:
 
     def __init__(self):
-        self.positions = {}
+        self.qty = 0.0
+        self.avg_price = 0.0
+        self.realized = 0.0
 
-    def on_fill(self, fill):
-        symbol = fill.symbol
-        side = fill.side
-        qty = fill.qty
-        price = fill.price
-
-        pos = self.positions.get(symbol)
-
-        if pos is None:
-            pos = Position(symbol=symbol)
-            self.positions[symbol] = pos
+    def on_fill(self, side: str, qty: float, price: float):
 
         if side == "BUY":
-            new_qty = pos.qty + qty
-            pos.avg_price = (
-                (pos.avg_price * pos.qty + price * qty) / new_qty
-                if new_qty != 0 else 0
-            )
-            pos.qty = new_qty
+            if self.qty >= 0:
+                # увеличение лонга
+                total_cost = self.avg_price * self.qty + price * qty
+                self.qty += qty
+                self.avg_price = total_cost / self.qty
+            else:
+                # закрытие шорта
+                closing_qty = min(qty, abs(self.qty))
+                self.realized += (self.avg_price - price) * closing_qty
+                self.qty += qty
+                if self.qty > 0:
+                    # flip в лонг
+                    self.avg_price = price
+                elif self.qty == 0:
+                    self.avg_price = 0.0
 
         elif side == "SELL":
-            pos.realized_pnl += (price - pos.avg_price) * qty
-            pos.qty -= qty
+            if self.qty <= 0:
+                # увеличение шорта
+                total_cost = self.avg_price * abs(self.qty) + price * qty
+                self.qty -= qty
+                self.avg_price = total_cost / abs(self.qty)
+            else:
+                # закрытие лонга
+                closing_qty = min(qty, self.qty)
+                self.realized += (price - self.avg_price) * closing_qty
+                self.qty -= qty
+                if self.qty < 0:
+                    # flip в шорт
+                    self.avg_price = price
+                elif self.qty == 0:
+                    self.avg_price = 0.0
 
-        return pos
+    def unrealized(self, last_price: float):
+        return (last_price - self.avg_price) * self.qty
 
-    def total_realized(self):
-        return sum(p.realized_pnl for p in self.positions.values())
-
-    def total_unrealized(self):
-        return 0.0  # пока без mark-to-market
-
-    def total_exposure(self):
-        return sum(abs(p.qty * p.avg_price) for p in self.positions.values())
+    def snapshot(self, last_price: float):
+        return {
+            "qty": self.qty,
+            "avg_price": self.avg_price,
+            "realized": self.realized,
+            "unrealized": self.unrealized(last_price),
+        }
