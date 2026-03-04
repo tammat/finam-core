@@ -1,96 +1,17 @@
-# app/main.py
+import asyncio
 
-import os
-from finam_core.dotenv import load_dotenv
-from pathlib import Path
-from finam_core.config.settings import Settings
-from finam_core.storage.postgres import PostgresStorage
-
-from finam_core.execution.execution_engine import ExecutionEngine
-from src.infra.brokers.sim_broker import SimBrokerAdapter
-from finam_core.execution.oms import OMS
-from finam_core.execution.execution_engine import ExecutionEngine
-from src.infra.brokers.finam_rest import FinamRESTAdapter
-import os
-from finam_core.accounting.position_manager import PositionManager
-from finam_core.accounting.portfolio_manager import PortfolioManager
-
-from finam_core.risk.risk_engine import RiskEngine
-from finam_core.core.engine import Engine
-ENV_PATH = Path(__file__).resolve().parents[1] / ".env"   # корень репо = на уровень выше папки app
-load_dotenv(dotenv_path=ENV_PATH)
-
-def main() -> int:
-    load_dotenv(dotenv_path=".env")
-    print("ENV_PATH:", ENV_PATH)
-    print("ENV_EXISTS:", ENV_PATH.exists())
-    print("POSTGRES_DSN:", "SET" if os.getenv("POSTGRES_DSN") else "MISSING")
-    token = os.getenv("FINAM_TOKEN")
-
-    broker = FinamRESTAdapter(token=token)
-    engine = ExecutionEngine(broker)
-
-    accounts = broker.get_accounts()
-    print(accounts)
-    dsn = os.getenv("POSTGRES_DSN")
-    if not dsn:
-        raise RuntimeError(
-            "POSTGRES_DSN is not set. Add it to .env or export env var.\n"
-            "Example:\n"
-            "POSTGRES_DSN=postgresql://finam:YOUR_PASSWORD@localhost:5432/finam_core"
-        )
-
-    mode = os.getenv("MODE", Settings.MODE)
-
-    # --- Storage ---
-    storage = PostgresStorage(dsn)
-
-    # --- Execution ---
-    execution_engine = ExecutionEngine(SimBrokerAdapter())
-    oms = OMS(storage=storage, execution_engine=execution_engine)
-
-    # --- Accounting ---
-    position_manager = PositionManager()
-    portfolio_manager = PortfolioManager(initial_cash=Settings.INITIAL_CASH)
-
-    # --- Risk ---
-    risk_engine = RiskEngine(
-        position_manager=position_manager,
-        portfolio_manager=portfolio_manager,
-    )
-
-    # --- Core Engine ---
-    engine = Engine(
-        oms=oms,
-        position_manager=position_manager,
-        portfolio_manager=portfolio_manager,
-        risk_engine=risk_engine,
-        storage=storage,
-    )
-
-    processed = engine.run()
-
-    # Итоговый срез состояния
-    state = portfolio_manager.compute_state(position_manager, engine_now_utc())
-
-    print(f"MODE: {mode}")
-    print(f"Processed events: {processed}")
-    print(f"Cash: {state.cash}")
-    print(f"Equity: {state.equity}")
-    print(f"Exposure: {state.exposure}")
-    print(f"Drawdown: {state.drawdown}")
-
-    return 0
+from finam_core.app.bootstrap import bootstrap
 
 
-def engine_now_utc():
-    # отдельной функцией, чтобы не тянуть timezone-логику через весь код
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc)
+async def main():
 
+    pipeline, event_bus, gateway, feed = await bootstrap()
 
-from finam_core.app.bootstrap import build_pipeline
+    print("Trading system started")
+
+    while True:
+        await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
-    pipeline = build_pipeline()
-    pipeline.run_once()
+    asyncio.run(main())

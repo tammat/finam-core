@@ -75,7 +75,26 @@ class PortfolioManager:
         # ====================================================
     # SNAPSHOT VALIDATION
     # ====================================================
+    # -----------------------------
+    # Backtest-friendly properties
+    # -----------------------------
+    @property
+    def state(self) -> "PortfolioState":
+        # вычисляем “на сейчас”; если есть now_ts — можно прокинуть
+        return self.compute_state()
 
+    @property
+    def equity(self) -> float:
+        return float(self.state.equity)
+
+    def mark_to_market(self, price: float) -> "PortfolioState":
+        """
+        Backtest alias: если движок не передаёт symbol, просто
+        маркируем ВСЕ открытые позиции одним price (single-instrument backtest).
+        """
+        for symbol, pos in self.position_manager.positions.items():
+            pos.mark_price = price
+        return self.compute_state()
     def _validate_snapshot(self, equity: float, unrealized: float):
 
         # ---- DECIMAL NORMALIZATION ----

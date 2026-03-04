@@ -1,50 +1,63 @@
-# src/strategy/simple_ma_strategy.py
-
+from collections import deque
 from dataclasses import dataclass
-from typing import Optional, List
-
-from finam_core.core.memory_bar_buffer import Bar
 
 
-@dataclass(frozen=True)
+@dataclass
 class Signal:
-    symbol: str
-    timeframe: str
-    ts: object  # datetime
-    side: str   # "BUY" | "SELL"
-    reason: str
+    side: str
+    qty: float
+
+    def to_fill(self, price: float):
+        class Fill:
+            def __init__(self, side, qty, price):
+                self.fill_id = f"SMA_{price}"
+                self.side = side
+                self.qty = qty
+                self.price = price
+                self.commission = 0.0
+        return Fill(self.side, self.qty, price)
 
 
 class SimpleMAStrategy:
-    """
-    SMA fast/slow crossover.
-    - BUY: fast crosses above slow
-    - SELL: fast crosses below slow
-    """
 
-    def __init__(self, fast: int = 9, slow: int = 21):
-        assert fast > 1 and slow > fast
+    def __init__(self, fast=5, slow=20, qty=1):
+        if fast >= slow:
+            raise ValueError("fast MA must be < slow MA")
+
         self.fast = fast
         self.slow = slow
+        self.qty = qty
 
-    def on_bar(self, bars: List[Bar]) -> Optional[Signal]:
-        # Нужно минимум slow+1 бар, чтобы проверить пересечение на двух точках
-        if len(bars) < self.slow + 1:
+        self.fast_window = deque(maxlen=fast)
+        self.slow_window = deque(maxlen=slow)
+
+        self.prev_fast = None
+        self.prev_slow = None
+
+    def on_bar(self, bar, equity):
+
+        self.fast_window.append(bar.close)
+        self.slow_window.append(bar.close)
+
+        if len(self.slow_window) < self.slow:
             return None
 
-        # Берем последние (slow+1) баров
-        w = bars[-(self.slow + 1):]
-        closes = [b.close for b in w]
+        fast_ma = sum(self.fast_window) / len(self.fast_window)
+        slow_ma = sum(self.slow_window) / len(self.slow_window)
 
-        # SMA на предыдущем баре
-        prev_fast = sum(closes[-(self.fast + 1):-1]) / self.fast
-        prev_slow = sum(closes[-(self.slow + 1):-1]) / self.slow
+        signal = None
 
-        # SMA на текущем баре
-        cur_fast = sum(closes[-self.fast:]) / self.fast
-        cur_slow = sum(closes[-self.slow:]) / self.slow
+        if self.prev_fast is not None and self.prev_slow is not None:
 
-        last_bar = w[-1]
+            # Golden cross
+            if self.prev_fast <= self.prev_slow and fast_ma > slow_ma:
+                signal = Signal("BUY", self.qty)
 
-        # crossover вверх
-        if prev_fast <= prev_s
+            # Death cross
+            elif self.prev_fast >= self.prev_slow and fast_ma < slow_ma:
+                signal = Signal("SELL", self.qty)
+
+        self.prev_fast = fast_ma
+        self.prev_slow = slow_ma
+
+        return signal

@@ -1,60 +1,44 @@
-# src/ingestion/live_market_feed.py
-import os
-import grpc
-from finam_proto.grpc.tradeapi.v1.marketdata import (
-    marketdata_service_pb2 as md_pb2,
-)
-from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2_grpc as md_grpc
+import asyncio
 
 class LiveMarketFeed:
-    def __init__(self, host=None, jwt=None):
 
-        self.host = host or os.getenv("FINAM_GRPC_HOST") or os.getenv("FINAM_API_HOST")
-        assert self.host, "Set FINAM_GRPC_HOST or FINAM_API_HOST"
+    def __init__(self, market_client, event_bus):
 
-        self.jwt = (
-                jwt
-                or os.getenv("FINAM_JWT")
-                or os.getenv("FINAM_TOKEN")
-                or os.getenv("JWT")
-        )
+        self.client = market_client
+        self.event_bus = event_bus
 
-        assert self.jwt, "Set FINAM_JWT / FINAM_TOKEN"
+        self.queue = asyncio.Queue()
 
-        self.jwt = self.jwt.strip().strip('"').strip("'")
+    async def start(self, symbol):
 
-        # 🔥 ВАЖНО — без Bearer / JWT
-        self.metadata = [
-            ("authorization", self.jwt)
-        ]
+        asyncio.create_task(self._reader(symbol))
+        asyncio.create_task(self._dispatcher())
 
-        # ---------- ЭТО У ТЕБЯ СЕЙЧАС ОТСУТСТВУЕТ ----------
+    async def _reader(self, symbol):
 
-        self.channel = grpc.secure_channel(
-            self.host,
-            grpc.ssl_channel_credentials()
-        )
+        loop = asyncio.get_event_loop()
 
-        self.stub = md_grpc.MarketDataServiceStub(self.channel)
-    def subscribe_quotes(self, symbols: list[str]):
-        # В твоём proto: SubscribeQuoteRequest имеет поле ['symbols']
-        req = md_pb2.SubscribeQuoteRequest(symbols=symbols)
+        def blocking_stream():
 
-        print("SUBSCRIBED. Waiting for quotes... (Ctrl+C to stop)")
-        print("Connected to:", self.host)
-        print("Metadata:", self.metadata)
-        try:
-            for msg in self.stub.SubscribeQuote(req, metadata=self.metadata):
-                print("RAW:", msg)
-            for msg in self.stub.SubscribeQuote(req, metadata=self.metadata):
-                print(msg)
-        except grpc.RpcError as e:
-            print("Stream error:", e)
-            # Если будет UNAUTHENTICATED — поменяй Bearer -> JWT (см. ниже)
-            raise
+            for bar in self.client.subscribe_bars(symbol, 1):
+                asyncio.run_coroutine_threadsafe(
+                    self.queue.put(bar),
+                    loop
+                )
 
-    def close(self):
-        try:
-            self.channel.close()
-        except Exception:
-            pass
+        await asyncio.to_thread(blocking_stream)
+
+    async def _dispatcher(self):
+
+        while True:
+
+            bar = await self.queue.get()
+
+            event = {
+                "type": "MARKET_BAR",
+                "symbol": bar.symbol,
+                "price": bar.close,
+                "timestamp": bar.timestamp
+            }
+
+            self.event_bus.publish(event)
