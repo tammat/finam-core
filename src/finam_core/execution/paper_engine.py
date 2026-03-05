@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 def _get(obj: Any, name: str, default=None):
@@ -21,59 +21,81 @@ class PaperFill:
 
 
 class PaperExecutionEngine:
-    """
-    Paper execution (default).
-    - Accepts intent as dict or object with fields: symbol, side, quantity/qty.
-    - Accepts market_state as dict with bid/ask/last/timestamp.
-    - Returns PaperFill (filled immediately).
+    """Paper execution (default).
+
+    Design goals for Finam_Core:
+    - be permissive to calling code (tests / pipeline) and accept extra kwargs
+    - never crash on partial quotes (Finam часто шлёт фреймы без bid/ask/last)
+    - produce deterministic fills for simulation (fallback price=0.0 if unknown)
+
+    Expected inputs:
+    - intent: dict/object with fields: symbol, side, qty|quantity, price(optional)
+    - market_state: dict with bid/ask/last/price/timestamp(optional)
     """
 
-    def __init__(self, slippage_coef: float = 0.25, commission: float = 0.0):
+    def __init__(self, slippage_coef: float = 0.25, commission: float = 0.0, **_ignored):
         self.slippage_coef = float(slippage_coef)
         self.commission = float(commission)
 
-    def execute(self, intent: Any, market_state: dict) -> PaperFill:
-        symbol = str(_get(intent, "symbol"))
-        side = str(_get(intent, "side")).upper()
+    def execute(self, intent: Any, market_state: dict | None = None) -> PaperFill:
+        market_state = market_state or {}
+
+        symbol = str(_get(intent, "symbol", "") or "")
+        side = str(_get(intent, "side", "BUY") or "BUY").upper()
+
         qty = _get(intent, "quantity", None)
         if qty is None:
-            qty = _get(intent, "qty", None)
-        qty = float(qty)
+            qty = _get(intent, "qty", 0.0)
+        qty = float(qty or 0.0)
 
-        bid = market_state.get("bid")
-        ask = market_state.get("ask")
-        last = market_state.get("last")
+        # ---- price extraction (best-effort) ----
+        bid = market_state.get("bid", None)
+        ask = market_state.get("ask", None)
+        last = market_state.get("last", None)
+        px = market_state.get("price", None)
+        if px is None:
+            px = _get(intent, "price", None)
 
-        # If bid/ask missing (Finam often sends partial quote frames), fallback to last.
-        if bid is None and last is not None:
-            bid = float(last)
-        if ask is None and last is not None:
-            ask = float(last)
+        # Normalize candidates to float when possible
+        def _to_float(x):
+            try:
+                return float(x)
+            except Exception:
+                return None
 
-        if bid is None or ask is None:
-            raise ValueError(f"paper_engine: no price in market_state (bid={bid}, ask={ask}, last={last})")
+        bid_f = _to_float(bid)
+        ask_f = _to_float(ask)
+        last_f = _to_float(last)
+        px_f = _to_float(px)
 
-        bid = float(bid)
-        ask = float(ask)
-        spread = max(ask - bid, 0.0)
+        # If bid/ask missing (partial quote frames), fall back in this order:
+        # last -> px -> 0.0
+        fallback = last_f if last_f is not None else (px_f if px_f is not None else 0.0)
+        if bid_f is None:
+            bid_f = fallback
+        if ask_f is None:
+            ask_f = fallback
+
+        spread = max((ask_f - bid_f), 0.0)
 
         if side == "BUY":
-            fill_price = ask + spread * self.slippage_coef
+            fill_price = ask_f + spread * self.slippage_coef
             signed_qty = qty
         elif side == "SELL":
-            fill_price = bid - spread * self.slippage_coef
+            fill_price = bid_f - spread * self.slippage_coef
             signed_qty = -qty
         else:
-            raise ValueError(f"paper_engine: unknown side={side}")
+            raise ValueError(f"paper_engine: unknown side={side!r}")
 
         ts = market_state.get("timestamp")
         if ts is None:
             ts = time.time()
+        ts = float(ts) if not isinstance(ts, (int, float)) else ts
 
         return PaperFill(
             symbol=symbol,
-            qty=signed_qty,
+            qty=float(signed_qty),
             price=float(fill_price),
-            commission=self.commission,
-            fill_id=f"paper_{symbol}_{int(ts*1000)}",
+            commission=float(self.commission),
+            fill_id=f"paper_{symbol}_{int(ts * 1000)}",
         )

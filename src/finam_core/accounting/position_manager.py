@@ -402,3 +402,6 @@ class PositionManager:
         if self.starting_cash == 0:
             return 0.0
         return (equity - self.starting_cash) / self.starting_cash
+
+    def on_price(self, symbol: str, price: float):
+        self.update_market_price(symbol, price)

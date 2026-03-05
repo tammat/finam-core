@@ -61,8 +61,6 @@ class PortfolioManager:
 
         if initial_cash is None:
             raise TypeError("initial_cash resolved to None")
-        self.cash = float(initial_cash)
-        self.realized_pnl = 0.0
         self.prices = {}
         self._equity_peak = float(initial_cash)
         self.drawdown = 0.0
@@ -70,8 +68,9 @@ class PortfolioManager:
         self.validator = validator or StateValidator()
         self._applied_fills = set()
 
-        self.position_manager = PositionManager()
+        self.position_manager = PositionManager(starting_cash=float(initial_cash))
         self.price_provider = price_provider
+
         # ====================================================
     # SNAPSHOT VALIDATION
     # ====================================================
@@ -98,8 +97,9 @@ class PortfolioManager:
     def _validate_snapshot(self, equity: float, unrealized: float):
 
         # ---- DECIMAL NORMALIZATION ----
-        cash_dec = Decimal(str(round(self.cash, 12)))
-        realized_dec = Decimal(str(round(self.realized_pnl, 12)))
+        pm = self.position_manager
+        cash_dec = Decimal(str(round(float(getattr(pm, "cash", 0.0)), 12)))
+        realized_dec = Decimal(str(round(float(getattr(pm, "realized_pnl", 0.0)), 12)))
         unrealized_dec = Decimal(str(round(unrealized, 12)))
 
         # ВАЖНО: equity вычисляем через Decimal,
@@ -134,54 +134,42 @@ class PortfolioManager:
 
         if fill_id in self._applied_fills:
             raise RuntimeError("DUPLICATE_FILL_DETECTED")
-
         self._applied_fills.add(fill_id)
 
-        side_attr = getattr(fill, "side", None)
+        # normalize symbol
+        symbol = getattr(fill, "symbol", None) or getattr(fill, "instrument", None) or "__TEST_SYMBOL__"
 
+        # normalize side
+        side_attr = getattr(fill, "side", None)
         if side_attr is None:
-            # legacy / integration compatibility:
-            # определяем сторону по знаку количества
-            qty_val = getattr(fill, "qty", 0)
+            qty_val = float(getattr(fill, "qty", 0.0))
             side = "BUY" if qty_val >= 0 else "SELL"
         else:
             side = str(side_attr).upper()
-        notional = abs(fill.qty) * fill.price
-        commission = getattr(fill, "commission", 0.0)
 
-        if commission < 0:
-            raise RuntimeError("INVALID_COMMISSION_SIGN")
+        # normalize qty/price/commission (qty must be positive, direction in side)
+        qty = abs(float(getattr(fill, "qty", 0.0)))
+        price = float(getattr(fill, "price", 0.0))
+        commission = float(getattr(fill, "commission", 0.0))
 
-        # ---- POSITION LAYER ----
-        symbol = getattr(fill, "symbol", None)
-        if symbol is None:
-            symbol = getattr(fill, "instrument", None)
-        if symbol is None:
-            symbol = "__TEST_SYMBOL__"
+        # build pm_fill object compatible with PositionManager.apply_fill(fill)
+        class _PMFill:
+            __slots__ = ("symbol", "side", "qty", "price", "commission", "fill_id")
 
-        realized = self.position_manager.apply_fill(
-            symbol=symbol,
-            side=side,
-            qty=abs(fill.qty),  # ← ключевой фикс
-            price=fill.price,
-        )
-        # ---- CASH FLOW ----
-        if side == "BUY":
-            self.cash -= notional
-        else:
-            self.cash += notional
+            def __init__(self, symbol, side, qty, price, commission, fill_id):
+                self.symbol = symbol
+                self.side = side
+                self.qty = qty
+                self.price = price
+                self.commission = commission
+                self.fill_id = fill_id
 
-        self.cash -= commission
+        pm_fill = _PMFill(symbol, side, qty, price, commission, fill_id)
 
-        # ---- REALIZED AGGREGATION ----
-        prev_realized = self.realized_pnl
-        self.realized_pnl += realized
-
-        if abs(self.realized_pnl - prev_realized - realized) > 1e-9:
-            raise RuntimeError("REALIZED_INVARIANT_BROKEN")
+        # B1: single source of truth here
+        self.position_manager.apply_fill(pm_fill)
 
         return self.compute_state()
-
     # ----------------------------------------------------
     # Backward compatibility alias (legacy tests)
     # ----------------------------------------------------
@@ -226,17 +214,20 @@ class PortfolioManager:
     # ====================================================
 
     def compute_state(self, now_ts=None) -> PortfolioState:
+        pm = self.position_manager
+
         market_value = 0.0
         unrealized_total = 0.0
         exposure = 0.0
 
-        for symbol, pos in self.position_manager.positions.items():
+        for symbol, pos in pm.positions.items():
             # ---- MARKET PRICE INJECTION ----
             if self.price_provider:
                 market_price = self.price_provider.get_price(symbol)
                 current_price = market_price if market_price is not None else pos.avg_price
             else:
-                current_price = pos.avg_price
+                # В B1 лучше учитывать mark_price, если он есть
+                current_price = getattr(pos, "mark_price", None) or pos.avg_price
 
             position_value = pos.qty * current_price
             market_value += position_value
@@ -244,10 +235,14 @@ class PortfolioManager:
 
             unrealized_total += (current_price - pos.avg_price) * pos.qty
 
-        equity = self.cash + market_value
+        # ✅ B1: cash/realized берём только из PM
+        cash = float(getattr(pm, "cash", 0.0))
+        realized = float(getattr(pm, "realized_pnl", 0.0))
+
+        equity = cash + market_value
 
         # ---- STRICT EQUITY INVARIANT ----
-        if abs(equity - (self.cash + market_value)) > 1e-9:
+        if abs(equity - (cash + market_value)) > 1e-9:
             raise RuntimeError("EQUITY_STRICT_INVARIANT_BROKEN")
 
         # ---- EXPOSURE INVARIANTS ----
@@ -257,7 +252,7 @@ class PortfolioManager:
         if exposure > 1e12:
             raise RuntimeError("EXPOSURE_OVERFLOW")
 
-        if not self.position_manager.positions:
+        if not pm.positions:
             if exposure != 0:
                 raise RuntimeError("EXPOSURE_WITH_NO_POSITIONS")
 
@@ -274,23 +269,21 @@ class PortfolioManager:
             drawdown = 0.0
 
         # ---- FINAL VALIDATION ----
-        # Core validator model: equity = cash + unrealized
-        # Пока нет отдельной realized-схемы в core,
-        # unrealized должен содержать full marked position value
-        # ---- FLOAT NORMALIZATION (avoid drift into Decimal validator) ----
         equity = round(equity, 12)
         market_value = round(market_value, 12)
+
+        # важно: _validate_snapshot должен тоже читать cash/realized из PM (см. пункт 3)
         self._validate_snapshot(equity, market_value)
+
         return PortfolioState(
-            cash=float(self.cash),
+            cash=cash,
             equity=float(equity),
-            realized_pnl=float(self.realized_pnl),
+            realized_pnl=realized,
             unrealized_pnl=float(unrealized_total),
             exposure=float(exposure),
             drawdown=float(drawdown),
-            positions=dict(self.position_manager.positions),
+            positions=dict(pm.positions),
         )
-
     # ====================================================
     # EVENT ADAPTER (EventStore → Domain Model)
     # ====================================================
