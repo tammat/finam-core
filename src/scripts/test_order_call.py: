@@ -1,0 +1,6 @@
+from finam_core.adapters.grpc.orders import FinamOrdersClient
+
+ACCOUNT_ID = "1943312"
+
+c = FinamOrdersClient()
+c.place_market_order("GAZP@MISX", "BUY", 10, ACCOUNT_ID)

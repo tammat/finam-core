@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from finam_core.core.validator import StateValidator
 from finam_core.core.state import PortfolioState as CorePortfolioState, Position
-from finam_core.domain.position_manager import PositionManager
+from finam_core.accounting.position_manager import PositionManager
 from datetime import datetime
 import uuid
 
@@ -63,7 +63,7 @@ class PortfolioManager:
             raise TypeError("initial_cash resolved to None")
         self.cash = float(initial_cash)
         self.realized_pnl = 0.0
-
+        self.prices = {}
         self._equity_peak = float(initial_cash)
         self.drawdown = 0.0
 
@@ -307,6 +307,15 @@ class PortfolioManager:
             fill = self._build_fill_from_payload(payload)
             self.on_fill(fill)
 
+    def update_price(self, symbol, price):
+
+        if price is None:
+            return
+
+        self.prices[symbol] = price
+
+    def get_price(self, symbol):
+        return self.prices.get(symbol)
         # ---- EXTENSION POINT ----
         # elif event_type == "SomethingElse":
         #     ...

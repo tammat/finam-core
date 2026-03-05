@@ -1,48 +1,19 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from decimal import Decimal
+from typing import Optional
 
-from core.validator import StateValidator
-from core.state import PortfolioState as CorePortfolioState, Position
-from domain.position_manager import PositionManager
-from datetime import datetime
-import uuid
-
-@dataclass
-class PortfolioState:
-    cash: float
-    equity: float
-    realized_pnl: float
-    unrealized_pnl: float
-    exposure: float
-    drawdown: float
-    positions: dict
-
-    @property
-    def total_abs_notional(self) -> float:
-        return sum(abs(p.notional) for p in self.positions.values())
-
-    def build_snapshot(self):
-        """
-        Возвращает immutable snapshot состояния портфеля.
-        Используется в тестах и аналитике.
-        """
-        return {
-            "cash": self.cash,
-            "equity": self.equity,
-            "realized_pnl": self.realized_pnl,
-            "unrealized_pnl": self.unrealized_pnl,
-            "exposure": self.exposure,
-            "drawdown": self.drawdown,
-        }
+from finam_core.accounting.position_manager import PositionManager
 
 
 class PortfolioManager:
     """
-    Clean production model.
+    Thin wrapper around PositionManager + cash/equity metrics.
 
-    - Position math → PositionManager
-    - Accounting → cash + realized aggregation
-    - Equity derived strictly
+    Expected by risk layer:
+      - starting_cash / starting_capital
+      - equity() or equity attribute
+      - total_exposure, current_symbol_exposure (computed in build_risk_context)
     """
 
     def __init__(
@@ -50,266 +21,91 @@ class PortfolioManager:
         initial_cash: float | None = None,
         *,
         starting_cash: float | None = None,
-        validator: StateValidator | None = None,
+        position_manager: PositionManager | None = None,
+        validator=None,
         price_provider=None,
     ):
-        if initial_cash is None and starting_cash is None:
-            raise TypeError("initial_cash or starting_cash must be provided")
+        if starting_cash is None:
+            starting_cash = initial_cash
+        self.starting_cash: float = float(starting_cash or 0.0)
+        self.cash: float = float(starting_cash or 0.0)
 
-        if starting_cash is not None:
-            initial_cash = starting_cash
+        self.position_manager: PositionManager = position_manager or PositionManager()
 
-        if initial_cash is None:
-            raise TypeError("initial_cash resolved to None")
-        self.cash = float(initial_cash)
-        self.realized_pnl = 0.0
+        self._validator = validator
+        self._price_provider = price_provider
 
-        self._equity_peak = float(initial_cash)
-        self.drawdown = 0.0
+        self.daily_pnl: float = 0.0  # optional
+        self.realized_pnl: float = 0.0
 
-        self.validator = validator or StateValidator()
-        self._applied_fills = set()
+    # --- pricing ---
+    def on_price(self, symbol: str, price: float) -> None:
+        self.position_manager.on_price(symbol, float(price))
 
-        self.position_manager = PositionManager()
-        self.price_provider = price_provider
-        # ====================================================
-    # SNAPSHOT VALIDATION
-    # ====================================================
+    def update_market_price(self, symbol: str, price: float) -> None:
+        self.on_price(symbol, price)
 
-    def _validate_snapshot(self, equity: float, unrealized: float):
+    # --- fills ---
+    def on_fill(self, fill) -> float:
+        """
+        Accepts fill object with .symbol .qty .price or dict-like.
+        qty sign convention: +qty for BUY, -qty for SELL.
+        Returns realized pnl delta.
+        """
+        symbol = getattr(fill, "symbol", None) or fill["symbol"]
+        qty = float(getattr(fill, "qty", None) if hasattr(fill, "qty") else fill.get("qty"))
+        price = float(getattr(fill, "price", None) if hasattr(fill, "price") else fill.get("price"))
 
-        # ---- DECIMAL NORMALIZATION ----
-        cash_dec = Decimal(str(round(self.cash, 12)))
-        realized_dec = Decimal(str(round(self.realized_pnl, 12)))
-        unrealized_dec = Decimal(str(round(unrealized, 12)))
+        side = "BUY" if qty > 0 else "SELL"
+        abs_qty = abs(qty)
 
-        # ВАЖНО: equity вычисляем через Decimal,
-        # а не берём float equity
-        equity_dec = cash_dec + unrealized_dec
+        realized = self.position_manager.apply_fill(symbol, side, abs_qty, price)
+        self.realized_pnl += float(realized)
 
-        snapshot = CorePortfolioState(
-            cash=cash_dec,
-            realized_pnl=realized_dec,
-            fees=Decimal("0"),
-            equity=equity_dec,
-        )
-
-        snapshot.upsert_position(
-            Position(
-                symbol="__AGGREGATED__",
-                qty=Decimal("1"),
-                avg_price=Decimal("0"),
-                unrealized_pnl=unrealized_dec,
-            )
-        )
-
-        self.validator.assert_valid(snapshot, context="portfolio_snapshot")
-    # ====================================================
-    # FILL HANDLING
-    # ====================================================
-
-    def on_fill(self, fill) -> PortfolioState:
-        fill_id = getattr(fill, "fill_id", None)
-        if fill_id is None:
-            raise RuntimeError("FILL_ID_REQUIRED")
-
-        if fill_id in self._applied_fills:
-            raise RuntimeError("DUPLICATE_FILL_DETECTED")
-
-        self._applied_fills.add(fill_id)
-
-        side_attr = getattr(fill, "side", None)
-
-        if side_attr is None:
-            # legacy / integration compatibility:
-            # определяем сторону по знаку количества
-            qty_val = getattr(fill, "qty", 0)
-            side = "BUY" if qty_val >= 0 else "SELL"
-        else:
-            side = str(side_attr).upper()
-        notional = abs(fill.qty) * fill.price
-        commission = getattr(fill, "commission", 0.0)
-
-        if commission < 0:
-            raise RuntimeError("INVALID_COMMISSION_SIGN")
-
-        # ---- POSITION LAYER ----
-        symbol = getattr(fill, "symbol", None)
-        if symbol is None:
-            symbol = getattr(fill, "instrument", None)
-        if symbol is None:
-            symbol = "__TEST_SYMBOL__"
-
-        realized = self.position_manager.apply_fill(
-            symbol=symbol,
-            side=side,
-            qty=abs(fill.qty),  # ← ключевой фикс
-            price=fill.price,
-        )
-        # ---- CASH FLOW ----
+        # cash accounting (simplified, no margin): BUY decreases cash, SELL increases cash
         if side == "BUY":
-            self.cash -= notional
+            self.cash -= abs_qty * price
         else:
-            self.cash += notional
+            self.cash += abs_qty * price
 
-        self.cash -= commission
+        return float(realized)
 
-        # ---- REALIZED AGGREGATION ----
-        prev_realized = self.realized_pnl
-        self.realized_pnl += realized
-
-        if abs(self.realized_pnl - prev_realized - realized) > 1e-9:
-            raise RuntimeError("REALIZED_INVARIANT_BROKEN")
-
-        return self.compute_state()
-
-    # ----------------------------------------------------
-    # Backward compatibility alias (legacy tests)
-    # ----------------------------------------------------
-
-    def apply(self, fill) -> PortfolioState:
+    def apply_fill(self, *args, **kwargs):
         """
-        Legacy alias for on_fill.
-        Required for integration tests compatibility.
-        Auto-generates fill_id if missing (legacy tests).
+        Back-compat: proxy to on_fill.
+        - apply_fill(fill)
+        - apply_fill(symbol=..., side=..., qty=..., price=...)
         """
-        if getattr(fill, "fill_id", None) is None:
-            # deterministic fallback for legacy/integration tests
-            fill.fill_id = f"LEGACY_{uuid.uuid4().hex}"
+        if args and len(args) == 1 and not kwargs:
+            return self.on_fill(args[0])
+        symbol = kwargs.get("symbol") or (args[0] if len(args) > 0 else None)
+        side = kwargs.get("side") or (args[1] if len(args) > 1 else None)
+        qty = kwargs.get("qty") or (args[2] if len(args) > 2 else None)
+        price = kwargs.get("price") or (args[3] if len(args) > 3 else None)
+        sign_qty = float(qty) * (1.0 if str(side).upper() == "BUY" else -1.0)
+        return self.on_fill({"symbol": symbol, "qty": sign_qty, "price": float(price)})
 
-        return self.on_fill(fill)
+    # --- metrics ---
+    def get_position_qty(self, symbol: str) -> float:
+        return self.position_manager.get_position_qty(symbol)
 
-    def mark_price(self, symbol: str, price: float):
-        """
-        Mark-to-market helper for integration tests.
-        Updates position average mark price via PositionManager
-        and recomputes portfolio state.
-        """
-        if symbol in self.position_manager.positions:
-            pos = self.position_manager.positions[symbol]
-            pos.mark_price = price
-        return self.compute_state()
+    def equity(self) -> float:
+        # cash + sum(qty * mark_price) (mark_price falls back to avg_price)
+        eq = float(self.cash)
+        for pos in self.position_manager.positions.values():
+            px = pos.mark_price if pos.mark_price else pos.avg_price
+            eq += pos.qty * px
+        return eq
 
-    def get_state(self) -> PortfolioState:
-        """
-        Backward-compatible snapshot accessor.
-        """
-        return self.compute_state()
+    @property
+    def total_equity(self) -> float:
+        return self.equity()
 
-    def get_context(self):
-        """
-        Returns full PortfolioState snapshot (with positions).
-        Used by integration tests and risk layer.
-        """
-        return self.compute_state()
-    # ====================================================
-    # STATE COMPUTATION
-    # ====================================================
-
-    def compute_state(self, now_ts=None) -> PortfolioState:
-        market_value = 0.0
-        unrealized_total = 0.0
-        exposure = 0.0
-
-        for symbol, pos in self.position_manager.positions.items():
-            # ---- MARKET PRICE INJECTION ----
-            if self.price_provider:
-                market_price = self.price_provider.get_price(symbol)
-                current_price = market_price if market_price is not None else pos.avg_price
-            else:
-                current_price = pos.avg_price
-
-            position_value = pos.qty * current_price
-            market_value += position_value
-            exposure += abs(position_value)
-
-            unrealized_total += (current_price - pos.avg_price) * pos.qty
-
-        equity = self.cash + market_value
-
-        # ---- STRICT EQUITY INVARIANT ----
-        if abs(equity - (self.cash + market_value)) > 1e-9:
-            raise RuntimeError("EQUITY_STRICT_INVARIANT_BROKEN")
-
-        # ---- EXPOSURE INVARIANTS ----
-        if exposure < 0:
-            raise RuntimeError("EXPOSURE_NEGATIVE")
-
-        if exposure > 1e12:
-            raise RuntimeError("EXPOSURE_OVERFLOW")
-
-        if not self.position_manager.positions:
-            if exposure != 0:
-                raise RuntimeError("EXPOSURE_WITH_NO_POSITIONS")
-
-            if abs(unrealized_total) > 1e-9:
-                raise RuntimeError("UNREALIZED_WITH_NO_POSITIONS")
-
-        # ---- DRAWDOWN ----
-        if equity > self._equity_peak:
-            self._equity_peak = equity
-
-        if self._equity_peak > 0:
-            drawdown = (self._equity_peak - equity) / self._equity_peak
-        else:
-            drawdown = 0.0
-
-        # ---- FINAL VALIDATION ----
-        # Core validator model: equity = cash + unrealized
-        # Пока нет отдельной realized-схемы в core,
-        # unrealized должен содержать full marked position value
-        # ---- FLOAT NORMALIZATION (avoid drift into Decimal validator) ----
-        equity = round(equity, 12)
-        market_value = round(market_value, 12)
-        self._validate_snapshot(equity, market_value)
-        return PortfolioState(
-            cash=float(self.cash),
-            equity=float(equity),
-            realized_pnl=float(self.realized_pnl),
-            unrealized_pnl=float(unrealized_total),
-            exposure=float(exposure),
-            drawdown=float(drawdown),
-            positions=dict(self.position_manager.positions),
-        )
-
-    # ====================================================
-    # EVENT ADAPTER (EventStore → Domain Model)
-    # ====================================================
-
-    def handle_event(self, event_dict: dict):
-        event_type = event_dict.get("event_type")
-        payload = event_dict.get("payload", {})
-
-        if not event_type:
-            return
-
-        # ---- EXECUTION EVENT ----
-        if event_type == "ExecutionEvent":
-            fill = self._build_fill_from_payload(payload)
-            self.on_fill(fill)
-
-        # ---- EXTENSION POINT ----
-        # elif event_type == "SomethingElse":
-        #     ...
-
-    # ----------------------------------------------------
-    # INTERNAL ADAPTER HELPERS
-    # ----------------------------------------------------
-
-    class _ReplayFill:
-        def __init__(self, data: dict):
-            self.fill_id = data.get("fill_id")
-            self.symbol = data.get("symbol")
-            self.side = data.get("side")
-            self.qty = data.get("qty")
-            self.price = data.get("price")
-            self.commission = data.get("commission", 0.0)
-
-    def _build_fill_from_payload(self, payload: dict):
-        required = ["fill_id", "side", "qty", "price"]
-
-        for field in required:
-            if field not in payload:
-                raise RuntimeError(f"REPLAY_EVENT_INVALID: missing {field}")
-
-        return self._ReplayFill(payload)
+    @property
+    def total_exposure(self) -> float:
+        # gross exposure
+        total = 0.0
+        for pos in self.position_manager.positions.values():
+            px = pos.mark_price if pos.mark_price else pos.avg_price
+            total += abs(pos.qty) * px
+        return total

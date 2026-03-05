@@ -1,90 +1,81 @@
-from collections import defaultdict
-from dataclasses import dataclass
-from risk.context import RiskContext
+class PortfolioManager:
 
-@dataclass
-class Position:
-    qty: float = 0.0
-    avg_price: float = 0.0
-    realized_pnl: float = 0.0
+    def __init__(self, position_manager, initial_cash=0):
 
-class PositionManager:
+        self.positions = position_manager
 
-    def __init__(self, starting_cash: float = 100_000):
-        self.cash = starting_cash
-        self.starting_cash = starting_cash
-        self.positions = defaultdict(Position)
-        self.processed_fills = set()  # idempotency
-        self.last_prices = {}  # mark-to-market
+        self.cash = float(initial_cash)
 
-    # ---------- CONTEXT ----------
-    def get_context(self) -> RiskContext:
+        self.market_prices = {}
 
-        gross = 0.0
-        net = 0.0
-        unrealized = 0.0
+        self.equity = float(initial_cash)
 
-        for symbol, pos in self.positions.items():
-            price = self.last_prices.get(symbol, pos.avg_price)
-            notional = pos.qty * price
-            gross += abs(notional)
-            net += notional
-            unrealized += (price - pos.avg_price) * pos.qty
+        self.max_equity = float(initial_cash)
 
-        equity = self.cash + unrealized
+    # ------------------------------------------------
 
-        return RiskContext(
-            equity=equity,
-            cash=self.cash,
-            gross_exposure=gross,
-            net_exposure=net,
-        )
+    def update_price(self, symbol, price):
 
-    # ---------- APPLY FILL ----------
-    def apply_fill(self, fill):
+        if price is None:
+            return
 
-        if fill.fill_id in self.processed_fills:
-            return  # idempotency
+        self.market_prices[symbol] = price
 
-        pos = self.positions[fill.symbol]
+    # ------------------------------------------------
 
-        if fill.side == "BUY":
+    def get_unrealized_pnl(self):
 
-            if pos.qty >= 0:
-                total_cost = pos.qty * pos.avg_price + fill.qty * fill.price
-                pos.qty += fill.qty
-                pos.avg_price = total_cost / pos.qty
-            else:
-                # short closing
-                closing_qty = min(abs(pos.qty), fill.qty)
-                pnl = (pos.avg_price - fill.price) * closing_qty
-                pos.realized_pnl += pnl
-                pos.qty += fill.qty
-                if pos.qty > 0:
-                    pos.avg_price = fill.price
+        pnl = 0.0
 
-            self.cash -= fill.qty * fill.price + fill.commission
+        for symbol, pos in self.positions.positions.items():
 
-        elif fill.side == "SELL":
+            qty = pos["qty"]
+            avg_price = pos["avg_price"]
 
-            if pos.qty <= 0:
-                total_cost = abs(pos.qty) * pos.avg_price + fill.qty * fill.price
-                pos.qty -= fill.qty
-                pos.avg_price = total_cost / abs(pos.qty)
-            else:
-                closing_qty = min(pos.qty, fill.qty)
-                pnl = (fill.price - pos.avg_price) * closing_qty
-                pos.realized_pnl += pnl
-                pos.qty -= fill.qty
-                if pos.qty < 0:
-                    pos.avg_price = fill.price
+            price = self.market_prices.get(symbol)
 
-            self.cash += fill.qty * fill.price - fill.commission
+            if price is None:
+                continue
 
-        self.processed_fills.add(fill.fill_id)
+            pnl += (price - avg_price) * qty
 
-    # ---------- MARKET UPDATE ----------
-    def update_market_price(self, symbol, price):
-        self.last_prices[symbol] = price
+        return pnl
 
+    # ------------------------------------------------
 
+    def get_equity(self):
+
+        unrealized = self.get_unrealized_pnl()
+
+        self.equity = self.cash + unrealized
+
+        if self.equity > self.max_equity:
+            self.max_equity = self.equity
+
+        return self.equity
+
+    # ------------------------------------------------
+
+    def get_drawdown(self):
+
+        if self.max_equity == 0:
+            return 0
+
+        return (self.equity - self.max_equity) / self.max_equity
+
+    # ------------------------------------------------
+
+    def get_context(self):
+
+        equity = self.get_equity()
+
+        drawdown = self.get_drawdown()
+
+        context = {
+            "portfolio_value": equity,
+            "realized_pnl": self.positions.realized_pnl,
+            "daily_realized_pnl": self.positions.realized_pnl,
+            "drawdown": drawdown
+        }
+
+        return context

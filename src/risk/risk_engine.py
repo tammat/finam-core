@@ -13,7 +13,6 @@ __all__ = [
 ]
 
 
-# ---- backward compatibility ----
 def _deny(reason, rule=None):
     return RiskDecision.reject(reason)
 
@@ -24,9 +23,15 @@ if not hasattr(RiskDecision, "deny"):
 
 class RiskEngine:
     """
-    Backward-compatible façade over RiskStack.
+    RiskEngine facade over RiskStack.
 
-    evaluate(signal, context) -> signal | None
+    pipeline:
+
+        signal
+           ↓
+        evaluate(signal, context)
+           ↓
+        signal | None
     """
 
     def __init__(
@@ -37,7 +42,7 @@ class RiskEngine:
         max_daily_loss_pct=None,
         max_drawdown_pct=None,
         correlation_matrix=None,
-        **kwargs,
+        self.last_decision = None
     ):
 
         config = RiskConfig()
@@ -52,56 +57,74 @@ class RiskEngine:
             config.correlation_matrix = correlation_matrix
 
         self.stack = build_risk_stack(config)
+
         self.last_decision: RiskDecision | None = None
         self.is_frozen: bool = False
 
-        # сохраняем лимиты локально для явного freeze
         self._daily_limit = max_daily_loss_pct
         self._dd_limit = max_drawdown_pct
 
     # ------------------------------------------------
 
-    def evaluate(self, signal=None, context=None):
+    def evaluate(self, signal=None, context: RiskContext | None = None):
+        decision = self.stack.evaluate(context)
+        self.last_decision = decision
 
-        if context is None:
+        for flag in ("allowed", "is_allowed", "ok", "pass_", "approved"):
+            if hasattr(decision, flag):
+                return bool(getattr(decision, flag))
+
+        # если decision — bool (бывает)
+        if isinstance(decision, bool):
+            return decision
+
+        # fallback: truthy
+        return bool(decision)
+
+        if signal is None:
             return None
 
-        # если уже заморожены — блок
+        if context is None:
+            return signal
+
         if self.is_frozen:
             return None
 
         decision = self.stack.evaluate(context)
         self.last_decision = decision
 
-        # ---- explicit freeze logic for legacy tests ----
+        equity = float(getattr(context, "portfolio_value", 0.0) or 0.0)
 
-        # 1. Daily loss freeze
+        # ---- daily loss check ----
+
         if (
             self._daily_limit is not None
+            and equity > 0
             and hasattr(context, "daily_realized_pnl")
-            and hasattr(context, "portfolio_value")
         ):
-            equity = float(context.portfolio_value or 0.0)
-            if equity > 0:
-                daily_dd = float(context.daily_realized_pnl or 0.0) / equity
-                if daily_dd <= -abs(self._daily_limit):
-                    self.is_frozen = True
-                    return None
 
-        # 2. Max drawdown freeze
+            daily_dd = float(context.daily_realized_pnl or 0.0) / equity
+
+            if daily_dd <= -abs(self._daily_limit):
+                self.is_frozen = True
+                return None
+
+        # ---- drawdown check ----
+
         if (
             self._dd_limit is not None
+            and equity > 0
             and hasattr(context, "realized_pnl")
-            and hasattr(context, "portfolio_value")
         ):
-            equity = float(context.portfolio_value or 0.0)
-            if equity > 0:
-                dd = float(context.realized_pnl or 0.0) / equity
-                if dd <= -abs(self._dd_limit):
-                    self.is_frozen = True
-                    return None
 
-        # 3. Stack decision
+            dd = float(context.realized_pnl or 0.0) / equity
+
+            if dd <= -abs(self._dd_limit):
+                self.is_frozen = True
+                return None
+
+        # ---- stack decision ----
+
         if not decision.allowed:
             return None
 
@@ -110,6 +133,9 @@ class RiskEngine:
     # ------------------------------------------------
 
     def validate(self, fill):
+        """
+        validate executed trade (post-trade check)
+        """
         return True
 
     # ------------------------------------------------
@@ -119,3 +145,8 @@ class RiskEngine:
 
     def load_state(self, state):
         self.stack.load_state(state)
+
+    # ------------------------------------------------
+
+    def reset_freeze(self):
+        self.is_frozen = False

@@ -19,6 +19,7 @@ class FinamTokenManager:
         creds = grpc.ssl_channel_credentials()
         self.channel = grpc.secure_channel(self.host, grpc.ssl_channel_credentials())
         self.stub = auth_grpc.AuthServiceStub(self.channel)
+
     def get_token(self):
 
         if time.time() > self.expire_ts:
