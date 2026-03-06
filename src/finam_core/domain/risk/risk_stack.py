@@ -10,18 +10,57 @@ class RiskStack:
         self.frozen: bool = False
         self.freeze_reason: str | None = None
 
-    def evaluate(self, context: RiskContext) -> RiskDecision:
+    
+    def evaluate(self, context):
+
         if self.frozen:
+
             return RiskDecision.reject(self.freeze_reason or "frozen")
 
+
         for rule in self.rules:
+
             decision = rule.evaluate(context)
-            if not decision.allowed:
+
+
+            # --- Compatibility normalization ---
+
+            # Some legacy rules may return:
+
+            #   - RiskDecision
+
+            #   - bool
+
+            #   - (bool, reason)
+
+            # Normalize everything to RiskDecision.
+
+            if isinstance(decision, tuple):
+
+                allowed = bool(decision[0]) if len(decision) > 0 else False
+
+                reason = decision[1] if len(decision) > 1 else None
+
+                decision = RiskDecision.allow() if allowed else RiskDecision.reject(str(reason) if reason else "rejected")
+
+            elif isinstance(decision, bool):
+
+                decision = RiskDecision.allow() if decision else RiskDecision.reject("rejected")
+
+            elif decision is None:
+
+                # Treat None as allow (rule abstains)
+
+                decision = RiskDecision.allow()
+
+
+            if not getattr(decision, "allowed", False):
+
                 return decision
+
 
         return RiskDecision.allow()
 
-    # ---- state persistence ----
 
     def get_state(self) -> dict:
         return {
