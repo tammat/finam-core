@@ -16,11 +16,9 @@ ACCOUNT_ID = os.getenv("FINAM_ACCOUNT_ID") or os.getenv("ACCOUNT_ID") or "194331
 
 class OnceBuyStrategy:
     """Emit a single BUY intent on first valid quote."""
-
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.sent = False
-
     def on_quote(self, state: dict):
         sym = state.get("symbol")
         last = state.get("last")
@@ -31,8 +29,8 @@ class OnceBuyStrategy:
 
         self.sent = True
         print("STRATEGY EMIT INTENT", flush=True)
-        return {"symbol": sym, "side": "BUY", "qty": 1}
-
+        qty = float(os.getenv("TEST_QTY", "1"))
+        return {"symbol": sym, "side": "BUY", "qty": qty}
 
 def _get_position_qty(portfolio, symbol: str) -> float:
     if hasattr(portfolio, "get_position_qty"):
