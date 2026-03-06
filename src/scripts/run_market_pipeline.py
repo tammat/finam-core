@@ -8,7 +8,6 @@ from finam_core.execution.paper_engine import PaperExecutionEngine
 
 from finam_core.accounting.position_manager import PositionManager
 from finam_core.accounting.portfolio_manager import PortfolioManager
-
 from finam_core.risk.risk_engine import RiskEngine
 
 
