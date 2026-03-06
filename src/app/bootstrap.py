@@ -37,7 +37,6 @@ pipeline = TradingPipeline(
     storage=...,
     telegram_bot=bot,
 )
-)
 def build_pipeline():
 
     # ---- Risk 2.0 ----

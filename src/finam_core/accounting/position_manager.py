@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict
 from collections import defaultdict
+from typing import Optional
 from finam_core.storage.snapshot_repository import SnapshotRepository
 from finam_core.storage.fill_journal import FillJournal
 from finam_core.domain.risk.risk_factory import build_risk_stack
@@ -188,46 +189,69 @@ class PositionManager:
         return self.cash + market_value
     # --------------------------------------------------
 
-    def get_context(self):
+    def get_context(self, symbol: str | None = None, trade_value: float = 0.0):
+        """
+        Build RiskContext snapshot for risk layer.
 
+        Backward compatible:
+          - if symbol is None -> current_symbol_exposure = 0.0 (old behavior)
+          - trade_value defaults to 0.0 (old behavior)
 
+        Exposure metrics:
+          - total_exposure: sum(abs(qty) * mark_or_avg)
+          - current_symbol_exposure: abs(qty(symbol)) * mark_or_avg
+        """
         equity = self.total_equity()
 
-        gross_exposure = sum(
-            abs(pos.qty) * pos.avg_price
-            for pos in self.positions.values()
-        )
+        def _px(pos):
+            mp = getattr(pos, "mark_price", 0.0) or 0.0
+            ap = getattr(pos, "avg_price", 0.0) or 0.0
+            return float(mp if mp else ap)
 
-        # ---- Portfolio heat calculation ----
-        portfolio_heat = 0.0
-
+        gross_exposure = 0.0
         for pos in self.positions.values():
-            if pos.qty == 0:
+            q = float(getattr(pos, "qty", 0.0) or 0.0)
+            if q == 0:
                 continue
+            gross_exposure += abs(q) * _px(pos)
 
+        current_symbol_exposure = 0.0
+        if symbol:
+            pos = self.positions.get(symbol)
+            if pos is not None:
+                q = float(getattr(pos, "qty", 0.0) or 0.0)
+                current_symbol_exposure = abs(q) * _px(pos)
+
+        # ---- Portfolio heat ----
+        portfolio_heat = 0.0
+        for pos in self.positions.values():
+            q = float(getattr(pos, "qty", 0.0) or 0.0)
+            if q == 0:
+                continue
             atr = getattr(pos, "atr", None)
-
             if atr:
-                portfolio_heat += abs(pos.qty) * atr
+                portfolio_heat += abs(q) * float(atr)
             else:
-                portfolio_heat += abs(pos.qty) * pos.avg_price
+                portfolio_heat += abs(q) * _px(pos)
 
         return RiskContext(
-            symbol=None,
-            trade_value=0.0,
-            portfolio_value=equity,
-            current_symbol_exposure=0.0,
-            total_exposure=gross_exposure,
+            symbol=symbol,
+            trade_value=float(trade_value),
+            portfolio_value=float(equity),
+            current_symbol_exposure=float(current_symbol_exposure),
+            total_exposure=float(gross_exposure),
 
-            equity=equity,
-            gross_exposure=gross_exposure,
-            portfolio_heat=portfolio_heat,
+            equity=float(equity),
+            gross_exposure=float(gross_exposure),
+            portfolio_heat=float(portfolio_heat),
             positions=self.positions,
-            realized_pnl=self.realized_pnl,
-            unrealized_pnl=self.unrealized_pnl,
-            daily_realized_pnl=self.daily_realized_pnl,
-            starting_capital=self.starting_cash,
+            realized_pnl=float(getattr(self, "realized_pnl", 0.0) or 0.0),
+            unrealized_pnl=float(getattr(self, "unrealized_pnl", 0.0) or 0.0),
+            daily_realized_pnl=float(getattr(self, "daily_realized_pnl", 0.0) or 0.0),
+            starting_capital=float(getattr(self, "starting_cash", 0.0) or 0.0),
         )
+
+
     def on_fill(self, fill):
         self.apply_fill(fill)
 

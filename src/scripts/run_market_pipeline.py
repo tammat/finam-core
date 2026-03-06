@@ -1,5 +1,11 @@
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 import time
+import threading
 from types import SimpleNamespace
 
 from finam_core.events.event_bus import EventBus
@@ -16,149 +22,216 @@ ACCOUNT_ID = os.getenv("FINAM_ACCOUNT_ID") or os.getenv("ACCOUNT_ID") or "194331
 
 class OnceBuyStrategy:
     """Emit a single BUY intent on first valid quote."""
+
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.sent = False
+        self.test_qty = float(os.getenv("TEST_QTY", "1") or "1")
+
     def on_quote(self, state: dict):
         sym = state.get("symbol")
         last = state.get("last")
+
         if not self.sent:
             print(f"STRATEGY waiting first quote: {sym} last={last}", flush=True)
+
         if self.sent or sym != self.symbol or last is None:
             return None
 
         self.sent = True
         print("STRATEGY EMIT INTENT", flush=True)
-        qty = float(os.getenv("TEST_QTY", "1"))
-        return {"symbol": sym, "side": "BUY", "qty": qty}
-
-def _get_position_qty(portfolio, symbol: str) -> float:
-    if hasattr(portfolio, "get_position_qty"):
-        try:
-            return float(portfolio.get_position_qty(symbol))
-        except Exception:
-            pass
-    pm = getattr(portfolio, "position_manager", None)
-    if pm is not None and hasattr(pm, "get_position_qty"):
-        try:
-            return float(pm.get_position_qty(symbol))
-        except Exception:
-            pass
-    return 0.0
+        return {"symbol": sym, "side": "BUY", "qty": self.test_qty}
 
 
-def build_risk_context(intent: dict, portfolio, market_state: dict):
-    sym = intent.get("symbol")
-    side = intent.get("side")
-    qty = float(intent.get("qty", intent.get("quantity", 0)) or 0)
+def _safe_float(x, default=None):
+    try:
+        if x is None:
+            return default
+        return float(x)
+    except Exception:
+        return default
 
-    last = market_state.get("last")
-    bid = market_state.get("bid")
-    ask = market_state.get("ask")
 
+def _get_price_from_state(st: dict, side: str) -> float | None:
+    last = st.get("last")
+    bid = st.get("bid")
+    ask = st.get("ask")
     px = last
     if px is None:
-        px = ask if str(side).upper() == "BUY" else bid
-    px = float(px) if px is not None else 0.0
+        px = ask if side.upper() == "BUY" else bid
+    return _safe_float(px, default=None)
 
+
+def _get_position_qty_from_pm(pm: PositionManager, symbol: str) -> float:
+    try:
+        pos = pm.positions.get(symbol)
+        if pos is None:
+            return 0.0
+        return float(getattr(pos, "qty", 0.0) or 0.0)
+    except Exception:
+        return 0.0
+
+
+from types import SimpleNamespace
+
+def build_risk_context(intent: dict, portfolio, market_state: dict):
+    """Context builder for RiskStack rules.
+    Source of truth: PositionManager (portfolio.position_manager), portfolio is fallback.
+    """
+    sym = intent.get("symbol")
+    side = str(intent.get("side", "BUY")).upper()
+    qty = _safe_float(intent.get("qty", intent.get("quantity", 0)) or 0.0, default=0.0)
+
+    px = _get_price_from_state(market_state, side) or 0.0
     trade_value = abs(qty) * px
 
-    total_exposure = getattr(portfolio, "total_exposure", None)
-    if callable(total_exposure):
-        total_exposure = total_exposure()
-    if total_exposure is None:
-        total_exposure = getattr(portfolio, "gross_exposure", 0.0)
+    # -------- source of truth --------
+    pm = getattr(portfolio, "position_manager", None)
 
-    daily_pnl = getattr(portfolio, "daily_pnl", 0.0)
+    # equity / starting_capital
+    equity = None
+    starting_capital = None
+    daily_realized_pnl = None
+    total_exposure = None
+    portfolio_heat = None
+    daily_pnl = getattr(portfolio, "daily_pnl", 0.0)  # optional / informational
 
-    equity = getattr(portfolio, "equity", None)
-    if callable(equity):
-        equity = equity()
+    # Prefer PM if present
+    if pm is not None:
+        # equity
+        if hasattr(pm, "total_equity") and callable(pm.total_equity):
+            try:
+                equity = pm.total_equity()
+            except Exception:
+                equity = None
+        if equity is None:
+            equity = getattr(pm, "equity", None)
+            if callable(equity):
+                try:
+                    equity = equity()
+                except Exception:
+                    equity = None
+
+        # starting capital
+        starting_capital = getattr(pm, "starting_cash", None)
+        if starting_capital is None:
+            starting_capital = getattr(pm, "starting_capital", None)
+        if callable(starting_capital):
+            try:
+                starting_capital = starting_capital()
+            except Exception:
+                starting_capital = None
+
+        # realized pnl (daily)
+        daily_realized_pnl = getattr(pm, "daily_realized_pnl", None)
+        if daily_realized_pnl is None:
+            daily_realized_pnl = 0.0
+
+        # exposure from PM.get_context() if available
+        if hasattr(pm, "get_context") and callable(pm.get_context):
+            try:
+                ctx_pm = pm.get_context()
+                total_exposure = getattr(ctx_pm, "total_exposure", None)
+                portfolio_heat = getattr(ctx_pm, "portfolio_heat", None)
+            except Exception:
+                total_exposure = None
+                portfolio_heat = None
+
+        if total_exposure is None:
+            total_exposure = 0.0
+        if portfolio_heat is None:
+            portfolio_heat = 0.0
+
+    # -------- fallbacks to portfolio --------
+    if equity is None:
+        equity = getattr(portfolio, "equity", None)
+        if callable(equity):
+            equity = equity()
     if equity is None:
         equity = getattr(portfolio, "total_equity", 0.0)
 
-    starting_capital = getattr(portfolio, "starting_cash", None)
     if starting_capital is None:
-        starting_capital = getattr(portfolio, "initial_cash", None)
-    if starting_capital is None:
-        starting_capital = getattr(portfolio, "starting_capital", None)
-    if callable(starting_capital):
-        starting_capital = starting_capital()
-    if starting_capital is None:
-        starting_capital = equity  # fallback лучше чем падать
+        starting_capital = getattr(portfolio, "starting_cash", None)
+        if starting_capital is None:
+            starting_capital = getattr(portfolio, "initial_cash", None)
+        if starting_capital is None:
+            starting_capital = getattr(portfolio, "starting_capital", None)
+        if callable(starting_capital):
+            starting_capital = starting_capital()
+        if starting_capital is None:
+            starting_capital = equity  # safe fallback
 
-    pos_qty = _get_position_qty(portfolio, sym)
-    current_symbol_exposure = abs(pos_qty) * px
-    # daily_realized_pnl: try PositionManager first (preferred), then portfolio fallbacks
-    daily_realized_pnl = 0.0
+    if total_exposure is None:
+        total_exposure = getattr(portfolio, "total_exposure", None)
+        if total_exposure is None:
+            total_exposure = getattr(portfolio, "gross_exposure", 0.0)
 
-    pm = getattr(portfolio, "position_manager", None)
-    if pm is None:
-        pm = getattr(portfolio, "pm", None)
+    if daily_realized_pnl is None:
+        daily_realized_pnl = getattr(portfolio, "daily_realized_pnl", None)
+        if daily_realized_pnl is None:
+            daily_realized_pnl = 0.0
+
+    if portfolio_heat is None:
+        portfolio_heat = getattr(portfolio, "portfolio_heat", None)
+        if portfolio_heat is None:
+            portfolio_heat = 0.0
+
+    # current symbol exposure (prefer PM positions)
+    pos_qty = 0.0
     if pm is not None:
-        for attr in ("daily_realized_pnl", "daily_pnl_realized", "daily_realized"):
-            if hasattr(pm, attr):
-                try:
-                    daily_realized_pnl = float(getattr(pm, attr))
-                    break
-                except Exception:
-                    pass
-
-    if daily_realized_pnl == 0.0:
-        for attr in ("daily_realized_pnl", "daily_pnl", "realized_pnl", "daily_realized"):
-            if hasattr(portfolio, attr):
-                try:
-                    v = getattr(portfolio, attr)
-                    daily_realized_pnl = float(v() if callable(v) else v)
-                    break
-                except Exception:
-                    pass
-    # portfolio_heat: best-effort
-    # Обычно это доля экспозиции от капитала. Берём starting_capital, чтобы не делить на 0.
-    denom = float(starting_capital) if starting_capital not in (None, 0, 0.0) else float(equity or 0.0)
-    if denom <= 0:
-        portfolio_heat = 0.0
-    else:
-        # текущая "теплота" портфеля
-        portfolio_heat = float(total_exposure) / denom
+        pos_qty = _get_position_qty_from_pm(pm, sym)
+    current_symbol_exposure = abs(pos_qty) * px
 
     return SimpleNamespace(
+        symbol=sym,
+        side=side,
+        qty=float(qty),
+        price=float(px),
+
+        trade_value=float(trade_value),
         total_exposure=float(total_exposure) if total_exposure is not None else 0.0,
         current_symbol_exposure=float(current_symbol_exposure),
-        trade_value=float(trade_value),
         daily_pnl=float(daily_pnl) if daily_pnl is not None else 0.0,
+        daily_realized_pnl=float(daily_realized_pnl) if daily_realized_pnl is not None else 0.0,
+        portfolio_heat=float(portfolio_heat) if portfolio_heat is not None else 0.0,
+
         equity=float(equity) if equity is not None else 0.0,
         starting_capital=float(starting_capital) if starting_capital is not None else 0.0,
         starting_cash=float(starting_capital) if starting_capital is not None else 0.0,
-        symbol=sym,
-        side=str(side).upper(),
-        qty=float(qty),
-        price=float(px),
-        position_qty=float(pos_qty),
+
         intent=intent,
         market_state=market_state,
         portfolio=portfolio,
-        daily_realized_pnl=float(daily_realized_pnl),
-        portfolio_heat=float(portfolio_heat),
     )
 
 
 class PaperTradingPipeline:
-    """MarketData → Strategy → Risk → PaperExecution → Accounting"""
+    """MarketData → Strategy → Risk → PaperExecution → PositionManager"""
 
-    def __init__(self, bus, portfolio, position_manager, risk, paper, strategy):
+    def __init__(
+        self,
+        bus: EventBus,
+        portfolio: PortfolioManager,
+        position_manager: PositionManager,
+        risk: RiskEngine,
+        paper: PaperExecutionEngine,
+        strategy: OnceBuyStrategy,
+        done: threading.Event | None = None,
+    ):
         self.bus = bus
         self.portfolio = portfolio
         self.pm = position_manager
         self.risk = risk
         self.paper = paper
-
         self.strategy = strategy
-        self._mkt = {}
+
+        self._mkt: dict[str, dict] = {}
         self._filled_once = False
+        self._done = done
 
         self._last_quote_log_ts = 0.0
-        self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "1.0"))
+        self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "1.0") or "1.0")
+
     def attach(self):
         self.bus.subscribe("QUOTE", self._on_quote)
 
@@ -167,37 +240,48 @@ class PaperTradingPipeline:
         if not sym:
             return
 
-        # --- merge quote state ---
+        # quote logging throttled
+        now = time.time()
+        last = event.get("last")
+        if self._quote_log_every > 0 and (now - self._last_quote_log_ts) >= self._quote_log_every:
+            self._last_quote_log_ts = now
+            print(f"QUOTE {sym} last={last}", flush=True)
+
+        # merge quote state
         st = self._mkt.get(sym, {})
         st.update(event)
         self._mkt[sym] = st
-        now = time.time()
-        if self._quote_log_every > 0 and (now - self._last_quote_log_ts) >= self._quote_log_every:
-            print(f"QUOTE {sym} last={st.get('last')}", flush=True)
-            self._last_quote_log_ts = now
-        # --- push price into portfolio if it supports it ---
-        last = st.get("last")
-        if last is not None:
-            px = float(last)
-            if hasattr(self.portfolio, "on_price"):
-                self.portfolio.on_price(sym, px)
-            elif hasattr(self.portfolio, "update_market_price"):
-                self.portfolio.update_market_price(sym, px)
 
-        # --- strategy ---
+        # optional mark-to-market (PortfolioManager may expose mark_price)
+        last = st.get("last")
+        if last is not None and hasattr(self.portfolio, "mark_price"):
+            try:
+                self.portfolio.mark_price(sym, float(last))
+            except Exception:
+                pass
+
+        # strategy
         intent = self.strategy.on_quote(st)
-        if intent:
-            print(f"PIPE intent={intent}", flush=True)
         if not intent:
             return
+        print(f"PIPE intent={intent}", flush=True)
 
-        # --- RISK (single path) ---
+        # risk (single path)
+        approved = True
+        decision = None
+
         if os.getenv("RISK_SOFT") == "1":
             print("RISK SOFT: bypass", flush=True)
-            approved = True
-            decision = None
         else:
             ctx = build_risk_context(intent, self.portfolio, st)
+            print(
+                f"DBG equity={getattr(ctx, 'equity', None)} "
+                f"start={getattr(ctx, 'starting_capital', None)} "
+                f"total={getattr(ctx, 'total_exposure', None)} "
+                f"sym={getattr(ctx, 'current_symbol_exposure', None)} "
+                f"tv={getattr(ctx, 'trade_value', None)}",
+                flush=True
+            )
             if hasattr(self.risk, "stack") and hasattr(self.risk.stack, "evaluate"):
                 decision = self.risk.stack.evaluate(ctx)
             else:
@@ -228,51 +312,57 @@ class PaperTradingPipeline:
 
         print("RISK OK", flush=True)
 
-        # --- PAPER EXECUTE ---
+        # paper execution
         print("PIPE PAPER EXECUTE", flush=True)
         fill = self.paper.execute(intent, st)
 
-        from types import SimpleNamespace
-
         side = str(intent.get("side", "BUY")).upper()
-
-        # PositionManager ожидает fill.qty как МОДУЛЬ, а знак берёт из fill.side
-        fill_pm = SimpleNamespace(
-            symbol=fill.symbol,
-            qty=abs(float(fill.qty)),
-            price=float(fill.price),
+        qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
+        pm_fill = SimpleNamespace(
+            symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
             side=side,
-            commission=float(getattr(fill, "commission", 0.0)),
+            qty=qty,  # PositionManager expects positive qty; side carries direction
+            price=float(getattr(fill, "price", 0.0) or 0.0),
+            commission=float(getattr(fill, "commission", 0.0) or 0.0),
             fill_id=getattr(fill, "fill_id", None),
             event_id=getattr(fill, "event_id", None),
         )
 
-        print(f"PIPE fill={fill} -> pm_fill(side={fill_pm.side}, qty={fill_pm.qty})", flush=True)
+        print(f"PIPE fill={fill} -> pm_fill(side={pm_fill.side}, qty={pm_fill.qty})", flush=True)
 
-        # --- APPLY FILL: ONLY via accounting PositionManager.apply_fill(fill) ---
-        pm = getattr(self, "position_manager", None)
-        if pm is None:
-            pm = getattr(self.portfolio, "position_manager", None)
+        # single source of truth: ONLY PositionManager.apply_fill
+        # single source of truth: ONLY PositionManager.apply_fill
+        self.pm.apply_fill(pm_fill)
 
-        if pm is None or not hasattr(pm, "apply_fill"):
-            print("ACCOUNTING ERROR: PositionManager not wired (no pm.apply_fill)", flush=True)
-            return
+        # --- DIAG: PM context after fill (safe) ---
+        try:
+            pm_ctx = self.pm.get_context(symbol=pm_fill.symbol, trade_value=0.0)
+            print(
+                "PM_CTX "
+                f"portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
+                f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
+                f"sym_exposure={getattr(pm_ctx, 'current_symbol_exposure', None)} "
+                f"daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"PM_CTX DIAG ERROR: {e}", flush=True)
+        # safe diag (no exceptions)
+        pos = self.pm.positions.get(pm_fill.symbol)
+        q = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+        avg = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
+        cash = float(getattr(self.pm, "cash", 0.0) or 0.0)
+        print(f"PM qty[{pm_fill.symbol}]={q} avg={avg} cash={cash}", flush=True)
 
-        pm.apply_fill(fill_pm)
+        print(f"FILLED paper {pm_fill.symbol} qty={pm_fill.qty} price={pm_fill.price} id={pm_fill.fill_id}", flush=True)
+
+        # exit-on-fill behavior: default EXIT_ON_FILL=1; keep streaming when 0
         if not self._filled_once and os.getenv("EXIT_ON_FILL", "1") == "1":
             self._filled_once = True
             print("DONE: filled once, exiting", flush=True)
-            os._exit(0)
-        # DIAG: read qty from PM directly (source of truth)
-        try:
-            pos = pm.positions[fill.symbol]
-            cash = getattr(pm, "cash", None)
-            print(f"PM qty[{fill.symbol}]={pos.qty} avg={pos.avg_price} cash={cash}", flush=True)
-        except Exception as e:
-            print(f"PM DIAG ERROR: {e}", flush=True)
-
-        print(f"FILLED paper {fill.symbol} qty={fill.qty} price={fill.price} id={getattr(fill, 'fill_id', None)}",
-              flush=True)
+            if self._done is not None:
+                self._done.set()
+            return
 
 
 def main():
@@ -280,51 +370,80 @@ def main():
 
     symbol = os.getenv("SYMBOL") or "GAZP@MISX"
     run_secs = float(os.getenv("RUN_SECS") or "0")
-    STARTING_CASH = float(os.getenv("STARTING_CASH", "100000"))
+    starting_cash = float(os.getenv("STARTING_CASH") or "100000")
+    md_hb = float(os.getenv("MD_HEARTBEAT_SEC") or "10")
 
     print(f"Starting PAPER market pipeline. account={ACCOUNT_ID} symbol={symbol}", flush=True)
 
     bus = EventBus()
+    done = threading.Event()
 
-    # 1) СОЗДАЁМ pm ОДИН РАЗ
-    pm = PositionManager()
+    # PositionManager is paper accounting source-of-truth
+    pm = PositionManager(starting_cash=starting_cash)
+    # ensure these exist for risk rules
+    pm.cash = starting_cash
+    pm.starting_cash = starting_cash
+    pm.starting_capital = starting_cash
 
-    # 2) СТАВИМ СТАРТОВЫЕ ДЕНЬГИ (ровно этому объекту)
-    pm.cash = STARTING_CASH
-    pm.starting_cash = STARTING_CASH
-    pm.starting_capital = STARTING_CASH
-
-    # 3) СОЗДАЁМ portfolio (тоже один раз)
+    # PortfolioManager: kept for mark_price + risk context (shares pm via attribute)
     try:
-        portfolio = PortfolioManager(starting_cash=STARTING_CASH)
+        portfolio = PortfolioManager(starting_cash=starting_cash)
     except TypeError:
         try:
-            portfolio = PortfolioManager(initial_cash=STARTING_CASH)
+            portfolio = PortfolioManager(initial_cash=starting_cash)
         except TypeError:
-            portfolio = PortfolioManager(STARTING_CASH)
+            portfolio = PortfolioManager(starting_cash)
 
-    # 4) ПРОКИДЫВАЕМ pm ВНУТРЬ portfolio (всегда)
     setattr(portfolio, "position_manager", pm)
 
     risk = RiskEngine()
     paper = PaperExecutionEngine(slippage_coef=0.25, commission=0.0)
-
     strategy = OnceBuyStrategy(symbol)
 
-    # ВАЖНО: передаём тот же pm в pipeline
-    pipeline = PaperTradingPipeline(bus, portfolio, pm, risk, paper, strategy)
+    pipeline = PaperTradingPipeline(bus, portfolio, pm, risk, paper, strategy, done)
     pipeline.attach()
 
-    md = FinamMarketDataClient(bus)
+    # MarketData client: support разных версий сигнатуры __init__
+    try:
+        md = FinamMarketDataClient(bus, heartbeat_sec=md_hb)
+    except TypeError:
+        try:
+            md = FinamMarketDataClient(bus, heartbeat=md_hb)
+        except TypeError:
+            md = FinamMarketDataClient(bus)
+            # last resort: если параметр называется иначе — просто пишем атрибут
+            if hasattr(md, "heartbeat_sec"):
+                md.heartbeat_sec = float(md_hb)
+            elif hasattr(md, "heartbeat"):
+                md.heartbeat = float(md_hb)
+            print("Starting MD...", flush=True)
     md.start([symbol])
 
-    t0 = time.time()
-    while True:
-        time.sleep(1)
-        if run_secs > 0 and (time.time() - t0) >= run_secs:
-            print("RUN_SECS reached, exit", flush=True)
-            return
+    deadline = time.time() + run_secs if run_secs and run_secs > 0 else None
+    try:
+        while True:
+            if done.wait(timeout=0.5):
+                return
+            if deadline is not None and time.time() >= deadline:
+                print("RUN_SECS reached, exit", flush=True)
+                return
+    finally:
+        # safe shutdown for different MarketDataClient versions
+        # safe shutdown for different MarketDataClient versions (avoid channel.close() spam)
+        try:
+            if hasattr(md, "stop") and callable(getattr(md, "stop")):
+                md.stop()
+            else:
+                if hasattr(md, "_stop"):
+                    try:
+                        md._stop.set()
+                    except Exception:
+                        pass
+                # IMPORTANT: do NOT close channel here -> prevents CANCELLED spam
+        except Exception:
+            pass
 
+        print("DONE", flush=True)
 
 if __name__ == "__main__":
     main()

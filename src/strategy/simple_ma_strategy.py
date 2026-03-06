@@ -46,5 +46,24 @@ class SimpleMAStrategy:
 
         last_bar = w[-1]
 
-        # crossover вверх
-        if prev_fast <= prev_s
+        # crossover вверх: fast пересекает slow снизу вверх
+        if prev_fast <= prev_slow and cur_fast > cur_slow:
+            return Signal(
+                symbol=last_bar.symbol,
+                timeframe=getattr(last_bar, "timeframe", ""),
+                ts=last_bar.ts,
+                side="BUY",
+                reason=f"SMA_CROSS_UP fast={self.fast} slow={self.slow}",
+            )
+
+        # crossover вниз: fast пересекает slow сверху вниз
+        if prev_fast >= prev_slow and cur_fast < cur_slow:
+            return Signal(
+                symbol=last_bar.symbol,
+                timeframe=getattr(last_bar, "timeframe", ""),
+                ts=last_bar.ts,
+                side="SELL",
+                reason=f"SMA_CROSS_DOWN fast={self.fast} slow={self.slow}",
+            )
+
+        return None

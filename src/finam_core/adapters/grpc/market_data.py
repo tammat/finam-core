@@ -40,15 +40,20 @@ class FinamMarketDataClient:
 
                 self._handle_stream(stream)
 
+
             except grpc.RpcError as e:
 
-                code = e.code()
+                if getattr(self, "_stop", None) is not None and self._stop.is_set():
+                    break
 
-                if code == grpc.StatusCode.UNAUTHENTICATED:
-                    print("MarketData: token expired, refreshing")
-                    self.token = self.tm.get_token()
-                else:
-                    print("MarketData reconnect:", e)
+                # если канал уже закрыт из-за остановки — тоже молчим
+
+                if "Channel closed" in str(e) or "Locally cancelled" in str(e):
+                    # это штатно при остановке/отмене
+
+                    break
+
+                print(f"MarketData reconnect: {e}", flush=True)
 
                 time.sleep(2)
 

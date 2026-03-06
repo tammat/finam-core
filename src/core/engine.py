@@ -1,5 +1,5 @@
 # risk/risk_engine.py
-
+from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 from datetime import datetime
@@ -75,7 +75,7 @@ class RiskEngine:
         return RiskResult(True)
 # risk/risk_engine.py
 
-from __future__ import annotations
+
 
 from dataclasses import dataclass
 from datetime import datetime
