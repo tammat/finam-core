@@ -1,4 +1,7 @@
+import time
 import os
+import threading
+from types import SimpleNamespace
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -6,7 +9,6 @@ except Exception:
     pass
 import time
 import threading
-from types import SimpleNamespace
 
 from finam_core.events.event_bus import EventBus
 from finam_core.adapters.grpc.market_data import FinamMarketDataClient
@@ -72,7 +74,6 @@ def _get_position_qty_from_pm(pm: PositionManager, symbol: str) -> float:
         return 0.0
 
 
-from types import SimpleNamespace
 
 def build_risk_context(intent: dict, portfolio, market_state: dict):
     """Context builder for RiskStack rules.
@@ -331,17 +332,20 @@ class PaperTradingPipeline:
         print(f"PIPE fill={fill} -> pm_fill(side={pm_fill.side}, qty={pm_fill.qty})", flush=True)
 
         # single source of truth: ONLY PositionManager.apply_fill
-        # single source of truth: ONLY PositionManager.apply_fill
         self.pm.apply_fill(pm_fill)
 
         # --- DIAG: PM context after fill (safe) ---
         try:
-            pm_ctx = self.pm.get_context(symbol=pm_fill.symbol, trade_value=0.0)
+            pm_ctx = self.pm.get_context()
+            pos = self.pm.positions.get(pm_fill.symbol)
+            sym_exposure = None
+            if pos is not None:
+                sym_exposure = abs(float(getattr(pos, "qty", 0.0) or 0.0)) * float(pm_fill.price)
             print(
                 "PM_CTX "
                 f"portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
                 f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
-                f"sym_exposure={getattr(pm_ctx, 'current_symbol_exposure', None)} "
+                f"sym_exposure={sym_exposure} "
                 f"daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)}",
                 flush=True,
             )
