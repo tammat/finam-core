@@ -1,143 +1,251 @@
+import os
 import grpc
 import threading
 import time
+from typing import Any, Dict, Iterable, List, Optional
+
 from finam_core.auth.token_manager import FinamTokenManager
 from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2
 from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2_grpc
 
 
 class FinamMarketDataClient:
+    """
+    gRPC MarketData (quotes) -> EventBus.
 
-    def __init__(self, event_bus):
+    Ключевые фиксы:
+    - JWT обновляем на КАЖДУЮ попытку Subscribe (иначе поток молчит после ротации токена)
+    - heartbeat через watchdog + cancel() активного вызова (НЕ закрываем channel внутри потока)
+    - stop() корректно останавливает поток и закрывает channel
+    - msg.quote — одиночное поле, НЕ iterable
+    """
 
+    def __init__(
+        self,
+        event_bus,
+        *,
+        host: str = "api.finam.ru:443",
+        heartbeat_sec: float = 10.0,
+    ):
         self.event_bus = event_bus
-        self.state = {}  # symbol -> last known fields        tm = FinamTokenManager()
-        self.last_msg_ts = time.time()
-        self.tm = FinamTokenManager()
-        self.token = self.tm.get_token()
-        self.channel = grpc.secure_channel(
-            "api.finam.ru:443",
-            grpc.ssl_channel_credentials()
-        )
+        self.host = host
+        self.heartbeat_sec = float(heartbeat_sec)
 
+        self.state: Dict[str, Dict[str, Any]] = {}
+        self.last_msg_ts = time.time()
+
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+        self._active_call = None
+        self._watchdog: Optional[threading.Thread] = None
+
+        self.tm = FinamTokenManager()
+        self.channel = grpc.secure_channel(self.host, grpc.ssl_channel_credentials())
         self.stub = marketdata_service_pb2_grpc.MarketDataServiceStub(self.channel)
 
-    def subscribe_quotes(self, symbols):
-
-        while True:
-
-            try:
-
-                metadata = [
-                    ("authorization", f"Bearer {self.token}")
-                ]
-
-                req = marketdata_service_pb2.SubscribeQuoteRequest(
-                    symbols=symbols
-                )
-
-                stream = self.stub.SubscribeQuote(req, metadata=metadata)
-
-                self._handle_stream(stream)
-
-
-            except grpc.RpcError as e:
-
-                if getattr(self, "_stop", None) is not None and self._stop.is_set():
-                    break
-
-                # если канал уже закрыт из-за остановки — тоже молчим
-
-                if "Channel closed" in str(e) or "Locally cancelled" in str(e):
-                    # это штатно при остановке/отмене
-
-                    break
-
-                print(f"MarketData reconnect: {e}", flush=True)
-
-                time.sleep(2)
-
-    def start(self, symbols):
-
-        t1 = threading.Thread(
+    # ----------------------------
+    # lifecycle
+    # ----------------------------
+    def start(self, symbols: List[str]) -> None:
+        # Комментарий: защищаемся от двойного старта
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
             target=self.subscribe_quotes,
             args=(symbols,),
-            daemon=True
+            daemon=True,
         )
+        self._thread.start()
 
-        t2 = threading.Thread(
-            target=self._monitor_heartbeat,
-            daemon=True
-        )
+    def stop(self) -> None:
+        # Комментарий: корректный stop — сначала cancel активного stream, потом close channel
+        self._stop.set()
+        try:
+            if self._active_call is not None:
+                self._active_call.cancel()
+        except Exception:
+            pass
+        try:
+            self.channel.close()
+        except Exception:
+            pass
 
-        t1.start()
-        t2.start()
-    def _update_state_from_quote(self, quote):
+    def _md(self):
+        # Комментарий: JWT обновляем на КАЖДУЮ подписку
+        jwt = self.tm.get_token()
+        return [("authorization", f"Bearer {jwt}")]
 
-        symbol = quote.symbol
+    def _start_watchdog(self) -> None:
+        # Комментарий: watchdog один, не плодим потоки
+        if self._watchdog and self._watchdog.is_alive():
+            return
 
-        state = self.state.setdefault(symbol, {
-            "bid": None,
-            "ask": None,
-            "last": None,
-            "volume": None
-        })
+        def _run():
+            while not self._stop.is_set():
+                time.sleep(0.5)
+                call = self._active_call
+                if call is None:
+                    continue
+                if (time.time() - self.last_msg_ts) > self.heartbeat_sec:
+                    # Комментарий: важное — НЕ закрываем channel, только cancel stream
+                    if os.getenv("MD_DEBUG") == "1":
+                        print("MarketData heartbeat timeout — cancelling stream", flush=True)
+                    try:
+                        call.cancel()
+                    except Exception:
+                        pass
+                    return
 
-        if quote.bid.value:
-            state["bid"] = float(quote.bid.value)
+        self._watchdog = threading.Thread(target=_run, daemon=True)
+        self._watchdog.start()
 
-        if quote.ask.value:
-            state["ask"] = float(quote.ask.value)
+    # ----------------------------
+    # subscribe loop
+    # ----------------------------
+    def subscribe_quotes(self, symbols: List[str]) -> None:
+        backoff = 0.5
+        while not self._stop.is_set():
+            try:
+                req = marketdata_service_pb2.SubscribeQuoteRequest(symbols=symbols)
 
-        if quote.last.value:
-            state["last"] = float(quote.last.value)
+                call = self.stub.SubscribeQuote(req, metadata=self._md())
+                self._active_call = call
+                self.last_msg_ts = time.time()
+                self._start_watchdog()
 
-        if quote.volume.value:
-            state["volume"] = float(quote.volume.value)
+                if os.getenv("MD_DEBUG") == "1":
+                    print(f"MarketData subscribed: {symbols}", flush=True)
 
-        return symbol, state
+                backoff = 0.5
+                self._handle_stream(call)
 
-    def _publish_quote(self, symbol, state):
+            except grpc.RpcError as e:
+                if self._stop.is_set():
+                    break
+                # Комментарий: CANCELLED тут нормален (stop/watchdog)
+                if os.getenv("MD_DEBUG") == "1":
+                    print(f"MarketData reconnect: {e}", flush=True)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 10.0)
 
-        event = {
-            "type": "QUOTE",
-            "symbol": symbol,
-            **state
-        }
+            except Exception as e:
+                if self._stop.is_set():
+                    break
+                print(f"MarketData fatal (will reconnect): {e}", flush=True)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 10.0)
 
-        self.event_bus.publish(event)
+            finally:
+                self._active_call = None
 
-    def _handle_stream(self, stream):
-
+    def _handle_stream(self, stream: Iterable) -> None:
         for msg in stream:
-
-            for quote in msg.quote:
-                symbol, state = self._update_state_from_quote(quote)
-
-                self._publish_quote(symbol, state)
-
-    def _handle_stream(self, stream):
-
-        for msg in stream:
+            if self._stop.is_set():
+                return
 
             self.last_msg_ts = time.time()
 
-            for quote in msg.quote:
-                symbol, state = self._update_state_from_quote(quote)
+            quote_field = getattr(msg, "quote", None)
+            if quote_field is None:
+                continue
 
-                self._publish_quote(symbol, state)
+            # Finam: msg.quote может быть либо одним сообщением, либо repeated (список)
+            if hasattr(quote_field, "__len__") and not hasattr(quote_field, "symbol"):
+                quotes = list(quote_field)
+            else:
+                quotes = [quote_field]
 
-    def _monitor_heartbeat(self):
+            for quote in quotes:
+                symbol = getattr(quote, "symbol", None)
+                if not symbol:
+                    continue
 
-        while True:
+                state = self.state.get(symbol, {})
+                state["symbol"] = symbol
 
-            if time.time() - self.last_msg_ts > 10:
+                def _dec(v):
+                    try:
+                        if v is None:
+                            return None
+                        if hasattr(v, "value"):
+                            s = v.value
+                            if not s:
+                                return None
+                            return float(s)
+                        return float(v)
+                    except Exception:
+                        return None
 
-                print("MarketData heartbeat timeout — reconnecting")
+                for k in ("bid", "ask", "last", "volume", "open", "high", "low", "close"):
+                    val = getattr(quote, k, None)
+                    if val is not None:
+                        state[k] = _dec(val)
 
+                self.state[symbol] = state
+
+                event = {
+                    "type": "QUOTE",
+                    "symbol": symbol,
+                    "bid": state.get("bid"),
+                    "ask": state.get("ask"),
+                    "last": state.get("last"),
+                    "volume": state.get("volume"),
+                }
+                # DEBUG по желанию
+                if os.getenv("MD_DEBUG") == "1":
+                    print(f"MD->BUS QUOTE {symbol} last={event.get('last')}", flush=True)
+
+                # ВАЖНО: отправляем в EventBus
+                self.event_bus.publish(event)
+                if os.getenv("MD_DEBUG") == "1":
+                    print(f"MD->BUS QUOTE {symbol} last={event.get('last')}", flush=True)
+
+                # Публикуем строго в topic "QUOTE" для EventBus(topic-based)
                 try:
-                    self.channel.close()
-                except:
-                    pass
+                    # Публикуем ОДИН объект события: EventBus сам маршрутизирует по event["type"]
+                    self.event_bus.publish(event)
+                except TypeError:
+                    # fallback: если EventBus поддерживает publish(event) и сам берет event["type"]
+                    self.event_bus.publish(event)
+                if not symbol:
+                    continue
 
-            time.sleep(3)
+            state = self.state.get(symbol, {})
+            state["symbol"] = symbol
+
+            def _dec(v):
+                # Комментарий: google.type.Decimal (value: str) -> float
+                try:
+                    if v is None:
+                        return None
+                    if hasattr(v, "value"):
+                        s = v.value
+                        if not s:
+                            return None
+                        return float(s)
+                    return float(v)
+                except Exception:
+                    return None
+
+            for k in ("bid", "ask", "last", "volume", "open", "high", "low", "close"):
+                val = getattr(quote, k, None)
+                if val is not None:
+                    state[k] = _dec(val)
+
+            self.state[symbol] = state
+
+            event = {
+                "type": "QUOTE",
+                "symbol": symbol,
+                "bid": state.get("bid"),
+                "ask": state.get("ask"),
+                "last": state.get("last"),
+                "volume": state.get("volume"),
+            }
+
+            if os.getenv("MD_DEBUG") == "1":
+                print(f"MD->BUS QUOTE {symbol} last={event.get('last')}", flush=True)
+
+            self.event_bus.publish(event)

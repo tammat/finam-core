@@ -1,3 +1,6 @@
+# Канон: finam_core.core.events.fill_event.FillEvent
+# Примечание: timestamp нормализуем в UTC, если не передан.
+
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -17,9 +20,13 @@ class FillEvent(BaseEvent):
         commission=0.0,
         timestamp=None,
     ):
+        if timestamp is None:
+            timestamp = datetime.now(timezone.utc)
+
         super().__init__(
             event_id=event_id or str(uuid4()),
-            timestamp=timestamp        )
+            timestamp=timestamp,
+        )
 
         self.fill_id = fill_id or str(uuid4())
         self.order_id = order_id

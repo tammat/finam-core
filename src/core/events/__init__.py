@@ -9,13 +9,12 @@ from .order_event import (
     OrderCreateRequestedEvent,
     OrderCreatedEvent,
 )
-
-
 from .risk_event import (
     RiskCheckRequestedEvent,
     RiskApprovedEvent,
     RiskRejectedEvent,
 )
+
 __all__ = [
     "BaseEvent",
     "MarketEvent",
