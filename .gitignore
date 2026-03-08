@@ -37,3 +37,7 @@ __pycache__/
 # local env
 .env
 .env.*
+
+# backups
+*.bak
+*.bak.*
