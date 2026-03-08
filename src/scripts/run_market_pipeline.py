@@ -24,7 +24,10 @@ ACCOUNT_ID = os.getenv("FINAM_ACCOUNT_ID") or os.getenv("ACCOUNT_ID") or "194331
 def main():
     os.environ.setdefault("EXECUTION_MODE", "paper")
 
-    symbol = os.getenv("SYMBOL") or "GAZP@MISX"
+    symbol = os.getenv("SYMBOL") or "NGH6@RTSX"
+    # Русский коммент: список подписки MarketData (мульти-инструмент)
+    symbols_raw = os.getenv("SYMBOLS") or symbol
+    symbols = [s.strip() for s in symbols_raw.split(",") if s.strip()]
     run_secs = float(os.getenv("RUN_SECS") or "0")
     starting_cash = float(os.getenv("STARTING_CASH") or "100000")
     md_hb = float(os.getenv("MD_HEARTBEAT_SEC") or "10")
@@ -67,7 +70,7 @@ def main():
         except TypeError:
             md = FinamMarketDataClient(bus)
 
-    md.start([symbol])
+    md.start(symbols)
 
     deadline = time.time() + run_secs if run_secs and run_secs > 0 else None
     try:
