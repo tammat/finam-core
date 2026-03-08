@@ -1,14 +1,18 @@
-# Русский коммент: Pipeline B (event-driven)
+# src/finam_core/pipelines/paper_pipeline.py
+# Русский коммент: Pipeline B (event-driven).
 # QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from types import SimpleNamespace
-from finam_core.core.events.execution_fill import ExecutionFill
+
 from finam_core.execution.execution_fill import ExecutionFill
-from finam_core.core.events.fill_event_mapper import to_core_fill_event
+
+LOG = logging.getLogger(__name__)
+
 
 def _safe_float(x, default=0.0) -> float:
     try:
@@ -48,8 +52,7 @@ def build_risk_context(intent: dict, portfolio, market_state: dict):
 
     # equity / starting_capital
     equity = getattr(portfolio, "equity", None)
-    if callable(equity):
-        equity = equity()
+    equity = equity() if callable(equity) else equity
     if equity is None:
         equity = getattr(portfolio, "total_equity", None)
         equity = equity() if callable(equity) else equity
@@ -80,7 +83,6 @@ def build_risk_context(intent: dict, portfolio, market_state: dict):
 
     current_symbol_exposure = abs(pos_qty) * px
 
-    # daily_realized_pnl / portfolio_heat (для правил)
     daily_realized_pnl = getattr(portfolio, "daily_realized_pnl", None)
     if daily_realized_pnl is None:
         daily_realized_pnl = getattr(pm, "daily_realized_pnl", 0.0) if pm is not None else 0.0
@@ -130,7 +132,7 @@ class PaperTradingPipeline:
         self.strategy = strategy
         self._done = done
 
-        self._mkt = {}
+        self._mkt: dict[str, dict] = {}
         self._filled_once = False
 
         # Русский коммент: троттлинг логов котировок
@@ -138,10 +140,10 @@ class PaperTradingPipeline:
         self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
 
     def attach(self):
-        # Русский коммент: Pipeline B — подписка на котировки и на исполнения
+        # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
         self.bus.subscribe("QUOTE", self._on_quote)
         self.bus.subscribe("FILL", self._on_fill)
-        print("PIPE attach(): subscribed QUOTE -> _on_quote", flush=True)
+        LOG.debug("PIPE attach(): subscribed QUOTE/FILL")
 
     def _on_quote(self, event: dict):
         sym = event.get("symbol")
@@ -150,10 +152,9 @@ class PaperTradingPipeline:
 
         # quote logging throttled
         now = time.time()
-        last0 = event.get("last")
         if self._quote_log_every > 0 and (now - self._last_quote_log_ts) >= self._quote_log_every:
             self._last_quote_log_ts = now
-            print(f"QUOTE {sym} last={last0}", flush=True)
+            LOG.info("QUOTE %s last=%s", sym, event.get("last"))
 
         # merge quote state
         st = self._mkt.get(sym, {})
@@ -172,11 +173,11 @@ class PaperTradingPipeline:
         intent = self.strategy.on_quote(st)
         if not intent:
             return
-        print(f"PIPE intent={intent}", flush=True)
+        LOG.info("PIPE intent=%s", intent)
 
         # risk
         if os.getenv("RISK_SOFT") == "1":
-            print("RISK SOFT: bypass", flush=True)
+            LOG.info("RISK SOFT: bypass")
             approved = True
             decision = None
         else:
@@ -185,85 +186,52 @@ class PaperTradingPipeline:
                 decision = self.risk.stack.evaluate(ctx)
             else:
                 decision = self.risk.evaluate(ctx)
-
-            print(f"RISK decision={decision}", flush=True)
+            LOG.info("RISK decision=%s", decision)
             approved = _decision_allowed(decision)
 
         if not approved:
             if decision is not None:
                 for attr in ("reasons", "reason", "message", "messages", "violations", "rule", "rule_name", "code"):
                     if hasattr(decision, attr):
-                        print(f"RISK detail {attr}={getattr(decision, attr)}", flush=True)
-            print("RISK REJECT", flush=True)
+                        LOG.warning("RISK detail %s=%s", attr, getattr(decision, attr))
+            LOG.warning("RISK REJECT")
             return
 
-        print("RISK OK", flush=True)
+        LOG.info("RISK OK")
 
         # paper execute
-        print("PIPE PAPER EXECUTE", flush=True)
+        LOG.info("PIPE PAPER EXECUTE")
         fill = self.paper.execute(intent, st)
 
         side = str(intent.get("side", "BUY")).upper()
         qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
 
         exec_fill = ExecutionFill(
-            fill_id=str(getattr(fill, "fill_id", "") or ""),
-            symbol=str(getattr(fill, "symbol", None) or intent.get("symbol") or ""),
+            fill_id=getattr(fill, "fill_id", None),
+            symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
             side=side,
-            qty=qty,  # qty положительный, side определяет направление
+            qty=qty,  # Русский коммент: qty положительный, направление в side
             price=float(getattr(fill, "price", 0.0) or 0.0),
             commission=float(getattr(fill, "commission", 0.0) or 0.0),
+            origin="paper",
         )
 
-        print(
-            f"PIPE fill={fill} -> ExecutionFill(side={exec_fill.side}, qty={exec_fill.qty}, fill_id={exec_fill.fill_id})",
-            flush=True,
-        )
+        LOG.info("PIPE fill=%s -> ExecutionFill(side=%s, qty=%s, fill_id=%s)",
+                 fill, exec_fill.side, exec_fill.qty, exec_fill.fill_id)
 
-        # Русский коммент: Вариант B — публикуем FILL в bus, а применение делаем ТОЛЬКО в _on_fill.
+        # Русский коммент: Вариант B — публикуем FILL, а применять будем в _on_fill().
         self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
 
     def _on_fill(self, event: dict):
         """
         Русский коммент: единая точка применения исполнений.
-        Идемпотентность по fill_id держит PositionManager.
+        Идемпотентность по fill_id держит PositionManager (если включена).
         """
         fill = event.get("fill") if isinstance(event, dict) else event
         if fill is None:
             return
-        # Русский коммент: строго ожидаем ExecutionFill (или объект с теми же полями)
-        if getattr(fill, "fill_id", None) in (None, ""):
-            return
 
         self.pm.apply_fill(fill)
-
-        # --- DIAG: снимок состояния PM после применения fill (без падений) ---
-        # Русский коммент: этот блок нужен для быстрой верификации инвариантов:
-        # cash/qty/avg + exposure после каждого исполнения.
-        try:
-            pm_ctx = self.pm.get_context()
-
-            sym = getattr(fill, "symbol", None)
-            pos = self.pm.positions.get(sym) if sym else None
-
-            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
-            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
-            cash_now = float(getattr(self.pm, "cash", 0.0) or 0.0)
-
-            price_now = float(getattr(fill, "price", 0.0) or 0.0)
-            sym_exposure = abs(qty_now) * price_now
-
-            print(
-                "PM_CTX "
-                f"portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
-                f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
-                f"sym_exposure={sym_exposure} "
-                f"daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)} "
-                f"qty={qty_now} avg={avg_now} cash={cash_now}",
-                flush=True,
-            )
-        except Exception as e:
-            print(f"PM_CTX DIAG ERROR: {e}", flush=True)
 
         # --- DIAG (safe) ---
         try:
@@ -275,30 +243,30 @@ class PaperTradingPipeline:
             cash_now = float(getattr(self.pm, "cash", 0.0) or 0.0)
 
             sym_exposure = abs(qty_now) * float(getattr(fill, "price", 0.0) or 0.0)
-            # Русский коммент: PM_CTX — диагностический вывод. В боевом режиме выключен, включается PIPE_DEBUG=1.
-            if os.getenv("PIPE_DEBUG") == "1":
-                print(
-                    "PM_CTX "
-                    f"portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
-                    f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
-                    f"sym_exposure={sym_exposure} "
-                    f"daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)} "
-                    f"qty={qty_now} avg={avg_now} cash={cash_now}",
-                    flush=True,
-                )
-        except Exception as e:
-            print(f"PM_CTX DIAG ERROR: {e}", flush=True)
 
-        print(
-            f"FILLED paper {getattr(fill, 'symbol', None)} qty={getattr(fill, 'qty', None)} "
-            f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
-            flush=True,
-        )
+            LOG.info(
+                "PM_CTX portfolio_value=%s total_exposure=%s sym_exposure=%s daily_realized_pnl=%s qty=%s avg=%s cash=%s",
+                getattr(pm_ctx, "portfolio_value", None),
+                getattr(pm_ctx, "total_exposure", None),
+                sym_exposure,
+                getattr(pm_ctx, "daily_realized_pnl", None),
+                qty_now,
+                avg_now,
+                cash_now,
+            )
+        except Exception as e:
+            LOG.debug("PM_CTX DIAG ERROR: %s", e)
+
+        LOG.info("FILLED paper %s qty=%s price=%s id=%s",
+                 getattr(fill, "symbol", None),
+                 getattr(fill, "qty", None),
+                 getattr(fill, "price", None),
+                 getattr(fill, "fill_id", None))
 
         # exit-on-fill
         if not self._filled_once and os.getenv("EXIT_ON_FILL", "1") == "1":
             self._filled_once = True
-            print("DONE: filled once, exiting", flush=True)
+            LOG.info("DONE: filled once, exiting")
             if self._done is not None:
                 try:
                     self._done.set()

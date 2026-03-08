@@ -1,3 +1,8 @@
+import os
+
+# Русский коммент: SYMBOLS — CSV список (например: GAZP@MISX,SBER@MISX)
+SYMBOLS = [x.strip() for x in (os.getenv('SYMBOLS') or '').split(',') if x.strip()] or [os.getenv('SYMBOL') or 'NGH6@RTSX']
+
 from finam_core.adapters.grpc.market_data import FinamMarketDataClient
 
 
@@ -13,7 +18,7 @@ def main():
 
     md = FinamMarketDataClient(bus)
 
-    md.start(["GAZP@MISX"])
+    md.start(SYMBOLS)
 
     import time
     while True:

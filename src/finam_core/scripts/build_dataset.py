@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from finam_core.storage.postgres import PostgresStorage
@@ -8,7 +9,8 @@ def main():
     storage = PostgresStorage()
     builder = DatasetBuilder(storage)
 
-    symbol = "NGH6@RTSX"
+    # Русский коммент: символ из окружения, дефолт — NGH6@RTSX
+    symbol = os.getenv("SYMBOL") or "NGH6@RTSX"
     dataset = builder.build(symbol)
 
     out_dir = Path("data/export")

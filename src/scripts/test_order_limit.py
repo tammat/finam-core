@@ -6,7 +6,8 @@ ACCOUNT_ID = "1943312"
 
 def main():
     c = FinamOrdersClient()
-    symbol = "GAZP@MISX"
+    # Русский коммент: SYMBOL из окружения; дефолт — NGH6@RTSX
+    symbol = os.getenv("SYMBOL") or "NGH6@RTSX"
     qty = 10
     limit_price = 130.00
 

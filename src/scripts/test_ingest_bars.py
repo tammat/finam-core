@@ -21,7 +21,8 @@ FINAM_HOST = "tradeapi.finam.ru:443"
 PERSONAL_TOKEN = os.environ.get("FINAM_TOKEN")
 POSTGRES_DSN = os.environ.get("POSTGRES_DSN")
 
-SYMBOL = "GAZP@MISX"
+# Русский коммент: SYMBOL из окружения; дефолт — NGH6@RTSX
+SYMBOL = os.getenv("SYMBOL") or "NGH6@RTSX"
 TIMEFRAME = md_pb2.TimeFrame.TIME_FRAME_H1
 TIMEFRAME_STR = "H1"
 DAYS_BACK = 5

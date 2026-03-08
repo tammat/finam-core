@@ -1,10 +1,18 @@
 # src/finam_core/strategy/once_buy.py
-# Русский коммент: простая стратегия — один BUY на первом валидном тике.
+# Русский коммент: простая стратегия — один BUY по первому валидному тика.
+
+from __future__ import annotations
+
+import logging
+
+LOG = logging.getLogger(__name__)
+
 
 class OnceBuyStrategy:
-    def __init__(self, symbol: str, qty: float = 1.0):
+    """Emit a single BUY intent on first valid quote."""
+
+    def __init__(self, symbol: str):
         self.symbol = symbol
-        self.qty = float(qty)
         self.sent = False
 
     def on_quote(self, state: dict):
@@ -12,11 +20,11 @@ class OnceBuyStrategy:
         last = state.get("last")
 
         if not self.sent:
-            print(f"STRATEGY waiting first quote: {sym} last={last}", flush=True)
+            LOG.debug("STRATEGY waiting first quote: %s last=%s", sym, last)
 
         if self.sent or sym != self.symbol or last is None:
             return None
 
         self.sent = True
-        print("STRATEGY EMIT INTENT", flush=True)
-        return {"symbol": sym, "side": "BUY", "qty": self.qty}
+        LOG.info("STRATEGY EMIT INTENT")
+        return {"symbol": sym, "side": "BUY", "qty": 1.0}
