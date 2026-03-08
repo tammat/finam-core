@@ -12,7 +12,12 @@ from finam_core.accounting.portfolio_manager import PortfolioManager
 from finam_core.risk.risk_engine import RiskEngine
 from finam_core.strategy.once_buy import OnceBuyStrategy
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
-
+# Русский коммент: грузим .env для запуска скрипта напрямую (24/7 режим)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=False)
+except Exception:
+    pass
 ACCOUNT_ID = os.getenv("FINAM_ACCOUNT_ID") or os.getenv("ACCOUNT_ID") or "1943312"
 
 

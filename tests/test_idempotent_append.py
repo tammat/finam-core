@@ -2,7 +2,7 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 
-from finam_core.core.event_bus import EventBus
+from finam_core.events.event_bus import EventBus
 from finam_core.storage.postgres_event_store import PostgresEventStore
 from finam_core.core.events import StrategySignalEvent
 

@@ -237,16 +237,21 @@ class PaperTradingPipeline:
 
         self.pm.apply_fill(fill)
 
-        # --- DIAG (safe) ---
+        # --- DIAG: снимок состояния PM после применения fill (без падений) ---
+        # Русский коммент: этот блок нужен для быстрой верификации инвариантов:
+        # cash/qty/avg + exposure после каждого исполнения.
         try:
             pm_ctx = self.pm.get_context()
 
-            pos = self.pm.positions.get(getattr(fill, "symbol", None))
+            sym = getattr(fill, "symbol", None)
+            pos = self.pm.positions.get(sym) if sym else None
+
             qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
             avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
             cash_now = float(getattr(self.pm, "cash", 0.0) or 0.0)
 
-            sym_exposure = abs(qty_now) * float(getattr(fill, "price", 0.0) or 0.0)
+            price_now = float(getattr(fill, "price", 0.0) or 0.0)
+            sym_exposure = abs(qty_now) * price_now
 
             print(
                 "PM_CTX "
@@ -257,6 +262,30 @@ class PaperTradingPipeline:
                 f"qty={qty_now} avg={avg_now} cash={cash_now}",
                 flush=True,
             )
+        except Exception as e:
+            print(f"PM_CTX DIAG ERROR: {e}", flush=True)
+
+        # --- DIAG (safe) ---
+        try:
+            pm_ctx = self.pm.get_context()
+
+            pos = self.pm.positions.get(getattr(fill, "symbol", None))
+            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
+            cash_now = float(getattr(self.pm, "cash", 0.0) or 0.0)
+
+            sym_exposure = abs(qty_now) * float(getattr(fill, "price", 0.0) or 0.0)
+            # Русский коммент: PM_CTX — диагностический вывод. В боевом режиме выключен, включается PIPE_DEBUG=1.
+            if os.getenv("PIPE_DEBUG") == "1":
+                print(
+                    "PM_CTX "
+                    f"portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
+                    f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
+                    f"sym_exposure={sym_exposure} "
+                    f"daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)} "
+                    f"qty={qty_now} avg={avg_now} cash={cash_now}",
+                    flush=True,
+                )
         except Exception as e:
             print(f"PM_CTX DIAG ERROR: {e}", flush=True)
 

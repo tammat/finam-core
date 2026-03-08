@@ -1,7 +1,7 @@
 import os
 import asyncio
 
-from finam_core.core.event_bus import EventBus
+from finam_core.events.event_bus import EventBus
 from finam_core.gateway.finam_gateway import FinamGateway
 from finam_core.ingestion.live_market_feed import LiveMarketFeed
 
