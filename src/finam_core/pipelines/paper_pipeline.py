@@ -1,0 +1,275 @@
+# Русский коммент: Pipeline B (event-driven)
+# QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
+
+from __future__ import annotations
+
+import os
+import time
+from types import SimpleNamespace
+
+from finam_core.core.events.fill_event import FillEvent
+
+
+def _safe_float(x, default=0.0) -> float:
+    try:
+        if x is None:
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def _get_price_from_state(st: dict, side: str) -> float | None:
+    """Русский коммент: берём last, иначе ask/bid по направлению."""
+    last = st.get("last")
+    bid = st.get("bid")
+    ask = st.get("ask")
+
+    px = last
+    if px is None:
+        px = ask if side.upper() == "BUY" else bid
+    try:
+        return float(px) if px is not None else None
+    except Exception:
+        return None
+
+
+def build_risk_context(intent: dict, portfolio, market_state: dict):
+    """
+    Русский коммент: минимальный контекст для risk-правил.
+    Важно: starting_capital/equity/total_exposure/current_symbol_exposure/trade_value.
+    """
+    sym = intent.get("symbol")
+    side = str(intent.get("side", "BUY")).upper()
+    qty = _safe_float(intent.get("qty", intent.get("quantity", 0)) or 0.0, default=0.0)
+
+    px = _get_price_from_state(market_state, side) or 0.0
+    trade_value = abs(qty) * px
+
+    # equity / starting_capital
+    equity = getattr(portfolio, "equity", None)
+    if callable(equity):
+        equity = equity()
+    if equity is None:
+        equity = getattr(portfolio, "total_equity", None)
+        equity = equity() if callable(equity) else equity
+    equity = float(equity or 0.0)
+
+    starting_capital = getattr(portfolio, "starting_cash", None)
+    if starting_capital is None:
+        starting_capital = getattr(portfolio, "initial_cash", None)
+    if starting_capital is None:
+        starting_capital = getattr(portfolio, "starting_capital", None)
+    starting_capital = starting_capital() if callable(starting_capital) else starting_capital
+    starting_capital = float(starting_capital or equity or 0.0)
+
+    # exposures (best effort)
+    total_exposure = getattr(portfolio, "total_exposure", None)
+    if total_exposure is None:
+        total_exposure = getattr(portfolio, "gross_exposure", None)
+    total_exposure = float(total_exposure or 0.0)
+
+    pm = getattr(portfolio, "position_manager", None)
+    pos_qty = 0.0
+    if pm is not None:
+        try:
+            pos = pm.positions.get(sym)
+            pos_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+        except Exception:
+            pos_qty = 0.0
+
+    current_symbol_exposure = abs(pos_qty) * px
+
+    # daily_realized_pnl / portfolio_heat (для правил)
+    daily_realized_pnl = getattr(portfolio, "daily_realized_pnl", None)
+    if daily_realized_pnl is None:
+        daily_realized_pnl = getattr(pm, "daily_realized_pnl", 0.0) if pm is not None else 0.0
+
+    portfolio_heat = getattr(portfolio, "portfolio_heat", 0.0) or 0.0
+
+    return SimpleNamespace(
+        symbol=sym,
+        side=side,
+        qty=float(qty),
+        price=float(px),
+        trade_value=float(trade_value),
+        total_exposure=float(total_exposure),
+        current_symbol_exposure=float(current_symbol_exposure),
+        equity=float(equity),
+        starting_capital=float(starting_capital),
+        starting_cash=float(starting_capital),
+        daily_realized_pnl=float(daily_realized_pnl or 0.0),
+        portfolio_heat=float(portfolio_heat or 0.0),
+        intent=intent,
+        market_state=market_state,
+        portfolio=portfolio,
+    )
+
+
+def _decision_allowed(decision) -> bool:
+    """Русский коммент: нормализуем разные типы RiskDecision."""
+    if isinstance(decision, bool):
+        return decision
+    if decision is None:
+        return False
+    for flag in ("allowed", "is_allowed", "ok", "approved", "pass_"):
+        if hasattr(decision, flag):
+            return bool(getattr(decision, flag))
+    return bool(decision)
+
+
+class PaperTradingPipeline:
+    """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
+
+    def __init__(self, bus, portfolio, position_manager, risk, paper, strategy, done=None):
+        self.bus = bus
+        self.portfolio = portfolio
+        self.pm = position_manager
+        self.risk = risk
+        self.paper = paper
+        self.strategy = strategy
+        self._done = done
+
+        self._mkt = {}
+        self._filled_once = False
+
+        # Русский коммент: троттлинг логов котировок
+        self._last_quote_log_ts = 0.0
+        self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
+
+    def attach(self):
+        # Русский коммент: Pipeline B — подписка на котировки и на исполнения
+        self.bus.subscribe("QUOTE", self._on_quote)
+        self.bus.subscribe("FILL", self._on_fill)
+        print("PIPE attach(): subscribed QUOTE -> _on_quote", flush=True)
+
+    def _on_quote(self, event: dict):
+        sym = event.get("symbol")
+        if not sym:
+            return
+
+        # quote logging throttled
+        now = time.time()
+        last0 = event.get("last")
+        if self._quote_log_every > 0 and (now - self._last_quote_log_ts) >= self._quote_log_every:
+            self._last_quote_log_ts = now
+            print(f"QUOTE {sym} last={last0}", flush=True)
+
+        # merge quote state
+        st = self._mkt.get(sym, {})
+        st.update(event)
+        self._mkt[sym] = st
+
+        # optional mark-to-market
+        last = st.get("last")
+        if last is not None and hasattr(self.portfolio, "mark_price"):
+            try:
+                self.portfolio.mark_price(sym, float(last))
+            except Exception:
+                pass
+
+        # strategy
+        intent = self.strategy.on_quote(st)
+        if not intent:
+            return
+        print(f"PIPE intent={intent}", flush=True)
+
+        # risk
+        if os.getenv("RISK_SOFT") == "1":
+            print("RISK SOFT: bypass", flush=True)
+            approved = True
+            decision = None
+        else:
+            ctx = build_risk_context(intent, self.portfolio, st)
+            if hasattr(self.risk, "stack") and hasattr(self.risk.stack, "evaluate"):
+                decision = self.risk.stack.evaluate(ctx)
+            else:
+                decision = self.risk.evaluate(ctx)
+
+            print(f"RISK decision={decision}", flush=True)
+            approved = _decision_allowed(decision)
+
+        if not approved:
+            if decision is not None:
+                for attr in ("reasons", "reason", "message", "messages", "violations", "rule", "rule_name", "code"):
+                    if hasattr(decision, attr):
+                        print(f"RISK detail {attr}={getattr(decision, attr)}", flush=True)
+            print("RISK REJECT", flush=True)
+            return
+
+        print("RISK OK", flush=True)
+
+        # paper execute
+        print("PIPE PAPER EXECUTE", flush=True)
+        fill = self.paper.execute(intent, st)
+
+        side = str(intent.get("side", "BUY")).upper()
+        qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
+
+        pm_fill = FillEvent(
+            fill_id=getattr(fill, "fill_id", None),
+            symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
+            side=side,
+            qty=qty,  # Русский коммент: qty положительный, направление в side
+            price=float(getattr(fill, "price", 0.0) or 0.0),
+            commission=float(getattr(fill, "commission", 0.0) or 0.0),
+        )
+
+        print(
+            f"PIPE fill={fill} -> FillEvent(side={pm_fill.side}, qty={pm_fill.qty}, fill_id={pm_fill.fill_id})",
+            flush=True,
+        )
+
+        # Русский коммент: Вариант B — применяем fill через _on_fill() (без публикации в bus, чтобы избежать циклов)
+        self._on_fill({"type": "FILL", "fill": pm_fill, "origin": "paper"})
+        self.bus.publish({"type": "FILL", "fill": pm_fill, "origin": "paper"})
+
+    def _on_fill(self, event: dict):
+        """
+        Русский коммент: единая точка применения исполнений.
+        Идемпотентность по fill_id держит PositionManager.
+        """
+        fill = event.get("fill") if isinstance(event, dict) else event
+        if fill is None:
+            return
+
+        self.pm.apply_fill(fill)
+
+        # --- DIAG (safe) ---
+        try:
+            pm_ctx = self.pm.get_context()
+
+            pos = self.pm.positions.get(getattr(fill, "symbol", None))
+            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
+            cash_now = float(getattr(self.pm, "cash", 0.0) or 0.0)
+
+            sym_exposure = abs(qty_now) * float(getattr(fill, "price", 0.0) or 0.0)
+
+            print(
+                "PM_CTX "
+                f"portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
+                f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
+                f"sym_exposure={sym_exposure} "
+                f"daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)} "
+                f"qty={qty_now} avg={avg_now} cash={cash_now}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"PM_CTX DIAG ERROR: {e}", flush=True)
+
+        print(
+            f"FILLED paper {getattr(fill, 'symbol', None)} qty={getattr(fill, 'qty', None)} "
+            f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
+            flush=True,
+        )
+
+        # exit-on-fill
+        if not self._filled_once and os.getenv("EXIT_ON_FILL", "1") == "1":
+            self._filled_once = True
+            print("DONE: filled once, exiting", flush=True)
+            if self._done is not None:
+                try:
+                    self._done.set()
+                except Exception:
+                    pass
