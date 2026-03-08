@@ -6,9 +6,9 @@ from __future__ import annotations
 import os
 import time
 from types import SimpleNamespace
-
-from finam_core.core.events.fill_event import FillEvent
-
+from finam_core.core.events.execution_fill import ExecutionFill
+from finam_core.execution.execution_fill import ExecutionFill
+from finam_core.core.events.fill_event_mapper import to_core_fill_event
 
 def _safe_float(x, default=0.0) -> float:
     try:
@@ -206,23 +206,22 @@ class PaperTradingPipeline:
         side = str(intent.get("side", "BUY")).upper()
         qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
 
-        pm_fill = FillEvent(
-            fill_id=getattr(fill, "fill_id", None),
-            symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
+        exec_fill = ExecutionFill(
+            fill_id=str(getattr(fill, "fill_id", "") or ""),
+            symbol=str(getattr(fill, "symbol", None) or intent.get("symbol") or ""),
             side=side,
-            qty=qty,  # Русский коммент: qty положительный, направление в side
+            qty=qty,  # qty положительный, side определяет направление
             price=float(getattr(fill, "price", 0.0) or 0.0),
             commission=float(getattr(fill, "commission", 0.0) or 0.0),
         )
 
         print(
-            f"PIPE fill={fill} -> FillEvent(side={pm_fill.side}, qty={pm_fill.qty}, fill_id={pm_fill.fill_id})",
+            f"PIPE fill={fill} -> ExecutionFill(side={exec_fill.side}, qty={exec_fill.qty}, fill_id={exec_fill.fill_id})",
             flush=True,
         )
 
-        # Русский коммент: Вариант B — применяем fill через _on_fill() (без публикации в bus, чтобы избежать циклов)
-        self._on_fill({"type": "FILL", "fill": pm_fill, "origin": "paper"})
-        self.bus.publish({"type": "FILL", "fill": pm_fill, "origin": "paper"})
+        # Русский коммент: Вариант B — публикуем FILL в bus, а применение делаем ТОЛЬКО в _on_fill.
+        self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
 
     def _on_fill(self, event: dict):
         """
@@ -231,6 +230,9 @@ class PaperTradingPipeline:
         """
         fill = event.get("fill") if isinstance(event, dict) else event
         if fill is None:
+            return
+        # Русский коммент: строго ожидаем ExecutionFill (или объект с теми же полями)
+        if getattr(fill, "fill_id", None) in (None, ""):
             return
 
         self.pm.apply_fill(fill)

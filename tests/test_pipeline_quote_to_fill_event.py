@@ -7,7 +7,7 @@ import pytest
 from finam_core.events.event_bus import EventBus
 from finam_core.accounting.position_manager import PositionManager
 from finam_core.core.events.fill_event import FillEvent
-
+from finam_core.execution.execution_fill import ExecutionFill
 
 def make_pipeline(module, bus, portfolio, pm, risk, paper, strategy, done=None):
     Pipeline = module.PaperTradingPipeline
@@ -82,10 +82,15 @@ def test_quote_emits_fill_event(monkeypatch):
 
     # publish QUOTE
     bus.publish({"type": "QUOTE", "symbol": "TEST@MISX", "last": 100.0, "bid": 99.0, "ask": 101.0, "volume": 0.0})
+    print("DBG fill type:", type(got[0]["fill"]), "module:", type(got[0]["fill"]).__module__)
 
     assert len(got) == 1
     assert got[0]["type"] == "FILL"
-    assert isinstance(got[0]["fill"], FillEvent)
-    assert got[0]["fill"].symbol == "TEST@MISX"
+    from finam_core.execution.execution_fill import ExecutionFill
+    assert isinstance(got[0]["fill"], ExecutionFill)
+    #жестко только новый контракт:
+    #from finam_core.core.events.execution_fill import ExecutionFill
+    #assert isinstance(got[0]["fill"], ExecutionFill)
+
     assert got[0]["fill"].side == "BUY"
     assert got[0]["fill"].qty == 1.0

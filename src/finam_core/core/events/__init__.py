@@ -30,4 +30,5 @@ __all__ = [
     "RiskRejectedEvent",
     "ExecutionEvent",
     "PortfolioUpdatedEvent",
+    "ExecutionFill",
 ]
