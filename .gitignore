@@ -46,3 +46,6 @@ __pycache__/
 *.bak
 *.rej
 *.orig
+
+# local data
+/data/*.sqlite*
