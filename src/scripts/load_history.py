@@ -1,6 +1,21 @@
 # -*- coding: utf-8 -*-
+"""
+load_history.py — gRPC Bars -> SQLite
+
+Режимы:
+- days: последние N дней (UTC)
+- start/end: явный диапазон (UTC)
+- resume: продолжить с MAX(ts) из SQLite по (symbol,timeframe)
+
+Стратегия устойчивости:
+- грузим чанками по времени (например M1 по 1-2 дня)
+- при INVALID_ARGUMENT уменьшаем чанк вдвое, пока не пройдет или не достигнем минимума
+"""
+
 import os
 import sqlite3
+import argparse
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import grpc
@@ -12,19 +27,69 @@ from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2_grpc 
 from finam_proto.google.type import interval_pb2
 
 
-# Русский коммент: по умолчанию пишем бары в локальный SQLite.
 DEFAULT_DB_PATH = os.getenv("BARS_DB") or "data/bars.sqlite"
 
 
+# -------------------------
+# Utils
+# -------------------------
 def _ts(dt: datetime) -> Timestamp:
     t = Timestamp()
     t.FromDatetime(dt)
     return t
 
 
+def _parse_iso(s: str) -> datetime:
+    # Русский коммент: принимаем ISO с/без timezone, приводим к UTC
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _tf_delta(tf: str) -> timedelta:
+    tf = tf.upper()
+    if tf == "M1":
+        return timedelta(minutes=1)
+    if tf == "M5":
+        return timedelta(minutes=5)
+    if tf == "M15":
+        return timedelta(minutes=15)
+    if tf == "H1":
+        return timedelta(hours=1)
+    if tf == "D1":
+        return timedelta(days=1)
+    raise RuntimeError(f"Unsupported TIMEFRAME={tf} (expected: M1,M5,M15,H1,D1)")
+
+
+def _default_chunk(tf: str) -> timedelta:
+    """
+    Русский коммент: дефолтные чанки под ограничения API.
+    Если API позволяет больше — можно увеличить.
+    """
+    tf = tf.upper()
+    if tf == "M1":
+        return timedelta(days=2)      # безопасно
+    if tf == "M5":
+        return timedelta(days=10)
+    if tf == "M15":
+        return timedelta(days=30)
+    if tf == "H1":
+        return timedelta(days=180)
+    if tf == "D1":
+        return timedelta(days=365 * 5)
+    return timedelta(days=2)
+
+
+# -------------------------
+# SQLite
+# -------------------------
 def _ensure_db(db_path: str) -> sqlite3.Connection:
     """Русский коммент: создаём БД и таблицу bars, если их ещё нет."""
-    os.makedirs(os.path.dirname(db_path), exist_ok=True) if os.path.dirname(db_path) else None
+    d = os.path.dirname(db_path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+
     con = sqlite3.connect(db_path)
     con.execute(
         """
@@ -57,7 +122,6 @@ def _upsert_bar(
     c: float,
     v: float,
 ) -> None:
-    """Русский коммент: upsert по первичному ключу (symbol,timeframe,ts)."""
     con.execute(
         """
         INSERT INTO bars(symbol, timeframe, ts, open, high, low, close, volume)
@@ -73,137 +137,206 @@ def _upsert_bar(
     )
 
 
+def _max_ts(con: sqlite3.Connection, symbol: str, timeframe: str) -> str | None:
+    cur = con.cursor()
+    cur.execute("SELECT MAX(ts) FROM bars WHERE symbol=? AND timeframe=?", (symbol, timeframe))
+    row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+# -------------------------
+# gRPC Bars fetch
+# -------------------------
+@dataclass
+class BarRow:
+    ts_iso: str
+    o: float
+    h: float
+    l: float
+    c: float
+    v: float
+
+
+def _fetch_bars(stub, md_meta, symbol: str, timeframe_enum, start: datetime, end: datetime):
+    req = md_pb2.BarsRequest(
+        symbol=symbol,
+        timeframe=timeframe_enum,
+        interval=interval_pb2.Interval(start_time=_ts(start), end_time=_ts(end)),
+    )
+    return stub.Bars(req, metadata=md_meta)
+
+
+def _iter_resp_bars(resp):
+    # Русский коммент: обычно resp.bars — repeated Bar
+    bars = getattr(resp, "bars", None)
+    if bars is not None:
+        return bars
+    items = getattr(resp, "items", None)
+    if items is not None:
+        return items
+    # fallback: если resp и есть iterable
+    return resp
+
+
+def _bar_to_row(b) -> BarRow | None:
+    ts = b.timestamp.ToDatetime().isoformat() if hasattr(b, "timestamp") else None
+    if not ts:
+        return None
+
+    def _val(x):
+        try:
+            return float(getattr(x, "value", 0.0) or 0.0)
+        except Exception:
+            return 0.0
+
+    o = _val(getattr(b, "open", None))
+    h = _val(getattr(b, "high", None))
+    l = _val(getattr(b, "low", None))
+    c = _val(getattr(b, "close", None))
+    v = _val(getattr(b, "volume", None))
+
+    return BarRow(ts_iso=ts, o=o, h=h, l=l, c=c, v=v)
+
+
+# -------------------------
+# Main loader logic
+# -------------------------
 def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--symbol", default=os.getenv("SYMBOL") or "NGH6@RTSX")
+    p.add_argument("--timeframe", default=(os.getenv("TIMEFRAME") or "M1").upper())
+    p.add_argument("--days", type=int, default=int(os.getenv("DAYS") or "5"))
+    p.add_argument("--start", default=os.getenv("START") or "")
+    p.add_argument("--end", default=os.getenv("END") or "")
+    p.add_argument("--db", default=os.getenv("BARS_DB") or DEFAULT_DB_PATH)
+    p.add_argument("--resume", action="store_true", default=(os.getenv("RESUME", "1") == "1"))
+    p.add_argument("--no-resume", dest="resume", action="store_false")
+    p.add_argument("--chunk-minutes", type=int, default=int(os.getenv("CHUNK_MINUTES") or "0"))
+    args = p.parse_args()
+
     host = os.getenv("FINAM_API_HOST") or "api.finam.ru:443"
-    symbol = os.getenv("SYMBOL") or "NGH6@RTSX"
-    tf_str = (os.getenv("TIMEFRAME") or "M5").upper()
-    days = int(os.getenv("DAYS") or "5")
-    # Русский коммент: Finam часто режет диапазон для M1 (и некоторых ТФ). По умолчанию дробим запрос.
-    max_days_per_call = float(os.getenv("MAX_DAYS_PER_CALL") or ("7" if tf_str == "M1" else "30"))
-    max_days_per_call = max(0.25, max_days_per_call)
-    db_path = os.getenv("BARS_DB") or DEFAULT_DB_PATH
+    symbol = args.symbol
+    tf_str = args.timeframe.upper()
 
-    # Русский коммент: небольшой буфер, чтобы не запрашивать «будущее»/незакрытый бар
-    end = datetime.now(timezone.utc) - timedelta(seconds=30)
-    start = end - timedelta(days=days)
-
-    # Русский коммент: маппим строковый таймфрейм в enum протобуфа
-    # Обычно в pb2 это что-то вроде TIME_FRAME_M1/TIME_FRAME_M5/...
+    # timeframe enum
     enum_name = f"TIME_FRAME_{tf_str}"
     if not hasattr(md_pb2.TimeFrame, enum_name):
-        raise RuntimeError(f"Unknown TIMEFRAME={tf_str}. Expected one of: {[n for n in dir(md_pb2.TimeFrame) if n.startswith('TIME_FRAME_')]}")
+        raise RuntimeError(f"Unknown TIMEFRAME={tf_str}")
 
-    timeframe = getattr(md_pb2.TimeFrame, enum_name)
+    timeframe_enum = getattr(md_pb2.TimeFrame, enum_name)
 
+    # range
+    if args.start and args.end:
+        start = _parse_iso(args.start)
+        end = _parse_iso(args.end)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=args.days)
+
+    if end <= start:
+        raise RuntimeError("Invalid range: end <= start")
+
+    # db + resume
+    con = _ensure_db(args.db)
+
+    if args.resume:
+        last_ts = _max_ts(con, symbol, tf_str)
+        if last_ts:
+            # Русский коммент: продолжаем со следующего бара
+            start2 = _parse_iso(last_ts) + _tf_delta(tf_str)
+            if start2 < end:
+                start = start2
+
+    # chunk setup
+    if args.chunk_minutes > 0:
+        chunk = timedelta(minutes=args.chunk_minutes)
+    else:
+        chunk = _default_chunk(tf_str)
+
+    # grpc init
     jwt = FinamTokenManager().get_token()
-    md = [("authorization", f"Bearer {jwt}")]
+    md_meta = [("authorization", f"Bearer {jwt}")]
 
     ch = grpc.secure_channel(host, grpc.ssl_channel_credentials())
     stub = md_grpc.MarketDataServiceStub(ch)
 
-    con = _ensure_db(db_path)
-    cur = con.cursor()
+    # load loop
+    total = 0
+    printed = 0
 
-    def _bars_from_resp(r):
-        # Русский коммент: в разных версиях API поле может называться bars/items.
-        return getattr(r, "bars", None) or getattr(r, "items", None) or r
+    cur_start = start
+    min_chunk = timedelta(hours=3) if tf_str in ("M1", "M5") else timedelta(days=1)
 
-    def _fetch_chunk(s: datetime, e: datetime):
-        req = md_pb2.BarsRequest(
-            symbol=symbol,
-            timeframe=timeframe,
-            interval=interval_pb2.Interval(
-                start_time=_ts(s),
-                end_time=_ts(e),
-            ),
-        )
-        return stub.Bars(req, metadata=md)
+    while cur_start < end:
+        cur_end = min(cur_start + chunk, end)
 
-    # Русский коммент: дробим диапазон на окна max_days_per_call, чтобы избежать INVALID_ARGUMENT
-    chunks = []
-    cursor_end = end
-    while cursor_end > start:
-        cursor_start = max(start, cursor_end - timedelta(days=max_days_per_call))
-        chunks.append((cursor_start, cursor_end))
-        cursor_end = cursor_start
+        # Русский коммент: адаптивное уменьшение чанка при INVALID_ARGUMENT
+        local_chunk = cur_end - cur_start
 
-    # Русский коммент: грузим по порядку от старых к новым
-    chunks.reverse()
+        while True:
+            try:
+                resp = _fetch_bars(stub, md_meta, symbol, timeframe_enum, cur_start, cur_start + local_chunk)
+                bars = _iter_resp_bars(resp)
 
-    # Русский коммент: дальше будем подставлять bars из каждого чанка
-
-    cnt = 0
-    batch = 0
-
-    for (cs, ce) in chunks:
-        try:
-            resp = _fetch_chunk(cs, ce)
-        except grpc.RpcError as e:
-            # Русский коммент: если диапазон не принимается — пробуем автоматически уменьшить окно (до 6 часов)
-            if e.code() == grpc.StatusCode.INVALID_ARGUMENT and max_days_per_call > (6 / 24):
-                if os.getenv("MD_DEBUG") == "1":
-                    print(f"BARS INVALID_ARGUMENT for range {cs.isoformat()}..{ce.isoformat()} — shrinking window", flush=True)
-                # дробим текущий чанк пополам и продолжаем
-                mid = cs + (ce - cs) / 2
-                # защита от бесконечного цикла
-                if mid <= cs + timedelta(minutes=1):
-                    raise
-                chunks.extend([(cs, mid), (mid, ce)])
-                chunks.sort(key=lambda x: x[0])
-                continue
-            raise
-
-        bars = _bars_from_resp(resp)
-
-        for b in bars:
-            ts = b.timestamp.ToDatetime().isoformat() if hasattr(b, "timestamp") else None
-            if not ts:
-                continue
-
-            o = float(getattr(getattr(b, "open", None), "value", 0.0) or 0.0)
-            h = float(getattr(getattr(b, "high", None), "value", 0.0) or 0.0)
-            l = float(getattr(getattr(b, "low", None), "value", 0.0) or 0.0)
-            c = float(getattr(getattr(b, "close", None), "value", 0.0) or 0.0)
-            v = float(getattr(getattr(b, "volume", None), "value", 0.0) or 0.0)
-
-            _upsert_bar(
-                con,
-                symbol=symbol,
-                timeframe=tf_str,
-                ts_iso=ts,
-                o=o,
-                h=h,
-                l=l,
-                c=c,
-                v=v,
-            )
-
-            cnt += 1
-            batch += 1
-
-            if cnt <= 5:
-                print(ts, o, h, l, c, v)
-
-            # Русский коммент: коммитим пачками, чтобы не тормозить на каждом INSERT.
-            if batch >= 500:
-                con.commit()
                 batch = 0
+                for b in bars:
+                    row = _bar_to_row(b)
+                    if not row:
+                        continue
 
-    if batch > 0:
-        con.commit()
+                    _upsert_bar(
+                        con,
+                        symbol=symbol,
+                        timeframe=tf_str,
+                        ts_iso=row.ts_iso,
+                        o=row.o, h=row.h, l=row.l, c=row.c, v=row.v,
+                    )
+                    total += 1
+                    batch += 1
+
+                    if printed < 5:
+                        print(row.ts_iso, row.o, row.h, row.l, row.c, row.v)
+                        printed += 1
+
+                    if batch >= 500:
+                        con.commit()
+                        batch = 0
+
+                if batch > 0:
+                    con.commit()
+
+                # успешно — выходим из inner retry
+                break
+
+            except grpc.RpcError as e:
+                msg = str(e)
+                if "INVALID_ARGUMENT" in msg and "Invalid date range" in msg:
+                    # уменьшаем чанк
+                    if local_chunk <= min_chunk:
+                        raise RuntimeError(
+                            f"Invalid date range even for min_chunk={min_chunk}. "
+                            f"Try smaller --chunk-minutes. Range: {cur_start.isoformat()}..{(cur_start+local_chunk).isoformat()}"
+                        ) from e
+                    local_chunk = local_chunk / 2
+                    continue
+                raise
+
+        # следующий чанк
+        cur_start = cur_start + local_chunk
 
     try:
         con.close()
     except Exception:
         pass
 
-    print("BARS:", cnt)
-    print("SQLITE:", db_path)
-
     try:
         ch.close()
     except Exception:
         pass
+
+    print("BARS:", total)
+    print("SQLITE:", args.db)
+    print("RANGE:", start.isoformat(), "->", end.isoformat())
 
 
 if __name__ == "__main__":
