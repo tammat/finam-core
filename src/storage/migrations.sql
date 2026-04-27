@@ -295,4 +295,6 @@ CREATE INDEX IF NOT EXISTS idx_events_stream_seq
     ON events(stream, seq);
 ALTER TABLE events
 ADD CONSTRAINT events_id_unique UNIQUE (id);
+
+
 COMMIT;
