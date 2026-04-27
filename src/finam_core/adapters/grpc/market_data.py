@@ -56,18 +56,40 @@ class FinamMarketDataClient:
 
         self.state: Dict[str, Dict[str, Any]] = {}
         self.last_msg_ts = time.time()
+        # Русский коммент: анти-спам для watchdog
+        self._wd_last_warn_ts = 0.0
+        self._wd_warn_every_sec = float(os.getenv("MD_WATCHDOG_WARN_EVERY_SEC", "3600"))  # 1 час
+
 
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
         self._active_call = None
         self._watchdog_thread: Optional[threading.Thread] = None
-        self._last_watchdog_log_ts = 0.0
 
         self.tm = FinamTokenManager()
 
         # Русский коммент: канал/стаб переиспользуем, reconnect делаем на уровне stream call.
-        self.channel = grpc.secure_channel(self.host, grpc.ssl_channel_credentials())
+        # Русский коммент: keepalive для 24/7 — помогает не терять idle соединение (NAT/провайдер).
+        # Можно переопределить через env при необходимости.
+        ka_time_ms = int(os.getenv("MD_GRPC_KEEPALIVE_TIME_MS", "30000"))
+        ka_timeout_ms = int(os.getenv("MD_GRPC_KEEPALIVE_TIMEOUT_MS", "10000"))
+
+        opts = [
+            ("grpc.keepalive_time_ms", ka_time_ms),
+            ("grpc.keepalive_timeout_ms", ka_timeout_ms),
+            ("grpc.keepalive_permit_without_calls", 1),
+            # Русский коммент: разрешаем ping без данных (иначе idle stream может рваться).
+            ("grpc.http2.max_pings_without_data", 0),
+            ("grpc.http2.min_time_between_pings_ms", ka_time_ms),
+            ("grpc.http2.min_ping_interval_without_data_ms", ka_time_ms),
+        ]
+
+        self.channel = grpc.secure_channel(
+            self.host,
+            grpc.ssl_channel_credentials(),
+            options=opts,
+        )
         self.stub = marketdata_service_pb2_grpc.MarketDataServiceStub(self.channel)
 
     # -----------------------------
@@ -137,13 +159,21 @@ class FinamMarketDataClient:
 
                 # Русский коммент: soft — только предупреждение раз в heartbeat_sec, hard — cancel/reconnect.
                 if self.watchdog_mode == "soft":
-                    if now - self._last_watchdog_log_ts >= self.heartbeat_sec:
-                        self._last_watchdog_log_ts = now
-                        LOG.warning("MarketData heartbeat timeout — no ticks (soft watchdog). idle=%.1fs", idle)
+                    # Русский коммент: quiet-soft — по умолчанию молчим, чтобы не засорять логи в нерабочее время.
+                    # Пишем предупреждение только при MD_DEBUG=1 и не чаще, чем раз в MD_WATCHDOG_WARN_EVERY_SEC.
+                    if os.getenv("MD_DEBUG") == "1" and (now - self._wd_last_warn_ts) >= self._wd_warn_every_sec:
+                        self._wd_last_warn_ts = now
+                        LOG.warning(
+                            "MarketData heartbeat timeout — no ticks (soft watchdog). idle=%.1fs",
+                            idle,
+                        )
                     continue
 
                 # hard
-                LOG.warning("MarketData heartbeat timeout — cancelling stream (hard watchdog). idle=%.1fs", idle)
+                LOG.warning(
+                    "MarketData heartbeat timeout — cancelling stream (hard watchdog). idle=%.1fs",
+                    idle,
+                )
                 try:
                     self._active_call.cancel()
                 except Exception:
@@ -168,7 +198,6 @@ class FinamMarketDataClient:
                 self.last_msg_ts = now
                 self._subscribed_ts = now
                 self._got_first_valid_quote = False
-                self._last_watchdog_log_ts = 0.0
 
                 self._start_watchdog()
 
@@ -182,6 +211,7 @@ class FinamMarketDataClient:
                 if self._stop.is_set():
                     break
                 # Русский коммент: CANCELLED ожидаем в режиме hard, когда watchdog отменяет call.
+                # Русский коммент: в soft режиме ошибки на тишине не должны появляться; если появились — это сеть/сервер.
                 if os.getenv("MD_DEBUG") == "1":
                     LOG.debug("MarketData reconnect: %s", e)
                 time.sleep(backoff)
