@@ -154,6 +154,7 @@ class PaperTradingPipeline:
         self._last_quote_log_ts = 0.0
         self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
         self.trailing_exit = TrailingExitEngine()
+        self._cooldown_until = {}
         self.notifier = TelegramNotifier()
 
     def attach(self):
@@ -245,7 +246,13 @@ class PaperTradingPipeline:
 
                 self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
                 self.trailing_exit.reset(sym)
+                self._cooldown_until[sym] = time.time() + float(os.getenv("ENTRY_COOLDOWN_SEC", "300"))
                 return
+
+        # entry cooldown после выхода по SL/TP
+        if time.time() < float(self._cooldown_until.get(sym, 0.0)):
+            LOG.info("ENTRY COOLDOWN: skip symbol=%s", sym)
+            return
 
         # strategy
         intent = self.strategy.on_quote(st)
@@ -411,7 +418,8 @@ class PaperTradingPipeline:
 
         print(
             f"PIPE_FILLED paper {getattr(fill, 'symbol', None)} "
-            f"qty={getattr(fill, 'qty', None)} price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
+            f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)} "
+            f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
         )
         LOG.info("FILLED paper %s qty=%s price=%s id=%s",
