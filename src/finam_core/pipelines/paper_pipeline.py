@@ -11,6 +11,12 @@ from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
 
+try:
+    from finam_core.strategy.filters.regime_filters import FilterContext, FilterEngine
+except Exception:
+    FilterContext = None
+    FilterEngine = None
+
 LOG = logging.getLogger(__name__)
 
 
@@ -123,13 +129,16 @@ def _decision_allowed(decision) -> bool:
 class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
 
-    def __init__(self, bus, portfolio, position_manager, risk, paper, strategy, done=None):
+    def __init__(self, bus, portfolio, position_manager, risk, paper, strategy, done=None, filter_engine=None, filter_context_builder=None):
         self.bus = bus
         self.portfolio = portfolio
         self.pm = position_manager
         self.risk = risk
         self.paper = paper
         self.strategy = strategy
+        # Русский коммент: единый pre-risk фильтр сигналов. По умолчанию отключён.
+        self.filter_engine = filter_engine
+        self.filter_context_builder = filter_context_builder
         self._done = done
 
         self._mkt: dict[str, dict] = {}
@@ -174,6 +183,26 @@ class PaperTradingPipeline:
         if not intent:
             return
         LOG.info("PIPE intent=%s", intent)
+
+        # Русский коммент: Strategy FilterEngine стоит между Strategy и Risk.
+        if self.filter_engine is not None:
+            if callable(self.filter_context_builder):
+                filter_context = self.filter_context_builder(intent, st, self.portfolio)
+            elif FilterContext is not None:
+                filter_context = FilterContext()
+            else:
+                filter_context = None
+
+            if filter_context is not None and hasattr(self.filter_engine, "allow"):
+                filter_decision = self.filter_engine.allow(0, filter_context)
+                LOG.info("FILTER decision=%s", filter_decision)
+                if not getattr(filter_decision, "allowed", False):
+                    LOG.warning(
+                        "FILTER REJECT reason=%s details=%s",
+                        getattr(filter_decision, "reason", None),
+                        getattr(filter_decision, "details", None),
+                    )
+                    return
 
         # risk
         if os.getenv("RISK_SOFT") == "1":

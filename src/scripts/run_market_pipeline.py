@@ -22,6 +22,11 @@ from finam_core.risk.risk_engine import RiskEngine
 from finam_core.strategy.once_buy import OnceBuyStrategy
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 
+try:
+    from finam_core.strategy.filters.regime_filters import FilterEngine
+except Exception:
+    FilterEngine = None
+
 # Русский коммент: грузим .env (если python-dotenv установлен) — удобно для 24/7 запуска
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -59,6 +64,12 @@ def _parse_args() -> argparse.Namespace:
 
     # Русский коммент: debug включает MD_DEBUG=1 (и всё отладочное в MarketData)
     p.add_argument("--debug", action="store_true", default=(os.getenv("MD_DEBUG") == "1"))
+
+    p.add_argument("--enable-filter-engine", action="store_true", default=(os.getenv("ENABLE_FILTER_ENGINE") == "1"))
+    p.add_argument("--tradeability-gate", default=os.getenv("TRADEABILITY_GATE") or "")
+    p.add_argument("--tradeability-min-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MIN_RANGE_ATR") or "1.5"))
+    p.add_argument("--regime-ema-slope", default=os.getenv("REGIME_EMA_SLOPE") or "")
+    p.add_argument("--regime-adaptive-mode", default=os.getenv("REGIME_ADAPTIVE_MODE") or "")
 
     return p.parse_args()
 
@@ -122,7 +133,21 @@ def main() -> None:
     paper = PaperExecutionEngine(slippage_coef=0.25, commission=0.0)
     strategy = OnceBuyStrategy(symbol)
 
-    pipeline = PaperTradingPipeline(bus, portfolio, pm, risk, paper, strategy)
+    filter_engine = None
+    if args.enable_filter_engine:
+        if FilterEngine is None:
+            print("WARNING: ENABLE_FILTER_ENGINE=1, but FilterEngine import failed", flush=True)
+        else:
+            filter_params = {
+                "tradeability_gate": args.tradeability_gate,
+                "tradeability_min_range_atr": args.tradeability_min_range_atr,
+                "regime_ema_slope": args.regime_ema_slope,
+                "regime_adaptive_mode": args.regime_adaptive_mode,
+            }
+            filter_engine = FilterEngine(filter_params)
+            print(f"FilterEngine enabled params={filter_params}", flush=True)
+
+    pipeline = PaperTradingPipeline(bus, portfolio, pm, risk, paper, strategy, filter_engine=filter_engine)
     pipeline.attach()
 
     print("Starting MD...", flush=True)
