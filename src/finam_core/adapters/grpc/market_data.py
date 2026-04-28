@@ -127,9 +127,7 @@ class FinamMarketDataClient:
     # Internal helpers
     # -----------------------------
     def _md(self):
-        print("MD_AUTH get_token start", flush=True)
         jwt = self.tm.get_token()
-        print("MD_AUTH get_token ok", flush=True)
         return [("authorization", f"Bearer {jwt}")]
 
     @staticmethod
@@ -198,16 +196,11 @@ class FinamMarketDataClient:
     # Streaming loop
     # -----------------------------
     def subscribe_quotes(self, symbols: List[str]):
-        print(f"MD_SUBSCRIBE_LOOP enter symbols={symbols}", flush=True)
         backoff = 0.5
         while not self._stop.is_set():
             try:
-                print(f"MD_BUILD_REQUEST symbols={symbols}", flush=True)
                 req = marketdata_service_pb2.SubscribeQuoteRequest(symbols=symbols)
-                print(f"MD_REQUEST built={req}", flush=True)
-                print("MD_BEFORE_SUBSCRIBE", flush=True)
                 call = self.stub.SubscribeQuote(req, metadata=self._md())
-                print("MD_SUBSCRIBE_CALL created", flush=True)
 
                 self._active_call = call
                 now = time.time()
@@ -274,12 +267,9 @@ class FinamMarketDataClient:
 
     def _handle_stream(self, stream: Iterable):
         """Чтение потока и публикация событий QUOTE в EventBus."""
-        print("MD_HANDLE_STREAM enter", flush=True)
         for msg in stream:
-            print("MD_STREAM message received", flush=True)
             if self._debug_msg_count < 3:
                 self._debug_msg_count += 1
-                print(f"MD_RAW_MSG={msg}", flush=True)
             if os.getenv("MD_DEBUG") == "1":
                 LOG.debug("MarketData raw stream msg=%s", msg)
             if self._stop.is_set():
@@ -289,7 +279,6 @@ class FinamMarketDataClient:
             self.last_msg_ts = time.time()
 
             quotes = self._iter_quotes(msg)
-            print(f"MD_QUOTES_COUNT={len(quotes)}", flush=True)
             if os.getenv("MD_DEBUG") == "1":
                 LOG.debug("MarketData parsed quotes count=%s", len(quotes))
             if not quotes:
@@ -334,5 +323,4 @@ class FinamMarketDataClient:
 
                 if os.getenv("MD_DEBUG") == "1":
                     LOG.debug("MarketData publish QUOTE event=%s", event)
-                print(f"MD_PUBLISH_EVENT type={event.get('type')} event={event}", flush=True)
                 self.event_bus.publish(event)
