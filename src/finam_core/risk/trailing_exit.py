@@ -7,6 +7,7 @@ TrailingExitEngine — управление выходом из позиции.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 
 
 @dataclass
@@ -18,10 +19,10 @@ class TrailingState:
 
 
 class TrailingExitEngine:
-    def __init__(self, stop_abs: float = 0.30, take_abs: float = 0.60, trail_abs: float = 0.30):
-        self.stop_abs = float(stop_abs)
-        self.take_abs = float(take_abs)
-        self.trail_abs = float(trail_abs)
+    def __init__(self, stop_abs: float | None = None, take_abs: float | None = None, trail_abs: float | None = None):
+        self.stop_abs = float(stop_abs if stop_abs is not None else os.getenv("TRAILING_STOP_ABS", "0.30"))
+        self.take_abs = float(take_abs if take_abs is not None else os.getenv("TAKE_PROFIT_ABS", "0.60"))
+        self.trail_abs = float(trail_abs if trail_abs is not None else os.getenv("TRAILING_STEP_ABS", "0.30"))
         self.states: dict[str, TrailingState] = {}
 
     def on_position_opened(self, symbol: str, entry_price: float) -> None:
