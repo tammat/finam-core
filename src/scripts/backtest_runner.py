@@ -223,6 +223,11 @@ def run_backtest(
     entry_px = 0.0
     entry_ts = None
 
+    daily_loss_limit = float(params.get("daily_loss_limit", 0.0) or 0.0)
+    current_trade_day = None
+    day_realized_pnl = 0.0
+    day_blocked = False
+
     equity = starting_cash
     equity_curve = []
     in_pos_bars = 0
@@ -252,11 +257,39 @@ def run_backtest(
         stop_pct = float(params.get("stop_pct", 0.0))
         take_pct = float(params.get("take_pct", 0.0))
 
+        # Русский коммент: режимный MR-фильтр — не открываем сделки, если цена слишком далеко от EMA.
+        mr_ema_n = int(params.get("mr_ema", 0) or 0)
+        mr_max_dev = float(params.get("mr_max_dev", 0.0) or 0.0)
+        mr_ema = close.ewm(span=mr_ema_n, adjust=False).mean() if mr_ema_n > 0 else None
+
+        # Русский коммент: сессионный фильтр. Пока используем day как торговые часы 06:00-18:59 UTC.
+        session = str(params.get("session", "") or "").strip().lower()
+
+        def session_allows(i: int) -> bool:
+            if session in ("", "all"):
+                return True
+            if session == "day":
+                hour = ts.iat[i].hour
+                return 6 <= hour < 19
+            return True
+
+        def mr_regime_allows(i: int) -> bool:
+            if mr_ema is not None and mr_max_dev > 0:
+                if pd.isna(mr_ema.iat[i]) or mr_ema.iat[i] == 0:
+                    return False
+                dev = abs(float(close.iat[i]) - float(mr_ema.iat[i])) / abs(float(mr_ema.iat[i]))
+                if dev > mr_max_dev:
+                    return False
+            return True
+
+        def entry_filters_allow(i: int) -> bool:
+            return session_allows(i) and mr_regime_allows(i)
+
         def want_long(i: int) -> bool:
-            return pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
+            return entry_filters_allow(i) and pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
 
         def want_short(i: int) -> bool:
-            return allow_short and pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i]
+            return allow_short and entry_filters_allow(i) and pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i]
 
         def exit_long(i: int) -> bool:
             return pd.notna(vwap.iat[i]) and close.iat[i] >= vwap.iat[i]
@@ -323,6 +356,12 @@ def run_backtest(
         px = float(close.iat[i])
         t = ts.iat[i].to_pydatetime()
 
+        trade_day = t.strftime("%Y-%m-%d")
+        if current_trade_day != trade_day:
+            current_trade_day = trade_day
+            day_realized_pnl = 0.0
+            day_blocked = False
+
         # mark-to-market equity (без учёта costs пока)
         mtm = 0.0
         if pos != 0:
@@ -348,6 +387,9 @@ def run_backtest(
                     commission = commission_per_trade * 2.0
                     pnl_net = pnl_gross - commission
                     equity += pnl_net
+                    day_realized_pnl += pnl_net
+                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
+                        day_blocked = True
                     trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
                     pos = 0
                     entry_px = 0.0
@@ -362,6 +404,9 @@ def run_backtest(
                     commission = commission_per_trade * 2.0
                     pnl_net = pnl_gross - commission
                     equity += pnl_net
+                    day_realized_pnl += pnl_net
+                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
+                        day_blocked = True
                     trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
                     pos = 0
                     entry_px = 0.0
@@ -377,6 +422,9 @@ def run_backtest(
                     commission = commission_per_trade * 2.0
                     pnl_net = pnl_gross - commission
                     equity += pnl_net
+                    day_realized_pnl += pnl_net
+                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
+                        day_blocked = True
                     trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
                     pos = 0
                     entry_px = 0.0
@@ -390,6 +438,9 @@ def run_backtest(
                     commission = commission_per_trade * 2.0
                     pnl_net = pnl_gross - commission
                     equity += pnl_net
+                    day_realized_pnl += pnl_net
+                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
+                        day_blocked = True
                     trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
                     pos = 0
                     entry_px = 0.0
@@ -405,6 +456,9 @@ def run_backtest(
                 commission = commission_per_trade * 2.0
                 pnl_net = pnl_gross - commission
                 equity += pnl_net
+                day_realized_pnl += pnl_net
+                if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
+                    day_blocked = True
                 trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
                 pos = 0
                 entry_px = 0.0
@@ -419,6 +473,9 @@ def run_backtest(
                 commission = commission_per_trade * 2.0
                 pnl_net = pnl_gross - commission
                 equity += pnl_net
+                day_realized_pnl += pnl_net
+                if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
+                    day_blocked = True
                 trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
                 pos = 0
                 entry_px = 0.0
@@ -426,7 +483,7 @@ def run_backtest(
                 continue
 
         # entry logic (если flat)
-        if pos == 0:
+        if pos == 0 and not day_blocked:
             if want_long(i):
                 pos = 1
                 entry_px = px
@@ -513,11 +570,28 @@ def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
         ks = parse_list(args.k, float)
         stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
         takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
+        sessions = parse_list(args.session, str) if getattr(args, "session", "") else [""]
+        mr_emas = parse_list(args.mr_ema, int) if getattr(args, "mr_ema", "") else [0]
+        mr_max_devs = parse_list(args.mr_max_dev, float) if getattr(args, "mr_max_dev", "") else [0.0]
+        daily_loss_limits = parse_list(args.daily_loss_limit, float) if getattr(args, "daily_loss_limit", "") else [0.0]
         for w in windows:
             for k in ks:
                 for sp in stops:
                     for tp in takes:
-                        out.append({"window": w, "k": k, "stop_pct": sp, "take_pct": tp})
+                        for session in sessions:
+                            for mr_ema in mr_emas:
+                                for mr_max_dev in mr_max_devs:
+                                    for daily_loss_limit in daily_loss_limits:
+                                        out.append({
+                                            "window": w,
+                                            "k": k,
+                                            "stop_pct": sp,
+                                            "take_pct": tp,
+                                            "session": session,
+                                            "mr_ema": mr_ema,
+                                            "mr_max_dev": mr_max_dev,
+                                            "daily_loss_limit": daily_loss_limit,
+                                        })
         return out
 
     if strat == "donchian_break":
@@ -545,6 +619,161 @@ def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
         return out
 
     raise RuntimeError(f"Unknown strategy={strategy}")
+
+
+# -------------------------
+# Walk-forward select
+# -------------------------
+import json
+import os
+import argparse
+from typing import Dict, Any, List
+import pandas as pd
+
+def calc_select_score(metrics: Dict[str, Any], metric: str) -> float:
+    """Русский коммент: единая функция выбора лучшего параметра на train-части WF."""
+    metric = (metric or "score").strip().lower()
+    net = float(metrics.get("net_pnl", 0.0) or 0.0)
+    dd = float(metrics.get("max_dd", 0.0) or 0.0)
+    pf = float(metrics.get("profit_factor", 0.0) or 0.0)
+    sharpe = float(metrics.get("sharpe", 0.0) or 0.0)
+
+    if metric == "net":
+        return net
+    if metric == "pf":
+        return pf
+    if metric == "sharpe":
+        return sharpe
+    if metric == "dd":
+        return dd
+    return net / (1.0 + abs(dd))
+
+
+def walk_forward_select(
+    df: pd.DataFrame,
+    *,
+    args: argparse.Namespace,
+    grid: List[Dict[str, Any]],
+) -> None:
+    """Русский коммент: walk-forward select — на train выбираем лучший params, на test проверяем out-of-sample."""
+    splits = int(os.getenv("WF_SPLITS") or "8")
+    select_metric = os.getenv("WF_SELECT_METRIC") or "score"
+    if splits <= 1:
+        raise RuntimeError("WF_SPLITS must be > 1")
+
+    n = len(df)
+    fold_size = n // splits
+    if fold_size <= 10:
+        raise RuntimeError(f"Too few rows for WF: rows={n}, splits={splits}")
+
+    print(f"WALK-FORWARD ENABLED: mode=select splits={splits} select_metric={select_metric}")
+    print(f"DB={args.db}")
+    print(f"DATA symbol={args.symbol} tf={args.timeframe} rows={len(df)} range={df['ts'].min().isoformat()}..{df['ts'].max().isoformat()}")
+    print(f"STRATEGY={args.strategy} grid={len(grid)} save_trades={args.save_trades}")
+
+    test_nets: List[float] = []
+    test_dds: List[float] = []
+    test_pfs: List[float] = []
+    test_sharpes: List[float] = []
+    total_trades = 0
+    selected_params_json: List[str] = []
+
+    for split_idx in range(splits):
+        test_start = split_idx * fold_size
+        test_end = (split_idx + 1) * fold_size if split_idx < splits - 1 else n
+
+        # Русский коммент: expanding/rolling-подобная схема без заглядывания в test.
+        # Для первого сплита train берём весь участок до test_start; если он пустой — используем предыдущий fold как train через сдвиг.
+        train_start = 0
+        train_end = test_start
+        if train_end <= train_start:
+            continue
+
+        train_df = df.iloc[train_start:train_end].reset_index(drop=True)
+        test_df = df.iloc[test_start:test_end].reset_index(drop=True)
+        if train_df.empty or test_df.empty:
+            continue
+
+        best_score = -float("inf")
+        best_params = None
+        best_train_metrics = None
+
+        for pset in grid:
+            train_params = dict(pset)
+            train_params["timeframe"] = args.timeframe
+            metrics, _ = run_backtest(
+                train_df,
+                strategy=args.strategy,
+                params=train_params,
+                starting_cash=args.starting_cash,
+                qty=args.qty,
+                commission_per_trade=args.commission,
+                slippage_bps=args.slippage_bps,
+                allow_short=args.allow_short,
+            )
+            score = calc_select_score(metrics, select_metric)
+            if score > best_score:
+                best_score = score
+                best_params = train_params
+                best_train_metrics = metrics
+
+        if best_params is None or best_train_metrics is None:
+            continue
+
+        test_metrics, _ = run_backtest(
+            test_df,
+            strategy=args.strategy,
+            params=best_params,
+            starting_cash=args.starting_cash,
+            qty=args.qty,
+            commission_per_trade=args.commission,
+            slippage_bps=args.slippage_bps,
+            allow_short=args.allow_short,
+        )
+
+        test_net = float(test_metrics["net_pnl"])
+        test_dd = float(test_metrics["max_dd"])
+        test_trades = int(test_metrics["trades"])
+        test_pf = float(test_metrics["profit_factor"])
+        test_sharpe = float(test_metrics["sharpe"])
+
+        test_nets.append(test_net)
+        test_dds.append(test_dd)
+        test_pfs.append(test_pf)
+        test_sharpes.append(test_sharpe)
+        total_trades += test_trades
+        selected_params_json.append(json.dumps(best_params, ensure_ascii=False, sort_keys=True))
+
+        print(
+            f"[WF_SELECT {len(test_nets)}/{splits}] "
+            f"train={train_df['ts'].min().isoformat()}..{train_df['ts'].max().isoformat()} "
+            f"test={test_df['ts'].min().isoformat()}..{test_df['ts'].max().isoformat()} "
+            f"train_score={best_score:.6g} train_net={float(best_train_metrics['net_pnl']):.2f} "
+            f"test_net={test_net:.2f} test_dd={test_dd:.2f} test_trades={test_trades} "
+            f"params={best_params}"
+        )
+
+    if not test_nets:
+        print("WF_SELECT_SUMMARY splits=0 positive_splits=0/0 total_net=0 avg_net=0 min_net=0 max_net=0 avg_dd=0 worst_dd=0 avg_pf=0 avg_sharpe=0 total_trades=0 unique_param_sets=0 select_metric={}".format(select_metric))
+        return
+
+    positive = sum(1 for x in test_nets if x > 0)
+    total_net = sum(test_nets)
+    avg_net = total_net / len(test_nets)
+    min_net = min(test_nets)
+    max_net = max(test_nets)
+    avg_dd = sum(test_dds) / len(test_dds)
+    worst_dd = min(test_dds)
+    avg_pf = sum(test_pfs) / len(test_pfs)
+    avg_sharpe = sum(test_sharpes) / len(test_sharpes)
+    unique_param_sets = len(set(selected_params_json))
+
+    print(
+        f"WF_SELECT_SUMMARY splits={len(test_nets)} positive_splits={positive}/{len(test_nets)} "
+        f"total_net={total_net:.2f} avg_net={avg_net:.2f} min_net={min_net:.2f} max_net={max_net:.2f} "
+        f"avg_dd={avg_dd:.2f} worst_dd={worst_dd:.2f} avg_pf={avg_pf:.2f} avg_sharpe={avg_sharpe:.2f} "
+        f"total_trades={total_trades} unique_param_sets={unique_param_sets} select_metric={select_metric}"
+    )
 
 
 # -------------------------
@@ -716,7 +945,10 @@ def main():
     ap.add_argument("--slow", default=os.getenv("SLOW") or "60,90,120")
     ap.add_argument("--stop-pct", dest="stop_pct", default=os.getenv("STOP_PCT") or "0.0")
     ap.add_argument("--take-pct", dest="take_pct", default=os.getenv("TAKE_PCT") or "0.0")
-
+    ap.add_argument("--session", default=os.getenv("SESSION") or "")
+    ap.add_argument("--mr-ema", dest="mr_ema", default=os.getenv("MR_EMA") or "0")
+    ap.add_argument("--mr-max-dev", dest="mr_max_dev", default=os.getenv("MR_MAX_DEV") or "0.0")
+    ap.add_argument("--daily-loss-limit", dest="daily_loss_limit", default=os.getenv("DAILY_LOSS_LIMIT") or "0.0")
     ap.add_argument("--save-trades", action="store_true", default=(os.getenv("SAVE_TRADES", "0") == "1"))
     ap.add_argument("--limit-grid", type=int, default=int(os.getenv("LIMIT_GRID") or "0"))  # 0 = без лимита
 
@@ -754,6 +986,12 @@ def main():
     print(f"DB={args.db}")
     print(f"DATA symbol={args.symbol} tf={args.timeframe} rows={len(df)} range={start_eff}..{end_eff}")
     print(f"STRATEGY={args.strategy} grid={len(grid)} save_trades={args.save_trades}")
+
+    wf_mode = (os.getenv("WF_MODE") or "").strip().lower()
+    if wf_mode == "select":
+        walk_forward_select(df, args=args, grid=grid)
+        con.close()
+        return
 
     for i, pset in enumerate(grid, 1):
         # Русский коммент: протаскиваем timeframe в params для Sharpe annualization
