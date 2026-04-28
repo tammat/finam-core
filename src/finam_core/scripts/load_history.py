@@ -23,11 +23,18 @@ import os
 import time
 import math
 import grpc
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, timezone
 
 from finam_core.ingestion.history_loader import HistoryLoader
 from finam_core.storage.sqlite import BarsSQLiteStorage
 
+
+
+def as_utc_aware(value: datetime) -> datetime:
+    """Русский коммент: нормализуем datetime в UTC-aware."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 def _env(name: str, default: str) -> str:
     v = os.getenv(name)
@@ -71,8 +78,15 @@ def _db_max_ts(store: BarsSQLiteStorage, symbol: str, timeframe: str) -> str | N
     mx = row[0] if row else None
     return mx
 
+def as_utc_aware(dt):
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 def main() -> None:
+    total_written = 0
+    total_requests = 0
+    total_errors = 0
     symbol = _env("SYMBOL", "BRM6@RTSX")
     timeframe = _env("TIMEFRAME", "M1").upper()
     days = int(_env("DAYS", "30"))
@@ -92,28 +106,17 @@ def main() -> None:
     loader = HistoryLoader(host=os.getenv("FINAM_API_HOST") or "api.finam.ru:443")
     store = BarsSQLiteStorage(db_path)
 
-    try:
-        if resume:
-            mx = _db_max_ts(store, symbol, timeframe)
-            if mx:
-                mx_dt = datetime.fromisoformat(mx)
-                start = mx_dt + _tf_step(timeframe)
+    # нормализация datetime (ключевой фикс!)
+    start = as_utc_aware(start)
+    end = as_utc_aware(end)
 
-        print(
-            f"LOAD_HISTORY symbol={symbol} tf={timeframe} days={days} db={db_path} "
-            f"chunk_min={chunk_minutes} resume={int(resume)} sleep={sleep_sec}s",
-            flush=True,
-        )
-        print(f"RANGE start={_iso(start)} end={_iso(end)}", flush=True)
+    total_minutes = max(1, int((end - start).total_seconds() // 60))
+    total_chunks = max(1, int(math.ceil(total_minutes / float(chunk_minutes))))
 
-        total_written = 0
-        total_minutes = max(1, int((end - start).total_seconds() // 60))
-        total_chunks = max(1, int(math.ceil(total_minutes / float(chunk_minutes))))
+    cur_start = start
+    chunk_idx = 0
 
-        cur_start = start
-        chunk_idx = 0
-
-        while cur_start < end:
+    while cur_start < end:
             chunk_idx += 1
             cur_end = min(end, cur_start + timedelta(minutes=chunk_minutes))
 
@@ -170,17 +173,16 @@ def main() -> None:
             if sleep_sec > 0:
                 time.sleep(sleep_sec)
 
-        print("DONE load_history", flush=True)
+            print("DONE load_history", flush=True)
 
-    finally:
-        try:
-            loader.close()
-        except Exception:
-            pass
-        try:
-            store.close()
-        except Exception:
-            pass
+    try:
+        loader.close()
+    except Exception:
+        pass
+    try:
+        store.close()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
