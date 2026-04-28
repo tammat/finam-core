@@ -282,8 +282,79 @@ def run_backtest(
                     return False
             return True
 
+        # Русский коммент: Regime Layer v1 — ATR-фильтр волатильности.
+        regime_layer = str(params.get("regime_layer", "") or "").strip().lower()
+        regime_atr_n = int(params.get("regime_atr_n", 14) or 14)
+        regime_atr_mode = str(params.get("regime_atr_mode", "percentile") or "percentile").strip().lower()
+        regime_atr_threshold = float(params.get("regime_atr_threshold", 0.0) or 0.0)
+        regime_atr_pct_window = int(params.get("regime_atr_pct_window", 100) or 100)
+        regime_ema_slope = str(params.get("regime_ema_slope", "") or "").strip().lower()
+        regime_ema_slope_enabled = regime_ema_slope == "on"
+        regime_ema_slope_lookback = int(params.get("regime_ema_slope_lookback", 20) or 20)
+        regime_ema_slope_threshold = float(params.get("regime_ema_slope_threshold", 0.002) or 0.002)
+
+        prev_close = close.shift(1)
+        tr1 = (df["high"] - df["low"]).abs()
+        tr2 = (df["high"] - prev_close).abs()
+        tr3 = (df["low"] - prev_close).abs()
+        true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        regime_atr = true_range.rolling(regime_atr_n).mean()
+        regime_atr_pct = regime_atr.rolling(regime_atr_pct_window).rank(pct=True)
+
+        def regime_allows(i: int) -> bool:
+            if regime_layer in ("", "off", "none"):
+                return True
+            if regime_layer != "atr":
+                return True
+            if regime_atr_threshold <= 0:
+                return True
+
+            if regime_atr_mode in ("", "percentile"):
+                value = regime_atr_pct.iat[i]
+                if pd.isna(value):
+                    return False
+                return float(value) <= regime_atr_threshold
+
+            if regime_atr_mode == "absolute":
+                value = regime_atr.iat[i]
+                if pd.isna(value):
+                    return False
+                return float(value) <= regime_atr_threshold
+
+            return True
+
+        # -------------------- EMA SLOPE REGIME --------------------
+        def ema_slope_allows(i: int) -> bool:
+            # Русский коммент:
+            # Фильтр отключает mean-reversion, если EMA имеет сильный наклон (тренд)
+
+            if not regime_ema_slope_enabled:
+                return True
+
+            if i < regime_ema_slope_lookback:
+                return True
+
+            if mr_ema is None:
+                return True
+
+            ema_now = mr_ema.iat[i]
+            ema_prev = mr_ema.iat[i - regime_ema_slope_lookback]
+
+            if pd.isna(ema_now) or pd.isna(ema_prev):
+                return True
+
+            slope = (ema_now - ema_prev) / ema_prev
+
+            # абсолютный наклон
+            return abs(float(slope)) <= regime_ema_slope_threshold
+
         def entry_filters_allow(i: int) -> bool:
-            return session_allows(i) and mr_regime_allows(i)
+            return (
+                    session_allows(i)
+                    and mr_regime_allows(i)
+                    and regime_allows(i)
+                    and ema_slope_allows(i)
+            )
 
         def want_long(i: int) -> bool:
             return entry_filters_allow(i) and pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
@@ -574,6 +645,14 @@ def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
         mr_emas = parse_list(args.mr_ema, int) if getattr(args, "mr_ema", "") else [0]
         mr_max_devs = parse_list(args.mr_max_dev, float) if getattr(args, "mr_max_dev", "") else [0.0]
         daily_loss_limits = parse_list(args.daily_loss_limit, float) if getattr(args, "daily_loss_limit", "") else [0.0]
+        regime_layers = parse_list(args.regime_layer, str) if getattr(args, "regime_layer", "") else [""]
+        regime_atr_ns = parse_list(args.regime_atr_n, int) if getattr(args, "regime_atr_n", "") else [14]
+        regime_atr_modes = parse_list(args.regime_atr_mode, str) if getattr(args, "regime_atr_mode", "") else ["percentile"]
+        regime_atr_thresholds = parse_list(args.regime_atr_threshold, float) if getattr(args, "regime_atr_threshold", "") else [0.0]
+        regime_atr_pct_windows = parse_list(args.regime_atr_pct_window, int) if getattr(args, "regime_atr_pct_window", "") else [100]
+        regime_ema_slopes = parse_list(args.regime_ema_slope, str) if getattr(args, "regime_ema_slope", "") else [""]
+        regime_ema_slope_lookbacks = parse_list(args.regime_ema_slope_lookback, int) if getattr(args, "regime_ema_slope_lookback", "") else [20]
+        regime_ema_slope_thresholds = parse_list(args.regime_ema_slope_threshold, float) if getattr(args, "regime_ema_slope_threshold", "") else [0.002]
         for w in windows:
             for k in ks:
                 for sp in stops:
@@ -582,16 +661,32 @@ def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
                             for mr_ema in mr_emas:
                                 for mr_max_dev in mr_max_devs:
                                     for daily_loss_limit in daily_loss_limits:
-                                        out.append({
-                                            "window": w,
-                                            "k": k,
-                                            "stop_pct": sp,
-                                            "take_pct": tp,
-                                            "session": session,
-                                            "mr_ema": mr_ema,
-                                            "mr_max_dev": mr_max_dev,
-                                            "daily_loss_limit": daily_loss_limit,
-                                        })
+                                        for regime_layer in regime_layers:
+                                            for regime_atr_n in regime_atr_ns:
+                                                for regime_atr_mode in regime_atr_modes:
+                                                    for regime_atr_threshold in regime_atr_thresholds:
+                                                        for regime_atr_pct_window in regime_atr_pct_windows:
+                                                            for regime_ema_slope in regime_ema_slopes:
+                                                                for regime_ema_slope_lookback in regime_ema_slope_lookbacks:
+                                                                    for regime_ema_slope_threshold in regime_ema_slope_thresholds:
+                                                                        out.append({
+                                                                            "window": w,
+                                                                            "k": k,
+                                                                            "stop_pct": sp,
+                                                                            "take_pct": tp,
+                                                                            "session": session,
+                                                                            "mr_ema": mr_ema,
+                                                                            "mr_max_dev": mr_max_dev,
+                                                                            "daily_loss_limit": daily_loss_limit,
+                                                                            "regime_layer": regime_layer,
+                                                                            "regime_atr_n": regime_atr_n,
+                                                                            "regime_atr_mode": regime_atr_mode,
+                                                                            "regime_atr_threshold": regime_atr_threshold,
+                                                                            "regime_atr_pct_window": regime_atr_pct_window,
+                                                                            "regime_ema_slope": regime_ema_slope,
+                                                                            "regime_ema_slope_lookback": regime_ema_slope_lookback,
+                                                                            "regime_ema_slope_threshold": regime_ema_slope_threshold,
+                                                                        })
         return out
 
     if strat == "donchian_break":
@@ -948,6 +1043,14 @@ def main():
     ap.add_argument("--session", default=os.getenv("SESSION") or "")
     ap.add_argument("--mr-ema", dest="mr_ema", default=os.getenv("MR_EMA") or "0")
     ap.add_argument("--mr-max-dev", dest="mr_max_dev", default=os.getenv("MR_MAX_DEV") or "0.0")
+    ap.add_argument("--regime-layer", dest="regime_layer", default=os.getenv("REGIME_LAYER") or "")
+    ap.add_argument("--regime-atr-n", dest="regime_atr_n", default=os.getenv("REGIME_ATR_N") or "14")
+    ap.add_argument("--regime-atr-mode", dest="regime_atr_mode", default=os.getenv("REGIME_ATR_MODE") or "percentile")
+    ap.add_argument("--regime-atr-threshold", dest="regime_atr_threshold", default=os.getenv("REGIME_ATR_THRESHOLD") or "0.0")
+    ap.add_argument("--regime-atr-pct-window", dest="regime_atr_pct_window", default=os.getenv("REGIME_ATR_PCT_WINDOW") or "100")
+    ap.add_argument("--regime-ema-slope", dest="regime_ema_slope", default=os.getenv("REGIME_EMA_SLOPE") or "")
+    ap.add_argument("--regime-ema-slope-lookback", dest="regime_ema_slope_lookback", default=os.getenv("REGIME_EMA_SLOPE_LOOKBACK") or "20")
+    ap.add_argument("--regime-ema-slope-threshold", dest="regime_ema_slope_threshold", default=os.getenv("REGIME_EMA_SLOPE_THRESHOLD") or "0.002")
     ap.add_argument("--daily-loss-limit", dest="daily_loss_limit", default=os.getenv("DAILY_LOSS_LIMIT") or "0.0")
     ap.add_argument("--save-trades", action="store_true", default=(os.getenv("SAVE_TRADES", "0") == "1"))
     ap.add_argument("--limit-grid", type=int, default=int(os.getenv("LIMIT_GRID") or "0"))  # 0 = без лимита
