@@ -19,20 +19,59 @@ class HistoryLoader:
         self.client.close()
 
     def load(self, symbol: str, timeframe, start: datetime, end: datetime) -> List[Dict[str, Any]]:
-        bars = self.client.get_bars(symbol=symbol, timeframe=timeframe, start=start, end=end)
+        bars_resp = self.client.get_bars(symbol=symbol, timeframe=timeframe, start=start, end=end)
+
+        # Русский коммент: Finam gRPC Bars обычно возвращает unary BarsResponse, где бары лежат в поле `.bars`.
+        # Но на всякий случай поддерживаем и вариант, когда get_bars() вернёт уже iterable/stream.
+        bars_iter = getattr(bars_resp, "bars", None)
+        if bars_iter is None:
+            bars_iter = bars_resp
 
         out: List[Dict[str, Any]] = []
-        for b in bars:
-            # Русский коммент: поля зависят от proto; ниже “best effort”
-            ts = getattr(b, "timestamp", None) or getattr(b, "time", None)
-            close = getattr(getattr(b, "close", None), "value", None) if getattr(b, "close", None) else getattr(b, "close", None)
-            vol = getattr(getattr(b, "volume", None), "value", None) if getattr(b, "volume", None) else getattr(b, "volume", None)
+        for b in bars_iter:
+            # Русский коммент: timestamp обычно protobuf Timestamp; нормализуем в ISO UTC строку.
+            ts_pb = getattr(b, "timestamp", None) or getattr(b, "time", None)
+            ts_iso = None
+            if ts_pb is not None:
+                try:
+                    # google.protobuf.timestamp_pb2.Timestamp имеет ToDatetime()
+                    dt = ts_pb.ToDatetime()
+                    # нормализуем в UTC и сериализуем
+                    if getattr(dt, "tzinfo", None) is None:
+                        ts_iso = dt.isoformat() + "+00:00"
+                    else:
+                        ts_iso = dt.astimezone(__import__("datetime").timezone.utc).isoformat()
+                except Exception:
+                    try:
+                        # fallback: если это уже datetime
+                        ts_iso = ts_pb.isoformat()
+                    except Exception:
+                        ts_iso = str(ts_pb)
+
+            def _dec(x):
+                # Русский коммент: Decimal в proto часто хранится как объект с .value (строка)
+                if x is None:
+                    return None
+                try:
+                    v = getattr(x, "value", None)
+                    return float(v) if v is not None else float(x)
+                except Exception:
+                    return None
+
+            o = _dec(getattr(b, "open", None))
+            h = _dec(getattr(b, "high", None))
+            l = _dec(getattr(b, "low", None))
+            c = _dec(getattr(b, "close", None))
+            v = _dec(getattr(b, "volume", None))
 
             out.append(
                 {
-                    "ts": ts,
-                    "close": float(close) if close is not None else None,
-                    "volume": float(vol) if vol is not None else None,
+                    "ts": ts_iso,
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": c,
+                    "volume": v,
                     "raw": b,
                 }
             )

@@ -14,9 +14,25 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 from google.protobuf.timestamp_pb2 import Timestamp
+from finam_proto.google.type import interval_pb2
 
 from finam_core.auth.token_manager import FinamTokenManager
 from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2 as md_pb2
+
+def _map_timeframe(tf: str, md_pb2):
+    tf = (tf or "").strip().upper()
+    m = {
+        "M1":  "TIME_FRAME_M1",
+        "M5":  "TIME_FRAME_M5",
+        "M15": "TIME_FRAME_M15",
+        "H1":  "TIME_FRAME_H1",
+        "D1":  "TIME_FRAME_D1",
+    }
+    key = m.get(tf)
+    if not key:
+        raise ValueError(f"Unsupported timeframe: {tf}")
+    # md_pb2.TimeFrame is EnumTypeWrapper; attribute access returns int value
+    return getattr(md_pb2.TimeFrame, key)
 from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2_grpc as md_grpc
 
 
@@ -55,8 +71,8 @@ class FinamBarsClient:
     ):
         req = md_pb2.BarsRequest(
             symbol=symbol,
-            timeframe=timeframe,
-            interval=md_pb2.Interval(  # если Interval лежит в другом proto — поправим по месту
+            timeframe=_map_timeframe(timeframe, md_pb2),
+            interval=interval_pb2.Interval(  # если Interval лежит в другом proto — поправим по месту
                 start_time=self._ts(start),
                 end_time=self._ts(end),
             ),
