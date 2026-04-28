@@ -9,7 +9,7 @@ LOG = logging.getLogger(__name__)
 
 
 class OnceBuyStrategy:
-    """Emit a single BUY intent on first valid quote."""
+    """Emit BUY intent until pipeline accepts/submits it."""
 
     def __init__(self, symbol: str):
         self.symbol = symbol
@@ -25,6 +25,11 @@ class OnceBuyStrategy:
         if self.sent or sym != self.symbol or last is None:
             return None
 
-        self.sent = True
+        # Русский коммент: не ставим sent=True здесь.
+        # Intent может быть отклонён FilterEngine/Risk, поэтому финальную фиксацию делает pipeline.
         LOG.info("STRATEGY EMIT INTENT")
         return {"symbol": sym, "side": "BUY", "qty": 1.0}
+
+    def mark_submitted(self) -> None:
+        """Русский коммент: pipeline вызывает после успешного прохождения фильтров и risk."""
+        self.sent = True

@@ -157,6 +157,7 @@ class PaperTradingPipeline:
         LOG.debug("PIPE attach(): subscribed QUOTE/FILL")
 
     def _on_quote(self, event: dict):
+        print(f"PIPE_ON_QUOTE_CALLED event={event}", flush=True)
         sym = event.get("symbol")
         if not sym:
             return
@@ -187,9 +188,6 @@ class PaperTradingPipeline:
             fb = LiveFeatureBuffer()
             self.features[sym] = fb
 
-        fb.update(st)
-        feat = fb.compute()
-
         # --- FEATURE BUFFER ---
         fb = self.features.get(sym)
         if fb is None:
@@ -208,9 +206,11 @@ class PaperTradingPipeline:
 
         # strategy
         intent = self.strategy.on_quote(st)
+        print(f"PIPE_STRATEGY_RESULT intent={intent}", flush=True)
         if not intent:
             return
         LOG.info("PIPE intent=%s", intent)
+        print(f"PIPE_INTENT intent={intent}", flush=True)
 
         # Русский коммент: Strategy FilterEngine стоит между Strategy и Risk.
         if self.filter_engine is not None:
@@ -259,10 +259,17 @@ class PaperTradingPipeline:
             return
 
         LOG.info("RISK OK")
+        print("PIPE_RISK_OK", flush=True)
 
         # paper execute
         LOG.info("PIPE PAPER EXECUTE")
+        print("PIPE_PAPER_EXECUTE", flush=True)
         fill = self.paper.execute(intent, st)
+        print(f"PIPE_PAPER_FILL_RAW fill={fill}", flush=True)
+
+        if hasattr(self.strategy, "mark_submitted"):
+            print("PIPE_MARK_SUBMITTED", flush=True)
+            self.strategy.mark_submitted()
 
         side = str(intent.get("side", "BUY")).upper()
         qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
@@ -281,9 +288,13 @@ class PaperTradingPipeline:
                  fill, exec_fill.side, exec_fill.qty, exec_fill.fill_id)
 
         # Русский коммент: Вариант B — публикуем FILL, а применять будем в _on_fill().
-        self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
+        fill_event = {"type": "FILL", "fill": exec_fill, "origin": "paper"}
+        print(f"PIPE_PUBLISH_FILL event={fill_event}", flush=True)
+        self.bus.publish(fill_event)
+        print("PIPE_PUBLISH_FILL_DONE", flush=True)
 
     def _on_fill(self, event: dict):
+        print(f"PIPE_ON_FILL_CALLED event={event}", flush=True)
         """
         Русский коммент: единая точка применения исполнений.
         Идемпотентность по fill_id держит PositionManager (если включена).
@@ -292,7 +303,9 @@ class PaperTradingPipeline:
         if fill is None:
             return
 
+        print("PIPE_BEFORE_APPLY_FILL", flush=True)
         self.pm.apply_fill(fill)
+        print("PIPE_AFTER_APPLY_FILL", flush=True)
 
         # --- DIAG (safe) ---
         try:
@@ -305,6 +318,13 @@ class PaperTradingPipeline:
 
             sym_exposure = abs(qty_now) * float(getattr(fill, "price", 0.0) or 0.0)
 
+            print(
+                f"PIPE_PM_CTX portfolio_value={getattr(pm_ctx, 'portfolio_value', None)} "
+                f"total_exposure={getattr(pm_ctx, 'total_exposure', None)} "
+                f"sym_exposure={sym_exposure} daily_realized_pnl={getattr(pm_ctx, 'daily_realized_pnl', None)} "
+                f"qty={qty_now} avg={avg_now} cash={cash_now}",
+                flush=True,
+            )
             LOG.info(
                 "PM_CTX portfolio_value=%s total_exposure=%s sym_exposure=%s daily_realized_pnl=%s qty=%s avg=%s cash=%s",
                 getattr(pm_ctx, "portfolio_value", None),
@@ -318,6 +338,11 @@ class PaperTradingPipeline:
         except Exception as e:
             LOG.debug("PM_CTX DIAG ERROR: %s", e)
 
+        print(
+            f"PIPE_FILLED paper {getattr(fill, 'symbol', None)} "
+            f"qty={getattr(fill, 'qty', None)} price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
+            flush=True,
+        )
         LOG.info("FILLED paper %s qty=%s price=%s id=%s",
                  getattr(fill, "symbol", None),
                  getattr(fill, "qty", None),

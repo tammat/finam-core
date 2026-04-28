@@ -31,10 +31,16 @@ class LiveFeatureBuffer:
 
         px = float(price)
 
-        # упрощённо: используем last как OHLC
+        # Русский коммент: SubscribeQuote отдаёт high/low/open, используем их для live range/ATR.
+        high = quote.get("high")
+        low = quote.get("low")
+
+        high_px = float(high) if high is not None else px
+        low_px = float(low) if low is not None else px
+
         self.close.append(px)
-        self.high.append(px)
-        self.low.append(px)
+        self.high.append(high_px)
+        self.low.append(low_px)
 
     def ready(self) -> bool:
         # Русский коммент: для range_atr нужен запас истории под rolling range/ATR.
