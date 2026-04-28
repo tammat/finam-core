@@ -10,6 +10,7 @@ import time
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
+from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
 from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
@@ -138,6 +139,7 @@ class PaperTradingPipeline:
         self.pm = position_manager
         self.risk = risk
         self.paper = paper
+        self.fee_tax = FeeTaxModel()
         self.strategy = strategy
         # Русский коммент: единый pre-risk фильтр сигналов. По умолчанию отключён.
         self.filter_engine = filter_engine
@@ -222,13 +224,22 @@ class PaperTradingPipeline:
                 LOG.info("TRAILING EXIT intent=%s", exit_intent)
                 fill = self.paper.execute(exit_intent, st)
 
+                fill_price = float(getattr(fill, "price", 0.0) or 0.0)
+                exit_qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
+                fee_result = self.fee_tax.trade_fees(exit_qty * fill_price)
+                total_commission = (
+                    float(getattr(fill, "commission", 0.0) or 0.0)
+                    + fee_result.broker_fee
+                    + fee_result.exchange_fee
+                )
+
                 exec_fill = ExecutionFill(
                     fill_id=getattr(fill, "fill_id", None),
                     symbol=getattr(fill, "symbol", None) or exit_intent.get("symbol"),
                     side="SELL",
-                    qty=abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0),
-                    price=float(getattr(fill, "price", 0.0) or 0.0),
-                    commission=float(getattr(fill, "commission", 0.0) or 0.0),
+                    qty=exit_qty,
+                    price=fill_price,
+                    commission=total_commission,
                     origin="paper",
                 )
 
@@ -312,13 +323,22 @@ class PaperTradingPipeline:
         side = str(intent.get("side", "BUY")).upper()
         qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
 
+        fill_price = float(getattr(fill, "price", 0.0) or 0.0)
+        trade_value = abs(qty) * fill_price
+        fee_result = self.fee_tax.trade_fees(trade_value)
+        total_commission = (
+            float(getattr(fill, "commission", 0.0) or 0.0)
+            + fee_result.broker_fee
+            + fee_result.exchange_fee
+        )
+
         exec_fill = ExecutionFill(
             fill_id=getattr(fill, "fill_id", None),
             symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
             side=side,
             qty=qty,  # Русский коммент: qty положительный, направление в side
-            price=float(getattr(fill, "price", 0.0) or 0.0),
-            commission=float(getattr(fill, "commission", 0.0) or 0.0),
+            price=fill_price,
+            commission=total_commission,
             origin="paper",
         )
 
