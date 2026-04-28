@@ -292,6 +292,10 @@ def run_backtest(
         regime_ema_slope_enabled = regime_ema_slope == "on"
         regime_ema_slope_lookback = int(params.get("regime_ema_slope_lookback", 20) or 20)
         regime_ema_slope_threshold = float(params.get("regime_ema_slope_threshold", 0.002) or 0.002)
+        # Русский коммент: Regime Layer v2 — адаптивное переключение поведения стратегии.
+        # off: только фильтры; slope_switch: low-slope = mean reversion, high-slope = trend-follow.
+        regime_adaptive_mode = str(params.get("regime_adaptive_mode", "") or "").strip().lower()
+        regime_trend_confirm_bars = int(params.get("regime_trend_confirm_bars", 1) or 1)
 
         prev_close = close.shift(1)
         tr1 = (df["high"] - df["low"]).abs()
@@ -324,6 +328,17 @@ def run_backtest(
             return True
 
         # -------------------- EMA SLOPE REGIME --------------------
+        def ema_slope_value(i: int) -> float:
+            if mr_ema is None:
+                return 0.0
+            if i < regime_ema_slope_lookback:
+                return 0.0
+            ema_now = mr_ema.iat[i]
+            ema_prev = mr_ema.iat[i - regime_ema_slope_lookback]
+            if pd.isna(ema_now) or pd.isna(ema_prev) or ema_prev == 0:
+                return 0.0
+            return float((ema_now - ema_prev) / ema_prev)
+
         def ema_slope_allows(i: int) -> bool:
             # Русский коммент:
             # Фильтр отключает mean-reversion, если EMA имеет сильный наклон (тренд)
@@ -334,19 +349,34 @@ def run_backtest(
             if i < regime_ema_slope_lookback:
                 return True
 
-            if mr_ema is None:
+            # Русский коммент: в adaptive mode slope не блокирует входы, а переключает тип входа.
+            if regime_adaptive_mode == "slope_switch":
                 return True
 
-            ema_now = mr_ema.iat[i]
-            ema_prev = mr_ema.iat[i - regime_ema_slope_lookback]
+            slope = ema_slope_value(i)
+            return abs(slope) <= regime_ema_slope_threshold
 
-            if pd.isna(ema_now) or pd.isna(ema_prev):
+        def trend_confirmed(i: int, direction: int) -> bool:
+            if regime_trend_confirm_bars <= 1:
                 return True
+            if i < regime_trend_confirm_bars:
+                return False
+            for j in range(i - regime_trend_confirm_bars + 1, i + 1):
+                if direction > 0:
+                    if not (pd.notna(upper.iat[j]) and close.iat[j] > upper.iat[j]):
+                        return False
+                else:
+                    if not (pd.notna(lower.iat[j]) and close.iat[j] < lower.iat[j]):
+                        return False
+            return True
 
-            slope = (ema_now - ema_prev) / ema_prev
-
-            # абсолютный наклон
-            return abs(float(slope)) <= regime_ema_slope_threshold
+        def adaptive_mode(i: int) -> str:
+            if regime_adaptive_mode != "slope_switch":
+                return "mr"
+            slope = ema_slope_value(i)
+            if abs(slope) <= regime_ema_slope_threshold:
+                return "mr"
+            return "trend_up" if slope > 0 else "trend_down"
 
         def entry_filters_allow(i: int) -> bool:
             return (
@@ -357,15 +387,35 @@ def run_backtest(
             )
 
         def want_long(i: int) -> bool:
-            return entry_filters_allow(i) and pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
+            if not entry_filters_allow(i):
+                return False
+            mode = adaptive_mode(i)
+            if mode == "mr":
+                return pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
+            if mode == "trend_up":
+                return pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i] and trend_confirmed(i, 1)
+            return False
 
         def want_short(i: int) -> bool:
-            return allow_short and entry_filters_allow(i) and pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i]
+            if not allow_short or not entry_filters_allow(i):
+                return False
+            mode = adaptive_mode(i)
+            if mode == "mr":
+                return pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i]
+            if mode == "trend_down":
+                return pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i] and trend_confirmed(i, -1)
+            return False
 
         def exit_long(i: int) -> bool:
+            mode = adaptive_mode(i)
+            if mode == "trend_up":
+                return pd.notna(vwap.iat[i]) and close.iat[i] < vwap.iat[i]
             return pd.notna(vwap.iat[i]) and close.iat[i] >= vwap.iat[i]
 
         def exit_short(i: int) -> bool:
+            mode = adaptive_mode(i)
+            if mode == "trend_down":
+                return pd.notna(vwap.iat[i]) and close.iat[i] > vwap.iat[i]
             return pd.notna(vwap.iat[i]) and close.iat[i] <= vwap.iat[i]
 
     elif strat == "donchian_break":
@@ -653,6 +703,8 @@ def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
         regime_ema_slopes = parse_list(args.regime_ema_slope, str) if getattr(args, "regime_ema_slope", "") else [""]
         regime_ema_slope_lookbacks = parse_list(args.regime_ema_slope_lookback, int) if getattr(args, "regime_ema_slope_lookback", "") else [20]
         regime_ema_slope_thresholds = parse_list(args.regime_ema_slope_threshold, float) if getattr(args, "regime_ema_slope_threshold", "") else [0.002]
+        regime_adaptive_modes = parse_list(args.regime_adaptive_mode, str) if getattr(args, "regime_adaptive_mode", "") else [""]
+        regime_trend_confirm_bars_list = parse_list(args.regime_trend_confirm_bars, int) if getattr(args, "regime_trend_confirm_bars", "") else [1]
         for w in windows:
             for k in ks:
                 for sp in stops:
@@ -669,24 +721,28 @@ def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
                                                             for regime_ema_slope in regime_ema_slopes:
                                                                 for regime_ema_slope_lookback in regime_ema_slope_lookbacks:
                                                                     for regime_ema_slope_threshold in regime_ema_slope_thresholds:
-                                                                        out.append({
-                                                                            "window": w,
-                                                                            "k": k,
-                                                                            "stop_pct": sp,
-                                                                            "take_pct": tp,
-                                                                            "session": session,
-                                                                            "mr_ema": mr_ema,
-                                                                            "mr_max_dev": mr_max_dev,
-                                                                            "daily_loss_limit": daily_loss_limit,
-                                                                            "regime_layer": regime_layer,
-                                                                            "regime_atr_n": regime_atr_n,
-                                                                            "regime_atr_mode": regime_atr_mode,
-                                                                            "regime_atr_threshold": regime_atr_threshold,
-                                                                            "regime_atr_pct_window": regime_atr_pct_window,
-                                                                            "regime_ema_slope": regime_ema_slope,
-                                                                            "regime_ema_slope_lookback": regime_ema_slope_lookback,
-                                                                            "regime_ema_slope_threshold": regime_ema_slope_threshold,
-                                                                        })
+                                                                        for regime_adaptive_mode in regime_adaptive_modes:
+                                                                            for regime_trend_confirm_bars in regime_trend_confirm_bars_list:
+                                                                                out.append({
+                                                                                    "window": w,
+                                                                                    "k": k,
+                                                                                    "stop_pct": sp,
+                                                                                    "take_pct": tp,
+                                                                                    "session": session,
+                                                                                    "mr_ema": mr_ema,
+                                                                                    "mr_max_dev": mr_max_dev,
+                                                                                    "daily_loss_limit": daily_loss_limit,
+                                                                                    "regime_layer": regime_layer,
+                                                                                    "regime_atr_n": regime_atr_n,
+                                                                                    "regime_atr_mode": regime_atr_mode,
+                                                                                    "regime_atr_threshold": regime_atr_threshold,
+                                                                                    "regime_atr_pct_window": regime_atr_pct_window,
+                                                                                    "regime_ema_slope": regime_ema_slope,
+                                                                                    "regime_ema_slope_lookback": regime_ema_slope_lookback,
+                                                                                    "regime_ema_slope_threshold": regime_ema_slope_threshold,
+                                                                                    "regime_adaptive_mode": regime_adaptive_mode,
+                                                                                    "regime_trend_confirm_bars": regime_trend_confirm_bars,
+                                                                                })
         return out
 
     if strat == "donchian_break":
@@ -1051,6 +1107,8 @@ def main():
     ap.add_argument("--regime-ema-slope", dest="regime_ema_slope", default=os.getenv("REGIME_EMA_SLOPE") or "")
     ap.add_argument("--regime-ema-slope-lookback", dest="regime_ema_slope_lookback", default=os.getenv("REGIME_EMA_SLOPE_LOOKBACK") or "20")
     ap.add_argument("--regime-ema-slope-threshold", dest="regime_ema_slope_threshold", default=os.getenv("REGIME_EMA_SLOPE_THRESHOLD") or "0.002")
+    ap.add_argument("--regime-adaptive-mode", dest="regime_adaptive_mode", default=os.getenv("REGIME_ADAPTIVE_MODE") or "")
+    ap.add_argument("--regime-trend-confirm-bars", dest="regime_trend_confirm_bars", default=os.getenv("REGIME_TREND_CONFIRM_BARS") or "1")
     ap.add_argument("--daily-loss-limit", dest="daily_loss_limit", default=os.getenv("DAILY_LOSS_LIMIT") or "0.0")
     ap.add_argument("--save-trades", action="store_true", default=(os.getenv("SAVE_TRADES", "0") == "1"))
     ap.add_argument("--limit-grid", type=int, default=int(os.getenv("LIMIT_GRID") or "0"))  # 0 = без лимита
