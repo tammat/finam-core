@@ -10,6 +10,8 @@ import time
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
+from finam_core.risk.trailing_exit import TrailingExitEngine
+from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -149,6 +151,8 @@ class PaperTradingPipeline:
         # Русский коммент: троттлинг логов котировок
         self._last_quote_log_ts = 0.0
         self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
+        self.trailing_exit = TrailingExitEngine()
+        self.notifier = TelegramNotifier()
 
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
@@ -201,6 +205,35 @@ class PaperTradingPipeline:
             gate = str(getattr(self.filter_engine, "params", {}).get("tradeability_gate", "") or "").strip().lower()
             if gate not in ("", "off", "none") and feat is None:
                 LOG.info("FILTER WARMUP: waiting for live features symbol=%s", sym)
+                return
+
+        # trailing exit
+        try:
+            pos = self.pm.positions.get(sym)
+            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+            last_px = float(st.get("last")) if st.get("last") is not None else None
+        except Exception:
+            qty_now = 0.0
+            last_px = None
+
+        if qty_now > 0 and last_px is not None:
+            exit_intent = self.trailing_exit.evaluate_long(sym, last_px, qty_now)
+            if exit_intent:
+                LOG.info("TRAILING EXIT intent=%s", exit_intent)
+                fill = self.paper.execute(exit_intent, st)
+
+                exec_fill = ExecutionFill(
+                    fill_id=getattr(fill, "fill_id", None),
+                    symbol=getattr(fill, "symbol", None) or exit_intent.get("symbol"),
+                    side="SELL",
+                    qty=abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0),
+                    price=float(getattr(fill, "price", 0.0) or 0.0),
+                    commission=float(getattr(fill, "commission", 0.0) or 0.0),
+                    origin="paper",
+                )
+
+                self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
+                self.trailing_exit.reset(sym)
                 return
 
         # strategy
@@ -306,6 +339,14 @@ class PaperTradingPipeline:
             return
         self.pm.apply_fill(fill)
 
+        if str(getattr(fill, "side", "")).upper() == "BUY":
+            self.trailing_exit.on_position_opened(
+                getattr(fill, "symbol", None),
+                float(getattr(fill, "price", 0.0) or 0.0),
+            )
+        elif str(getattr(fill, "side", "")).upper() == "SELL":
+            self.trailing_exit.reset(getattr(fill, "symbol", None))
+
         # --- DIAG (safe) ---
         try:
             pm_ctx = self.pm.get_context()
@@ -347,6 +388,15 @@ class PaperTradingPipeline:
                  getattr(fill, "qty", None),
                  getattr(fill, "price", None),
                  getattr(fill, "fill_id", None))
+
+        self.notifier.send(
+            "✅ PAPER FILL\n"
+            f"symbol={getattr(fill, 'symbol', None)}\n"
+            f"side={getattr(fill, 'side', None)}\n"
+            f"qty={getattr(fill, 'qty', None)}\n"
+            f"price={getattr(fill, 'price', None)}\n"
+            f"id={getattr(fill, 'fill_id', None)}"
+        )
 
         # exit-on-fill
         if not self._filled_once and os.getenv("EXIT_ON_FILL", "1") == "1":
