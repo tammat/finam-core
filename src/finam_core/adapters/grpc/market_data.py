@@ -97,7 +97,15 @@ class FinamMarketDataClient:
     # -----------------------------
     def start(self, symbols: List[str]):
         if self._thread and self._thread.is_alive():
+            LOG.info("MarketData start skipped: thread already alive symbols=%s", symbols)
             return
+        LOG.info(
+            "MarketData start: host=%s symbols=%s heartbeat_sec=%s watchdog=%s",
+            self.host,
+            symbols,
+            self.heartbeat_sec,
+            self.watchdog_mode,
+        )
         self._thread = threading.Thread(target=self.subscribe_quotes, args=(symbols,), daemon=True)
         self._thread.start()
 
@@ -201,8 +209,9 @@ class FinamMarketDataClient:
 
                 self._start_watchdog()
 
+                LOG.info("MarketData SubscribeQuote opened: symbols=%s", symbols)
                 if os.getenv("MD_DEBUG") == "1":
-                    LOG.debug("MarketData subscribed: %s", symbols)
+                    LOG.debug("MarketData subscribed debug: %s", symbols)
 
                 backoff = 0.5
                 self._handle_stream(call)
@@ -212,8 +221,9 @@ class FinamMarketDataClient:
                     break
                 # Русский коммент: CANCELLED ожидаем в режиме hard, когда watchdog отменяет call.
                 # Русский коммент: в soft режиме ошибки на тишине не должны появляться; если появились — это сеть/сервер.
+                LOG.warning("MarketData reconnect after RpcError: %s", e)
                 if os.getenv("MD_DEBUG") == "1":
-                    LOG.debug("MarketData reconnect: %s", e)
+                    LOG.debug("MarketData reconnect debug", exc_info=True)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 10.0)
 
@@ -257,6 +267,8 @@ class FinamMarketDataClient:
     def _handle_stream(self, stream: Iterable):
         """Чтение потока и публикация событий QUOTE в EventBus."""
         for msg in stream:
+            if os.getenv("MD_DEBUG") == "1":
+                LOG.debug("MarketData raw stream msg=%s", msg)
             if self._stop.is_set():
                 return
 
@@ -264,6 +276,8 @@ class FinamMarketDataClient:
             self.last_msg_ts = time.time()
 
             quotes = self._iter_quotes(msg)
+            if os.getenv("MD_DEBUG") == "1":
+                LOG.debug("MarketData parsed quotes count=%s", len(quotes))
             if not quotes:
                 continue
 
@@ -299,4 +313,6 @@ class FinamMarketDataClient:
                 if os.getenv("MD_DEBUG") == "1":
                     LOG.debug("MD->BUS QUOTE %s last=%s", symbol, event.get("last"))
 
+                if os.getenv("MD_DEBUG") == "1":
+                    LOG.debug("MarketData publish QUOTE event=%s", event)
                 self.event_bus.publish(event)
