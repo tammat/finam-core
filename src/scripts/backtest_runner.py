@@ -25,6 +25,7 @@ import math
 import uuid
 import sqlite3
 import argparse
+import itertools
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple, Optional
@@ -240,22 +241,17 @@ def run_backtest(
     # Indicators
     # -------------------------
     if strat == "vwap_bands_mr":
-        w = int(params.get("window", 200))
+        window = int(params.get("window", 200))
         k = float(params.get("k", 2.0))
+        stop_pct = float(params.get("stop_pct", 0.0) or 0.0)
+        take_pct = float(params.get("take_pct", 0.0) or 0.0)
 
-        # VWAP = sum(price*vol)/sum(vol) по окну
-        vol = df["volume"].fillna(0.0)
-        pv = close * vol
-        vwap = pv.rolling(w).sum() / vol.rolling(w).sum().replace(0, math.nan)
-        std = close.rolling(w).std(ddof=1)
+        pv = close * df["volume"].fillna(0.0)
+        vol_sum = df["volume"].fillna(0.0).rolling(window).sum()
+        vwap = pv.rolling(window).sum() / vol_sum.replace(0, math.nan)
+        std = close.rolling(window).std()
         upper = vwap + k * std
         lower = vwap - k * std
-
-        # exit: возврат к vwap
-        # entry long: close < lower, entry short: close > upper (если allow_short)
-        # optional stops
-        stop_pct = float(params.get("stop_pct", 0.0))
-        take_pct = float(params.get("take_pct", 0.0))
 
         # Русский коммент: режимный MR-фильтр — не открываем сделки, если цена слишком далеко от EMA.
         mr_ema_n = int(params.get("mr_ema", 0) or 0)
@@ -288,19 +284,11 @@ def run_backtest(
         regime_atr_mode = str(params.get("regime_atr_mode", "percentile") or "percentile").strip().lower()
         regime_atr_threshold = float(params.get("regime_atr_threshold", 0.0) or 0.0)
         regime_atr_pct_window = int(params.get("regime_atr_pct_window", 100) or 100)
-        regime_ema_slope = str(params.get("regime_ema_slope", "") or "").strip().lower()
-        regime_ema_slope_enabled = regime_ema_slope == "on"
-        regime_ema_slope_lookback = int(params.get("regime_ema_slope_lookback", 20) or 20)
-        regime_ema_slope_threshold = float(params.get("regime_ema_slope_threshold", 0.002) or 0.002)
-        # Русский коммент: Regime Layer v2 — адаптивное переключение поведения стратегии.
-        # off: только фильтры; slope_switch: low-slope = mean reversion, high-slope = trend-follow.
-        regime_adaptive_mode = str(params.get("regime_adaptive_mode", "") or "").strip().lower()
-        regime_trend_confirm_bars = int(params.get("regime_trend_confirm_bars", 1) or 1)
 
         prev_close = close.shift(1)
-        tr1 = (df["high"] - df["low"]).abs()
-        tr2 = (df["high"] - prev_close).abs()
-        tr3 = (df["low"] - prev_close).abs()
+        tr1 = (high - low).abs()
+        tr2 = (high - prev_close).abs()
+        tr3 = (low - prev_close).abs()
         true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         regime_atr = true_range.rolling(regime_atr_n).mean()
         regime_atr_pct = regime_atr.rolling(regime_atr_pct_window).rank(pct=True)
@@ -312,22 +300,25 @@ def run_backtest(
                 return True
             if regime_atr_threshold <= 0:
                 return True
-
             if regime_atr_mode in ("", "percentile"):
                 value = regime_atr_pct.iat[i]
                 if pd.isna(value):
                     return False
                 return float(value) <= regime_atr_threshold
-
             if regime_atr_mode == "absolute":
                 value = regime_atr.iat[i]
                 if pd.isna(value):
                     return False
                 return float(value) <= regime_atr_threshold
-
             return True
 
-        # -------------------- EMA SLOPE REGIME --------------------
+        regime_ema_slope = str(params.get("regime_ema_slope", "") or "").strip().lower()
+        regime_ema_slope_enabled = regime_ema_slope == "on"
+        regime_ema_slope_lookback = int(params.get("regime_ema_slope_lookback", 20) or 20)
+        regime_ema_slope_threshold = float(params.get("regime_ema_slope_threshold", 0.002) or 0.002)
+        regime_adaptive_mode = str(params.get("regime_adaptive_mode", "") or "").strip().lower()
+        regime_trend_confirm_bars = int(params.get("regime_trend_confirm_bars", 1) or 1)
+
         def ema_slope_value(i: int) -> float:
             if mr_ema is None:
                 return 0.0
@@ -340,19 +331,10 @@ def run_backtest(
             return float((ema_now - ema_prev) / ema_prev)
 
         def ema_slope_allows(i: int) -> bool:
-            # Русский коммент:
-            # Фильтр отключает mean-reversion, если EMA имеет сильный наклон (тренд)
-
             if not regime_ema_slope_enabled:
                 return True
-
-            if i < regime_ema_slope_lookback:
-                return True
-
-            # Русский коммент: в adaptive mode slope не блокирует входы, а переключает тип входа.
             if regime_adaptive_mode == "slope_switch":
                 return True
-
             slope = ema_slope_value(i)
             return abs(slope) <= regime_ema_slope_threshold
 
@@ -378,13 +360,27 @@ def run_backtest(
                 return "mr"
             return "trend_up" if slope > 0 else "trend_down"
 
+        # Русский коммент: Tradeability Gate v1 — отключаем входы в шумовом/неторгуемом рынке.
+        tradeability_gate = str(params.get("tradeability_gate", "") or "").strip().lower()
+        tradeability_atr_n = int(params.get("tradeability_atr_n", 14) or 14)
+        tradeability_range_window = int(params.get("tradeability_range_window", 100) or 100)
+        tradeability_min_range_atr = float(params.get("tradeability_min_range_atr", 1.5) or 1.5)
+        tradeability_atr = true_range.rolling(tradeability_atr_n).mean()
+        tradeability_range = high.rolling(tradeability_range_window).max() - low.rolling(tradeability_range_window).min()
+        tradeability_range_atr = tradeability_range / tradeability_atr.replace(0, math.nan)
+
+        def tradeability_allows(i: int) -> bool:
+            if tradeability_gate in ("", "off", "none"):
+                return True
+            if tradeability_gate != "range_atr":
+                return True
+            value = tradeability_range_atr.iat[i]
+            if pd.isna(value):
+                return False
+            return float(value) >= tradeability_min_range_atr
+
         def entry_filters_allow(i: int) -> bool:
-            return (
-                    session_allows(i)
-                    and mr_regime_allows(i)
-                    and regime_allows(i)
-                    and ema_slope_allows(i)
-            )
+            return session_allows(i) and mr_regime_allows(i) and regime_allows(i) and ema_slope_allows(i) and tradeability_allows(i)
 
         def want_long(i: int) -> bool:
             if not entry_filters_allow(i):
@@ -419,59 +415,53 @@ def run_backtest(
             return pd.notna(vwap.iat[i]) and close.iat[i] <= vwap.iat[i]
 
     elif strat == "donchian_break":
-        w = int(params.get("window", 120))
-        hh = high.rolling(w).max()
-        ll = low.rolling(w).min()
-        stop_pct = float(params.get("stop_pct", 0.0))
-        take_pct = float(params.get("take_pct", 0.0))
+        window = int(params.get("window", 50))
+        stop_pct = float(params.get("stop_pct", 0.0) or 0.0)
+        take_pct = float(params.get("take_pct", 0.0) or 0.0)
+        upper = high.rolling(window).max().shift(1)
+        lower = low.rolling(window).min().shift(1)
 
         def want_long(i: int) -> bool:
-            return pd.notna(hh.iat[i]) and close.iat[i] > hh.iat[i - 1] if i > 0 else False
+            return pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i]
 
         def want_short(i: int) -> bool:
-            return allow_short and pd.notna(ll.iat[i]) and close.iat[i] < ll.iat[i - 1] if i > 0 else False
+            return allow_short and pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
 
         def exit_long(i: int) -> bool:
-            return pd.notna(ll.iat[i]) and close.iat[i] < ll.iat[i]
+            return pd.notna(lower.iat[i]) and close.iat[i] < lower.iat[i]
 
         def exit_short(i: int) -> bool:
-            return pd.notna(hh.iat[i]) and close.iat[i] > hh.iat[i]
+            return pd.notna(upper.iat[i]) and close.iat[i] > upper.iat[i]
 
     elif strat == "ema_cross":
         fast = int(params.get("fast", 20))
-        slow = int(params.get("slow", 60))
-        if fast >= slow:
-            raise RuntimeError("ema_cross: fast must be < slow")
-        ema_f = close.ewm(span=fast, adjust=False).mean()
-        ema_s = close.ewm(span=slow, adjust=False).mean()
-        stop_pct = float(params.get("stop_pct", 0.0))
-        take_pct = float(params.get("take_pct", 0.0))
+        slow = int(params.get("slow", 90))
+        stop_pct = float(params.get("stop_pct", 0.0) or 0.0)
+        take_pct = float(params.get("take_pct", 0.0) or 0.0)
+        ema_fast = close.ewm(span=fast, adjust=False).mean()
+        ema_slow = close.ewm(span=slow, adjust=False).mean()
 
         def want_long(i: int) -> bool:
-            if i == 0:
+            if i <= 0:
                 return False
-            return ema_f.iat[i - 1] <= ema_s.iat[i - 1] and ema_f.iat[i] > ema_s.iat[i]
+            return ema_fast.iat[i - 1] <= ema_slow.iat[i - 1] and ema_fast.iat[i] > ema_slow.iat[i]
 
         def want_short(i: int) -> bool:
-            if not allow_short or i == 0:
+            if i <= 0:
                 return False
-            return ema_f.iat[i - 1] >= ema_s.iat[i - 1] and ema_f.iat[i] < ema_s.iat[i]
+            return allow_short and ema_fast.iat[i - 1] >= ema_slow.iat[i - 1] and ema_fast.iat[i] < ema_slow.iat[i]
 
         def exit_long(i: int) -> bool:
-            if i == 0:
-                return False
-            return ema_f.iat[i - 1] >= ema_s.iat[i - 1] and ema_f.iat[i] < ema_s.iat[i]
+            return ema_fast.iat[i] < ema_slow.iat[i]
 
         def exit_short(i: int) -> bool:
-            if i == 0:
-                return False
-            return ema_f.iat[i - 1] <= ema_s.iat[i - 1] and ema_f.iat[i] > ema_s.iat[i]
+            return ema_fast.iat[i] > ema_slow.iat[i]
 
     else:
         raise RuntimeError(f"Unknown strategy={strategy}")
 
     # -------------------------
-    # Loop
+    # Trading loop
     # -------------------------
     for i in range(len(df)):
         px = float(close.iat[i])
@@ -483,298 +473,121 @@ def run_backtest(
             day_realized_pnl = 0.0
             day_blocked = False
 
-        # mark-to-market equity (без учёта costs пока)
-        mtm = 0.0
+        # Русский коммент: mark-to-market equity для контроля просадки.
+        mtm_equity = equity
         if pos != 0:
             in_pos_bars += 1
             if pos > 0:
-                mtm = (px - entry_px) * qty
+                mtm_equity += (px - entry_px) * qty
             else:
-                mtm = (entry_px - px) * qty
-        equity_curve.append(equity + mtm)
+                mtm_equity += (entry_px - px) * qty
+        equity_curve.append(mtm_equity)
 
-        # skip until indicators warmup
-        # (косвенно: want_long/short будут False если NaN)
-        # exit logic first
-        if pos != 0:
-            # stop/take (процент от entry)
-            if stop_pct > 0:
-                if pos > 0 and px <= entry_px * (1.0 - stop_pct):
-                    # exit long by stop
-                    exit_side = "SELL"
-                    exit_px = apply_costs(px, exit_side, slippage_bps)
-                    entry_cost_px = apply_costs(entry_px, "BUY", slippage_bps)
-                    pnl_gross = (exit_px - entry_cost_px) * qty
-                    commission = commission_per_trade * 2.0
-                    pnl_net = pnl_gross - commission
-                    equity += pnl_net
-                    day_realized_pnl += pnl_net
-                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
-                        day_blocked = True
-                    trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
-                    pos = 0
-                    entry_px = 0.0
-                    entry_ts = None
-                    continue
-                if pos < 0 and px >= entry_px * (1.0 + stop_pct):
-                    # exit short by stop
-                    exit_side = "BUY"
-                    exit_px = apply_costs(px, exit_side, slippage_bps)
-                    entry_cost_px = apply_costs(entry_px, "SELL", slippage_bps)
-                    pnl_gross = (entry_cost_px - exit_px) * qty
-                    commission = commission_per_trade * 2.0
-                    pnl_net = pnl_gross - commission
-                    equity += pnl_net
-                    day_realized_pnl += pnl_net
-                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
-                        day_blocked = True
-                    trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
-                    pos = 0
-                    entry_px = 0.0
-                    entry_ts = None
-                    continue
-
-            if take_pct > 0:
-                if pos > 0 and px >= entry_px * (1.0 + take_pct):
-                    exit_side = "SELL"
-                    exit_px = apply_costs(px, exit_side, slippage_bps)
-                    entry_cost_px = apply_costs(entry_px, "BUY", slippage_bps)
-                    pnl_gross = (exit_px - entry_cost_px) * qty
-                    commission = commission_per_trade * 2.0
-                    pnl_net = pnl_gross - commission
-                    equity += pnl_net
-                    day_realized_pnl += pnl_net
-                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
-                        day_blocked = True
-                    trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
-                    pos = 0
-                    entry_px = 0.0
-                    entry_ts = None
-                    continue
-                if pos < 0 and px <= entry_px * (1.0 - take_pct):
-                    exit_side = "BUY"
-                    exit_px = apply_costs(px, exit_side, slippage_bps)
-                    entry_cost_px = apply_costs(entry_px, "SELL", slippage_bps)
-                    pnl_gross = (entry_cost_px - exit_px) * qty
-                    commission = commission_per_trade * 2.0
-                    pnl_net = pnl_gross - commission
-                    equity += pnl_net
-                    day_realized_pnl += pnl_net
-                    if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
-                        day_blocked = True
-                    trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
-                    pos = 0
-                    entry_px = 0.0
-                    entry_ts = None
-                    continue
-
-            # indicator exits
-            if pos > 0 and exit_long(i):
-                exit_side = "SELL"
-                exit_px = apply_costs(px, exit_side, slippage_bps)
-                entry_cost_px = apply_costs(entry_px, "BUY", slippage_bps)
-                pnl_gross = (exit_px - entry_cost_px) * qty
+        if pos > 0:
+            stop_hit = stop_pct > 0 and px <= entry_px * (1.0 - stop_pct)
+            take_hit = take_pct > 0 and px >= entry_px * (1.0 + take_pct)
+            signal_exit = exit_long(i)
+            if stop_hit or take_hit or signal_exit:
+                exit_px = apply_costs(px, "SELL", slippage_bps)
+                pnl_gross = (exit_px - entry_px) * qty
                 commission = commission_per_trade * 2.0
+                slippage = abs(exit_px - px) * qty
                 pnl_net = pnl_gross - commission
                 equity += pnl_net
                 day_realized_pnl += pnl_net
                 if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
                     day_blocked = True
-                trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
+                trades.append(Trade("LONG", qty, entry_ts, entry_px, t, exit_px, pnl_gross, pnl_net, commission, slippage))
                 pos = 0
                 entry_px = 0.0
                 entry_ts = None
-                continue
+                equity_curve[-1] = equity
 
-            if pos < 0 and exit_short(i):
-                exit_side = "BUY"
-                exit_px = apply_costs(px, exit_side, slippage_bps)
-                entry_cost_px = apply_costs(entry_px, "SELL", slippage_bps)
-                pnl_gross = (entry_cost_px - exit_px) * qty
+        elif pos < 0:
+            stop_hit = stop_pct > 0 and px >= entry_px * (1.0 + stop_pct)
+            take_hit = take_pct > 0 and px <= entry_px * (1.0 - take_pct)
+            signal_exit = exit_short(i)
+            if stop_hit or take_hit or signal_exit:
+                exit_px = apply_costs(px, "BUY", slippage_bps)
+                pnl_gross = (entry_px - exit_px) * qty
                 commission = commission_per_trade * 2.0
+                slippage = abs(exit_px - px) * qty
                 pnl_net = pnl_gross - commission
                 equity += pnl_net
                 day_realized_pnl += pnl_net
                 if daily_loss_limit > 0 and day_realized_pnl <= -daily_loss_limit:
                     day_blocked = True
-                trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
+                trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, exit_px, pnl_gross, pnl_net, commission, slippage))
                 pos = 0
                 entry_px = 0.0
                 entry_ts = None
-                continue
+                equity_curve[-1] = equity
 
-        # entry logic (если flat)
+        # Русский коммент: входы разрешены только после обработки выхода на текущем баре.
         if pos == 0 and not day_blocked:
             if want_long(i):
                 pos = 1
-                entry_px = px
+                entry_px = apply_costs(px, "BUY", slippage_bps)
                 entry_ts = t
-                continue
-            if want_short(i):
+            elif want_short(i):
                 pos = -1
-                entry_px = px
+                entry_px = apply_costs(px, "SELL", slippage_bps)
                 entry_ts = t
-                continue
 
-    # close position at last bar (если осталась)
+    # Русский коммент: если позиция осталась открытой, закрываем её по последнему бару для честного расчёта метрик.
     if pos != 0 and entry_ts is not None:
         px = float(close.iat[-1])
         t = ts.iat[-1].to_pydatetime()
         if pos > 0:
-            exit_side = "SELL"
-            exit_px = apply_costs(px, exit_side, slippage_bps)
-            entry_cost_px = apply_costs(entry_px, "BUY", slippage_bps)
-            pnl_gross = (exit_px - entry_cost_px) * qty
-            commission = commission_per_trade * 2.0
-            pnl_net = pnl_gross - commission
-            equity += pnl_net
-            trades.append(Trade("LONG", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
+            exit_px = apply_costs(px, "SELL", slippage_bps)
+            pnl_gross = (exit_px - entry_px) * qty
+            side = "LONG"
         else:
-            exit_side = "BUY"
-            exit_px = apply_costs(px, exit_side, slippage_bps)
-            entry_cost_px = apply_costs(entry_px, "SELL", slippage_bps)
-            pnl_gross = (entry_cost_px - exit_px) * qty
-            commission = commission_per_trade * 2.0
-            pnl_net = pnl_gross - commission
-            equity += pnl_net
-            trades.append(Trade("SHORT", qty, entry_ts, entry_px, t, px, pnl_gross, pnl_net, commission, 2.0 * abs(px) * (slippage_bps / 10000.0)))
+            exit_px = apply_costs(px, "BUY", slippage_bps)
+            pnl_gross = (entry_px - exit_px) * qty
+            side = "SHORT"
+        commission = commission_per_trade * 2.0
+        slippage = abs(exit_px - px) * qty
+        pnl_net = pnl_gross - commission
+        equity += pnl_net
+        trades.append(Trade(side, qty, entry_ts, entry_px, t, exit_px, pnl_gross, pnl_net, commission, slippage))
+        if equity_curve:
+            equity_curve[-1] = equity
 
-    # metrics
+    if not equity_curve:
+        equity_curve = [starting_cash]
+
     eq = pd.Series(equity_curve, dtype="float64")
-    dd, dd_pct = max_drawdown(eq)
-    gross = float(sum(t.pnl_gross for t in trades))
-    net = float(sum(t.pnl_net for t in trades))
+    max_dd, max_dd_pct = max_drawdown(eq)
+    returns = eq.diff().fillna(0.0)
+    bars_per_year = estimate_bars_per_year(str(params.get("timeframe", "M1")))
 
+    gross_pnl = sum(float(t.pnl_gross) for t in trades)
+    net_pnl = sum(float(t.pnl_net) for t in trades)
     wins = sum(1 for t in trades if t.pnl_net > 0)
-    losses = sum(1 for t in trades if t.pnl_net < 0)
-    win_rate = float(wins / len(trades)) if trades else 0.0
+    losses = [-float(t.pnl_net) for t in trades if t.pnl_net < 0]
+    gains = [float(t.pnl_net) for t in trades if t.pnl_net > 0]
+    gross_loss = sum(losses)
+    gross_gain = sum(gains)
+    profit_factor = gross_gain / gross_loss if gross_loss > 0 else (gross_gain if gross_gain > 0 else 0.0)
+    trades_count = len(trades)
+    win_rate = wins / trades_count if trades_count > 0 else 0.0
+    exposure_pct = in_pos_bars / len(df) if len(df) > 0 else 0.0
 
-    pos_pnl = sum(t.pnl_net for t in trades if t.pnl_net > 0)
-    neg_pnl = -sum(t.pnl_net for t in trades if t.pnl_net < 0)
-    profit_factor = float(pos_pnl / neg_pnl) if neg_pnl > 0 else (float("inf") if pos_pnl > 0 else 0.0)
+    metrics = {
+        "net_pnl": float(net_pnl),
+        "gross_pnl": float(gross_pnl),
+        "max_dd": float(max_dd),
+        "max_dd_pct": float(max_dd_pct),
+        "trades": int(trades_count),
+        "wins": int(wins),
+        "win_rate": float(win_rate),
+        "profit_factor": float(profit_factor),
+        "exposure_pct": float(exposure_pct),
+        "sharpe": float(sharpe_ratio(returns, bars_per_year)),
+    }
 
-    # returns for sharpe (equity changes)
-    ret = eq.pct_change()
-    sh = sharpe_ratio(ret, estimate_bars_per_year(params.get("timeframe", "M1")))
-
-    exposure_pct = float(in_pos_bars / len(df)) if len(df) else 0.0
-
-    metrics = dict(
-        net_pnl=net,
-        gross_pnl=gross,
-        max_dd=dd,
-        max_dd_pct=dd_pct,
-        trades=len(trades),
-        wins=wins,
-        win_rate=win_rate,
-        profit_factor=profit_factor if math.isfinite(profit_factor) else 999.0,
-        exposure_pct=exposure_pct,
-        sharpe=sh,
-    )
     return metrics, trades
-
-
-# -------------------------
-# Grid
-# -------------------------
-def parse_list(s: str, cast=float) -> List:
-    # "10,20,30"
-    return [cast(x.strip()) for x in s.split(",") if x.strip()]
-
-
-def grid_params(strategy: str, args) -> List[Dict[str, Any]]:
-    strat = strategy.lower()
-    out: List[Dict[str, Any]] = []
-
-    if strat == "vwap_bands_mr":
-        windows = parse_list(args.window, int)
-        ks = parse_list(args.k, float)
-        stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
-        takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
-        sessions = parse_list(args.session, str) if getattr(args, "session", "") else [""]
-        mr_emas = parse_list(args.mr_ema, int) if getattr(args, "mr_ema", "") else [0]
-        mr_max_devs = parse_list(args.mr_max_dev, float) if getattr(args, "mr_max_dev", "") else [0.0]
-        daily_loss_limits = parse_list(args.daily_loss_limit, float) if getattr(args, "daily_loss_limit", "") else [0.0]
-        regime_layers = parse_list(args.regime_layer, str) if getattr(args, "regime_layer", "") else [""]
-        regime_atr_ns = parse_list(args.regime_atr_n, int) if getattr(args, "regime_atr_n", "") else [14]
-        regime_atr_modes = parse_list(args.regime_atr_mode, str) if getattr(args, "regime_atr_mode", "") else ["percentile"]
-        regime_atr_thresholds = parse_list(args.regime_atr_threshold, float) if getattr(args, "regime_atr_threshold", "") else [0.0]
-        regime_atr_pct_windows = parse_list(args.regime_atr_pct_window, int) if getattr(args, "regime_atr_pct_window", "") else [100]
-        regime_ema_slopes = parse_list(args.regime_ema_slope, str) if getattr(args, "regime_ema_slope", "") else [""]
-        regime_ema_slope_lookbacks = parse_list(args.regime_ema_slope_lookback, int) if getattr(args, "regime_ema_slope_lookback", "") else [20]
-        regime_ema_slope_thresholds = parse_list(args.regime_ema_slope_threshold, float) if getattr(args, "regime_ema_slope_threshold", "") else [0.002]
-        regime_adaptive_modes = parse_list(args.regime_adaptive_mode, str) if getattr(args, "regime_adaptive_mode", "") else [""]
-        regime_trend_confirm_bars_list = parse_list(args.regime_trend_confirm_bars, int) if getattr(args, "regime_trend_confirm_bars", "") else [1]
-        for w in windows:
-            for k in ks:
-                for sp in stops:
-                    for tp in takes:
-                        for session in sessions:
-                            for mr_ema in mr_emas:
-                                for mr_max_dev in mr_max_devs:
-                                    for daily_loss_limit in daily_loss_limits:
-                                        for regime_layer in regime_layers:
-                                            for regime_atr_n in regime_atr_ns:
-                                                for regime_atr_mode in regime_atr_modes:
-                                                    for regime_atr_threshold in regime_atr_thresholds:
-                                                        for regime_atr_pct_window in regime_atr_pct_windows:
-                                                            for regime_ema_slope in regime_ema_slopes:
-                                                                for regime_ema_slope_lookback in regime_ema_slope_lookbacks:
-                                                                    for regime_ema_slope_threshold in regime_ema_slope_thresholds:
-                                                                        for regime_adaptive_mode in regime_adaptive_modes:
-                                                                            for regime_trend_confirm_bars in regime_trend_confirm_bars_list:
-                                                                                out.append({
-                                                                                    "window": w,
-                                                                                    "k": k,
-                                                                                    "stop_pct": sp,
-                                                                                    "take_pct": tp,
-                                                                                    "session": session,
-                                                                                    "mr_ema": mr_ema,
-                                                                                    "mr_max_dev": mr_max_dev,
-                                                                                    "daily_loss_limit": daily_loss_limit,
-                                                                                    "regime_layer": regime_layer,
-                                                                                    "regime_atr_n": regime_atr_n,
-                                                                                    "regime_atr_mode": regime_atr_mode,
-                                                                                    "regime_atr_threshold": regime_atr_threshold,
-                                                                                    "regime_atr_pct_window": regime_atr_pct_window,
-                                                                                    "regime_ema_slope": regime_ema_slope,
-                                                                                    "regime_ema_slope_lookback": regime_ema_slope_lookback,
-                                                                                    "regime_ema_slope_threshold": regime_ema_slope_threshold,
-                                                                                    "regime_adaptive_mode": regime_adaptive_mode,
-                                                                                    "regime_trend_confirm_bars": regime_trend_confirm_bars,
-                                                                                })
-        return out
-
-    if strat == "donchian_break":
-        windows = parse_list(args.window, int)
-        stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
-        takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
-        for w in windows:
-            for sp in stops:
-                for tp in takes:
-                    out.append({"window": w, "stop_pct": sp, "take_pct": tp})
-        return out
-
-    if strat == "ema_cross":
-        fasts = parse_list(args.fast, int)
-        slows = parse_list(args.slow, int)
-        stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
-        takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
-        for f in fasts:
-            for s in slows:
-                if f >= s:
-                    continue
-                for sp in stops:
-                    for tp in takes:
-                        out.append({"fast": f, "slow": s, "stop_pct": sp, "take_pct": tp})
-        return out
-
-    raise RuntimeError(f"Unknown strategy={strategy}")
-
-
-# -------------------------
-# Walk-forward select
-# -------------------------
 import json
 import os
 import argparse
@@ -1109,6 +922,10 @@ def main():
     ap.add_argument("--regime-ema-slope-threshold", dest="regime_ema_slope_threshold", default=os.getenv("REGIME_EMA_SLOPE_THRESHOLD") or "0.002")
     ap.add_argument("--regime-adaptive-mode", dest="regime_adaptive_mode", default=os.getenv("REGIME_ADAPTIVE_MODE") or "")
     ap.add_argument("--regime-trend-confirm-bars", dest="regime_trend_confirm_bars", default=os.getenv("REGIME_TREND_CONFIRM_BARS") or "1")
+    ap.add_argument("--tradeability-gate", dest="tradeability_gate", default=os.getenv("TRADEABILITY_GATE") or "")
+    ap.add_argument("--tradeability-atr-n", dest="tradeability_atr_n", default=os.getenv("TRADEABILITY_ATR_N") or "14")
+    ap.add_argument("--tradeability-range-window", dest="tradeability_range_window", default=os.getenv("TRADEABILITY_RANGE_WINDOW") or "100")
+    ap.add_argument("--tradeability-min-range-atr", dest="tradeability_min_range_atr", default=os.getenv("TRADEABILITY_MIN_RANGE_ATR") or "1.5")
     ap.add_argument("--daily-loss-limit", dest="daily_loss_limit", default=os.getenv("DAILY_LOSS_LIMIT") or "0.0")
     ap.add_argument("--save-trades", action="store_true", default=(os.getenv("SAVE_TRADES", "0") == "1"))
     ap.add_argument("--limit-grid", type=int, default=int(os.getenv("LIMIT_GRID") or "0"))  # 0 = без лимита
@@ -1204,6 +1021,109 @@ def main():
         )
     )
 
+
+# -------------------------
+# Grid params
+# -------------------------
+
+def parse_list(value: str, cast):
+    if value is None:
+        return []
+    return [cast(x.strip()) for x in str(value).split(",") if x.strip()]
+
+
+def grid_params(strategy: str, args: argparse.Namespace) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    strat = strategy.lower()
+
+    if strat == "vwap_bands_mr":
+        windows = parse_list(args.window, int)
+        ks = parse_list(args.k, float)
+        stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
+        takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
+        sessions = parse_list(args.session, str) if getattr(args, "session", "") else [""]
+        mr_emas = parse_list(args.mr_ema, int) if getattr(args, "mr_ema", "") else [0]
+        mr_max_devs = parse_list(args.mr_max_dev, float) if getattr(args, "mr_max_dev", "") else [0.0]
+        daily_loss_limits = parse_list(args.daily_loss_limit, float) if getattr(args, "daily_loss_limit", "") else [0.0]
+        regime_layers = parse_list(args.regime_layer, str) if getattr(args, "regime_layer", "") else [""]
+        regime_atr_ns = parse_list(args.regime_atr_n, int) if getattr(args, "regime_atr_n", "") else [14]
+        regime_atr_modes = parse_list(args.regime_atr_mode, str) if getattr(args, "regime_atr_mode", "") else ["percentile"]
+        regime_atr_thresholds = parse_list(args.regime_atr_threshold, float) if getattr(args, "regime_atr_threshold", "") else [0.0]
+        regime_atr_pct_windows = parse_list(args.regime_atr_pct_window, int) if getattr(args, "regime_atr_pct_window", "") else [100]
+        regime_ema_slopes = parse_list(args.regime_ema_slope, str) if getattr(args, "regime_ema_slope", "") else [""]
+        regime_ema_slope_lookbacks = parse_list(args.regime_ema_slope_lookback, int) if getattr(args, "regime_ema_slope_lookback", "") else [20]
+        regime_ema_slope_thresholds = parse_list(args.regime_ema_slope_threshold, float) if getattr(args, "regime_ema_slope_threshold", "") else [0.002]
+        regime_adaptive_modes = parse_list(args.regime_adaptive_mode, str) if getattr(args, "regime_adaptive_mode", "") else [""]
+        regime_trend_confirm_bars_list = parse_list(args.regime_trend_confirm_bars, int) if getattr(args, "regime_trend_confirm_bars", "") else [1]
+        tradeability_gates = parse_list(args.tradeability_gate, str) if getattr(args, "tradeability_gate", "") else [""]
+        tradeability_atr_ns = parse_list(args.tradeability_atr_n, int) if getattr(args, "tradeability_atr_n", "") else [14]
+        tradeability_range_windows = parse_list(args.tradeability_range_window, int) if getattr(args, "tradeability_range_window", "") else [100]
+        tradeability_min_range_atrs = parse_list(args.tradeability_min_range_atr, float) if getattr(args, "tradeability_min_range_atr", "") else [1.5]
+
+        for (
+            w, k, sp, tp, session, mr_ema, mr_max_dev, daily_loss_limit,
+            regime_layer, regime_atr_n, regime_atr_mode, regime_atr_threshold, regime_atr_pct_window,
+            regime_ema_slope, regime_ema_slope_lookback, regime_ema_slope_threshold,
+            regime_adaptive_mode, regime_trend_confirm_bars,
+            tradeability_gate, tradeability_atr_n, tradeability_range_window, tradeability_min_range_atr,
+        ) in itertools.product(
+            windows, ks, stops, takes, sessions, mr_emas, mr_max_devs, daily_loss_limits,
+            regime_layers, regime_atr_ns, regime_atr_modes, regime_atr_thresholds, regime_atr_pct_windows,
+            regime_ema_slopes, regime_ema_slope_lookbacks, regime_ema_slope_thresholds,
+            regime_adaptive_modes, regime_trend_confirm_bars_list,
+            tradeability_gates, tradeability_atr_ns, tradeability_range_windows, tradeability_min_range_atrs,
+        ):
+            out.append({
+                "window": w,
+                "k": k,
+                "stop_pct": sp,
+                "take_pct": tp,
+                "session": session,
+                "mr_ema": mr_ema,
+                "mr_max_dev": mr_max_dev,
+                "daily_loss_limit": daily_loss_limit,
+                "regime_layer": regime_layer,
+                "regime_atr_n": regime_atr_n,
+                "regime_atr_mode": regime_atr_mode,
+                "regime_atr_threshold": regime_atr_threshold,
+                "regime_atr_pct_window": regime_atr_pct_window,
+                "regime_ema_slope": regime_ema_slope,
+                "regime_ema_slope_lookback": regime_ema_slope_lookback,
+                "regime_ema_slope_threshold": regime_ema_slope_threshold,
+                "regime_adaptive_mode": regime_adaptive_mode,
+                "regime_trend_confirm_bars": regime_trend_confirm_bars,
+                "tradeability_gate": tradeability_gate,
+                "tradeability_atr_n": tradeability_atr_n,
+                "tradeability_range_window": tradeability_range_window,
+                "tradeability_min_range_atr": tradeability_min_range_atr,
+            })
+        return out
+
+    if strat == "donchian_break":
+        windows = parse_list(args.window, int)
+        stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
+        takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
+        for w in windows:
+            for sp in stops:
+                for tp in takes:
+                    out.append({"window": w, "stop_pct": sp, "take_pct": tp})
+        return out
+
+    if strat == "ema_cross":
+        fasts = parse_list(args.fast, int)
+        slows = parse_list(args.slow, int)
+        stops = parse_list(args.stop_pct, float) if args.stop_pct else [0.0]
+        takes = parse_list(args.take_pct, float) if args.take_pct else [0.0]
+        for f in fasts:
+            for s in slows:
+                if f >= s:
+                    continue
+                for sp in stops:
+                    for tp in takes:
+                        out.append({"fast": f, "slow": s, "stop_pct": sp, "take_pct": tp})
+        return out
+
+    raise RuntimeError(f"Unknown strategy={strategy}")
 
 if __name__ == "__main__":
     main()
