@@ -391,6 +391,7 @@ def run_backtest(
         tradeability_atr_n = int(params.get("tradeability_atr_n", 14) or 14)
         tradeability_range_window = int(params.get("tradeability_range_window", 100) or 100)
         tradeability_min_range_atr = float(params.get("tradeability_min_range_atr", 1.5) or 1.5)
+        tradeability_max_range_atr = float(params.get("tradeability_max_range_atr", 0.0) or 0.0)
         if compute_range_atr is not None:
             tradeability_range_atr = compute_range_atr(high, low, true_range, tradeability_atr_n, tradeability_range_window)
         else:
@@ -405,12 +406,17 @@ def run_backtest(
                 return True
             if filter_engine is not None:
                 return filter_engine.evaluate_range_atr(tradeability_range_atr, i).allowed
-            if range_atr_allows is not None:
+            if range_atr_allows is not None and tradeability_max_range_atr <= 0:
                 return range_atr_allows(tradeability_range_atr, i, tradeability_min_range_atr)
             value = tradeability_range_atr.iat[i]
             if pd.isna(value):
                 return False
-            return float(value) >= tradeability_min_range_atr
+            value_f = float(value)
+            if value_f < tradeability_min_range_atr:
+                return False
+            if tradeability_max_range_atr > 0 and value_f > tradeability_max_range_atr:
+                return False
+            return True
 
         def entry_filters_allow(i: int) -> bool:
             if filter_engine is not None and FilterContext is not None:
@@ -972,6 +978,7 @@ def main():
     ap.add_argument("--tradeability-atr-n", dest="tradeability_atr_n", default=os.getenv("TRADEABILITY_ATR_N") or "14")
     ap.add_argument("--tradeability-range-window", dest="tradeability_range_window", default=os.getenv("TRADEABILITY_RANGE_WINDOW") or "100")
     ap.add_argument("--tradeability-min-range-atr", dest="tradeability_min_range_atr", default=os.getenv("TRADEABILITY_MIN_RANGE_ATR") or "1.5")
+    ap.add_argument("--tradeability-max-range-atr", dest="tradeability_max_range_atr", default=os.getenv("TRADEABILITY_MAX_RANGE_ATR") or "0.0")
     ap.add_argument("--daily-loss-limit", dest="daily_loss_limit", default=os.getenv("DAILY_LOSS_LIMIT") or "0.0")
     ap.add_argument("--save-trades", action="store_true", default=(os.getenv("SAVE_TRADES", "0") == "1"))
     ap.add_argument("--limit-grid", type=int, default=int(os.getenv("LIMIT_GRID") or "0"))  # 0 = без лимита
@@ -1105,19 +1112,20 @@ def grid_params(strategy: str, args: argparse.Namespace) -> List[Dict[str, Any]]
         tradeability_atr_ns = parse_list(args.tradeability_atr_n, int) if getattr(args, "tradeability_atr_n", "") else [14]
         tradeability_range_windows = parse_list(args.tradeability_range_window, int) if getattr(args, "tradeability_range_window", "") else [100]
         tradeability_min_range_atrs = parse_list(args.tradeability_min_range_atr, float) if getattr(args, "tradeability_min_range_atr", "") else [1.5]
+        tradeability_max_range_atrs = parse_list(args.tradeability_max_range_atr, float) if getattr(args, "tradeability_max_range_atr", "") else [0.0]
 
         for (
             w, k, sp, tp, session, mr_ema, mr_max_dev, daily_loss_limit,
             regime_layer, regime_atr_n, regime_atr_mode, regime_atr_threshold, regime_atr_pct_window,
             regime_ema_slope, regime_ema_slope_lookback, regime_ema_slope_threshold,
             regime_adaptive_mode, regime_trend_confirm_bars,
-            tradeability_gate, tradeability_atr_n, tradeability_range_window, tradeability_min_range_atr,
+            tradeability_gate, tradeability_atr_n, tradeability_range_window, tradeability_min_range_atr, tradeability_max_range_atr,
         ) in itertools.product(
             windows, ks, stops, takes, sessions, mr_emas, mr_max_devs, daily_loss_limits,
             regime_layers, regime_atr_ns, regime_atr_modes, regime_atr_thresholds, regime_atr_pct_windows,
             regime_ema_slopes, regime_ema_slope_lookbacks, regime_ema_slope_thresholds,
             regime_adaptive_modes, regime_trend_confirm_bars_list,
-            tradeability_gates, tradeability_atr_ns, tradeability_range_windows, tradeability_min_range_atrs,
+            tradeability_gates, tradeability_atr_ns, tradeability_range_windows, tradeability_min_range_atrs, tradeability_max_range_atrs,
         ):
             out.append({
                 "window": w,
@@ -1142,6 +1150,7 @@ def grid_params(strategy: str, args: argparse.Namespace) -> List[Dict[str, Any]]
                 "tradeability_atr_n": tradeability_atr_n,
                 "tradeability_range_window": tradeability_range_window,
                 "tradeability_min_range_atr": tradeability_min_range_atr,
+                "tradeability_max_range_atr": tradeability_max_range_atr,
             })
         return out
 

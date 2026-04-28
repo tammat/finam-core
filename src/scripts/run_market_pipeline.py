@@ -68,6 +68,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--enable-filter-engine", action="store_true", default=(os.getenv("ENABLE_FILTER_ENGINE") == "1"))
     p.add_argument("--tradeability-gate", default=os.getenv("TRADEABILITY_GATE") or "")
     p.add_argument("--tradeability-min-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MIN_RANGE_ATR") or "1.5"))
+    p.add_argument("--tradeability-max-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MAX_RANGE_ATR") or "0.0"))
     p.add_argument("--regime-ema-slope", default=os.getenv("REGIME_EMA_SLOPE") or "")
     p.add_argument("--regime-adaptive-mode", default=os.getenv("REGIME_ADAPTIVE_MODE") or "")
 
@@ -141,6 +142,7 @@ def main() -> None:
             filter_params = {
                 "tradeability_gate": args.tradeability_gate,
                 "tradeability_min_range_atr": args.tradeability_min_range_atr,
+                "tradeability_max_range_atr": args.tradeability_max_range_atr,
                 "regime_ema_slope": args.regime_ema_slope,
                 "regime_adaptive_mode": args.regime_adaptive_mode,
             }

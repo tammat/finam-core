@@ -138,22 +138,52 @@ class FilterEngine:
             return float(default)
 
     def evaluate_range_atr(self, range_atr: pd.Series, i: int) -> FilterDecision:
+        """Русский коммент: проверяет нижнюю и верхнюю границу range/ATR.
+
+        range_atr / range_atr_band:
+        - min_range_atr отсекает мёртвый рынок без достаточного хода;
+        - max_range_atr отсекает чрезмерно разогнанный/шумовой рынок.
+        """
         gate = self._as_str(self.params.get("tradeability_gate"), "")
         if gate in ("", "off", "none"):
             return FilterDecision(True, "tradeability_off")
-        if gate != "range_atr":
+        if gate not in ("range_atr", "range_atr_band"):
             return FilterDecision(True, "tradeability_unknown_gate")
 
         min_range_atr = self._as_float(self.params.get("tradeability_min_range_atr"), 1.5)
+        max_raw = self.params.get("tradeability_max_range_atr")
+        max_range_atr = None
+        if max_raw not in (None, "", 0, "0", "0.0"):
+            max_range_atr = self._as_float(max_raw, 0.0)
+
         value = range_atr.iat[i]
         if pd.isna(value):
-            return FilterDecision(False, "tradeability_nan", {"min_range_atr": min_range_atr})
+            return FilterDecision(
+                False,
+                "tradeability_nan",
+                {"min_range_atr": min_range_atr, "max_range_atr": max_range_atr},
+            )
 
-        allowed = float(value) >= min_range_atr
+        value_f = float(value)
+
+        if value_f < min_range_atr:
+            return FilterDecision(
+                False,
+                "tradeability_range_atr_low",
+                {"range_atr": value_f, "min_range_atr": min_range_atr, "max_range_atr": max_range_atr},
+            )
+
+        if max_range_atr is not None and max_range_atr > 0 and value_f > max_range_atr:
+            return FilterDecision(
+                False,
+                "tradeability_range_atr_high",
+                {"range_atr": value_f, "min_range_atr": min_range_atr, "max_range_atr": max_range_atr},
+            )
+
         return FilterDecision(
-            allowed,
-            "allowed" if allowed else "tradeability_range_atr_fail",
-            {"range_atr": float(value), "min_range_atr": min_range_atr},
+            True,
+            "allowed",
+            {"range_atr": value_f, "min_range_atr": min_range_atr, "max_range_atr": max_range_atr},
         )
 
     def evaluate_ema_slope(self, ema: pd.Series | None, i: int) -> FilterDecision:
