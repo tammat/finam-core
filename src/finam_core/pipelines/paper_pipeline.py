@@ -257,6 +257,18 @@ class PaperTradingPipeline:
 
         LOG.info("RISK OK")
 
+        # Русский коммент: позиционный guard — не наращиваем long по тому же символу.
+        try:
+            pos = self.pm.positions.get(intent.get("symbol"))
+            current_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+        except Exception:
+            current_qty = 0.0
+
+        side = str(intent.get("side", "BUY")).upper()
+        if side == "BUY" and current_qty > 0:
+            LOG.info("POSITION GUARD: skip BUY, existing qty=%s symbol=%s", current_qty, intent.get("symbol"))
+            return
+
         # paper execute
         LOG.info("PIPE PAPER EXECUTE")
         fill = self.paper.execute(intent, st)
