@@ -157,7 +157,6 @@ class PaperTradingPipeline:
         LOG.debug("PIPE attach(): subscribed QUOTE/FILL")
 
     def _on_quote(self, event: dict):
-        print(f"PIPE_ON_QUOTE_CALLED event={event}", flush=True)
         sym = event.get("symbol")
         if not sym:
             return
@@ -206,11 +205,9 @@ class PaperTradingPipeline:
 
         # strategy
         intent = self.strategy.on_quote(st)
-        print(f"PIPE_STRATEGY_RESULT intent={intent}", flush=True)
         if not intent:
             return
         LOG.info("PIPE intent=%s", intent)
-        print(f"PIPE_INTENT intent={intent}", flush=True)
 
         # Русский коммент: Strategy FilterEngine стоит между Strategy и Risk.
         if self.filter_engine is not None:
@@ -259,16 +256,12 @@ class PaperTradingPipeline:
             return
 
         LOG.info("RISK OK")
-        print("PIPE_RISK_OK", flush=True)
 
         # paper execute
         LOG.info("PIPE PAPER EXECUTE")
-        print("PIPE_PAPER_EXECUTE", flush=True)
         fill = self.paper.execute(intent, st)
-        print(f"PIPE_PAPER_FILL_RAW fill={fill}", flush=True)
 
         if hasattr(self.strategy, "mark_submitted"):
-            print("PIPE_MARK_SUBMITTED", flush=True)
             self.strategy.mark_submitted()
 
         side = str(intent.get("side", "BUY")).upper()
@@ -289,12 +282,9 @@ class PaperTradingPipeline:
 
         # Русский коммент: Вариант B — публикуем FILL, а применять будем в _on_fill().
         fill_event = {"type": "FILL", "fill": exec_fill, "origin": "paper"}
-        print(f"PIPE_PUBLISH_FILL event={fill_event}", flush=True)
         self.bus.publish(fill_event)
-        print("PIPE_PUBLISH_FILL_DONE", flush=True)
 
     def _on_fill(self, event: dict):
-        print(f"PIPE_ON_FILL_CALLED event={event}", flush=True)
         """
         Русский коммент: единая точка применения исполнений.
         Идемпотентность по fill_id держит PositionManager (если включена).
@@ -302,10 +292,7 @@ class PaperTradingPipeline:
         fill = event.get("fill") if isinstance(event, dict) else event
         if fill is None:
             return
-
-        print("PIPE_BEFORE_APPLY_FILL", flush=True)
         self.pm.apply_fill(fill)
-        print("PIPE_AFTER_APPLY_FILL", flush=True)
 
         # --- DIAG (safe) ---
         try:
