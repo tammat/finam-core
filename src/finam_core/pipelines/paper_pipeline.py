@@ -332,6 +332,17 @@ class PaperTradingPipeline:
             + fee_result.exchange_fee
         )
 
+        # Русский коммент: налоговый резерв считаем только при SELL и только с положительной прибыли.
+        if side == "SELL":
+            try:
+                pos = self.pm.positions.get(intent.get("symbol"))
+                avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
+                realized_profit = max((fill_price - avg_price) * qty, 0.0)
+                tax_result = self.fee_tax.tax_on_realized_profit(realized_profit)
+                total_commission += tax_result.tax_reserve
+            except Exception:
+                pass
+
         exec_fill = ExecutionFill(
             fill_id=getattr(fill, "fill_id", None),
             symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
