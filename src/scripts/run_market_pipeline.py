@@ -27,6 +27,11 @@ try:
 except Exception:
     FilterEngine = None
 
+try:
+    from finam_core.strategy.filters.filter_presets import get_filter_preset
+except Exception:
+    get_filter_preset = None
+
 # Русский коммент: грузим .env (если python-dotenv установлен) — удобно для 24/7 запуска
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -66,6 +71,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--debug", action="store_true", default=(os.getenv("MD_DEBUG") == "1"))
 
     p.add_argument("--enable-filter-engine", action="store_true", default=(os.getenv("ENABLE_FILTER_ENGINE") == "1"))
+    p.add_argument("--filter-profile", default=os.getenv("FILTER_PROFILE") or "")
     p.add_argument("--tradeability-gate", default=os.getenv("TRADEABILITY_GATE") or "")
     p.add_argument("--tradeability-min-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MIN_RANGE_ATR") or "1.5"))
     p.add_argument("--tradeability-max-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MAX_RANGE_ATR") or "0.0"))
@@ -139,13 +145,16 @@ def main() -> None:
         if FilterEngine is None:
             print("WARNING: ENABLE_FILTER_ENGINE=1, but FilterEngine import failed", flush=True)
         else:
-            filter_params = {
-                "tradeability_gate": args.tradeability_gate,
-                "tradeability_min_range_atr": args.tradeability_min_range_atr,
-                "tradeability_max_range_atr": args.tradeability_max_range_atr,
-                "regime_ema_slope": args.regime_ema_slope,
-                "regime_adaptive_mode": args.regime_adaptive_mode,
-            }
+            if args.filter_profile and get_filter_preset is not None:
+                filter_params = get_filter_preset(symbol, args.filter_profile)
+            else:
+                filter_params = {
+                    "tradeability_gate": args.tradeability_gate,
+                    "tradeability_min_range_atr": args.tradeability_min_range_atr,
+                    "tradeability_max_range_atr": args.tradeability_max_range_atr,
+                    "regime_ema_slope": args.regime_ema_slope,
+                    "regime_adaptive_mode": args.regime_adaptive_mode,
+                }
             filter_engine = FilterEngine(filter_params)
             print(f"FilterEngine enabled params={filter_params}", flush=True)
 
