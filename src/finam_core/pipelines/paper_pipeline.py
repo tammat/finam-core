@@ -10,6 +10,7 @@ import time
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
+from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
     from finam_core.strategy.filters.regime_filters import FilterContext, FilterEngine
@@ -142,6 +143,7 @@ class PaperTradingPipeline:
         self._done = done
 
         self._mkt: dict[str, dict] = {}
+        self.features = {}  # live feature buffers
         self._filled_once = False
 
         # Русский коммент: троттлинг логов котировок
@@ -178,6 +180,32 @@ class PaperTradingPipeline:
             except Exception:
                 pass
 
+        
+        # --- FEATURE BUFFER ---
+        fb = self.features.get(sym)
+        if fb is None:
+            fb = LiveFeatureBuffer()
+            self.features[sym] = fb
+
+        fb.update(st)
+        feat = fb.compute()
+
+        # --- FEATURE BUFFER ---
+        fb = self.features.get(sym)
+        if fb is None:
+            fb = LiveFeatureBuffer()
+            self.features[sym] = fb
+
+        fb.update(st)
+        feat = fb.compute()
+
+        # Русский коммент: если включён tradeability-фильтр, не даём Strategy сгенерировать одноразовый intent до прогрева фич.
+        if self.filter_engine is not None:
+            gate = str(getattr(self.filter_engine, "params", {}).get("tradeability_gate", "") or "").strip().lower()
+            if gate not in ("", "off", "none") and feat is None:
+                LOG.info("FILTER WARMUP: waiting for live features symbol=%s", sym)
+                return
+
         # strategy
         intent = self.strategy.on_quote(st)
         if not intent:
@@ -189,12 +217,16 @@ class PaperTradingPipeline:
             if callable(self.filter_context_builder):
                 filter_context = self.filter_context_builder(intent, st, self.portfolio)
             elif FilterContext is not None:
-                filter_context = FilterContext()
+                filter_context = FilterContext(
+                    range_atr=feat.get("range_atr") if isinstance(feat, dict) else None,
+                    ema=feat.get("ema") if isinstance(feat, dict) else None,
+                )
             else:
                 filter_context = None
 
             if filter_context is not None and hasattr(self.filter_engine, "allow"):
-                filter_decision = self.filter_engine.allow(0, filter_context)
+                filter_i = int(feat.get("i", 0)) if isinstance(feat, dict) else 0
+                filter_decision = self.filter_engine.allow(filter_i, filter_context)
                 LOG.info("FILTER decision=%s", filter_decision)
                 if not getattr(filter_decision, "allowed", False):
                     LOG.warning(

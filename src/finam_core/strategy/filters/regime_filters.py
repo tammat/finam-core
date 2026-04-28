@@ -156,7 +156,12 @@ class FilterEngine:
         if max_raw not in (None, "", 0, "0", "0.0"):
             max_range_atr = self._as_float(max_raw, 0.0)
 
-        value = range_atr.iat[i]
+        # Русский коммент: backtest передаёт pd.Series, live может передать последнее scalar-значение.
+        if hasattr(range_atr, "iat"):
+            value = range_atr.iat[i]
+        else:
+            value = range_atr
+
         if pd.isna(value):
             return FilterDecision(
                 False,
