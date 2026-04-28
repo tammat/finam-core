@@ -20,6 +20,7 @@ from finam_core.accounting.position_manager import PositionManager
 from finam_core.accounting.portfolio_manager import PortfolioManager
 from finam_core.risk.risk_engine import RiskEngine
 from finam_core.strategy.once_buy import OnceBuyStrategy
+from finam_core.strategy.simple_reactive import SimpleReactiveStrategy
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 
 try:
@@ -47,6 +48,7 @@ def _parse_args() -> argparse.Namespace:
 
     # Русский коммент: symbol — для стратегии (какой инструмент торгуем)
     p.add_argument("--symbol", default=os.getenv("SYMBOL") or "NGH6@RTSX")
+    p.add_argument("--strategy", default=os.getenv("PIPELINE_STRATEGY") or "once_buy", choices=("once_buy", "simple_reactive"))
 
     # Русский коммент: symbols — список подписки MarketData (мульти-инструмент)
     p.add_argument(
@@ -138,7 +140,10 @@ def main() -> None:
 
     risk = RiskEngine()
     paper = PaperExecutionEngine(slippage_coef=0.25, commission=0.0)
-    strategy = OnceBuyStrategy(symbol)
+    if args.strategy == "simple_reactive":
+        strategy = SimpleReactiveStrategy()
+    else:
+        strategy = OnceBuyStrategy(symbol)
 
     filter_engine = None
     if args.enable_filter_engine:
