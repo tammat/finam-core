@@ -30,12 +30,14 @@ import itertools
 # --- External regime/tradeability filters (optional import) ---
 try:
     from finam_core.strategy.filters.regime_filters import (
+        FilterEngine,
         compute_true_range,
         compute_range_atr,
         ema_slope_value_at,
         range_atr_allows,
     )
 except Exception:
+    FilterEngine = None
     compute_true_range = None
     compute_range_atr = None
     ema_slope_value_at = None
@@ -335,6 +337,7 @@ def run_backtest(
         regime_ema_slope_threshold = float(params.get("regime_ema_slope_threshold", 0.002) or 0.002)
         regime_adaptive_mode = str(params.get("regime_adaptive_mode", "") or "").strip().lower()
         regime_trend_confirm_bars = int(params.get("regime_trend_confirm_bars", 1) or 1)
+        filter_engine = FilterEngine(params) if FilterEngine is not None else None
 
         def ema_slope_value(i: int) -> float:
             if ema_slope_value_at is not None:
@@ -350,6 +353,8 @@ def run_backtest(
             return float((ema_now - ema_prev) / ema_prev)
 
         def ema_slope_allows(i: int) -> bool:
+            if filter_engine is not None:
+                return filter_engine.evaluate_ema_slope(mr_ema, i).allowed
             if not regime_ema_slope_enabled:
                 return True
             if regime_adaptive_mode == "slope_switch":
@@ -396,6 +401,8 @@ def run_backtest(
                 return True
             if tradeability_gate != "range_atr":
                 return True
+            if filter_engine is not None:
+                return filter_engine.evaluate_range_atr(tradeability_range_atr, i).allowed
             if range_atr_allows is not None:
                 return range_atr_allows(tradeability_range_atr, i, tradeability_min_range_atr)
             value = tradeability_range_atr.iat[i]

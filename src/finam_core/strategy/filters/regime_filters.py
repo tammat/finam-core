@@ -66,3 +66,79 @@ def range_atr_allows(
     if pd.isna(value):
         return False
     return float(value) >= float(min_range_atr)
+
+
+from dataclasses import dataclass
+from typing import Any, Dict
+
+
+@dataclass(frozen=True)
+class FilterDecision:
+    """Русский коммент: единое решение фильтров для backtest и live pipeline."""
+    allowed: bool
+    reason: str = "allowed"
+    details: Dict[str, Any] | None = None
+
+
+class FilterEngine:
+    """Русский коммент: единый слой regime/tradeability-фильтров без зависимости от execution/risk."""
+
+    def __init__(self, params: Dict[str, Any] | None = None):
+        self.params = params or {}
+
+    @staticmethod
+    def _as_str(value: Any, default: str = "") -> str:
+        return str(value if value is not None else default).strip().lower()
+
+    @staticmethod
+    def _as_int(value: Any, default: int) -> int:
+        try:
+            return int(value if value is not None else default)
+        except (TypeError, ValueError):
+            return int(default)
+
+    @staticmethod
+    def _as_float(value: Any, default: float) -> float:
+        try:
+            return float(value if value is not None else default)
+        except (TypeError, ValueError):
+            return float(default)
+
+    def evaluate_range_atr(self, range_atr: pd.Series, i: int) -> FilterDecision:
+        gate = self._as_str(self.params.get("tradeability_gate"), "")
+        if gate in ("", "off", "none"):
+            return FilterDecision(True, "tradeability_off")
+        if gate != "range_atr":
+            return FilterDecision(True, "tradeability_unknown_gate")
+
+        min_range_atr = self._as_float(self.params.get("tradeability_min_range_atr"), 1.5)
+        value = range_atr.iat[i]
+        if pd.isna(value):
+            return FilterDecision(False, "tradeability_nan", {"min_range_atr": min_range_atr})
+
+        allowed = float(value) >= min_range_atr
+        return FilterDecision(
+            allowed,
+            "allowed" if allowed else "tradeability_range_atr_fail",
+            {"range_atr": float(value), "min_range_atr": min_range_atr},
+        )
+
+    def evaluate_ema_slope(self, ema: pd.Series | None, i: int) -> FilterDecision:
+        regime_ema_slope = self._as_str(self.params.get("regime_ema_slope"), "")
+        if regime_ema_slope != "on":
+            return FilterDecision(True, "ema_slope_off")
+
+        adaptive_mode = self._as_str(self.params.get("regime_adaptive_mode"), "")
+        if adaptive_mode == "slope_switch":
+            return FilterDecision(True, "ema_slope_adaptive_mode")
+
+        lookback = self._as_int(self.params.get("regime_ema_slope_lookback"), 20)
+        threshold = self._as_float(self.params.get("regime_ema_slope_threshold"), 0.002)
+        slope = ema_slope_value_at(ema, i, lookback)
+        allowed = abs(slope) <= threshold
+
+        return FilterDecision(
+            allowed,
+            "allowed" if allowed else "ema_slope_fail",
+            {"slope": slope, "threshold": threshold, "lookback": lookback},
+        )
