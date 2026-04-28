@@ -26,6 +26,20 @@ import uuid
 import sqlite3
 import argparse
 import itertools
+
+# --- External regime/tradeability filters (optional import) ---
+try:
+    from finam_core.strategy.filters.regime_filters import (
+        compute_true_range,
+        compute_range_atr,
+        ema_slope_value_at,
+        range_atr_allows,
+    )
+except Exception:
+    compute_true_range = None
+    compute_range_atr = None
+    ema_slope_value_at = None
+    range_atr_allows = None
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple, Optional
@@ -285,11 +299,14 @@ def run_backtest(
         regime_atr_threshold = float(params.get("regime_atr_threshold", 0.0) or 0.0)
         regime_atr_pct_window = int(params.get("regime_atr_pct_window", 100) or 100)
 
-        prev_close = close.shift(1)
-        tr1 = (high - low).abs()
-        tr2 = (high - prev_close).abs()
-        tr3 = (low - prev_close).abs()
-        true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        if compute_true_range is not None:
+            true_range = compute_true_range(high, low, close)
+        else:
+            prev_close = close.shift(1)
+            tr1 = (high - low).abs()
+            tr2 = (high - prev_close).abs()
+            tr3 = (low - prev_close).abs()
+            true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         regime_atr = true_range.rolling(regime_atr_n).mean()
         regime_atr_pct = regime_atr.rolling(regime_atr_pct_window).rank(pct=True)
 
@@ -320,6 +337,8 @@ def run_backtest(
         regime_trend_confirm_bars = int(params.get("regime_trend_confirm_bars", 1) or 1)
 
         def ema_slope_value(i: int) -> float:
+            if ema_slope_value_at is not None:
+                return ema_slope_value_at(mr_ema, i, regime_ema_slope_lookback)
             if mr_ema is None:
                 return 0.0
             if i < regime_ema_slope_lookback:
@@ -365,15 +384,20 @@ def run_backtest(
         tradeability_atr_n = int(params.get("tradeability_atr_n", 14) or 14)
         tradeability_range_window = int(params.get("tradeability_range_window", 100) or 100)
         tradeability_min_range_atr = float(params.get("tradeability_min_range_atr", 1.5) or 1.5)
-        tradeability_atr = true_range.rolling(tradeability_atr_n).mean()
-        tradeability_range = high.rolling(tradeability_range_window).max() - low.rolling(tradeability_range_window).min()
-        tradeability_range_atr = tradeability_range / tradeability_atr.replace(0, math.nan)
+        if compute_range_atr is not None:
+            tradeability_range_atr = compute_range_atr(high, low, true_range, tradeability_atr_n, tradeability_range_window)
+        else:
+            tradeability_atr = true_range.rolling(tradeability_atr_n).mean()
+            tradeability_range = high.rolling(tradeability_range_window).max() - low.rolling(tradeability_range_window).min()
+            tradeability_range_atr = tradeability_range / tradeability_atr.replace(0, math.nan)
 
         def tradeability_allows(i: int) -> bool:
             if tradeability_gate in ("", "off", "none"):
                 return True
             if tradeability_gate != "range_atr":
                 return True
+            if range_atr_allows is not None:
+                return range_atr_allows(tradeability_range_atr, i, tradeability_min_range_atr)
             value = tradeability_range_atr.iat[i]
             if pd.isna(value):
                 return False
