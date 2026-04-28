@@ -30,6 +30,7 @@ import itertools
 # --- External regime/tradeability filters (optional import) ---
 try:
     from finam_core.strategy.filters.regime_filters import (
+        FilterContext,
         FilterEngine,
         compute_true_range,
         compute_range_atr,
@@ -37,6 +38,7 @@ try:
         range_atr_allows,
     )
 except Exception:
+    FilterContext = None
     FilterEngine = None
     compute_true_range = None
     compute_range_atr = None
@@ -411,6 +413,19 @@ def run_backtest(
             return float(value) >= tradeability_min_range_atr
 
         def entry_filters_allow(i: int) -> bool:
+            if filter_engine is not None and FilterContext is not None:
+                decision = filter_engine.allow(
+                    i,
+                    FilterContext(
+                        range_atr=tradeability_range_atr,
+                        ema=mr_ema,
+                        session_allowed=session_allows(i),
+                        mr_allowed=mr_regime_allows(i),
+                        regime_allowed=regime_allows(i),
+                    ),
+                )
+                return decision.allowed
+
             return session_allows(i) and mr_regime_allows(i) and regime_allows(i) and ema_slope_allows(i) and tradeability_allows(i)
 
         def want_long(i: int) -> bool:

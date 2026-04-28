@@ -80,11 +80,44 @@ class FilterDecision:
     details: Dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class FilterContext:
+    """Русский коммент: контекст фильтрации для единого API backtest/live."""
+    range_atr: Optional[pd.Series] = None
+    ema: Optional[pd.Series] = None
+    session_allowed: bool = True
+    regime_allowed: bool = True
+    mr_allowed: bool = True
+
+
 class FilterEngine:
     """Русский коммент: единый слой regime/tradeability-фильтров без зависимости от execution/risk."""
 
     def __init__(self, params: Dict[str, Any] | None = None):
         self.params = params or {}
+
+    def allow(self, i: int, context: FilterContext) -> FilterDecision:
+        """Русский коммент: единая точка фильтрации сигнала для backtest и live pipeline."""
+        if not context.session_allowed:
+            return FilterDecision(False, "session_fail")
+        if not context.mr_allowed:
+            return FilterDecision(False, "mr_regime_fail")
+        if not context.regime_allowed:
+            return FilterDecision(False, "regime_fail")
+
+        ema_decision = self.evaluate_ema_slope(context.ema, i)
+        if not ema_decision.allowed:
+            return ema_decision
+
+        gate = self._as_str(self.params.get("tradeability_gate"), "")
+        if gate not in ("", "off", "none"):
+            if context.range_atr is None:
+                return FilterDecision(False, "tradeability_missing_range_atr")
+            tradeability_decision = self.evaluate_range_atr(context.range_atr, i)
+            if not tradeability_decision.allowed:
+                return tradeability_decision
+
+        return FilterDecision(True, "allowed")
 
     @staticmethod
     def _as_str(value: Any, default: str = "") -> str:
