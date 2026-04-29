@@ -261,6 +261,14 @@ class PaperTradingPipeline:
         if not intent:
             return
         LOG.info("PIPE intent=%s", intent)
+        self.pg_logger.log_signal(
+            symbol=intent.get("symbol"),
+            strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
+            side=intent.get("side"),
+            qty=intent.get("qty"),
+            status="generated",
+            payload={"intent": intent},
+        )
 
         # Русский коммент: Strategy FilterEngine стоит между Strategy и Risk.
         if self.filter_engine is not None:
@@ -283,6 +291,24 @@ class PaperTradingPipeline:
                         "FILTER REJECT reason=%s details=%s",
                         getattr(filter_decision, "reason", None),
                         getattr(filter_decision, "details", None),
+                    )
+                    self.pg_logger.log_signal(
+                        symbol=intent.get("symbol"),
+                        strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
+                        side=intent.get("side"),
+                        qty=intent.get("qty"),
+                        status="filter_rejected",
+                        payload={
+                            "intent": intent,
+                            "reason": getattr(filter_decision, "reason", None),
+                            "details": getattr(filter_decision, "details", None),
+                        },
+                    )
+                    self.pg_logger.log_risk_event(
+                        symbol=intent.get("symbol"),
+                        event="filter_reject",
+                        decision=str(getattr(filter_decision, "reason", None)),
+                        payload={"details": getattr(filter_decision, "details", None), "intent": intent},
                     )
                     return
 
@@ -309,6 +335,20 @@ class PaperTradingPipeline:
             return
 
         LOG.info("RISK OK")
+        self.pg_logger.log_signal(
+            symbol=intent.get("symbol"),
+            strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
+            side=intent.get("side"),
+            qty=intent.get("qty"),
+            status="risk_approved",
+            payload={"intent": intent, "decision": str(decision) if "decision" in locals() else None},
+        )
+        self.pg_logger.log_risk_event(
+            symbol=intent.get("symbol"),
+            event="risk_approved",
+            decision="approved",
+            payload={"intent": intent, "decision": str(decision) if "decision" in locals() else None},
+        )
 
         # Русский коммент: позиционный guard — не наращиваем long по тому же символу.
         try:

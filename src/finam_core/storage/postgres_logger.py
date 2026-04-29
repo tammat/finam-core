@@ -69,3 +69,58 @@ class PostgresLogger:
                     )
         except Exception as exc:
             LOG.warning("POSTGRES LOG FILL FAILED: %s", exc)
+
+
+    def log_signal(self, symbol=None, strategy=None, side=None, qty=None, status="generated", payload=None) -> None:
+        """Русский коммент: логирование всех сигналов стратегии/фильтра/риска, включая отклонённые."""
+        if not self.enabled:
+            return
+
+        try:
+            payload_json = json.dumps(payload or {}, ensure_ascii=False, default=str)
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO signals
+                            (symbol, strategy, side, qty, status, payload)
+                        VALUES
+                            (%s, %s, %s, %s, %s, %s::jsonb)
+                        """,
+                        (
+                            symbol,
+                            strategy,
+                            side,
+                            float(qty) if qty is not None else None,
+                            status,
+                            payload_json,
+                        ),
+                    )
+        except Exception as exc:
+            LOG.warning("POSTGRES LOG SIGNAL FAILED: %s", exc)
+
+    def log_risk_event(self, symbol=None, event="risk_event", decision=None, payload=None) -> None:
+        """Русский коммент: логирование решений RiskEngine/FilterEngine без остановки pipeline."""
+        if not self.enabled:
+            return
+
+        try:
+            payload_json = json.dumps(payload or {}, ensure_ascii=False, default=str)
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO risk_events
+                            (symbol, event, decision, payload)
+                        VALUES
+                            (%s, %s, %s, %s::jsonb)
+                        """,
+                        (
+                            symbol,
+                            event,
+                            decision,
+                            payload_json,
+                        ),
+                    )
+        except Exception as exc:
+            LOG.warning("POSTGRES LOG RISK EVENT FAILED: %s", exc)
