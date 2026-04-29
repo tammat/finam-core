@@ -449,6 +449,15 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+            print(
+                f"PIPE_SCORE_DIAG source={intent.get('source')} "
+                f"score={intent.get('score')} "
+                f"confidence={confidence} "
+                f"risk_amount={vol_params.risk_amount} "
+                f"qty={vol_params.qty}",
+                flush=True,
+            )
+
             # Русский коммент: Risk v3 динамически настраивает SL/TP для Risk v2 exit-layer.
             self.exit_engine.stop_loss_abs = vol_params.stop_abs
             self.exit_engine.take_profit_abs = vol_params.take_abs
