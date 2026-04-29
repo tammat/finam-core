@@ -14,6 +14,7 @@ class SimpleReactiveStrategy:
 
         # Русский коммент: тестовый режим для проверки SELL/BUY pipeline без изменения основной логики стратегии.
         force_side = (os.getenv("FORCE_SIDE") or "").strip().upper()
+        force_qty = float(os.getenv("FORCE_QTY", "1.0"))
 
         price = st.get("last")
         if price is None:
@@ -23,13 +24,13 @@ class SimpleReactiveStrategy:
             self.last_price = price
             if force_side in ("BUY", "SELL"):
                 self.sent = True
-                return {"symbol": st["symbol"], "side": force_side, "qty": 1.0, "reason": f"forced_{force_side.lower()}_test"}
+                return {"symbol": st["symbol"], "side": force_side, "qty": force_qty, "reason": f"forced_{force_side.lower()}_test"}
             return None
 
         if force_side in ("BUY", "SELL"):
             self.last_price = price
             self.sent = True
-            return {"symbol": st["symbol"], "side": force_side, "qty": 1.0, "reason": f"forced_{force_side.lower()}_test"}
+            return {"symbol": st["symbol"], "side": force_side, "qty": force_qty, "reason": f"forced_{force_side.lower()}_test"}
 
         # примитив: движение вверх → BUY
         if price > self.last_price:
