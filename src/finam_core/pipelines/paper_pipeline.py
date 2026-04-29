@@ -15,6 +15,7 @@ from finam_core.risk.trailing_exit import TrailingExitEngine
 from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.risk.sl_tp_cooldown import SlTpCooldownEngine
+from finam_core.risk.volatility_risk import VolatilityRiskEngine
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -160,6 +161,7 @@ class PaperTradingPipeline:
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
         self.exit_engine = SlTpCooldownEngine()
+        self.vol_risk = VolatilityRiskEngine()
 
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
@@ -317,6 +319,32 @@ class PaperTradingPipeline:
         intent = self.strategy.on_quote(st)
         if not intent:
             return
+        # === Risk v3: volatility-aware sizing ===
+        if os.getenv("VOL_RISK_ENABLE", "0") == "1":
+            features = st.get("features") or {}
+            atr = (
+                st.get("range_atr")
+                or st.get("atr")
+                or features.get("range_atr")
+                or features.get("atr")
+            )
+
+            vol_params = self.vol_risk.compute(atr=atr)
+            intent["qty"] = vol_params.qty
+
+            # Русский коммент: Risk v3 динамически настраивает SL/TP для Risk v2 exit-layer.
+            self.exit_engine.stop_loss_abs = vol_params.stop_abs
+            self.exit_engine.take_profit_abs = vol_params.take_abs
+
+            print(
+                f"PIPE_VOL_RISK atr={vol_params.atr} "
+                f"stop_abs={vol_params.stop_abs} "
+                f"take_abs={vol_params.take_abs} "
+                f"qty={vol_params.qty} "
+                f"risk_amount={vol_params.risk_amount}",
+                flush=True,
+            )
+
         LOG.info("PIPE intent=%s", intent)
         self.pg_logger.log_signal(
             symbol=intent.get("symbol"),
