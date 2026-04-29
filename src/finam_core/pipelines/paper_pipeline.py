@@ -19,6 +19,7 @@ from finam_core.risk.volatility_risk import VolatilityRiskEngine
 from finam_core.risk.live_atr import LiveAtrEstimator
 from finam_core.risk.regime_layer import RegimeLayer
 from finam_core.risk.portfolio_heat import PortfolioHeatEngine
+from finam_core.risk.kill_switch import KillSwitchEngine
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -168,6 +169,7 @@ class PaperTradingPipeline:
         self.live_atr = LiveAtrEstimator()
         self.regime_layer = RegimeLayer()
         self.portfolio_heat = PortfolioHeatEngine()
+        self.kill_switch = KillSwitchEngine()
         self._regime_last_log_ts = 0.0
 
     def attach(self):
@@ -488,6 +490,48 @@ class PaperTradingPipeline:
             except Exception as e:
                 LOG.warning("TELEGRAM RISK ALERT FAILED: %s", e)
             return
+
+        # === Kill Switch Layer ===
+        if os.getenv("KILL_SWITCH_ENABLE", "0") == "1":
+            pm_ctx = self.pm.get_context()
+            equity = _safe_float(getattr(pm_ctx, "portfolio_value", 0.0), default=0.0)
+            start_equity = _safe_float(getattr(pm_ctx, "starting_capital", equity), default=equity)
+            daily_pnl = _safe_float(getattr(pm_ctx, "daily_realized_pnl", 0.0), default=0.0)
+
+            kill_decision = self.kill_switch.evaluate(
+                daily_realized_pnl=daily_pnl,
+                equity=equity,
+                start_equity=start_equity,
+            )
+
+            if not kill_decision.allowed:
+                print(
+                    f"PIPE_KILL_SWITCH reason={kill_decision.reason} "
+                    f"daily_pnl={kill_decision.daily_realized_pnl} "
+                    f"drawdown={kill_decision.drawdown} "
+                    f"equity={kill_decision.equity} "
+                    f"start_equity={kill_decision.start_equity}",
+                    flush=True,
+                )
+                self.pg_logger.log_risk_event(
+                    symbol=intent.get("symbol"),
+                    event="kill_switch_reject",
+                    decision=kill_decision.reason,
+                    payload={
+                        "daily_realized_pnl": kill_decision.daily_realized_pnl,
+                        "drawdown": kill_decision.drawdown,
+                        "equity": kill_decision.equity,
+                        "start_equity": kill_decision.start_equity,
+                        "intent": intent,
+                    },
+                )
+                return
+
+            print(
+                f"PIPE_KILL_OK daily_pnl={kill_decision.daily_realized_pnl} "
+                f"drawdown={kill_decision.drawdown}",
+                flush=True,
+            )
 
         # === Portfolio Heat Layer ===
         if os.getenv("PORTFOLIO_HEAT_ENABLE", "0") == "1":
