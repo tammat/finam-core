@@ -148,11 +148,18 @@ def main() -> None:
         strategy = SimpleReactiveStrategy()
     elif args.strategy == "breakout_reactive":
         strategy = BreakoutReactiveStrategy(symbol=args.symbol)
+
     elif args.strategy == "strategy_stack":
-        strategy = StrategyStack([
+        strategies = [
             BreakoutReactiveStrategy(symbol=args.symbol),
-            SimpleReactiveStrategy(),
-        ])
+        ]
+
+        # Русский коммент: SimpleReactive включаем только для тестов
+        if os.getenv("ENABLE_TEST_STRATEGY", "0") == "1":
+            strategies.append(SimpleReactiveStrategy())
+
+        strategy = StrategyStack(strategies)
+
     elif args.strategy == "vwap_bands_mr":
         strategy = VWAPBandsMRStrategy(
             window=150,
