@@ -20,6 +20,7 @@ from finam_core.risk.live_atr import LiveAtrEstimator
 from finam_core.risk.regime_layer import RegimeLayer
 from finam_core.risk.portfolio_heat import PortfolioHeatEngine
 from finam_core.risk.kill_switch import KillSwitchEngine
+from finam_core.risk.correlation_risk import CorrelationRiskEngine
 from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
 from finam_core.signals.signal_router import SignalRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
@@ -172,6 +173,7 @@ class PaperTradingPipeline:
         self.regime_layer = RegimeLayer()
         self.portfolio_heat = PortfolioHeatEngine()
         self.kill_switch = KillSwitchEngine()
+        self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
         self._regime_last_log_ts = 0.0
@@ -654,6 +656,73 @@ class PaperTradingPipeline:
                 f"limit={heat_decision.limit}",
                 flush=True,
             )
+
+        # === Correlation / Bucket Exposure Layer ===
+        if os.getenv("CORR_RISK_ENABLE", "0") == "1":
+            pm_ctx = self.pm.get_context()
+            px = _get_price_from_state(st, intent.get("side")) or 0.0
+            qty = _safe_float(intent.get("qty"), default=0.0)
+            trade_value = abs(qty * px)
+            target_bucket = self.correlation_risk.bucket_for_symbol(intent.get("symbol"))
+
+            current_bucket_exposure = 0.0
+            for pos_symbol, pos in getattr(self.pm, "positions", {}).items():
+                if self.correlation_risk.bucket_for_symbol(pos_symbol) != target_bucket:
+                    continue
+                pos_qty = abs(_safe_float(getattr(pos, "qty", 0.0), default=0.0))
+                pos_price = _safe_float(getattr(pos, "avg_price", 0.0), default=0.0)
+                current_bucket_exposure += pos_qty * pos_price
+
+            corr_decision = self.correlation_risk.evaluate(
+                symbol=intent.get("symbol"),
+                portfolio_value=_safe_float(getattr(pm_ctx, "portfolio_value", 0.0), default=0.0),
+                current_bucket_exposure=current_bucket_exposure,
+                new_trade_value=trade_value,
+            )
+
+            if not corr_decision.allowed:
+                print(
+                    f"PIPE_CORR_REJECT reason={corr_decision.reason} "
+                    f"bucket={corr_decision.bucket} "
+                    f"current_bucket_exposure={corr_decision.current_bucket_exposure} "
+                    f"projected_bucket_exposure={corr_decision.projected_bucket_exposure} "
+                    f"limit={corr_decision.bucket_limit}",
+                    flush=True,
+                )
+                self.risk_recorder.emit(UnifiedRiskDecision.reject(
+                    layer="correlation_risk",
+                    reason=corr_decision.reason,
+                    symbol=intent.get("symbol"),
+                    side=intent.get("side"),
+                    qty=intent.get("qty"),
+                    payload={
+                        "bucket": corr_decision.bucket,
+                        "current_bucket_exposure": corr_decision.current_bucket_exposure,
+                        "projected_bucket_exposure": corr_decision.projected_bucket_exposure,
+                        "limit": corr_decision.bucket_limit,
+                    },
+                ))
+                return
+
+            print(
+                f"PIPE_CORR_OK bucket={corr_decision.bucket} "
+                f"current_bucket_exposure={corr_decision.current_bucket_exposure} "
+                f"projected_bucket_exposure={corr_decision.projected_bucket_exposure} "
+                f"limit={corr_decision.bucket_limit}",
+                flush=True,
+            )
+            self.risk_recorder.emit(UnifiedRiskDecision.allow(
+                layer="correlation_risk_ok",
+                symbol=intent.get("symbol"),
+                side=intent.get("side"),
+                qty=intent.get("qty"),
+                payload={
+                    "bucket": corr_decision.bucket,
+                    "current_bucket_exposure": corr_decision.current_bucket_exposure,
+                    "projected_bucket_exposure": corr_decision.projected_bucket_exposure,
+                    "limit": corr_decision.bucket_limit,
+                },
+            ))
             self.risk_recorder.emit(UnifiedRiskDecision.allow(
                 layer="portfolio_heat_ok",
                 symbol=intent.get("symbol"),
