@@ -22,6 +22,7 @@ from finam_core.risk.risk_engine import RiskEngine
 from finam_core.strategy.once_buy import OnceBuyStrategy
 from finam_core.strategy.simple_reactive import SimpleReactiveStrategy
 from finam_core.strategy.breakout_reactive import BreakoutReactiveStrategy
+from finam_core.signals.strategy_stack import StrategyStack
 from finam_core.strategy.vwap_bands_mr import VWAPBandsMRStrategy
 from finam_core.strategy.vwap_bands_mr import VWAPBandsMRStrategy
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
@@ -51,7 +52,7 @@ def _parse_args() -> argparse.Namespace:
 
     # Русский коммент: symbol — для стратегии (какой инструмент торгуем)
     p.add_argument("--symbol", default=os.getenv("SYMBOL") or "NGH6@RTSX")
-    p.add_argument("--strategy", default=os.getenv("PIPELINE_STRATEGY") or "once_buy", choices=("once_buy", "simple_reactive", "breakout_reactive", "vwap_bands_mr"))
+    p.add_argument("--strategy", default=os.getenv("PIPELINE_STRATEGY") or "once_buy", choices=("once_buy", "simple_reactive", "breakout_reactive", "strategy_stack", "vwap_bands_mr"))
 
     # Русский коммент: symbols — список подписки MarketData (мульти-инструмент)
     p.add_argument(
@@ -147,6 +148,11 @@ def main() -> None:
         strategy = SimpleReactiveStrategy()
     elif args.strategy == "breakout_reactive":
         strategy = BreakoutReactiveStrategy(symbol=args.symbol)
+    elif args.strategy == "strategy_stack":
+        strategy = StrategyStack([
+            BreakoutReactiveStrategy(symbol=args.symbol),
+            SimpleReactiveStrategy(),
+        ])
     elif args.strategy == "vwap_bands_mr":
         strategy = VWAPBandsMRStrategy(
             window=150,
