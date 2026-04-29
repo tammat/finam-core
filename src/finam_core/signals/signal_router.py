@@ -23,7 +23,22 @@ class SignalRouter:
 
     def __init__(self):
         self.min_confidence = float(os.getenv("SIGNAL_MIN_CONFIDENCE", "0.0"))
+        self.score_min = float(os.getenv("SIGNAL_SCORE_MIN", "0.0"))
+        self.score_max = float(os.getenv("SIGNAL_SCORE_MAX", "1.0"))
         self._last_by_symbol: dict[str, str] = {}
+
+    def normalize_confidence(self, score) -> float:
+        """Русский коммент: нормализуем score стратегии в confidence 0..1."""
+        try:
+            value = float(score)
+        except Exception:
+            return 1.0
+
+        if self.score_max <= self.score_min:
+            return max(0.0, min(1.0, value))
+
+        normalized = (value - self.score_min) / (self.score_max - self.score_min)
+        return max(0.0, min(1.0, normalized))
 
     def route(self, intent: SignalIntent | dict | None) -> RoutedSignal:
         if intent is None:
@@ -35,7 +50,7 @@ class SignalRouter:
                 side=str(intent["side"]).upper(),
                 qty=float(intent.get("qty", 1.0)),
                 source=str(intent.get("source", "legacy_strategy")),
-                confidence=float(intent.get("confidence", 1.0)),
+                confidence=self.normalize_confidence(intent.get("confidence", intent.get("score", 1.0))),
                 reason=str(intent.get("reason", "")),
                 features=dict(intent.get("features", {})),
             )
