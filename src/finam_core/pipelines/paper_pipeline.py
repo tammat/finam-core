@@ -20,6 +20,7 @@ from finam_core.risk.live_atr import LiveAtrEstimator
 from finam_core.risk.regime_layer import RegimeLayer
 from finam_core.risk.portfolio_heat import PortfolioHeatEngine
 from finam_core.risk.kill_switch import KillSwitchEngine
+from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -170,6 +171,7 @@ class PaperTradingPipeline:
         self.regime_layer = RegimeLayer()
         self.portfolio_heat = PortfolioHeatEngine()
         self.kill_switch = KillSwitchEngine()
+        self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self._regime_last_log_ts = 0.0
 
     def attach(self):
@@ -513,6 +515,19 @@ class PaperTradingPipeline:
                     f"start_equity={kill_decision.start_equity}",
                     flush=True,
                 )
+                self.risk_recorder.emit(UnifiedRiskDecision.reject(
+                    layer="kill_switch",
+                    reason=kill_decision.reason,
+                    symbol=intent.get("symbol"),
+                    side=intent.get("side"),
+                    qty=intent.get("qty"),
+                    payload={
+                        "daily_realized_pnl": kill_decision.daily_realized_pnl,
+                        "drawdown": kill_decision.drawdown,
+                        "equity": kill_decision.equity,
+                        "start_equity": kill_decision.start_equity,
+                    },
+                ))
                 self.pg_logger.log_risk_event(
                     symbol=intent.get("symbol"),
                     event="kill_switch_reject",
@@ -532,6 +547,16 @@ class PaperTradingPipeline:
                 f"drawdown={kill_decision.drawdown}",
                 flush=True,
             )
+            self.risk_recorder.emit(UnifiedRiskDecision.allow(
+                layer="kill_switch_ok",
+                symbol=intent.get("symbol"),
+                side=intent.get("side"),
+                qty=intent.get("qty"),
+                payload={
+                    "daily_realized_pnl": kill_decision.daily_realized_pnl,
+                    "drawdown": kill_decision.drawdown,
+                },
+            ))
 
         # === Portfolio Heat Layer ===
         if os.getenv("PORTFOLIO_HEAT_ENABLE", "0") == "1":
@@ -554,6 +579,18 @@ class PaperTradingPipeline:
                     f"limit={heat_decision.limit}",
                     flush=True,
                 )
+                self.risk_recorder.emit(UnifiedRiskDecision.reject(
+                    layer="portfolio_heat",
+                    reason=heat_decision.reason,
+                    symbol=intent.get("symbol"),
+                    side=intent.get("side"),
+                    qty=intent.get("qty"),
+                    payload={
+                        "current_heat": heat_decision.current_heat,
+                        "projected_heat": heat_decision.projected_heat,
+                        "limit": heat_decision.limit,
+                    },
+                ))
                 self.pg_logger.log_risk_event(
                     symbol=intent.get("symbol"),
                     event="portfolio_heat_reject",
@@ -573,6 +610,17 @@ class PaperTradingPipeline:
                 f"limit={heat_decision.limit}",
                 flush=True,
             )
+            self.risk_recorder.emit(UnifiedRiskDecision.allow(
+                layer="portfolio_heat_ok",
+                symbol=intent.get("symbol"),
+                side=intent.get("side"),
+                qty=intent.get("qty"),
+                payload={
+                    "current_heat": heat_decision.current_heat,
+                    "projected_heat": heat_decision.projected_heat,
+                    "limit": heat_decision.limit,
+                },
+            ))
 
         LOG.info("RISK OK")
         print("PIPE_RISK_OK", flush=True)
