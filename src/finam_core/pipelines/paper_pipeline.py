@@ -21,6 +21,7 @@ from finam_core.risk.regime_layer import RegimeLayer
 from finam_core.risk.portfolio_heat import PortfolioHeatEngine
 from finam_core.risk.kill_switch import KillSwitchEngine
 from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
+from finam_core.signals.signal_router import SignalRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -172,6 +173,7 @@ class PaperTradingPipeline:
         self.portfolio_heat = PortfolioHeatEngine()
         self.kill_switch = KillSwitchEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
+        self.signal_router = SignalRouter()
         self._regime_last_log_ts = 0.0
 
     def attach(self):
@@ -376,10 +378,33 @@ class PaperTradingPipeline:
                 )
                 self._regime_last_log_ts = now
 
-        # strategy
-        intent = self.strategy.on_quote(st)
-        if not intent:
+        # strategy -> SignalRouter -> normalized intent
+        raw_intent = self.strategy.on_quote(st)
+        routed_signal = self.signal_router.route(raw_intent)
+
+        if not routed_signal.allowed:
+            if routed_signal.reason != "no_signal":
+                raw_payload = raw_intent if isinstance(raw_intent, dict) else None
+                print(
+                    f"PIPE_SIGNAL_REJECT reason={routed_signal.reason} symbol={sym}",
+                    flush=True,
+                )
+                self.pg_logger.log_signal(
+                    symbol=sym,
+                    strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
+                    side=raw_payload.get("side") if raw_payload else None,
+                    qty=raw_payload.get("qty") if raw_payload else None,
+                    status="signal_rejected",
+                    payload={"reason": routed_signal.reason, "raw_intent": raw_payload},
+                )
             return
+
+        intent = routed_signal.intent.to_dict()
+        print(
+            f"PIPE_SIGNAL_OK source={intent.get('source')} symbol={intent.get('symbol')} "
+            f"side={intent.get('side')} qty={intent.get('qty')} confidence={intent.get('confidence')}",
+            flush=True,
+        )
         # === Risk v3: volatility-aware sizing ===
         if os.getenv("VOL_RISK_ENABLE", "0") == "1":
             features = st.get("features") or {}
