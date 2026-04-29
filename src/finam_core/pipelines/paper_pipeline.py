@@ -334,6 +334,17 @@ class PaperTradingPipeline:
                         print(f"PIPE_RISK_DETAIL {attr}={getattr(decision, attr)}", flush=True)
             LOG.warning("RISK REJECT")
             print("PIPE_RISK_REJECT", flush=True)
+            try:
+                # Русский коммент: Telegram alert по risk reject не должен ломать pipeline.
+                risk_reason = getattr(decision, "reason", None) or "unknown"
+                self.notifier.send(
+                    "⛔ RISK REJECT\n"
+                    f"symbol={intent.get('symbol')}\n"
+                    f"side={intent.get('side')} qty={intent.get('qty')}\n"
+                    f"reason={risk_reason}"
+                )
+            except Exception as e:
+                LOG.warning("TELEGRAM RISK ALERT FAILED: %s", e)
             return
 
         LOG.info("RISK OK")
