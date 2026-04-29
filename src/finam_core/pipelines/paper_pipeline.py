@@ -436,20 +436,16 @@ class PaperTradingPipeline:
                 or features.get("atr")
             )
 
-            vol_params = self.vol_risk.compute(atr=atr)
-
-            # Русский коммент: confidence влияет на размер позиции, но не выше базового лимита VolRisk.
             confidence = max(0.0, min(1.0, _safe_float(intent.get("confidence"), default=1.0)))
-            min_conf_qty_factor = _safe_float(os.getenv("CONFIDENCE_MIN_QTY_FACTOR", "0.25"), default=0.25)
-            qty_factor = max(min_conf_qty_factor, confidence)
-            base_qty = vol_params.qty
-            final_qty = max(1.0, base_qty * qty_factor)
-            intent["qty"] = final_qty
-            intent["confidence_qty_factor"] = qty_factor
+            vol_params = self.vol_risk.compute(atr=atr, confidence=confidence)
+
+            # Русский коммент: confidence теперь влияет на риск-бюджет внутри VolatilityRiskEngine.
+            intent["qty"] = vol_params.qty
+            intent["confidence_qty_factor"] = confidence
 
             print(
-                f"PIPE_CONFIDENCE_SIZING base_qty={base_qty} "
-                f"confidence={confidence} factor={qty_factor} final_qty={final_qty}",
+                f"PIPE_CONFIDENCE_SIZING confidence={confidence} "
+                f"final_qty={vol_params.qty} risk_amount={vol_params.risk_amount}",
                 flush=True,
             )
 

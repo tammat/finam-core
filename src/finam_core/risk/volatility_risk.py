@@ -41,13 +41,18 @@ class VolatilityRiskEngine:
 
         return value
 
-    def compute(self, atr=None) -> VolatilityRiskParams:
+    def compute(self, atr=None, confidence: float | None = None) -> VolatilityRiskParams:
         atr_value = max(self._clean_atr(atr), self.min_atr)
 
         stop_abs = max(atr_value * self.stop_atr_mult, 0.0001)
         take_abs = max(atr_value * self.take_atr_mult, 0.0001)
 
-        raw_qty = self.risk_per_trade / stop_abs
+        conf = 1.0 if confidence is None else max(0.0, min(1.0, float(confidence)))
+        min_factor = float(os.getenv("VOL_RISK_MIN_CONFIDENCE_FACTOR", "0.25"))
+        risk_factor = max(min_factor, conf)
+
+        risk_budget = self.risk_per_trade * risk_factor
+        raw_qty = risk_budget / stop_abs
         qty = max(self.min_qty, min(self.max_qty, raw_qty))
 
         return VolatilityRiskParams(
