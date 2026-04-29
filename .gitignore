@@ -50,3 +50,5 @@ __pycache__/
 # local data
 /data/*.sqlite*
 logs.txt
+*.txt
+logs*
