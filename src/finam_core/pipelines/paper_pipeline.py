@@ -437,7 +437,13 @@ class PaperTradingPipeline:
             )
 
             vol_params = self.vol_risk.compute(atr=atr)
-            intent["qty"] = vol_params.qty
+
+            # Русский коммент: confidence влияет на размер позиции, но не выше базового лимита VolRisk.
+            confidence = max(0.0, min(1.0, _safe_float(intent.get("confidence"), default=1.0)))
+            min_conf_qty_factor = _safe_float(os.getenv("CONFIDENCE_MIN_QTY_FACTOR", "0.25"), default=0.25)
+            qty_factor = max(min_conf_qty_factor, confidence)
+            intent["qty"] = max(1.0, vol_params.qty * qty_factor)
+            intent["confidence_qty_factor"] = qty_factor
 
             # Русский коммент: Risk v3 динамически настраивает SL/TP для Risk v2 exit-layer.
             self.exit_engine.stop_loss_abs = vol_params.stop_abs
