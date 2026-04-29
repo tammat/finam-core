@@ -14,6 +14,7 @@ from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
 from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.storage.postgres_logger import PostgresLogger
+from finam_core.risk.sl_tp_cooldown import SlTpCooldownEngine
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -158,6 +159,7 @@ class PaperTradingPipeline:
         self._cooldown_until = {}
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
+        self.exit_engine = SlTpCooldownEngine()
 
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
@@ -189,7 +191,57 @@ class PaperTradingPipeline:
             except Exception:
                 pass
 
-        
+        # === Risk v2: SL/TP exit by quote ===
+        try:
+            pos = self.pm.positions.get(sym)
+            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
+            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
+            last_px = float(last) if last is not None else None
+        except Exception:
+            qty_now = 0.0
+            avg_now = 0.0
+            last_px = None
+
+        if qty_now != 0.0 and last_px is not None:
+            exit_decision = self.exit_engine.evaluate(sym, qty_now, avg_now, last_px)
+            if exit_decision.should_exit:
+                exit_intent = {
+                    "symbol": sym,
+                    "side": exit_decision.side,
+                    "qty": exit_decision.qty,
+                    "reason": exit_decision.reason,
+                }
+                print(
+                    f"PIPE_EXIT_V2 reason={exit_decision.reason} side={exit_decision.side} qty={exit_decision.qty}",
+                    flush=True,
+                )
+                fill = self.paper.execute(exit_intent, st)
+
+                fill_price = float(getattr(fill, "price", 0.0) or 0.0)
+                exit_qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
+                fee_result = self.fee_tax.trade_fees(exit_qty * fill_price)
+                total_commission = (
+                    float(getattr(fill, "commission", 0.0) or 0.0)
+                    + fee_result.broker_fee
+                    + fee_result.exchange_fee
+                )
+
+                exec_fill = ExecutionFill(
+                    fill_id=getattr(fill, "fill_id", None),
+                    symbol=getattr(fill, "symbol", None) or exit_intent.get("symbol"),
+                    side=str(exit_decision.side).upper(),
+                    qty=exit_qty,
+                    price=fill_price,
+                    commission=total_commission,
+                    origin="paper",
+                )
+
+                self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
+                self.exit_engine.mark_exit(sym)
+                self._cooldown_until[sym] = time.time() + float(os.getenv("ENTRY_COOLDOWN_SEC", "300"))
+                return
+
+
         # --- FEATURE BUFFER ---
         fb = self.features.get(sym)
         if fb is None:
@@ -254,6 +306,11 @@ class PaperTradingPipeline:
         # entry cooldown после выхода по SL/TP
         if time.time() < float(self._cooldown_until.get(sym, 0.0)):
             LOG.info("ENTRY COOLDOWN: skip symbol=%s", sym)
+            return
+
+        # Risk v2 cooldown
+        if self.exit_engine.is_cooldown(sym):
+            print("PIPE_RISK_V2_COOLDOWN", flush=True)
             return
 
         # strategy
