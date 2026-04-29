@@ -16,8 +16,8 @@ class StrategyStackResult:
 
 class StrategyStack:
     """
-    Русский коммент: минимальный StrategyStack.
-    Запрашивает сигналы у нескольких стратегий и выбирает первый валидный по порядку приоритета.
+    Русский коммент: StrategyStack собирает сигналы от нескольких стратегий
+    и выбирает лучший по confidence, затем score, затем порядку приоритета.
     """
 
     def __init__(self, strategies: list[Any]):
@@ -28,17 +28,20 @@ class StrategyStack:
         return result.selected
 
     def collect(self, st: dict) -> StrategyStackResult:
-        candidates: list[dict[str, Any]] = []
+        candidates: list[tuple[int, dict[str, Any]]] = []
 
-        for strategy in self.strategies:
+        for priority, strategy in enumerate(self.strategies):
             intent = strategy.on_quote(st)
             if not intent:
                 continue
 
             if isinstance(intent, dict):
-                intent = dict(intent)
-                intent.setdefault("source", strategy.__class__.__name__)
-                candidates.append(intent)
+                normalized = dict(intent)
+                normalized.setdefault("source", strategy.__class__.__name__)
+                normalized.setdefault("confidence", 1.0)
+                normalized.setdefault("score", normalized.get("confidence", 1.0))
+                normalized["_priority"] = priority
+                candidates.append((priority, normalized))
 
         if not candidates:
             return StrategyStackResult(
@@ -48,10 +51,21 @@ class StrategyStack:
                 reason="no_signal",
             )
 
-        selected = candidates[0]
+        selected = sorted(
+            (c for _, c in candidates),
+            key=lambda x: (
+                float(x.get("confidence", 0.0)),
+                float(x.get("score", 0.0)),
+                -float(x.get("_priority", 0)),
+            ),
+            reverse=True,
+        )[0]
+
+        selected.pop("_priority", None)
+
         return StrategyStackResult(
             selected=selected,
             candidates_count=len(candidates),
             selected_source=selected.get("source"),
-            reason="selected_first_by_priority",
+            reason="selected_by_score",
         )
