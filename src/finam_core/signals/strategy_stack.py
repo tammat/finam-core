@@ -63,6 +63,16 @@ class StrategyStack:
 
         selected.pop("_priority", None)
 
+        print(
+            f"PIPE_STACK_SELECTED candidates={len(candidates)} "
+            f"source={selected.get('source')} "
+            f"side={selected.get('side')} "
+            f"confidence={selected.get('confidence')} "
+            f"score={selected.get('score')} "
+            f"reason=selected_by_score",
+            flush=True,
+        )
+
         return StrategyStackResult(
             selected=selected,
             candidates_count=len(candidates),
