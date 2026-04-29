@@ -70,6 +70,10 @@ class FinamMarketDataClient:
 
         self.tm = FinamTokenManager()
 
+        # Русский коммент: параметры reconnect без правки кода.
+        self.reconnect_initial_sec = float(os.getenv("MD_RECONNECT_INITIAL_SEC", "0.5"))
+        self.reconnect_max_sec = float(os.getenv("MD_RECONNECT_MAX_SEC", "30.0"))
+
         # Русский коммент: канал/стаб переиспользуем, reconnect делаем на уровне stream call.
         # Русский коммент: keepalive для 24/7 — помогает не терять idle соединение (NAT/провайдер).
         # Можно переопределить через env при необходимости.
@@ -196,7 +200,7 @@ class FinamMarketDataClient:
     # Streaming loop
     # -----------------------------
     def subscribe_quotes(self, symbols: List[str]):
-        backoff = 0.5
+        backoff = self.reconnect_initial_sec
         while not self._stop.is_set():
             try:
                 req = marketdata_service_pb2.SubscribeQuoteRequest(symbols=symbols)
@@ -214,7 +218,7 @@ class FinamMarketDataClient:
                 if os.getenv("MD_DEBUG") == "1":
                     LOG.debug("MarketData subscribed debug: %s", symbols)
 
-                backoff = 0.5
+                backoff = self.reconnect_initial_sec
                 self._handle_stream(call)
 
             except grpc.RpcError as e:
@@ -225,15 +229,17 @@ class FinamMarketDataClient:
                 LOG.warning("MarketData reconnect after RpcError: %s", e)
                 if os.getenv("MD_DEBUG") == "1":
                     LOG.debug("MarketData reconnect debug", exc_info=True)
+                LOG.warning("MarketData reconnect in %.1fs", backoff)
                 time.sleep(backoff)
-                backoff = min(backoff * 2, 10.0)
+                backoff = min(backoff * 2, self.reconnect_max_sec)
 
             except Exception as e:
                 if self._stop.is_set():
                     break
                 LOG.exception("MarketData fatal (will reconnect): %s", e)
+                LOG.warning("MarketData reconnect in %.1fs", backoff)
                 time.sleep(backoff)
-                backoff = min(backoff * 2, 10.0)
+                backoff = min(backoff * 2, self.reconnect_max_sec)
 
             finally:
                 self._active_call = None
@@ -323,4 +329,7 @@ class FinamMarketDataClient:
 
                 if os.getenv("MD_DEBUG") == "1":
                     LOG.debug("MarketData publish QUOTE event=%s", event)
-                self.event_bus.publish(event)
+                try:
+                    self.event_bus.publish(event)
+                except Exception as e:
+                    LOG.exception("MarketData publish failed: %s", e)

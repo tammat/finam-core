@@ -201,4 +201,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Русский коммент: штатная остановка от systemd/SIGINT не должна давать traceback в journalctl.
+        print("STOPPED by KeyboardInterrupt", flush=True)
+        raise SystemExit(0)
