@@ -1,191 +1,229 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-echo "=== Finam Core Bootstrap ==="
+APP_USER="${APP_USER:-finam}"
+APP_DIR="${APP_DIR:-/opt/finam-core}"
+REPO_URL="${REPO_URL:-https://github.com/tammat/finam-core.git}"
+BRANCH="${BRANCH:-feature/bars-ingestion-storage}"
+DB_NAME="${DB_NAME:-finam_core}"
+DB_USER="${DB_USER:-finam}"
+DB_PASSWORD="${DB_PASSWORD:-finam_pass}"
+SERVICE_NAME="${SERVICE_NAME:-finam-core}"
 
-# ---------------------------
-# 1. System update
-# ---------------------------
-apt update && apt upgrade -y
+log() { echo "[BOOTSTRAP] $*"; }
 
-# ---------------------------
-# 2. Base packages
-# ---------------------------
-apt install -y \
-  python3 python3-venv python3-pip \
-  git curl build-essential \
-  libpq-dev postgresql postgresql-contrib
-
-# ---------------------------
-# 3. PostgreSQL setup
-# ---------------------------
-echo "=== Setup PostgreSQL ==="
-
-sudo -u postgres psql <<EOF
-DO \$\$
-BEGIN
-   IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'finam_core') THEN
-      CREATE DATABASE finam_core;
-   END IF;
-END
-\$\$;
-
-DO \$\$
-BEGIN
-   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'finam') THEN
-      CREATE USER finam WITH PASSWORD 'finam_pass';
-   END IF;
-END
-\$\$;
-
-ALTER ROLE finam SET client_encoding TO 'utf8';
-ALTER ROLE finam SET timezone TO 'UTC';
-GRANT ALL PRIVILEGES ON DATABASE finam_core TO finam;
-EOF
-
-# ---------------------------
-# 4. Clone project
-# ---------------------------
-echo "=== Clone repo ==="
-
-cd /opt
-if [ ! -d "finam-core" ]; then
-  git clone https://github.com/tammat/finam-core.git
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Run as root: sudo bash bootstrap.sh" >&2
+  exit 1
 fi
 
-cd finam-core
+log "Install packages"
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  ca-certificates curl git build-essential \
+  python3 python3-venv python3-pip \
+  libpq-dev postgresql postgresql-contrib \
+  jq dnsutils netcat-openbsd
 
-# ---------------------------
-# 5. Python env
-# ---------------------------
-echo "=== Setup Python venv ==="
+log "Create app user"
+id "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash "$APP_USER"
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+log "Setup PostgreSQL"
+sudo -u postgres psql <<SQL
+DO \$\$
+BEGIN
+   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${DB_USER}') THEN
+      CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASSWORD}';
+   END IF;
+END
+\$\$;
 
-# ---------------------------
-# 6. ENV setup
-# ---------------------------
-echo "=== Setup ENV ==="
+SELECT 'CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${DB_NAME}')\gexec
 
-mkdir -p deploy/env
+ALTER ROLE ${DB_USER} SET client_encoding TO 'utf8';
+ALTER ROLE ${DB_USER} SET timezone TO 'UTC';
+GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};
+SQL
 
-cat > deploy/env/.env <<EOF
+log "Clone/update repo"
+mkdir -p "$(dirname "$APP_DIR")"
+if [ ! -d "$APP_DIR/.git" ]; then
+  git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
+else
+  git -C "$APP_DIR" fetch origin "$BRANCH"
+  git -C "$APP_DIR" checkout "$BRANCH"
+  git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
+fi
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+
+log "Setup Python venv"
+sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && python3 -m venv .venv"
+sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && .venv/bin/pip install --upgrade pip setuptools wheel"
+sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && .venv/bin/pip install -r requirements.txt"
+
+log "Create env if missing"
+mkdir -p "$APP_DIR/deploy/env"
+if [ ! -f "$APP_DIR/deploy/env/.env" ]; then
+  cat > "$APP_DIR/deploy/env/.env" <<ENV
 FINAM_ACCOUNT_ID=1943312
 FINAM_GRPC_HOST=api.finam.ru:443
+FINAM_SECRET=PUT_YOUR_FINAM_SECRET_HERE
 
-FINAM_SECRET=PUT_YOUR_SECRET_HERE
-
-DATABASE_URL=postgresql://finam:finam_pass@localhost:5432/finam_core
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}
 
 EXECUTION_MODE=paper
 RISK_SOFT=1
+RUN_SECS=0
+SYMBOL=BRM6@RTSX
+SYMBOLS=BRM6@RTSX
+PIPELINE_STRATEGY=vwap_bands_mr
 
-ENABLE_TELEGRAM_NOTIFIER=0
+ENABLE_FILTER_ENGINE=1
+TRADEABILITY_GATE=range_atr_band
+TRADEABILITY_MIN_RANGE_ATR=0.1
+TRADEABILITY_MAX_RANGE_ATR=6.0
 
 BROKER_FEE_RATE=0.0004
 EXCHANGE_FEE_RATE=0.0001
+MIN_BROKER_FEE=0.0
+TAX_RESERVE_RATE=0.13
 
+TRAILING_STOP_ABS=0.30
+TAKE_PROFIT_ABS=0.60
+TRAILING_STEP_ABS=0.30
 ENTRY_COOLDOWN_SEC=300
-EOF
 
-# ---------------------------
-# 7. DB schema
-# ---------------------------
-echo "=== Create tables ==="
+ENABLE_TELEGRAM_NOTIFIER=0
+TG_TOKEN=PUT_YOUR_TELEGRAM_TOKEN_HERE
+TG_CHAT_ID=PUT_YOUR_CHAT_ID_HERE
+ENV
+fi
+chmod 600 "$APP_DIR/deploy/env/.env"
+chown "$APP_USER:$APP_USER" "$APP_DIR/deploy/env/.env"
 
-psql "postgresql://finam:finam_pass@localhost:5432/finam_core" <<EOF
-CREATE TABLE IF NOT EXISTS trades (
-    id SERIAL PRIMARY KEY,
-    symbol TEXT,
-    side TEXT,
-    qty DOUBLE PRECISION,
-    price DOUBLE PRECISION,
-    ts TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS signals (
-    id SERIAL PRIMARY KEY,
-    symbol TEXT,
-    signal TEXT,
-    meta JSONB,
-    ts TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS risk_events (
-    id SERIAL PRIMARY KEY,
-    event TEXT,
-    payload JSONB,
-    ts TIMESTAMP DEFAULT NOW()
-);
-EOF
-
-# ---------------------------
-# 8. run.sh
-# ---------------------------
-echo "=== Create run.sh ==="
-
-cat > run.sh <<'EOF'
+log "Create run.sh"
+cat > "$APP_DIR/run.sh" <<'RUN'
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 cd /opt/finam-core
-source .venv/bin/activate
 
 set -a
 source deploy/env/.env
 set +a
 
+source .venv/bin/activate
 export PYTHONPATH=src
+export PYTHONUNBUFFERED=1
 
 python -u src/scripts/run_market_pipeline.py \
-  --symbol BRM6@RTSX \
-  --symbols BRM6@RTSX \
-  --strategy vwap_bands_mr \
-  --run-secs 0 \
-  --risk-soft \
+  --symbol "${SYMBOL:-BRM6@RTSX}" \
+  --symbols "${SYMBOLS:-${SYMBOL:-BRM6@RTSX}}" \
+  --strategy "${PIPELINE_STRATEGY:-vwap_bands_mr}" \
+  --run-secs "${RUN_SECS:-0}" \
+  --quote-log-every "${QUOTE_LOG_EVERY:-30}" \
   --enable-filter-engine
-EOF
+RUN
+chmod +x "$APP_DIR/run.sh"
+chown "$APP_USER:$APP_USER" "$APP_DIR/run.sh"
 
-chmod +x run.sh
+log "Apply DB schema"
+PGPASSWORD="$DB_PASSWORD" psql -h localhost -U "$DB_USER" -d "$DB_NAME" <<SQL
+CREATE TABLE IF NOT EXISTS trades (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    qty DOUBLE PRECISION NOT NULL,
+    price DOUBLE PRECISION NOT NULL,
+    commission DOUBLE PRECISION DEFAULT 0,
+    fill_id TEXT,
+    origin TEXT,
+    payload JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-# ---------------------------
-# 9. systemd service
-# ---------------------------
-echo "=== Setup systemd ==="
+CREATE TABLE IF NOT EXISTS signals (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT,
+    strategy TEXT,
+    side TEXT,
+    qty DOUBLE PRECISION,
+    status TEXT NOT NULL,
+    payload JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-cat > /etc/systemd/system/finam-core.service <<EOF
+CREATE TABLE IF NOT EXISTS risk_events (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT,
+    event TEXT NOT NULL,
+    decision TEXT,
+    payload JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    equity DOUBLE PRECISION,
+    unrealized_profit DOUBLE PRECISION,
+    available_cash DOUBLE PRECISION,
+    initial_margin DOUBLE PRECISION,
+    maintenance_margin DOUBLE PRECISION,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trades_symbol_created_at ON trades(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_signals_symbol_created_at ON signals(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_risk_events_symbol_created_at ON risk_events(symbol, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_account_snapshots_created_at ON account_snapshots(created_at DESC);
+SQL
+
+log "Create systemd service"
+cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<SERVICE
 [Unit]
 Description=Finam Core Trading Engine
-After=network.target
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
 
 [Service]
-User=root
-WorkingDirectory=/opt/finam-core
-ExecStart=/opt/finam-core/run.sh
+Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${APP_DIR}/deploy/env/.env
+ExecStart=${APP_DIR}/run.sh
 Restart=always
 RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE
 
-systemctl daemon-reexec
 systemctl daemon-reload
-systemctl enable finam-core
+systemctl enable "${SERVICE_NAME}.service"
 
-# ---------------------------
-# 10. Start
-# ---------------------------
-echo "=== Starting service ==="
+log "Network check"
+dig +short api.finam.ru || true
+nc -vz api.finam.ru 443 || true
 
-systemctl start finam-core
+cat <<MSG
 
-sleep 3
+=== BOOTSTRAP DONE ===
 
-systemctl status finam-core --no-pager
+1) Edit secrets:
+   nano ${APP_DIR}/deploy/env/.env
 
-echo "=== DONE ==="
+2) Start/restart:
+   systemctl restart ${SERVICE_NAME}
+
+3) Logs:
+   journalctl -u ${SERVICE_NAME} -f
+
+Current mode: PAPER. Real orders are NOT enabled.
+MSG
