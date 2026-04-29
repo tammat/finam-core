@@ -335,6 +335,7 @@ class PaperTradingPipeline:
             return
 
         LOG.info("RISK OK")
+        print("PIPE_RISK_OK", flush=True)
         self.pg_logger.log_signal(
             symbol=intent.get("symbol"),
             strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
