@@ -18,6 +18,7 @@ from finam_core.risk.sl_tp_cooldown import SlTpCooldownEngine
 from finam_core.risk.volatility_risk import VolatilityRiskEngine
 from finam_core.risk.live_atr import LiveAtrEstimator
 from finam_core.risk.regime_layer import RegimeLayer
+from finam_core.risk.portfolio_heat import PortfolioHeatEngine
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -166,6 +167,7 @@ class PaperTradingPipeline:
         self.vol_risk = VolatilityRiskEngine()
         self.live_atr = LiveAtrEstimator()
         self.regime_layer = RegimeLayer()
+        self.portfolio_heat = PortfolioHeatEngine()
         self._regime_last_log_ts = 0.0
 
     def attach(self):
@@ -486,6 +488,47 @@ class PaperTradingPipeline:
             except Exception as e:
                 LOG.warning("TELEGRAM RISK ALERT FAILED: %s", e)
             return
+
+        # === Portfolio Heat Layer ===
+        if os.getenv("PORTFOLIO_HEAT_ENABLE", "0") == "1":
+            pm_ctx = self.pm.get_context()
+            px = _get_price_from_state(st, intent.get("side")) or 0.0
+            qty = _safe_float(intent.get("qty"), default=0.0)
+            trade_value = abs(qty * px)
+
+            heat_decision = self.portfolio_heat.evaluate(
+                portfolio_value=_safe_float(getattr(pm_ctx, "portfolio_value", 0.0), default=0.0),
+                current_exposure=_safe_float(getattr(pm_ctx, "total_exposure", 0.0), default=0.0),
+                new_trade_value=trade_value,
+            )
+
+            if not heat_decision.allowed:
+                print(
+                    f"PIPE_HEAT_REJECT reason={heat_decision.reason} "
+                    f"current_heat={heat_decision.current_heat} "
+                    f"projected_heat={heat_decision.projected_heat} "
+                    f"limit={heat_decision.limit}",
+                    flush=True,
+                )
+                self.pg_logger.log_risk_event(
+                    symbol=intent.get("symbol"),
+                    event="portfolio_heat_reject",
+                    decision=heat_decision.reason,
+                    payload={
+                        "current_heat": heat_decision.current_heat,
+                        "projected_heat": heat_decision.projected_heat,
+                        "limit": heat_decision.limit,
+                        "intent": intent,
+                    },
+                )
+                return
+
+            print(
+                f"PIPE_HEAT_OK current_heat={heat_decision.current_heat} "
+                f"projected_heat={heat_decision.projected_heat} "
+                f"limit={heat_decision.limit}",
+                flush=True,
+            )
 
         LOG.info("RISK OK")
         print("PIPE_RISK_OK", flush=True)
