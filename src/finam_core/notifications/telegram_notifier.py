@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+"""
+TelegramNotifier — только уведомления.
+Русский коммент: notifier не имеет права отправлять торговые заявки.
+"""
+
+from __future__ import annotations
+
+import os
+import urllib.parse
+import urllib.request
+
+
+class TelegramNotifier:
+    def __init__(self) -> None:
+        self.token = (os.getenv("TG_BOT_TOKEN") or os.getenv("TG_TOKEN") or "").strip()
+        self.chat_id = os.getenv("TG_CHAT_ID", "").strip()
+        self.enabled = os.getenv("ENABLE_TELEGRAM_NOTIFIER", "0") == "1"
+
+    def send(self, text: str) -> None:
+        if not self.enabled or not self.token or not self.chat_id:
+            return
+
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": self.chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
+        }).encode("utf-8")
+
+        try:
+            req = urllib.request.Request(url, data=data, method="POST")
+            urllib.request.urlopen(req, timeout=5).read()
+        except Exception:
+            # Русский коммент: уведомления не должны ломать торговый pipeline.
+            return
