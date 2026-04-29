@@ -45,6 +45,8 @@ class BreakoutReactiveStrategy:
 
         if price >= prev_high + self.breakout_abs:
             self.sent = True
+            strength = max(0.0, price - prev_high)
+            score = strength / max(self.breakout_abs, 0.0001)
             return {
                 "symbol": sym,
                 "side": "BUY",
@@ -53,10 +55,13 @@ class BreakoutReactiveStrategy:
                 "price": price,
                 "prev_high": prev_high,
                 "breakout_abs": self.breakout_abs,
+                "score": score,
             }
 
         if price <= prev_low - self.breakout_abs:
             self.sent = True
+            strength = max(0.0, prev_low - price)
+            score = strength / max(self.breakout_abs, 0.0001)
             return {
                 "symbol": sym,
                 "side": "SELL",
@@ -65,6 +70,7 @@ class BreakoutReactiveStrategy:
                 "price": price,
                 "prev_low": prev_low,
                 "breakout_abs": self.breakout_abs,
+                "score": score,
             }
 
         return None
