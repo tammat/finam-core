@@ -23,6 +23,7 @@ class VolatilityRiskEngine:
 
     def __init__(self):
         self.default_atr = float(os.getenv("VOL_RISK_DEFAULT_ATR", "0.10"))
+        self.min_atr = float(os.getenv("VOL_RISK_MIN_ATR", "0.03"))
         self.stop_atr_mult = float(os.getenv("VOL_RISK_STOP_ATR_MULT", "1.5"))
         self.take_atr_mult = float(os.getenv("VOL_RISK_TAKE_ATR_MULT", "2.0"))
         self.risk_per_trade = float(os.getenv("VOL_RISK_PER_TRADE", "100.0"))
@@ -41,7 +42,7 @@ class VolatilityRiskEngine:
         return value
 
     def compute(self, atr=None) -> VolatilityRiskParams:
-        atr_value = self._clean_atr(atr)
+        atr_value = max(self._clean_atr(atr), self.min_atr)
 
         stop_abs = max(atr_value * self.stop_atr_mult, 0.0001)
         take_abs = max(atr_value * self.take_atr_mult, 0.0001)

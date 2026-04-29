@@ -166,6 +166,7 @@ class PaperTradingPipeline:
         self.vol_risk = VolatilityRiskEngine()
         self.live_atr = LiveAtrEstimator()
         self.regime_layer = RegimeLayer()
+        self._regime_last_log_ts = 0.0
 
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
@@ -333,13 +334,18 @@ class PaperTradingPipeline:
             )
 
             if not regime_decision.allowed:
-                print(
-                    f"PIPE_REGIME_BLOCK regime={regime_decision.regime} "
-                    f"reason={regime_decision.reason} "
-                    f"atr={regime_decision.atr} "
-                    f"slope={regime_decision.slope}",
-                    flush=True,
-                )
+                now = time.time()
+                interval = float(os.getenv("REGIME_LOG_EVERY_SEC", "30"))
+
+                if now - self._regime_last_log_ts >= interval:
+                    print(
+                        f"PIPE_REGIME_BLOCK regime={regime_decision.regime} "
+                        f"reason={regime_decision.reason} "
+                        f"atr={regime_decision.atr} "
+                        f"slope={regime_decision.slope}",
+                        flush=True,
+                    )
+                    self._regime_last_log_ts = now
                 self.pg_logger.log_risk_event(
                     symbol=sym,
                     event="regime_block",
@@ -352,12 +358,17 @@ class PaperTradingPipeline:
                 )
                 return
 
-            print(
-                f"PIPE_REGIME_OK regime={regime_decision.regime} "
-                f"atr={regime_decision.atr} "
-                f"slope={regime_decision.slope}",
-                flush=True,
-            )
+            now = time.time()
+            interval = float(os.getenv("REGIME_LOG_EVERY_SEC", "30"))
+
+            if now - self._regime_last_log_ts >= interval:
+                print(
+                    f"PIPE_REGIME_OK regime={regime_decision.regime} "
+                    f"atr={regime_decision.atr} "
+                    f"slope={regime_decision.slope}",
+                    flush=True,
+                )
+                self._regime_last_log_ts = now
 
         # strategy
         intent = self.strategy.on_quote(st)
