@@ -7,8 +7,10 @@ TelegramNotifier — только уведомления.
 from __future__ import annotations
 
 import os
-import urllib.parse
-import urllib.request
+import logging
+import requests
+
+LOG = logging.getLogger(__name__)
 
 
 class TelegramNotifier:
@@ -22,16 +24,21 @@ class TelegramNotifier:
             return
 
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
-        data = urllib.parse.urlencode({
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": "true",
-        }).encode("utf-8")
 
         try:
-            req = urllib.request.Request(url, data=data, method="POST")
-            urllib.request.urlopen(req, timeout=5).read()
-        except Exception:
+            resp = requests.post(
+                url,
+                json={
+                    "chat_id": self.chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                LOG.warning("TELEGRAM SEND FAILED status=%s body=%s", resp.status_code, resp.text)
+        except Exception as exc:
             # Русский коммент: уведомления не должны ломать торговый pipeline.
+            LOG.warning("TELEGRAM SEND EXCEPTION: %s", exc)
             return
