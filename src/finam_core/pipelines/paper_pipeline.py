@@ -13,6 +13,7 @@ from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
 from finam_core.notifications.telegram_notifier import TelegramNotifier
+from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -156,6 +157,7 @@ class PaperTradingPipeline:
         self.trailing_exit = TrailingExitEngine()
         self._cooldown_until = {}
         self.notifier = TelegramNotifier()
+        self.pg_logger = PostgresLogger()
 
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
@@ -427,6 +429,8 @@ class PaperTradingPipeline:
                  getattr(fill, "qty", None),
                  getattr(fill, "price", None),
                  getattr(fill, "fill_id", None))
+
+        self.pg_logger.log_fill(fill)
 
         self.notifier.send(
             "✅ PAPER FILL\n"
