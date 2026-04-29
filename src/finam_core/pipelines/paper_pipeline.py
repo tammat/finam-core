@@ -331,7 +331,9 @@ class PaperTradingPipeline:
                 for attr in ("reasons", "reason", "message", "messages", "violations", "rule", "rule_name", "code"):
                     if hasattr(decision, attr):
                         LOG.warning("RISK detail %s=%s", attr, getattr(decision, attr))
+                        print(f"PIPE_RISK_DETAIL {attr}={getattr(decision, attr)}", flush=True)
             LOG.warning("RISK REJECT")
+            print("PIPE_RISK_REJECT", flush=True)
             return
 
         LOG.info("RISK OK")
