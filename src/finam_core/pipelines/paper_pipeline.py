@@ -442,8 +442,16 @@ class PaperTradingPipeline:
             confidence = max(0.0, min(1.0, _safe_float(intent.get("confidence"), default=1.0)))
             min_conf_qty_factor = _safe_float(os.getenv("CONFIDENCE_MIN_QTY_FACTOR", "0.25"), default=0.25)
             qty_factor = max(min_conf_qty_factor, confidence)
-            intent["qty"] = max(1.0, vol_params.qty * qty_factor)
+            base_qty = vol_params.qty
+            final_qty = max(1.0, base_qty * qty_factor)
+            intent["qty"] = final_qty
             intent["confidence_qty_factor"] = qty_factor
+
+            print(
+                f"PIPE_CONFIDENCE_SIZING base_qty={base_qty} "
+                f"confidence={confidence} factor={qty_factor} final_qty={final_qty}",
+                flush=True,
+            )
 
             # Русский коммент: Risk v3 динамически настраивает SL/TP для Risk v2 exit-layer.
             self.exit_engine.stop_loss_abs = vol_params.stop_abs
