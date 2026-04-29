@@ -400,6 +400,25 @@ class PaperTradingPipeline:
             return
 
         intent = routed_signal.intent.to_dict()
+
+        # Русский коммент: защита от добора позиции до появления отдельной логики scaling/pyramiding.
+        current_pos = self.pm.positions.get(intent.get("symbol"))
+        current_qty = float(getattr(current_pos, "qty", 0.0) or 0.0) if current_pos is not None else 0.0
+        if current_qty != 0.0:
+            print(
+                f"PIPE_POSITION_BLOCK symbol={intent.get('symbol')} qty={current_qty} reason=position_already_open",
+                flush=True,
+            )
+            self.pg_logger.log_signal(
+                symbol=intent.get("symbol"),
+                strategy=intent.get("source"),
+                side=intent.get("side"),
+                qty=intent.get("qty"),
+                status="position_blocked",
+                payload={"reason": "position_already_open", "current_qty": current_qty, "intent": intent},
+            )
+            return
+
         print(
             f"PIPE_SIGNAL_OK source={intent.get('source')} symbol={intent.get('symbol')} "
             f"side={intent.get('side')} qty={intent.get('qty')} confidence={intent.get('confidence')}",
