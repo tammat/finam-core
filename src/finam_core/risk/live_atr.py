@@ -11,9 +11,10 @@ class LiveAtrEstimator:
     Не зависит от свечей: оценивает среднее абсолютное изменение цены.
     """
 
-    def __init__(self, window: int = 20, default_atr: float = 0.10):
+    def __init__(self, window: int = 20, default_atr: float = 0.10, min_atr: float = 0.03):
         self.window = max(int(window), 2)
         self.default_atr = float(default_atr)
+        self.min_atr = float(min_atr)
         self.prev_price: float | None = None
         self.moves = deque(maxlen=self.window)
 
@@ -36,4 +37,4 @@ class LiveAtrEstimator:
     def value(self) -> float:
         if not self.moves:
             return self.default_atr
-        return sum(self.moves) / len(self.moves)
+        return max(sum(self.moves) / len(self.moves), self.min_atr)

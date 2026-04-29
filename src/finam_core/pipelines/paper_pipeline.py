@@ -16,6 +16,8 @@ from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.risk.sl_tp_cooldown import SlTpCooldownEngine
 from finam_core.risk.volatility_risk import VolatilityRiskEngine
+from finam_core.risk.live_atr import LiveAtrEstimator
+from finam_core.risk.regime_layer import RegimeLayer
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 
 try:
@@ -162,6 +164,8 @@ class PaperTradingPipeline:
         self.pg_logger = PostgresLogger()
         self.exit_engine = SlTpCooldownEngine()
         self.vol_risk = VolatilityRiskEngine()
+        self.live_atr = LiveAtrEstimator()
+        self.regime_layer = RegimeLayer()
 
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
@@ -187,6 +191,12 @@ class PaperTradingPipeline:
 
         # optional mark-to-market
         last = st.get("last")
+        if last is not None:
+            try:
+                st["atr"] = self.live_atr.update(last)
+            except Exception as e:
+                LOG.debug("LIVE ATR UPDATE FAILED: %s", e)
+
         if last is not None and hasattr(self.portfolio, "mark_price"):
             try:
                 self.portfolio.mark_price(sym, float(last))
@@ -314,6 +324,40 @@ class PaperTradingPipeline:
         if self.exit_engine.is_cooldown(sym):
             print("PIPE_RISK_V2_COOLDOWN", flush=True)
             return
+
+        # === Regime Layer: block bad market regimes before new entry ===
+        if os.getenv("REGIME_ENABLE", "0") == "1":
+            regime_decision = self.regime_layer.evaluate(
+                atr=st.get("atr"),
+                price=st.get("last"),
+            )
+
+            if not regime_decision.allowed:
+                print(
+                    f"PIPE_REGIME_BLOCK regime={regime_decision.regime} "
+                    f"reason={regime_decision.reason} "
+                    f"atr={regime_decision.atr} "
+                    f"slope={regime_decision.slope}",
+                    flush=True,
+                )
+                self.pg_logger.log_risk_event(
+                    symbol=sym,
+                    event="regime_block",
+                    decision=regime_decision.reason,
+                    payload={
+                        "regime": regime_decision.regime,
+                        "atr": regime_decision.atr,
+                        "slope": regime_decision.slope,
+                    },
+                )
+                return
+
+            print(
+                f"PIPE_REGIME_OK regime={regime_decision.regime} "
+                f"atr={regime_decision.atr} "
+                f"slope={regime_decision.slope}",
+                flush=True,
+            )
 
         # strategy
         intent = self.strategy.on_quote(st)
