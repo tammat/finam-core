@@ -56,3 +56,47 @@ class SimMarketFeed:
                 events.append(signal)
 
         return events
+
+
+class SimFeed:
+    """
+    Простой симулятор котировок.
+    Генерирует price и шлёт в EventBus.
+    """
+
+    def __init__(self, symbol: str, event_bus=None):
+        self.symbol = symbol
+        self.event_bus = event_bus
+        self._running = False
+
+    def start(self, symbols=None):
+        import threading
+        import time
+        import random
+
+        self._running = True
+
+        def run():
+            price = 100.0
+
+            while self._running:
+                price += random.uniform(-0.2, 0.2)
+
+                # создаём простой event
+                event = {
+                    "type": "QUOTE",
+                    "symbol": self.symbol,
+                    "last": price,
+                    "price": price,
+                    "timestamp": time.time(),
+                    "features": {},
+                }
+                if self.event_bus:
+                    self.event_bus.publish(event)
+
+                time.sleep(0.2)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def stop(self):
+        self._running = False

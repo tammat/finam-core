@@ -13,6 +13,57 @@ import os
 import time
 import argparse
 
+
+def parse_args():
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(description="Finam PAPER pipeline (Pipeline B).")
+
+    parser.add_argument("--symbol", default=os.getenv("SYMBOL") or "NGH6@RTSX")
+    parser.add_argument(
+        "--symbols",
+        default=os.getenv("SYMBOLS") or "",
+        help="Comma-separated list of symbols",
+    )
+    parser.add_argument(
+        "--strategy",
+        default=os.getenv("PIPELINE_STRATEGY") or "once_buy",
+        choices=("once_buy", "simple_reactive", "breakout_reactive", "strategy_stack", "vwap_bands_mr"),
+    )
+
+    parser.add_argument("--run-secs", type=float, default=float(os.getenv("RUN_SECS") or "0"))
+    parser.add_argument("--starting-cash", type=float, default=float(os.getenv("STARTING_CASH") or "100000"))
+    parser.add_argument("--portfolio-snapshot-path", default=os.getenv("PORTFOLIO_SNAPSHOT_PATH") or "")
+    parser.add_argument("--portfolio-refresh-sec", type=float, default=float(os.getenv("PORTFOLIO_REFRESH_SEC") or "0"))
+    parser.add_argument("--md-heartbeat-sec", type=float, default=float(os.getenv("MD_HEARTBEAT_SEC") or "10"))
+    parser.add_argument("--md-first-quote-grace-sec", type=float, default=float(os.getenv("MD_FIRST_QUOTE_GRACE_SEC") or "60"))
+
+    parser.add_argument("--risk-soft", action="store_true", default=(os.getenv("RISK_SOFT") == "1"))
+    parser.add_argument("--exit-on-fill", action="store_true", default=(os.getenv("EXIT_ON_FILL", "1") == "1"))
+
+    parser.add_argument("--quote-log-every", type=float, default=float(os.getenv("QUOTE_LOG_EVERY") or "0"))
+    parser.add_argument("--debug", action="store_true", default=(os.getenv("MD_DEBUG") == "1"))
+
+    parser.add_argument("--enable-filter-engine", action="store_true", default=(os.getenv("ENABLE_FILTER_ENGINE") == "1"))
+    parser.add_argument("--filter-profile", default=os.getenv("FILTER_PROFILE") or "")
+    parser.add_argument("--tradeability-gate", default=os.getenv("TRADEABILITY_GATE") or "")
+    parser.add_argument("--tradeability-min-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MIN_RANGE_ATR") or "1.5"))
+    parser.add_argument("--tradeability-max-range-atr", type=float, default=float(os.getenv("TRADEABILITY_MAX_RANGE_ATR") or "0.0"))
+    parser.add_argument("--regime-ema-slope", default=os.getenv("REGIME_EMA_SLOPE") or "")
+    parser.add_argument("--regime-adaptive-mode", default=os.getenv("REGIME_ADAPTIVE_MODE") or "")
+
+    parser.add_argument(
+        "--feed",
+        choices=["real", "sim"],
+        default="real",
+        help="Market data source",
+    )
+
+    return parser.parse_args()
+
+
+
 from finam_core.events.event_bus import EventBus
 from finam_core.adapters.grpc.market_data import FinamMarketDataClient
 from finam_core.execution.paper_engine import PaperExecutionEngine
@@ -56,11 +107,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--strategy", default=os.getenv("PIPELINE_STRATEGY") or "once_buy", choices=("once_buy", "simple_reactive", "breakout_reactive", "strategy_stack", "vwap_bands_mr"))
 
     # Русский коммент: symbols — список подписки MarketData (мульти-инструмент)
-    p.add_argument(
-        "--symbols",
-        default=os.getenv("SYMBOLS") or "",
-        help="CSV list for MarketData subscription, e.g. NGH6@RTSX,GAZP@MISX",
-    )
+
 
     p.add_argument("--run-secs", type=float, default=float(os.getenv("RUN_SECS") or "0"))
     p.add_argument("--starting-cash", type=float, default=float(os.getenv("STARTING_CASH") or "100000"))
@@ -87,11 +134,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--regime-ema-slope", default=os.getenv("REGIME_EMA_SLOPE") or "")
     p.add_argument("--regime-adaptive-mode", default=os.getenv("REGIME_ADAPTIVE_MODE") or "")
 
-    return p.parse_args()
-
 
 def main() -> None:
-    args = _parse_args()
+    args = parse_args()
 
     # Русский коммент: env-переменные — единый источник флагов внутри компонентов
     os.environ.setdefault("EXECUTION_MODE", "paper")
@@ -207,10 +252,15 @@ def main() -> None:
 
     print("Starting MD...", flush=True)
     # Русский коммент: MarketDataClient у нас нормализован под heartbeat_sec, но оставим fallback
-    try:
-        md = FinamMarketDataClient(bus, heartbeat_sec=args.md_heartbeat_sec)
-    except TypeError:
-        md = FinamMarketDataClient(bus)
+    if args.feed == "sim":
+        from finam_core.market.sim_feed import SimFeed
+        md = SimFeed(symbol=symbol, event_bus=bus)
+        print("SIM FEED ENABLED", flush=True)
+    else:
+        try:
+            md = FinamMarketDataClient(bus, heartbeat_sec=args.md_heartbeat_sec)
+        except TypeError:
+            md = FinamMarketDataClient(bus)
 
     md.start(symbols)
 

@@ -48,16 +48,47 @@ class SignalRouter:
             return RoutedSignal(False, "no_signal", None)
 
         if isinstance(intent, dict):
+            # 🔹 цена обязательна
+            price = intent.get("price") or intent.get("last") or intent.get("last_price")
+            if price is None:
+                return RoutedSignal(False, "no_price", None)
+
+            price = float(price)
+            side = str(intent["side"]).upper()
+
+            # 🔹 ATR (или fallback)
+            atr = float(intent.get("features", {}).get("atr", price * 0.005))
+
+            # 🔹 уровни
+            stop = price - atr if side == "BUY" else price + atr
+            take = price + atr * 2 if side == "BUY" else price - atr * 2
+
+            # 🔹 RR
+            rr = abs(take - price) / max(1e-9, abs(price - stop))
+
+            # 🔹 расширяем features (КЛЮЧЕВО!)
+            features = dict(intent.get("features", {}))
+            features.update({
+                "entry": price,
+                "stop": stop,
+                "take": take,
+                "rr": rr,
+            })
+
+            # 🔹 создаём ЧИСТЫЙ SignalIntent
             intent = SignalIntent(
                 symbol=intent["symbol"],
-                side=str(intent["side"]).upper(),
+                side=side,
                 qty=float(intent.get("qty", 1.0)),
                 source=str(intent.get("source", "legacy_strategy")),
-                confidence=self.normalize_confidence(intent.get("confidence", intent.get("score", 1.0))),
+                confidence=self.normalize_confidence(
+                    intent.get("confidence", intent.get("score", 1.0))
+                ),
                 reason=str(intent.get("reason", "")),
-                features=dict(intent.get("features", {})),
+                features=features,
             )
 
+        # 🔹 базовые проверки
         if intent.side.upper() not in ("BUY", "SELL"):
             return RoutedSignal(False, "invalid_side", intent)
 
@@ -66,16 +97,20 @@ class SignalRouter:
 
         if intent.confidence < self.min_confidence:
             return RoutedSignal(False, "low_confidence", intent)
-
+        # 🔹 фильтр по Risk/Reward
+        rr = intent.features.get("rr", 0)
+        if rr < 1.5:
+            return RoutedSignal(False, "low_rr", intent)
+        # 🔹 антидубли
         key = f"{intent.symbol}:{intent.side.upper()}:{intent.reason}"
         now = time.time()
         last_key = self._last_by_symbol.get(intent.symbol)
         last_ts = self._last_ts_by_symbol.get(intent.symbol, 0.0)
 
-        # Русский коммент: антидубли с TTL — повторный такой же сигнал блокируется только в пределах окна.
         if last_key == key and (now - last_ts) < self.signal_ttl_sec:
             return RoutedSignal(False, "duplicate_signal", intent)
 
         self._last_by_symbol[intent.symbol] = key
         self._last_ts_by_symbol[intent.symbol] = now
+
         return RoutedSignal(True, "ok", intent)

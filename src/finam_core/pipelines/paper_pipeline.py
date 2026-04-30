@@ -184,6 +184,9 @@ class PaperTradingPipeline:
         self.bus.subscribe("QUOTE", self._on_quote)
         self.bus.subscribe("FILL", self._on_fill)
         LOG.debug("PIPE attach(): subscribed QUOTE/FILL")
+        # 🔥 ПОДПИСКА НА КОТИРОВКИ
+        self.bus.subscribe("QUOTE", self._on_quote)
+
 
     def _on_quote(self, event: dict):
         sym = event.get("symbol")
@@ -428,7 +431,7 @@ class PaperTradingPipeline:
             return
 
         print(
-            f"PIPE_SIGNAL_OK source={intent.get('source')} symbol={intent.get('symbol')} "
+             
             f"side={intent.get('side')} qty={intent.get('qty')} confidence={intent.get('confidence')}",
             flush=True,
         )
