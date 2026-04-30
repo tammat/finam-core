@@ -25,6 +25,7 @@ from finam_core.risk.correlation_risk import CorrelationRiskEngine
 from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
 from finam_core.signals.signal_router import SignalRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
+from finam_core.regime.regime_engine import RegimeEngine
 
 try:
     from finam_core.strategy.filters.regime_filters import FilterContext, FilterEngine
@@ -177,6 +178,7 @@ class PaperTradingPipeline:
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
+        self.regime_engine = RegimeEngine()
         self._regime_last_log_ts = 0.0
 
     def attach(self):
@@ -386,6 +388,83 @@ class PaperTradingPipeline:
 
         # strategy -> SignalRouter -> normalized intent
         raw_intent = self.strategy.on_quote(st)
+        # --- REGIME FILTER START ---
+        features = {}
+
+        # универсально достаём признаки, безопасно fallback к market state
+        if isinstance(raw_intent, dict):
+            features = raw_intent.get("features", {})
+            price = (
+                raw_intent.get("price")
+                or raw_intent.get("last_price")
+                or st.get("last")
+                or st.get("bid")
+                or st.get("ask")
+            )
+        else:
+            features = getattr(raw_intent, "features", {})
+            price = (
+                getattr(raw_intent, "price", None)
+                or st.get("last")
+                or st.get("bid")
+                or st.get("ask")
+            )
+
+        if price is None:
+            print("PIPE_SIGNAL_REJECT reason=no_price_for_regime_hard", flush=True)
+            return
+
+        price = float(price)
+
+        # --- TREND (EMA-based, устойчивый) ---
+        ema_fast = st.get("ema_fast")
+        ema_slow = st.get("ema_slow")
+
+        last_price = st.get("last")
+
+        # обновляем EMA прямо в pipeline (минимальная реализация)
+        if last_price is not None:
+            alpha_fast = 2 / (5 + 1)
+            alpha_slow = 2 / (20 + 1)
+
+            prev_fast = st.get("ema_fast", last_price)
+            prev_slow = st.get("ema_slow", last_price)
+
+            ema_fast = alpha_fast * last_price + (1 - alpha_fast) * prev_fast
+            ema_slow = alpha_slow * last_price + (1 - alpha_slow) * prev_slow
+
+            st["ema_fast"] = ema_fast
+            st["ema_slow"] = ema_slow
+
+        # определяем тренд
+        if ema_fast is not None and ema_slow is not None:
+            if ema_fast > ema_slow:
+                features["trend"] = "up"
+            elif ema_fast < ema_slow:
+                features["trend"] = "down"
+            else:
+                features["trend"] = "flat"
+        else:
+            features["trend"] = "flat"
+
+        regime = self.regime_engine.evaluate(price, features)
+
+        if not regime.is_tradeable():
+            print(
+                f"PIPE_SIGNAL_REJECT reason=regime_filter "
+                f"trend={regime.trend} vol={regime.volatility}",
+                flush=True
+            )
+            return
+
+        # пробрасываем ATR дальше в систему
+        if isinstance(raw_intent, dict):
+            raw_intent.setdefault("features", {})["atr"] = regime.atr
+        else:
+            if hasattr(raw_intent, "features"):
+                raw_intent.features["atr"] = regime.atr
+
+        # --- REGIME FILTER END ---
         routed_signal = self.signal_router.route(raw_intent)
 
         if not routed_signal.allowed:
