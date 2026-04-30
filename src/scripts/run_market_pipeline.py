@@ -26,6 +26,7 @@ from finam_core.signals.strategy_stack import StrategyStack
 from finam_core.strategy.vwap_bands_mr import VWAPBandsMRStrategy
 from finam_core.strategy.vwap_bands_mr import VWAPBandsMRStrategy
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
+from finam_core.accounting.portfolio_bootstrap import load_portfolio_snapshot, bootstrap_position_manager
 
 try:
     from finam_core.strategy.filters.regime_filters import FilterEngine
@@ -63,6 +64,8 @@ def _parse_args() -> argparse.Namespace:
 
     p.add_argument("--run-secs", type=float, default=float(os.getenv("RUN_SECS") or "0"))
     p.add_argument("--starting-cash", type=float, default=float(os.getenv("STARTING_CASH") or "100000"))
+    p.add_argument("--portfolio-snapshot-path", default=os.getenv("PORTFOLIO_SNAPSHOT_PATH") or "")
+    p.add_argument("--portfolio-refresh-sec", type=float, default=float(os.getenv("PORTFOLIO_REFRESH_SEC") or "0"))
     p.add_argument("--md-heartbeat-sec", type=float, default=float(os.getenv("MD_HEARTBEAT_SEC") or "10"))
     p.add_argument("--md-first-quote-grace-sec", type=float, default=float(os.getenv("MD_FIRST_QUOTE_GRACE_SEC") or "60"))
 
@@ -130,6 +133,17 @@ def main() -> None:
     pm.cash = starting_cash
     pm.starting_cash = starting_cash
     pm.starting_capital = starting_cash
+
+    # Русский коммент: если задан снимок портфеля, стартуем от фактического состояния.
+    if args.portfolio_snapshot_path:
+        snapshot = load_portfolio_snapshot(args.portfolio_snapshot_path)
+        bootstrap_position_manager(pm, snapshot)
+        print(
+            f"PORTFOLIO_BOOTSTRAP path={args.portfolio_snapshot_path} "
+            f"cash={getattr(pm, 'cash', None)} starting_cash={getattr(pm, 'starting_cash', None)} "
+            f"positions={len(getattr(pm, 'positions', {}))}",
+            flush=True,
+        )
 
     # PortfolioManager оставляем для mark_price + risk context
     try:
@@ -200,10 +214,33 @@ def main() -> None:
 
     md.start(symbols)
 
+    portfolio_refresh_sec = float(args.portfolio_refresh_sec or 0.0)
+    last_portfolio_refresh_ts = 0.0
+
     deadline = (time.time() + run_secs) if run_secs > 0 else None
     try:
         while True:
-            if deadline is not None and time.time() >= deadline:
+            now = time.time()
+
+            if (
+                args.portfolio_snapshot_path
+                and portfolio_refresh_sec > 0
+                and (now - last_portfolio_refresh_ts) >= portfolio_refresh_sec
+            ):
+                try:
+                    snapshot = load_portfolio_snapshot(args.portfolio_snapshot_path)
+                    bootstrap_position_manager(pm, snapshot)
+                    last_portfolio_refresh_ts = now
+                    print(
+                        f"PORTFOLIO_REFRESH path={args.portfolio_snapshot_path} "
+                        f"cash={getattr(pm, 'cash', None)} starting_cash={getattr(pm, 'starting_cash', None)} "
+                        f"positions={len(getattr(pm, 'positions', {}))}",
+                        flush=True,
+                    )
+                except Exception as e:
+                    print(f"PORTFOLIO_REFRESH_FAILED error={e}", flush=True)
+
+            if deadline is not None and now >= deadline:
                 print("RUN_SECS reached, exit", flush=True)
                 return
             time.sleep(0.2)

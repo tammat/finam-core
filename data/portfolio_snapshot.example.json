@@ -1,0 +1,15 @@
+{
+  "cash": 152062.36,
+  "starting_cash": 387875.83,
+  "realized_pnl": 0.0,
+  "daily_realized_pnl": 0.0,
+  "peak_equity": 387875.83,
+  "positions": {
+    "BRM6@RTSX": {
+      "qty": 1.0,
+      "avg_price": 110.5,
+      "mark_price": 111.0,
+      "realized_pnl": 0.0
+    }
+  }
+}
