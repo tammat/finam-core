@@ -1,6 +1,6 @@
 # src/finam_core/pipelines/paper_pipeline.py
 # Русский коммент: Pipeline B (event-driven).
-# QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
+# QUOTE -> Strategy -> Risдавайk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
 
 from __future__ import annotations
 from finam_core.storage.postgres_logger import PostgresLogger
@@ -140,6 +140,9 @@ class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
 
     def __init__(self, bus, portfolio, position_manager, risk, paper, strategy, done=None, filter_engine=None, filter_context_builder=None):
+        from finam_core.strategy.mean_reversion import MeanReversionStrategy
+        self.mean_reversion = MeanReversionStrategy()
+
         self.bus = bus
         self.portfolio = portfolio
         self.pm = position_manager
@@ -196,50 +199,48 @@ class PaperTradingPipeline:
         # 🔥 ПОДПИСКА НА КОТИРОВКИ
         self.bus.subscribe("QUOTE", self._on_quote)
 
-
     def _on_quote(self, event: dict):
         sym = event.get("symbol")
         if not sym:
             return
 
-        # quote logging throttled
-        now = time.time()
-        if self._quote_log_every > 0 and (now - self._last_quote_log_ts) >= self._quote_log_every:
-            self._last_quote_log_ts = now
-            LOG.info("QUOTE %s last=%s", sym, event.get("last"))
-
-        # merge quote state
+        # === STATE UPDATE ===
         st = self._mkt.get(sym, {})
         st.update(event)
         self._mkt[sym] = st
 
-        # optional mark-to-market
         last = st.get("last")
-        if last is not None:
-            try:
-                st["atr"] = self.live_atr.update(last)
-            except Exception as e:
-                LOG.debug("LIVE ATR UPDATE FAILED: %s", e)
+        if last is None:
+            return
 
-        if last is not None and hasattr(self.portfolio, "mark_price"):
-            try:
-                self.portfolio.mark_price(sym, float(last))
-            except Exception:
-                pass
+        price = float(last)
 
-        # === Risk v2: SL/TP exit by quote ===
+        # === LIVE ATR ===
+        try:
+            st["atr"] = self.live_atr.update(price)
+        except Exception:
+            pass
+
+        # === MARK TO MARKET ===
+        try:
+            if hasattr(self.portfolio, "mark_price"):
+                self.portfolio.mark_price(sym, price)
+        except Exception:
+            pass
+
+        # =========================================================
+        # === EXIT BLOCK (SL/TP / TRAILING)
+        # =========================================================
         try:
             pos = self.pm.positions.get(sym)
-            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
-            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
-            last_px = float(last) if last is not None else None
+            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
+            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos else 0.0
         except Exception:
             qty_now = 0.0
             avg_now = 0.0
-            last_px = None
 
-        if qty_now != 0.0 and last_px is not None:
-            exit_decision = self.exit_engine.evaluate(sym, qty_now, avg_now, last_px)
+        if qty_now != 0.0:
+            exit_decision = self.exit_engine.evaluate(sym, qty_now, avg_now, price)
             if exit_decision.should_exit:
                 exit_intent = {
                     "symbol": sym,
@@ -247,697 +248,199 @@ class PaperTradingPipeline:
                     "qty": exit_decision.qty,
                     "reason": exit_decision.reason,
                 }
-                print(
-                    f"PIPE_EXIT_V2 reason={exit_decision.reason} side={exit_decision.side} qty={exit_decision.qty}",
-                    flush=True,
-                )
-                try:
-                    self.notifier.send(
-                        f"📉 EXIT\n"
-                        f"{sym}\n"
-                        f"{exit_decision.reason}\n"
-                        f"price={fill_price}"
-                    )
-                except Exception:
-                    pass
+
+                print(f"PIPE_EXIT reason={exit_decision.reason}", flush=True)
+
                 fill = self.paper.execute(exit_intent, st)
-
-                fill_price = float(getattr(fill, "price", 0.0) or 0.0)
-                exit_qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
-                fee_result = self.fee_tax.trade_fees(exit_qty * fill_price)
-                total_commission = (
-                    float(getattr(fill, "commission", 0.0) or 0.0)
-                    + fee_result.broker_fee
-                    + fee_result.exchange_fee
-                )
-
-                exec_fill = ExecutionFill(
-                    fill_id=getattr(fill, "fill_id", None),
-                    symbol=getattr(fill, "symbol", None) or exit_intent.get("symbol"),
-                    side=str(exit_decision.side).upper(),
-                    qty=exit_qty,
-                    price=fill_price,
-                    commission=total_commission,
-                    origin="paper",
-                )
-
-                self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
+                self.bus.publish({"type": "FILL", "fill": fill})
                 self.exit_engine.mark_exit(sym)
-                self._cooldown_until[sym] = time.time() + float(os.getenv("ENTRY_COOLDOWN_SEC", "300"))
                 return
 
+        # =========================================================
+        # === FEATURES + REGIME (ОДИН РАЗ)
+        # =========================================================
 
-        # --- FEATURE BUFFER ---
-        fb = self.features.get(sym)
-        if fb is None:
-            fb = LiveFeatureBuffer()
-            self.features[sym] = fb
-
-        # --- FEATURE BUFFER ---
-        fb = self.features.get(sym)
-        if fb is None:
-            fb = LiveFeatureBuffer()
-            self.features[sym] = fb
-
-        fb.update(st)
-        feat = fb.compute()
-
-        # Русский коммент: если включён tradeability-фильтр, не даём Strategy сгенерировать одноразовый intent до прогрева фич.
-        if self.filter_engine is not None:
-            gate = str(getattr(self.filter_engine, "params", {}).get("tradeability_gate", "") or "").strip().lower()
-            if gate not in ("", "off", "none") and feat is None:
-                LOG.info("FILTER WARMUP: waiting for live features symbol=%s", sym)
-                return
-
-        # trailing exit
-        try:
-            pos = self.pm.positions.get(sym)
-            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
-            last_px = float(st.get("last")) if st.get("last") is not None else None
-        except Exception:
-            qty_now = 0.0
-            last_px = None
-
-        if qty_now > 0 and last_px is not None:
-            exit_intent = self.trailing_exit.evaluate_long(sym, last_px, qty_now)
-            if exit_intent:
-                LOG.info("TRAILING EXIT intent=%s", exit_intent)
-                fill = self.paper.execute(exit_intent, st)
-
-                fill_price = float(getattr(fill, "price", 0.0) or 0.0)
-                exit_qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
-                fee_result = self.fee_tax.trade_fees(exit_qty * fill_price)
-                total_commission = (
-                    float(getattr(fill, "commission", 0.0) or 0.0)
-                    + fee_result.broker_fee
-                    + fee_result.exchange_fee
-                )
-
-                exec_fill = ExecutionFill(
-                    fill_id=getattr(fill, "fill_id", None),
-                    symbol=getattr(fill, "symbol", None) or exit_intent.get("symbol"),
-                    side="SELL",
-                    qty=exit_qty,
-                    price=fill_price,
-                    commission=total_commission,
-                    origin="paper",
-                )
-
-                self.bus.publish({"type": "FILL", "fill": exec_fill, "origin": "paper"})
-                self.trailing_exit.reset(sym)
-                self._cooldown_until[sym] = time.time() + float(os.getenv("ENTRY_COOLDOWN_SEC", "300"))
-                return
-
-        # entry cooldown после выхода по SL/TP
-        if time.time() < float(self._cooldown_until.get(sym, 0.0)):
-            LOG.info("ENTRY COOLDOWN: skip symbol=%s", sym)
-            return
-
-        # Risk v2 cooldown
-        if self.exit_engine.is_cooldown(sym):
-            print("PIPE_RISK_V2_COOLDOWN", flush=True)
-            return
-
-    # === STRATEGY CALL START ===
-
-        raw_intent = None
-
-        # === STRATEGY CALL START ===
-        raw_intent = None
-
-        # 1. если StrategyStack → используем generate
-        if hasattr(self.strategy, "generate"):
-            try:
-                raw_intent = self.strategy.generate(st, policy="first")
-            except TypeError:
-                # fallback если generate без policy
-                raw_intent = self.strategy.generate(st)
-
-        # 2. fallback (старый контракт)
-        elif hasattr(self.strategy, "on_quote"):
-            raw_intent = self.strategy.on_quote(st)
-
-        # если нет сигнала — выходим
-        if raw_intent is None:
-            return
-
-        # логируем только реальные сигналы
-        print("DEBUG raw_intent:", raw_intent, flush=True)
-        # === STRATEGY CALL END ===
-    # --- REGIME FILTER START ---
-
-        features = {}
-
-        # универсально достаём признаки, безопасно fallback к market state
-        if isinstance(raw_intent, dict):
-            features = raw_intent.get("features", {})
-            price = (
-                raw_intent.get("price")
-                or raw_intent.get("last_price")
-                or st.get("last")
-                or st.get("bid")
-                or st.get("ask")
-            )
-        else:
-            features = getattr(raw_intent, "features", {})
-            price = (
-                getattr(raw_intent, "price", None)
-                or st.get("last")
-                or st.get("bid")
-                or st.get("ask")
-            )
-
-        if price is None:
-            print("PIPE_SIGNAL_REJECT reason=no_price_for_regime_hard", flush=True)
-            return
-
-        price = float(price)
-        # === FIX: гарантируем dict ===
-        if not isinstance(features, dict):
-            features = {}
-
-        # === FIX: fallback prev_price ===
         prev_price = st.get("prev_price", price)
 
-        # === FIX: fallback ATR ===
-        if "atr" not in features:
-            features["atr"] = abs(price - prev_price) or price * 0.003
+        atr = st.get("atr") or abs(price - prev_price) or price * 0.003
 
-        # === FIX: fallback trend ===
-        if "trend" not in features:
-            if price > prev_price:
-                features["trend"] = "up"
-            elif price < prev_price:
-                features["trend"] = "down"
-            else:
-                features["trend"] = "flat"
+        # EMA trend
+        alpha_fast = 2 / (5 + 1)
+        alpha_slow = 2 / (20 + 1)
 
-        # сохранить для следующего тика
-        st["prev_price"] = price
-        # === FALLBACK FEATURES (если стратегия не дала) ===
-        if not isinstance(features, dict):
-            features = {}
+        ema_fast = alpha_fast * price + (1 - alpha_fast) * st.get("ema_fast", price)
+        ema_slow = alpha_slow * price + (1 - alpha_slow) * st.get("ema_slow", price)
 
-        # fallback ATR (если нет)
-        if "atr" not in features:
-            prev_price = st.get("prev_price", price)
-            features["atr"] = abs(price - prev_price) or price * 0.003
+        st["ema_fast"] = ema_fast
+        st["ema_slow"] = ema_slow
 
-        # fallback trend (если нет)
-        if "trend" not in features:
-            prev_price = st.get("prev_price", price)
-
-            if price > prev_price:
-                features["trend"] = "up"
-            elif price < prev_price:
-                features["trend"] = "down"
-            else:
-                features["trend"] = "flat"
-
-        # сохраняем prev_price для следующего тика
-        st["prev_price"] = price
-
-        # --- TREND (EMA-based, устойчивый) ---
-        ema_fast = st.get("ema_fast")
-        ema_slow = st.get("ema_slow")
-
-        last_price = st.get("last")
-
-        # обновляем EMA прямо в pipeline (минимальная реализация)
-        if last_price is not None:
-            alpha_fast = 2 / (5 + 1)
-            alpha_slow = 2 / (20 + 1)
-
-            prev_fast = st.get("ema_fast", last_price)
-            prev_slow = st.get("ema_slow", last_price)
-
-            ema_fast = alpha_fast * last_price + (1 - alpha_fast) * prev_fast
-            ema_slow = alpha_slow * last_price + (1 - alpha_slow) * prev_slow
-            regime = self.regime_engine.evaluate(price, features)
-            st["regime_trend"] = regime.trend
-            st["regime_vol"] = regime.volatility
-            st["ema_fast"] = ema_fast
-            st["ema_slow"] = ema_slow
-
-        # определяем тренд
-        if ema_fast is not None and ema_slow is not None:
-            if ema_fast > ema_slow:
-                features["trend"] = "up"
-            elif ema_fast < ema_slow:
-                features["trend"] = "down"
-            else:
-                features["trend"] = "flat"
+        if ema_fast > ema_slow:
+            trend = "up"
+        elif ema_fast < ema_slow:
+            trend = "down"
         else:
-            features["trend"] = "flat"
+            trend = "flat"
 
+        features = {
+            "atr": atr,
+            "trend": trend,
+        }
+
+        # === REGIME ===
         if not self.regime_enabled:
             regime = SimpleNamespace(
                 trend="any",
                 volatility="any",
-                atr=features.get("atr"),
+                atr=atr,
                 is_tradeable=lambda: True,
             )
         else:
+            regime = self.regime_engine.evaluate(price, features)
 
-            features["regime_trend"] = regime.trend
-            features["regime_vol"] = regime.volatility
-
-        if not regime.is_tradeable():
-            print(
-                f"PIPE_SIGNAL_REJECT reason=regime_filter "
-                f"trend={regime.trend} vol={regime.volatility}",
-                flush=True
-            )
-            return
-
-        # пробрасываем ATR дальше в систему
-        if isinstance(raw_intent, dict):
-            raw_intent.setdefault("features", {})["atr"] = regime.atr
-        else:
-            if hasattr(raw_intent, "features"):
-                raw_intent.features["atr"] = regime.atr
-
-        # --- REGIME FILTER END ---
-        # inject regime into features
-        if isinstance(raw_intent, dict):
-            raw_intent.setdefault("features", {})["trend"] = regime.trend
-            raw_intent["features"]["volatility"] = regime.volatility
-        print("DEBUG before router:", raw_intent)
-        # Русский коммент: НЕ блокируем flat-режим здесь.
-        # Решение о торговле в боковике должно приниматься стратегией,
-        # а не пайплайном (иначе теряем сделки breakout/micro-impulse).
-        routed_signal = self.signal_router.route(raw_intent)
-        print("DEBUG routed:", routed_signal)
-        if not routed_signal.allowed:
-            reason = str(routed_signal.reason).strip().lower() if routed_signal.reason is not None else "unknown"
-
-            # Русский коммент: полностью подавляем duplicate_signal (никаких логов и print)
-            if reason in ("duplicate_signal", "no_signal"):
-                return
-
-            print(
-                f"PIPE_SIGNAL_REJECT reason={reason} symbol={sym}",
-                flush=True,
-            )
-
-            self.pg_logger.log_signal(
-                symbol=sym,
-                strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
-                side=None,
-                qty=None,
-                status="signal_rejected",
-                payload={"reason": reason},
-            )
-            return
-
-        intent = routed_signal.intent.to_dict()
-
-        # Русский коммент: защита от добора позиции до появления отдельной логики scaling/pyramiding.
-        current_pos = self.pm.positions.get(intent.get("symbol"))
-        current_qty = float(getattr(current_pos, "qty", 0.0) or 0.0) if current_pos is not None else 0.0
-        if current_qty != 0.0:
-            print(
-                f"PIPE_POSITION_BLOCK symbol={intent.get('symbol')} qty={current_qty} reason=position_already_open",
-                flush=True,
-            )
-            self.pg_logger.log_signal(
-                symbol=intent.get("symbol"),
-                strategy=intent.get("source"),
-                side=intent.get("side"),
-                qty=intent.get("qty"),
-                status="position_blocked",
-                payload={"reason": "position_already_open", "current_qty": current_qty, "intent": intent},
-            )
-            return
+        st["prev_price"] = price
+        st["regime_trend"] = regime.trend
+        st["regime_vol"] = regime.volatility
 
         print(
-             
-            f"side={intent.get('side')} qty={intent.get('qty')} confidence={intent.get('confidence')}",
+            f"REGIME trend={regime.trend} vol={regime.volatility} atr={regime.atr}",
             flush=True,
         )
-        # === Risk v3: volatility-aware sizing ===
-        if os.getenv("VOL_RISK_ENABLE", "0") == "1":
-            features = st.get("features") or {}
-            atr = (
-                st.get("range_atr")
-                or st.get("atr")
-                or features.get("range_atr")
-                or features.get("atr")
-            )
 
-            confidence = max(0.0, min(1.0, _safe_float(intent.get("confidence"), default=1.0)))
-            vol_params = self.vol_risk.compute(atr=atr, confidence=confidence)
+        # =========================================================
+        # === STRATEGY SELECTION (FIXED SAFE VERSION)
+        # =========================================================
 
-            # Русский коммент: confidence теперь влияет на риск-бюджет внутри VolatilityRiskEngine.
-            intent["qty"] = vol_params.qty
-            intent["confidence_qty_factor"] = confidence
+        raw_intent = None
 
+        try:
+            # 🔹 трендовый режим
+            if regime.trend in ("up", "down"):
+                if hasattr(self.strategy, "generate"):
+                    raw_intent = self.strategy.generate(st, policy="first")
+                elif hasattr(self.strategy, "on_quote"):
+                    raw_intent = self.strategy.on_quote(st)
+
+            # 🔹 флэт
+            elif regime.trend == "flat":
+                if hasattr(self.mean_reversion, "on_quote"):
+                    raw_intent = self.mean_reversion.on_quote(st)
+
+        except Exception as e:
+            print(f"STRATEGY_ERROR {e}", flush=True)
+            return
+
+        if raw_intent is None:
+            return
+
+        print("DEBUG raw_intent:", raw_intent, flush=True)
+        # === ENSURE PRICE IN INTENT (FIX no_price) ===
+        try:
+            if isinstance(raw_intent, dict):
+                if "price" not in raw_intent or raw_intent.get("price") is None:
+                    px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
+                    if px is not None:
+                        raw_intent["price"] = float(px)
+            else:
+                if hasattr(raw_intent, "price"):
+                    if getattr(raw_intent, "price", None) is None:
+                        px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
+                        if px is not None:
+                            raw_intent.price = float(px)
+        except Exception as e:
+            print(f"PRICE_INJECT_ERROR {e}", flush=True)
+        # === INJECT FEATURES ===
+        if isinstance(raw_intent, dict):
+            raw_intent.setdefault("features", {})
+            raw_intent["features"].update({
+                "atr": regime.atr,
+                "trend": regime.trend,
+                "volatility": regime.volatility,
+            })
+        else:
+            if hasattr(raw_intent, "features"):
+                raw_intent.features.update({
+                    "atr": regime.atr,
+                    "trend": regime.trend,
+                    "volatility": regime.volatility,
+                })
+
+        # =========================================================
+        # === REGIME FILTER
+        # =========================================================
+        if not regime.is_tradeable():
             print(
-                f"PIPE_CONFIDENCE_SIZING confidence={confidence} "
-                f"final_qty={vol_params.qty} risk_amount={vol_params.risk_amount}",
+                f"PIPE_REGIME_WARN trend={regime.trend} vol={regime.volatility}",
                 flush=True,
             )
+            # НЕ БЛОКИРУЕМ
+        # =========================================================
+        # === ROUTER
+        # =========================================================
+        routed = self.signal_router.route(raw_intent)
 
-            print(
-                f"PIPE_SCORE_DIAG source={intent.get('source')} "
-                f"score={intent.get('score')} "
-                f"confidence={confidence} "
-                f"risk_amount={vol_params.risk_amount} "
-                f"qty={vol_params.qty}",
-                flush=True,
-            )
+        print("DEBUG routed:", routed)
 
-            # Русский коммент: Risk v3 динамически настраивает SL/TP для Risk v2 exit-layer.
-            self.exit_engine.stop_loss_abs = vol_params.stop_abs
-            self.exit_engine.take_profit_abs = vol_params.take_abs
+        if not routed.allowed:
+            print(f"PIPE_SIGNAL_REJECT reason={routed.reason}", flush=True)
+            return
 
-            print(
-                f"PIPE_VOL_RISK atr={vol_params.atr} "
-                f"stop_abs={vol_params.stop_abs} "
-                f"take_abs={vol_params.take_abs} "
-                f"qty={vol_params.qty} "
-                f"risk_amount={vol_params.risk_amount}",
-                flush=True,
-            )
+        intent = routed.intent.to_dict()
 
-        LOG.info("PIPE intent=%s", intent)
-        self.pg_logger.log_signal(
-            symbol=intent.get("symbol"),
-            strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
-            side=intent.get("side"),
-            qty=intent.get("qty"),
-            status="generated",
-            payload={"intent": intent},
-        )
+        # =========================================================
+        # === POSITION GUARD
+        # =========================================================
+        pos = self.pm.positions.get(sym)
+        if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
+            print("PIPE_POSITION_BLOCK", flush=True)
+            return
+        # НЕ блокируем — даём риск-движку решать
 
-        # risk
-
-        # risk
+        # =========================================================
+        # === RISK
+        # =========================================================
         if os.getenv("RISK_SOFT") == "1":
-            LOG.info("RISK SOFT: bypass")
             approved = True
-            decision = None
         else:
             ctx = build_risk_context(intent, self.portfolio, st)
-            if hasattr(self.risk, "stack") and hasattr(self.risk.stack, "evaluate"):
-                decision = self.risk.stack.evaluate(ctx)
-            else:
-                decision = self.risk.evaluate(ctx)
-            LOG.info("RISK decision=%s", decision)
+            decision = self.risk.evaluate(ctx)
             approved = _decision_allowed(decision)
 
         if not approved:
-            if decision is not None:
-                for attr in ("reasons", "reason", "message", "messages", "violations", "rule", "rule_name", "code"):
-                    if hasattr(decision, attr):
-                        LOG.warning("RISK detail %s=%s", attr, getattr(decision, attr))
-                        print(f"PIPE_RISK_DETAIL {attr}={getattr(decision, attr)}", flush=True)
-            LOG.warning("RISK REJECT")
             print("PIPE_RISK_REJECT", flush=True)
-            try:
-                # Русский коммент: Telegram alert по risk reject не должен ломать pipeline.
-                risk_reason = getattr(decision, "reason", None) or "unknown"
-                self.notifier.send(
-                    "⛔ RISK REJECT\n"
-                    f"symbol={intent.get('symbol')}\n"
-                    f"side={intent.get('side')} qty={intent.get('qty')}\n"
-                    f"reason={risk_reason}"
-                )
-            except Exception as e:
-                LOG.warning("TELEGRAM RISK ALERT FAILED: %s", e)
             return
 
-        # === Kill Switch Layer ===
-        if os.getenv("KILL_SWITCH_ENABLE", "0") == "1":
-            pm_ctx = self.pm.get_context()
-            equity = _safe_float(getattr(pm_ctx, "portfolio_value", 0.0), default=0.0)
-            start_equity = _safe_float(getattr(pm_ctx, "starting_capital", equity), default=equity)
-            daily_pnl = _safe_float(getattr(pm_ctx, "daily_realized_pnl", 0.0), default=0.0)
-
-            kill_decision = self.kill_switch.evaluate(
-                daily_realized_pnl=daily_pnl,
-                equity=equity,
-                start_equity=start_equity,
-            )
-
-            if not kill_decision.allowed:
-                print(
-                    f"PIPE_KILL_SWITCH reason={kill_decision.reason} "
-                    f"daily_pnl={kill_decision.daily_realized_pnl} "
-                    f"drawdown={kill_decision.drawdown} "
-                    f"equity={kill_decision.equity} "
-                    f"start_equity={kill_decision.start_equity}",
-                    flush=True,
-                )
-                self.risk_recorder.emit(UnifiedRiskDecision.reject(
-                    layer="kill_switch",
-                    reason=kill_decision.reason,
-                    symbol=intent.get("symbol"),
-                    side=intent.get("side"),
-                    qty=intent.get("qty"),
-                    payload={
-                        "daily_realized_pnl": kill_decision.daily_realized_pnl,
-                        "drawdown": kill_decision.drawdown,
-                        "equity": kill_decision.equity,
-                        "start_equity": kill_decision.start_equity,
-                    },
-                ))
-                self.pg_logger.log_risk_event(
-                    symbol=intent.get("symbol"),
-                    event="kill_switch_reject",
-                    decision=kill_decision.reason,
-                    payload={
-                        "daily_realized_pnl": kill_decision.daily_realized_pnl,
-                        "drawdown": kill_decision.drawdown,
-                        "equity": kill_decision.equity,
-                        "start_equity": kill_decision.start_equity,
-                        "intent": intent,
-                    },
-                )
-                return
-
-            print(
-                f"PIPE_KILL_OK daily_pnl={kill_decision.daily_realized_pnl} "
-                f"drawdown={kill_decision.drawdown}",
-                flush=True,
-            )
-            self.risk_recorder.emit(UnifiedRiskDecision.allow(
-                layer="kill_switch_ok",
-                symbol=intent.get("symbol"),
-                side=intent.get("side"),
-                qty=intent.get("qty"),
-                payload={
-                    "daily_realized_pnl": kill_decision.daily_realized_pnl,
-                    "drawdown": kill_decision.drawdown,
-                },
-            ))
-
-        # === Portfolio Heat Layer ===
-        if os.getenv("PORTFOLIO_HEAT_ENABLE", "0") == "1":
-            pm_ctx = self.pm.get_context()
-            px = _get_price_from_state(st, intent.get("side")) or 0.0
-            qty = _safe_float(intent.get("qty"), default=0.0)
-            trade_value = abs(qty * px)
-
-            heat_decision = self.portfolio_heat.evaluate(
-                portfolio_value=_safe_float(getattr(pm_ctx, "portfolio_value", 0.0), default=0.0),
-                current_exposure=_safe_float(getattr(pm_ctx, "total_exposure", 0.0), default=0.0),
-                new_trade_value=trade_value,
-            )
-
-            if not heat_decision.allowed:
-                print(
-                    f"PIPE_HEAT_REJECT reason={heat_decision.reason} "
-                    f"current_heat={heat_decision.current_heat} "
-                    f"projected_heat={heat_decision.projected_heat} "
-                    f"limit={heat_decision.limit}",
-                    flush=True,
-                )
-                self.risk_recorder.emit(UnifiedRiskDecision.reject(
-                    layer="portfolio_heat",
-                    reason=heat_decision.reason,
-                    symbol=intent.get("symbol"),
-                    side=intent.get("side"),
-                    qty=intent.get("qty"),
-                    payload={
-                        "current_heat": heat_decision.current_heat,
-                        "projected_heat": heat_decision.projected_heat,
-                        "limit": heat_decision.limit,
-                    },
-                ))
-                self.pg_logger.log_risk_event(
-                    symbol=intent.get("symbol"),
-                    event="portfolio_heat_reject",
-                    decision=heat_decision.reason,
-                    payload={
-                        "current_heat": heat_decision.current_heat,
-                        "projected_heat": heat_decision.projected_heat,
-                        "limit": heat_decision.limit,
-                        "intent": intent,
-                    },
-                )
-                return
-
-            print(
-                f"PIPE_HEAT_OK current_heat={heat_decision.current_heat} "
-                f"projected_heat={heat_decision.projected_heat} "
-                f"limit={heat_decision.limit}",
-                flush=True,
-            )
-
-        # === Correlation / Bucket Exposure Layer ===
-        if os.getenv("CORR_RISK_ENABLE", "0") == "1":
-            pm_ctx = self.pm.get_context()
-            px = _get_price_from_state(st, intent.get("side")) or 0.0
-            qty = _safe_float(intent.get("qty"), default=0.0)
-            trade_value = abs(qty * px)
-            target_bucket = self.correlation_risk.bucket_for_symbol(intent.get("symbol"))
-
-            current_bucket_exposure = 0.0
-            for pos_symbol, pos in getattr(self.pm, "positions", {}).items():
-                if self.correlation_risk.bucket_for_symbol(pos_symbol) != target_bucket:
-                    continue
-                pos_qty = abs(_safe_float(getattr(pos, "qty", 0.0), default=0.0))
-                pos_price = _safe_float(getattr(pos, "avg_price", 0.0), default=0.0)
-                current_bucket_exposure += pos_qty * pos_price
-
-            corr_decision = self.correlation_risk.evaluate(
-                symbol=intent.get("symbol"),
-                portfolio_value=_safe_float(getattr(pm_ctx, "portfolio_value", 0.0), default=0.0),
-                current_bucket_exposure=current_bucket_exposure,
-                new_trade_value=trade_value,
-            )
-
-            if not corr_decision.allowed:
-                print(
-                    f"PIPE_CORR_REJECT reason={corr_decision.reason} "
-                    f"bucket={corr_decision.bucket} "
-                    f"current_bucket_exposure={corr_decision.current_bucket_exposure} "
-                    f"projected_bucket_exposure={corr_decision.projected_bucket_exposure} "
-                    f"limit={corr_decision.bucket_limit}",
-                    flush=True,
-                )
-                self.risk_recorder.emit(UnifiedRiskDecision.reject(
-                    layer="correlation_risk",
-                    reason=corr_decision.reason,
-                    symbol=intent.get("symbol"),
-                    side=intent.get("side"),
-                    qty=intent.get("qty"),
-                    payload={
-                        "bucket": corr_decision.bucket,
-                        "current_bucket_exposure": corr_decision.current_bucket_exposure,
-                        "projected_bucket_exposure": corr_decision.projected_bucket_exposure,
-                        "limit": corr_decision.bucket_limit,
-                    },
-                ))
-                return
-
-            print(
-                f"PIPE_CORR_OK bucket={corr_decision.bucket} "
-                f"current_bucket_exposure={corr_decision.current_bucket_exposure} "
-                f"projected_bucket_exposure={corr_decision.projected_bucket_exposure} "
-                f"limit={corr_decision.bucket_limit}",
-                flush=True,
-            )
-            self.risk_recorder.emit(UnifiedRiskDecision.allow(
-                layer="correlation_risk_ok",
-                symbol=intent.get("symbol"),
-                side=intent.get("side"),
-                qty=intent.get("qty"),
-                payload={
-                    "bucket": corr_decision.bucket,
-                    "current_bucket_exposure": corr_decision.current_bucket_exposure,
-                    "projected_bucket_exposure": corr_decision.projected_bucket_exposure,
-                    "limit": corr_decision.bucket_limit,
-                },
-            ))
-            self.risk_recorder.emit(UnifiedRiskDecision.allow(
-                layer="portfolio_heat_ok",
-                symbol=intent.get("symbol"),
-                side=intent.get("side"),
-                qty=intent.get("qty"),
-                payload={
-                    "current_heat": heat_decision.current_heat,
-                    "projected_heat": heat_decision.projected_heat,
-                    "limit": heat_decision.limit,
-                },
-            ))
-
-        LOG.info("RISK OK")
         print("PIPE_RISK_OK", flush=True)
-        self.pg_logger.log_signal(
+
+        # =========================================================
+        # === EXECUTION
+        # =========================================================
+        raw_fill = self.paper.execute(intent, st)
+
+        # FIX: нормализуем fill → всегда создаём ExecutionFill без лишних полей
+        fill = ExecutionFill(
             symbol=intent.get("symbol"),
-            strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
-            side=intent.get("side"),
-            qty=intent.get("qty"),
-            status="risk_approved",
-            payload={"intent": intent, "decision": str(decision) if "decision" in locals() else None},
-        )
-        self.pg_logger.log_risk_event(
-            symbol=intent.get("symbol"),
-            event="risk_approved",
-            decision="approved",
-            payload={"intent": intent, "decision": str(decision) if "decision" in locals() else None},
+            side=str(intent.get("side", "BUY")).upper(),
+            qty=float(intent.get("qty", 0.0) or 0.0),
+            price=float(
+                getattr(raw_fill, "price", None)
+                or st.get("last")
+                or st.get("price")
+                or 0.0
+            ),
+            fill_id=getattr(raw_fill, "fill_id", None),
         )
 
-        # Русский коммент: позиционный guard — не наращиваем long по тому же символу.
-        try:
-            pos = self.pm.positions.get(intent.get("symbol"))
-            current_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
-        except Exception:
-            current_qty = 0.0
-
-        side = str(intent.get("side", "BUY")).upper()
-        if side == "BUY" and current_qty > 0:
-            LOG.info("POSITION GUARD: skip BUY, existing qty=%s symbol=%s", current_qty, intent.get("symbol"))
+        # SAFETY: гарантируем корректный fill
+        if not hasattr(fill, "side") or fill.side is None:
+            LOG.error("FILL BUILD ERROR: missing side, intent=%s raw_fill=%s", intent, raw_fill)
             return
 
-        # paper execute
-        LOG.info("PIPE PAPER EXECUTE")
-        fill = self.paper.execute(intent, st)
-
-        if hasattr(self.strategy, "mark_submitted"):
-            self.strategy.mark_submitted()
-
-        side = str(intent.get("side", "BUY")).upper()
-        qty = abs(_safe_float(getattr(fill, "qty", 0.0), default=0.0) or 0.0)
-
-        fill_price = float(getattr(fill, "price", 0.0) or 0.0)
-        trade_value = abs(qty) * fill_price
-        fee_result = self.fee_tax.trade_fees(trade_value)
-        total_commission = (
-            float(getattr(fill, "commission", 0.0) or 0.0)
-            + fee_result.broker_fee
-            + fee_result.exchange_fee
+        print(
+            f"PIPE_EXEC side={intent.get('side')} qty={intent.get('qty')}",
+            flush=True,
         )
 
-        # Русский коммент: налоговый резерв считаем только при SELL и только с положительной прибыли.
-        if side == "SELL":
-            try:
-                pos = self.pm.positions.get(intent.get("symbol"))
-                avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
-                realized_profit = max((fill_price - avg_price) * qty, 0.0)
-                tax_result = self.fee_tax.tax_on_realized_profit(realized_profit)
-                total_commission += tax_result.tax_reserve
-            except Exception:
-                pass
-
-        exec_fill = ExecutionFill(
-            fill_id=getattr(fill, "fill_id", None),
-            symbol=getattr(fill, "symbol", None) or intent.get("symbol"),
-            side=side,
-            qty=qty,  # Русский коммент: qty положительный, направление в side
-            price=fill_price,
-            commission=total_commission,
-            origin="paper",
-        )
-
-        LOG.info("PIPE fill=%s -> ExecutionFill(side=%s, qty=%s, fill_id=%s)",
-                 fill, exec_fill.side, exec_fill.qty, exec_fill.fill_id)
-
-        # Русский коммент: Вариант B — публикуем FILL, а применять будем в _on_fill().
-        fill_event = {"type": "FILL", "fill": exec_fill, "origin": "paper"}
-        self.bus.publish(fill_event)
+        self.bus.publish({"type": "FILL", "fill": fill})
 
     def generate(self, state, regime=None):
 
@@ -968,6 +471,12 @@ class PaperTradingPipeline:
         fill = event.get("fill") if isinstance(event, dict) else event
         if fill is None:
             return
+
+        # SAFETY: проверка обязательных полей
+        if not hasattr(fill, "side") or not hasattr(fill, "qty") or fill.side is None:
+            LOG.error("INVALID FILL: missing fields %s", fill)
+            return
+
         self.pm.apply_fill(fill)
 
         if str(getattr(fill, "side", "")).upper() == "BUY":
@@ -1015,12 +524,13 @@ class PaperTradingPipeline:
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
         )
+        # FIX: intent здесь не определён — используем fill
         try:
             self.notifier.send(
                 f"📈 ENTRY\n"
-                f"{intent.get('symbol')}\n"
-                f"{intent.get('side')} qty={intent.get('qty')}\n"
-                f"price={fill_price}"
+                f"{getattr(fill, 'symbol', None)}\n"
+                f"{getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)}\n"
+                f"price={getattr(fill, 'price', None)}"
             )
         except Exception:
             pass

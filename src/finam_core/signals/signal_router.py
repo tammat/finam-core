@@ -1,5 +1,3 @@
-# src/finam_core/signals/signal_router.py
-
 from __future__ import annotations
 
 import os
@@ -17,21 +15,16 @@ class RoutedSignal:
 
 
 class SignalRouter:
-    """
-    Русский коммент: минимальный SignalRouter.
-    Нормализует и фильтрует сигналы до risk-stack.
-    """
 
     def __init__(self):
         self.min_confidence = float(os.getenv("SIGNAL_MIN_CONFIDENCE", "0.0"))
         self.score_min = float(os.getenv("SIGNAL_SCORE_MIN", "0.0"))
         self.score_max = float(os.getenv("SIGNAL_SCORE_MAX", "1.0"))
         self.signal_ttl_sec = float(os.getenv("SIGNAL_TTL_SEC", "30"))
-        self._last_by_symbol: dict[str, str] = {}
-        self._last_ts_by_symbol: dict[str, float] = {}
+        self._last_by_symbol = {}
+        self._last_ts_by_symbol = {}
 
     def normalize_confidence(self, score) -> float:
-        """Русский коммент: нормализуем score стратегии в confidence 0..1."""
         try:
             value = float(score)
         except Exception:
@@ -47,36 +40,31 @@ class SignalRouter:
         if intent is None:
             return RoutedSignal(False, "no_signal", None)
 
+        # --- NORMALIZE INPUT ---
         if isinstance(intent, dict):
-            # 🔹 цена обязательна
             price = intent.get("price") or intent.get("last") or intent.get("last_price")
             if price is None:
                 return RoutedSignal(False, "no_price", None)
-            import inspect
-            print("DEBUG FILE:", inspect.getfile(self.__class__))
+
             price = float(price)
-            side = str(intent["side"]).upper()
+            side = str(intent.get("side", "")).upper()
 
-            # 🔹 ATR (или fallback)
-            atr = float(intent.get("features", {}).get("atr", price * 0.005))
+            features = dict(intent.get("features", {}))
+            atr = float(features.get("atr", abs(price * 0.003)))
 
-            # 🔹 уровни
             stop = price - atr if side == "BUY" else price + atr
             take = price + atr * 2 if side == "BUY" else price - atr * 2
 
-            # 🔹 RR
             rr = abs(take - price) / max(1e-9, abs(price - stop))
 
-            # 🔹 расширяем features (КЛЮЧЕВО!)
-            features = dict(intent.get("features", {}))
             features.update({
                 "entry": price,
                 "stop": stop,
                 "take": take,
                 "rr": rr,
+                "atr": atr,
             })
 
-            # 🔹 создаём ЧИСТЫЙ SignalIntent
             intent = SignalIntent(
                 symbol=intent["symbol"],
                 side=side,
@@ -89,7 +77,7 @@ class SignalRouter:
                 features=features,
             )
 
-        # 🔹 базовые проверки
+        # --- VALIDATION ---
         if intent.side.upper() not in ("BUY", "SELL"):
             return RoutedSignal(False, "invalid_side", intent)
 
@@ -98,29 +86,47 @@ class SignalRouter:
 
         if intent.confidence < self.min_confidence:
             return RoutedSignal(False, "low_confidence", intent)
-        # 🔹 фильтр по Risk/Reward
-        rr = intent.features.get("rr", 0)
+
+        rr = float(intent.features.get("rr", 0))
         if rr < 1.5:
             return RoutedSignal(False, "low_rr", intent)
-        # 🔹 фильтр волатильности (убираем шум)
-        atr = intent.features.get("atr", 0)
-        entry = intent.features.get("entry", 0)
 
-        trend = intent.features.get("trend")
+        # --- VOL ---
+        atr = float(intent.features.get("atr", 0.0))
+        entry = float(intent.features.get("entry", 0.0))
 
-        # блокируем breakout в боковике
-        if trend == "flat":
-            return RoutedSignal(False, "flat_regime_block", intent)
-        # защита от деления на ноль и мусора
-        if entry > 0 and atr < entry * 0.003:
-            return RoutedSignal(False, "low_volatility", intent)
-        # 🔹 антидубли
-        key = f"{intent.symbol}:{intent.side.upper()}:{intent.reason}"
+        atr_pct = (atr / entry) if entry > 0 else 0.0
+        intent.features["atr_pct"] = atr_pct
+
+        if atr_pct < 0.0005:
+            vol = "dead"
+        elif atr_pct < 0.0015:
+            vol = "low"
+        elif atr_pct < 0.005:
+            vol = "normal"
+        else:
+            vol = "high"
+
+        intent.features["volatility"] = vol
+
+        if vol == "dead":
+            intent.confidence *= 0.5
+            intent.qty *= 0.5
+
+        elif vol == "low":
+            intent.confidence *= 0.8
+            intent.qty *= 0.8
+
+        print(f"ROUTER_VOL {intent.symbol} atr_pct={atr_pct:.5f} vol={vol}", flush=True)
+
+        # --- DEDUP ---
+        key = f"{intent.symbol}:{intent.side}:{intent.reason}"
         now = time.time()
-        last_key = self._last_by_symbol.get(intent.symbol)
-        last_ts = self._last_ts_by_symbol.get(intent.symbol, 0.0)
 
-        if last_key == key and (now - last_ts) < self.signal_ttl_sec:
+        if (
+            self._last_by_symbol.get(intent.symbol) == key
+            and now - self._last_ts_by_symbol.get(intent.symbol, 0) < self.signal_ttl_sec
+        ):
             return RoutedSignal(False, "duplicate_signal", intent)
 
         self._last_by_symbol[intent.symbol] = key
