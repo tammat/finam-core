@@ -42,8 +42,48 @@ class PostgresLogger:
         except Exception:
             return json.dumps({"raw": str(obj)}, ensure_ascii=False)
 
-    def log_fill(self, fill) -> None:
+    def log_fill(self, *args, **kwargs) -> None:
+        """
+        Русский коммент: логирование fill в PostgreSQL.
+        Поддерживает:
+        1) log_fill(fill_object)
+        2) log_fill(symbol=..., side=..., qty=..., price=..., trade_id=..., execution_type=...)
+        """
         if not self.enabled:
+            return
+
+        fill = args[0] if args else None
+
+        symbol = kwargs.get("symbol") or getattr(fill, "symbol", None)
+        side = kwargs.get("side") or getattr(fill, "side", None)
+
+        qty = kwargs.get("qty")
+        if qty is None:
+            qty = getattr(fill, "qty", None)
+
+        price = kwargs.get("price")
+        if price is None:
+            price = getattr(fill, "price", None)
+
+        commission = kwargs.get("commission")
+        if commission is None:
+            commission = getattr(fill, "commission", 0.0)
+
+        fill_id = (
+            kwargs.get("fill_id")
+            or kwargs.get("trade_id")
+            or getattr(fill, "fill_id", None)
+            or getattr(fill, "trade_id", None)
+        )
+
+        origin = (
+            kwargs.get("origin")
+            or kwargs.get("execution_type")
+            or getattr(fill, "origin", None)
+            or "paper"
+        )
+
+        if symbol is None or side is None or qty is None or price is None:
             return
 
         try:
@@ -51,25 +91,24 @@ class PostgresLogger:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO trades
-                            (symbol, side, qty, price, commission, fill_id, origin, payload)
-                        VALUES
-                            (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        INSERT INTO trades (
+                            symbol, side, qty, price, commission, fill_id, origin, payload
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                         """,
                         (
-                            getattr(fill, "symbol", None),
-                            getattr(fill, "side", None),
-                            float(getattr(fill, "qty", 0.0) or 0.0),
-                            float(getattr(fill, "price", 0.0) or 0.0),
-                            float(getattr(fill, "commission", 0.0) or 0.0),
-                            getattr(fill, "fill_id", None),
-                            getattr(fill, "origin", None),
-                            self._payload(fill),
+                            str(symbol),
+                            str(side).upper(),
+                            float(qty),
+                            float(price),
+                            float(commission or 0.0),
+                            str(fill_id) if fill_id is not None else None,
+                            str(origin) if origin is not None else "paper",
+                            "{}",
                         ),
                     )
-        except Exception as exc:
-            LOG.warning("POSTGRES LOG FILL FAILED: %s", exc)
-
+        except Exception as e:
+            print(f"POSTGRES LOG FILL FAILED: {e}", flush=True)
 
     def log_signal(self, symbol=None, strategy=None, side=None, qty=None, status="generated", payload=None) -> None:
         """Русский коммент: логирование всех сигналов стратегии/фильтра/риска, включая отклонённые."""
