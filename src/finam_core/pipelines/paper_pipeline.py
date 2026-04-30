@@ -386,20 +386,25 @@ class PaperTradingPipeline:
         routed_signal = self.signal_router.route(raw_intent)
 
         if not routed_signal.allowed:
-            if routed_signal.reason not in ("no_signal", "duplicate_signal"):
-                raw_payload = raw_intent if isinstance(raw_intent, dict) else None
-                print(
-                    f"PIPE_SIGNAL_REJECT reason={routed_signal.reason} symbol={sym}",
-                    flush=True,
-                )
-                self.pg_logger.log_signal(
-                    symbol=sym,
-                    strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
-                    side=raw_payload.get("side") if raw_payload else None,
-                    qty=raw_payload.get("qty") if raw_payload else None,
-                    status="signal_rejected",
-                    payload={"reason": routed_signal.reason, "raw_intent": raw_payload},
-                )
+            reason = str(routed_signal.reason).strip().lower() if routed_signal.reason is not None else "unknown"
+
+            # Русский коммент: полностью подавляем duplicate_signal (никаких логов и print)
+            if reason in ("duplicate_signal", "no_signal"):
+                return
+
+            print(
+                f"PIPE_SIGNAL_REJECT reason={reason} symbol={sym}",
+                flush=True,
+            )
+
+            self.pg_logger.log_signal(
+                symbol=sym,
+                strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
+                side=None,
+                qty=None,
+                status="signal_rejected",
+                payload={"reason": reason},
+            )
             return
 
         intent = routed_signal.intent.to_dict()

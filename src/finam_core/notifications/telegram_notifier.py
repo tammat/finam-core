@@ -108,18 +108,34 @@ class TelegramNotifier:
         confidence: float | None = None,
         score: float | None = None,
         reason: str = "",
+        entry: float | None = None,
+        stop: float | None = None,
+        take: float | None = None,
+        rr: float | None = None,
     ) -> None:
-        side_ru = "ПОКУПКА" if str(side).upper() == "BUY" else "ПРОДАЖА"
+        side_ru = "ЛОНГ" if str(side).upper() == "BUY" else "ШОРТ"
+
         lines = [
-            "🟢 <b>Сигнал принят</b>",
-            f"Инструмент: <b>{symbol}</b>",
-            f"Сторона: <b>{side_ru}</b>",
-            f"Стратегия: <b>{source}</b>",
+            "🟢 <b>Сигнал</b>",
+            f"<b>{symbol}</b> | {side_ru}",
         ]
+
+        # Русский коммент: уровни сделки (ключевой PRO-блок)
+        if entry is not None:
+            lines.append(f"Вход: <b>{entry:.2f}</b>")
+        if stop is not None:
+            lines.append(f"Стоп: <b>{stop:.2f}</b>")
+        if take is not None:
+            lines.append(f"Цель: <b>{take:.2f}</b>")
+        if rr is not None:
+            lines.append(f"R/R: <b>1:{rr:.2f}</b>")
+
+        # Русский коммент: дополнительные метрики (внизу)
         if confidence is not None:
-            lines.append(f"Confidence: <b>{confidence:.4f}</b>")
+            lines.append(f"Уверенность: <b>{confidence:.2f}</b>")
         if score is not None:
-            lines.append(f"Score: <b>{score:.4f}</b>")
+            lines.append(f"Сила: <b>{score:.2f}</b>")
         if reason:
-            lines.append(f"Причина: <b>{reason}</b>")
+            lines.append(f"Контекст: <b>{reason}</b>")
+
         self.send("\n".join(lines))
