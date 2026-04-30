@@ -18,6 +18,7 @@ class TelegramNotifier:
         self.token = (os.getenv("TG_BOT_TOKEN") or os.getenv("TG_TOKEN") or "").strip()
         self.chat_id = os.getenv("TG_CHAT_ID", "").strip()
         self.enabled = os.getenv("ENABLE_TELEGRAM_NOTIFIER", "0") == "1"
+        self.proxy = os.getenv("TG_PROXY", "").strip()
 
     def send(self, text: str) -> None:
         if not self.enabled or not self.token or not self.chat_id:
@@ -34,7 +35,8 @@ class TelegramNotifier:
                     "parse_mode": "HTML",
                     "disable_web_page_preview": True,
                 },
-                timeout=5,
+                timeout=10,
+                proxies={"http": self.proxy, "https": self.proxy} if self.proxy else None,
             )
             if resp.status_code != 200:
                 LOG.warning("TELEGRAM SEND FAILED status=%s body=%s", resp.status_code, resp.text)
@@ -42,3 +44,82 @@ class TelegramNotifier:
             # Русский коммент: уведомления не должны ломать торговый pipeline.
             LOG.warning("TELEGRAM SEND EXCEPTION: %s", exc)
             return
+
+    def send_trade_alert(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        qty: float,
+        price: float,
+        source: str = "",
+        reason: str = "",
+        pnl: float | None = None,
+    ) -> None:
+        side_ru = "ПОКУПКА" if str(side).upper() == "BUY" else "ПРОДАЖА"
+        lines = [
+            "📌 <b>Сделка исполнена</b>",
+            f"Инструмент: <b>{symbol}</b>",
+            f"Сторона: <b>{side_ru}</b>",
+            f"Количество: <b>{qty}</b>",
+            f"Цена: <b>{price}</b>",
+        ]
+        if source:
+            lines.append(f"Источник сигнала: <b>{source}</b>")
+        if reason:
+            lines.append(f"Причина: <b>{reason}</b>")
+        if pnl is not None:
+            lines.append(f"PnL: <b>{pnl:.4f}</b>")
+        self.send("\n".join(lines))
+
+    def send_risk_alert(
+        self,
+        *,
+        symbol: str | None,
+        layer: str,
+        reason: str,
+        side: str | None = None,
+        qty: float | None = None,
+        details: dict | None = None,
+    ) -> None:
+        lines = [
+            "🛑 <b>Сделка заблокирована риск-контролем</b>",
+            f"Слой риска: <b>{layer}</b>",
+            f"Причина: <b>{reason}</b>",
+        ]
+        if symbol:
+            lines.append(f"Инструмент: <b>{symbol}</b>")
+        if side:
+            side_ru = "ПОКУПКА" if str(side).upper() == "BUY" else "ПРОДАЖА"
+            lines.append(f"Сторона: <b>{side_ru}</b>")
+        if qty is not None:
+            lines.append(f"Количество: <b>{qty}</b>")
+        if details:
+            for key, value in details.items():
+                lines.append(f"{key}: <b>{value}</b>")
+        self.send("\n".join(lines))
+
+    def send_signal_alert(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        source: str,
+        confidence: float | None = None,
+        score: float | None = None,
+        reason: str = "",
+    ) -> None:
+        side_ru = "ПОКУПКА" if str(side).upper() == "BUY" else "ПРОДАЖА"
+        lines = [
+            "🟢 <b>Сигнал принят</b>",
+            f"Инструмент: <b>{symbol}</b>",
+            f"Сторона: <b>{side_ru}</b>",
+            f"Стратегия: <b>{source}</b>",
+        ]
+        if confidence is not None:
+            lines.append(f"Confidence: <b>{confidence:.4f}</b>")
+        if score is not None:
+            lines.append(f"Score: <b>{score:.4f}</b>")
+        if reason:
+            lines.append(f"Причина: <b>{reason}</b>")
+        self.send("\n".join(lines))
