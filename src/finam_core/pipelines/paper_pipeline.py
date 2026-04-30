@@ -3,7 +3,8 @@
 # QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
 
 from __future__ import annotations
-
+from finam_core.storage.postgres_logger import PostgresLogger
+import os
 import logging
 import os
 import time
@@ -385,7 +386,7 @@ class PaperTradingPipeline:
         routed_signal = self.signal_router.route(raw_intent)
 
         if not routed_signal.allowed:
-            if routed_signal.reason != "no_signal":
+            if routed_signal.reason not in ("no_signal", "duplicate_signal"):
                 raw_payload = raw_intent if isinstance(raw_intent, dict) else None
                 print(
                     f"PIPE_SIGNAL_REJECT reason={routed_signal.reason} symbol={sym}",
@@ -891,7 +892,14 @@ class PaperTradingPipeline:
                  getattr(fill, "price", None),
                  getattr(fill, "fill_id", None))
 
-        self.pg_logger.log_fill(fill)
+        self.pg_logger.log_fill(
+            symbol=getattr(fill, "symbol", None),
+            side=getattr(fill, "side", None),
+            qty=float(getattr(fill, "qty", 0.0) or 0.0),
+            price=float(getattr(fill, "price", 0.0) or 0.0),
+            trade_id=getattr(fill, "fill_id", None),
+            execution_type="paper"
+        )
 
         self.notifier.send(
             "✅ PAPER FILL\n"
