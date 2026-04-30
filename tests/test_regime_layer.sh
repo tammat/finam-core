@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PYTHONPATH=src REGIME_MIN_ATR=0.03 REGIME_MAX_ATR=0.8 REGIME_MIN_SLOPE=0.0 python - <<'PY'
-from finam_core.risk.regime_layer import RegimeLayer
+self.regime_layer = RegimeLayer()from finam_core.risk.regime_layer import RegimeLayer
 
 r = RegimeLayer()
 

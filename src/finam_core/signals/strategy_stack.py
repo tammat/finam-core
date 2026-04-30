@@ -72,10 +72,73 @@ class StrategyStack:
             f"reason=selected_by_score",
             flush=True,
         )
-
+        print("DEBUG STACK OUTPUT:", selected, flush=True)
         return StrategyStackResult(
             selected=selected,
             candidates_count=len(candidates),
             selected_source=selected.get("source"),
             reason="selected_by_score",
         )
+
+    def generate(self, st, policy: str = "first"):
+        """
+        Унифицированный интерфейс для pipeline
+        """
+
+        candidates: list[dict[str, Any]] = []
+
+        for priority, strat in enumerate(self.strategies):
+            try:
+                if hasattr(strat, "on_quote"):
+                    signal = strat.on_quote(st)
+                elif hasattr(strat, "generate"):
+                    signal = strat.generate(st)
+                else:
+                    continue
+
+                if not signal:
+                    continue
+
+                # === НОРМАЛИЗАЦИЯ (ЕДИНАЯ ТОЧКА ИСТИНЫ) ===
+                normalized = dict(signal)
+
+                normalized.setdefault("source", strat.__class__.__name__)
+                normalized.setdefault("confidence", 1.0)
+                normalized.setdefault("score", normalized.get("confidence", 1.0))
+
+                # приоритет стратегии (чем раньше — тем выше)
+                normalized["_priority"] = priority
+
+                candidates.append(normalized)
+
+            except Exception as e:
+                print(f"[StrategyStack] {strat.__class__.__name__} failed: {e}", flush=True)
+
+        if not candidates:
+            return None
+
+        # === СОРТИРОВКА (как в collect) ===
+        candidates = sorted(
+            candidates,
+            key=lambda x: (
+                float(x.get("confidence", 0.0)),
+                float(x.get("score", 0.0)),
+                -float(x.get("_priority", 0)),
+            ),
+            reverse=True,
+        )
+
+        best = candidates[0]
+        best.pop("_priority", None)
+
+        print(
+            f"PIPE_STACK_SELECTED candidates={len(candidates)} "
+            f"source={best.get('source')} "
+            f"side={best.get('side')} "
+            f"confidence={best.get('confidence')} "
+            f"score={best.get('score')} "
+            f"reason=selected_by_score",
+            flush=True,
+        )
+
+        return best

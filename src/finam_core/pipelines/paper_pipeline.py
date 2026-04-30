@@ -18,7 +18,6 @@ from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.risk.sl_tp_cooldown import SlTpCooldownEngine
 from finam_core.risk.volatility_risk import VolatilityRiskEngine
 from finam_core.risk.live_atr import LiveAtrEstimator
-from finam_core.risk.regime_layer import RegimeLayer
 from finam_core.risk.portfolio_heat import PortfolioHeatEngine
 from finam_core.risk.kill_switch import KillSwitchEngine
 from finam_core.risk.correlation_risk import CorrelationRiskEngine
@@ -27,11 +26,6 @@ from finam_core.signals.signal_router import SignalRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
 
-try:
-    from finam_core.strategy.filters.regime_filters import FilterContext, FilterEngine
-except Exception:
-    FilterContext = None
-    FilterEngine = None
 
 LOG = logging.getLogger(__name__)
 
@@ -172,13 +166,26 @@ class PaperTradingPipeline:
         self.exit_engine = SlTpCooldownEngine()
         self.vol_risk = VolatilityRiskEngine()
         self.live_atr = LiveAtrEstimator()
-        self.regime_layer = RegimeLayer()
         self.portfolio_heat = PortfolioHeatEngine()
         self.kill_switch = KillSwitchEngine()
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
         self.regime_engine = RegimeEngine()
+        # === REGIME CONFIG (единая точка управления) ===
+        self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
+
+        # параметры (можно потом вынести в config.py)
+        self.regime_min_atr_pct = float(os.getenv("REGIME_MIN_ATR_PCT", "0.001"))
+        self.regime_trend_mode = os.getenv("REGIME_TREND_MODE", "ema")  # ema / simple
+
+        # debug
+        LOG.info(
+            "REGIME INIT enabled=%s min_atr_pct=%.5f trend_mode=%s",
+            self.regime_enabled,
+            self.regime_min_atr_pct,
+            self.regime_trend_mode,
+        )
         self._regime_last_log_ts = 0.0
 
     def attach(self):
@@ -244,6 +251,15 @@ class PaperTradingPipeline:
                     f"PIPE_EXIT_V2 reason={exit_decision.reason} side={exit_decision.side} qty={exit_decision.qty}",
                     flush=True,
                 )
+                try:
+                    self.notifier.send(
+                        f"📉 EXIT\n"
+                        f"{sym}\n"
+                        f"{exit_decision.reason}\n"
+                        f"price={fill_price}"
+                    )
+                except Exception:
+                    pass
                 fill = self.paper.execute(exit_intent, st)
 
                 fill_price = float(getattr(fill, "price", 0.0) or 0.0)
@@ -342,53 +358,34 @@ class PaperTradingPipeline:
             print("PIPE_RISK_V2_COOLDOWN", flush=True)
             return
 
-        # === Regime Layer: block bad market regimes before new entry ===
-        if os.getenv("REGIME_ENABLE", "0") == "1":
-            regime_decision = self.regime_layer.evaluate(
-                atr=st.get("atr"),
-                price=st.get("last"),
-            )
+    # === STRATEGY CALL START ===
 
-            if not regime_decision.allowed:
-                now = time.time()
-                interval = float(os.getenv("REGIME_LOG_EVERY_SEC", "30"))
+        raw_intent = None
 
-                if now - self._regime_last_log_ts >= interval:
-                    print(
-                        f"PIPE_REGIME_BLOCK regime={regime_decision.regime} "
-                        f"reason={regime_decision.reason} "
-                        f"atr={regime_decision.atr} "
-                        f"slope={regime_decision.slope}",
-                        flush=True,
-                    )
-                    self._regime_last_log_ts = now
-                self.pg_logger.log_risk_event(
-                    symbol=sym,
-                    event="regime_block",
-                    decision=regime_decision.reason,
-                    payload={
-                        "regime": regime_decision.regime,
-                        "atr": regime_decision.atr,
-                        "slope": regime_decision.slope,
-                    },
-                )
-                return
+        # === STRATEGY CALL START ===
+        raw_intent = None
 
-            now = time.time()
-            interval = float(os.getenv("REGIME_LOG_EVERY_SEC", "30"))
+        # 1. если StrategyStack → используем generate
+        if hasattr(self.strategy, "generate"):
+            try:
+                raw_intent = self.strategy.generate(st, policy="first")
+            except TypeError:
+                # fallback если generate без policy
+                raw_intent = self.strategy.generate(st)
 
-            if now - self._regime_last_log_ts >= interval:
-                print(
-                    f"PIPE_REGIME_OK regime={regime_decision.regime} "
-                    f"atr={regime_decision.atr} "
-                    f"slope={regime_decision.slope}",
-                    flush=True,
-                )
-                self._regime_last_log_ts = now
+        # 2. fallback (старый контракт)
+        elif hasattr(self.strategy, "on_quote"):
+            raw_intent = self.strategy.on_quote(st)
 
-        # strategy -> SignalRouter -> normalized intent
-        raw_intent = self.strategy.on_quote(st)
-        # --- REGIME FILTER START ---
+        # если нет сигнала — выходим
+        if raw_intent is None:
+            return
+
+        # логируем только реальные сигналы
+        print("DEBUG raw_intent:", raw_intent, flush=True)
+        # === STRATEGY CALL END ===
+    # --- REGIME FILTER START ---
+
         features = {}
 
         # универсально достаём признаки, безопасно fallback к market state
@@ -415,6 +412,50 @@ class PaperTradingPipeline:
             return
 
         price = float(price)
+        # === FIX: гарантируем dict ===
+        if not isinstance(features, dict):
+            features = {}
+
+        # === FIX: fallback prev_price ===
+        prev_price = st.get("prev_price", price)
+
+        # === FIX: fallback ATR ===
+        if "atr" not in features:
+            features["atr"] = abs(price - prev_price) or price * 0.003
+
+        # === FIX: fallback trend ===
+        if "trend" not in features:
+            if price > prev_price:
+                features["trend"] = "up"
+            elif price < prev_price:
+                features["trend"] = "down"
+            else:
+                features["trend"] = "flat"
+
+        # сохранить для следующего тика
+        st["prev_price"] = price
+        # === FALLBACK FEATURES (если стратегия не дала) ===
+        if not isinstance(features, dict):
+            features = {}
+
+        # fallback ATR (если нет)
+        if "atr" not in features:
+            prev_price = st.get("prev_price", price)
+            features["atr"] = abs(price - prev_price) or price * 0.003
+
+        # fallback trend (если нет)
+        if "trend" not in features:
+            prev_price = st.get("prev_price", price)
+
+            if price > prev_price:
+                features["trend"] = "up"
+            elif price < prev_price:
+                features["trend"] = "down"
+            else:
+                features["trend"] = "flat"
+
+        # сохраняем prev_price для следующего тика
+        st["prev_price"] = price
 
         # --- TREND (EMA-based, устойчивый) ---
         ema_fast = st.get("ema_fast")
@@ -432,7 +473,9 @@ class PaperTradingPipeline:
 
             ema_fast = alpha_fast * last_price + (1 - alpha_fast) * prev_fast
             ema_slow = alpha_slow * last_price + (1 - alpha_slow) * prev_slow
-
+            regime = self.regime_engine.evaluate(price, features)
+            st["regime_trend"] = regime.trend
+            st["regime_vol"] = regime.volatility
             st["ema_fast"] = ema_fast
             st["ema_slow"] = ema_slow
 
@@ -447,7 +490,17 @@ class PaperTradingPipeline:
         else:
             features["trend"] = "flat"
 
-        regime = self.regime_engine.evaluate(price, features)
+        if not self.regime_enabled:
+            regime = SimpleNamespace(
+                trend="any",
+                volatility="any",
+                atr=features.get("atr"),
+                is_tradeable=lambda: True,
+            )
+        else:
+
+            features["regime_trend"] = regime.trend
+            features["regime_vol"] = regime.volatility
 
         if not regime.is_tradeable():
             print(
@@ -465,8 +518,16 @@ class PaperTradingPipeline:
                 raw_intent.features["atr"] = regime.atr
 
         # --- REGIME FILTER END ---
+        # inject regime into features
+        if isinstance(raw_intent, dict):
+            raw_intent.setdefault("features", {})["trend"] = regime.trend
+            raw_intent["features"]["volatility"] = regime.volatility
+        print("DEBUG before router:", raw_intent)
+        # Русский коммент: НЕ блокируем flat-режим здесь.
+        # Решение о торговле в боковике должно приниматься стратегией,
+        # а не пайплайном (иначе теряем сделки breakout/micro-impulse).
         routed_signal = self.signal_router.route(raw_intent)
-
+        print("DEBUG routed:", routed_signal)
         if not routed_signal.allowed:
             reason = str(routed_signal.reason).strip().lower() if routed_signal.reason is not None else "unknown"
 
@@ -569,47 +630,7 @@ class PaperTradingPipeline:
             payload={"intent": intent},
         )
 
-        # Русский коммент: Strategy FilterEngine стоит между Strategy и Risk.
-        if self.filter_engine is not None:
-            if callable(self.filter_context_builder):
-                filter_context = self.filter_context_builder(intent, st, self.portfolio)
-            elif FilterContext is not None:
-                filter_context = FilterContext(
-                    range_atr=feat.get("range_atr") if isinstance(feat, dict) else None,
-                    ema=feat.get("ema") if isinstance(feat, dict) else None,
-                )
-            else:
-                filter_context = None
-
-            if filter_context is not None and hasattr(self.filter_engine, "allow"):
-                filter_i = int(feat.get("i", 0)) if isinstance(feat, dict) else 0
-                filter_decision = self.filter_engine.allow(filter_i, filter_context)
-                LOG.info("FILTER decision=%s", filter_decision)
-                if not getattr(filter_decision, "allowed", False):
-                    LOG.warning(
-                        "FILTER REJECT reason=%s details=%s",
-                        getattr(filter_decision, "reason", None),
-                        getattr(filter_decision, "details", None),
-                    )
-                    self.pg_logger.log_signal(
-                        symbol=intent.get("symbol"),
-                        strategy=getattr(self.strategy, "__class__", type(self.strategy)).__name__,
-                        side=intent.get("side"),
-                        qty=intent.get("qty"),
-                        status="filter_rejected",
-                        payload={
-                            "intent": intent,
-                            "reason": getattr(filter_decision, "reason", None),
-                            "details": getattr(filter_decision, "details", None),
-                        },
-                    )
-                    self.pg_logger.log_risk_event(
-                        symbol=intent.get("symbol"),
-                        event="filter_reject",
-                        decision=str(getattr(filter_decision, "reason", None)),
-                        payload={"details": getattr(filter_decision, "details", None), "intent": intent},
-                    )
-                    return
+        # risk
 
         # risk
         if os.getenv("RISK_SOFT") == "1":
@@ -918,6 +939,27 @@ class PaperTradingPipeline:
         fill_event = {"type": "FILL", "fill": exec_fill, "origin": "paper"}
         self.bus.publish(fill_event)
 
+    def generate(self, state, regime=None):
+
+        if regime is None:
+            return None
+
+        # ✔ Правильная логика: используем только regime.tradable
+        if not regime.tradable:
+            print(
+                f"PIPE_SIGNAL_REJECT reason=regime_filter trend={regime.trend} vol={regime.volatility}",
+                flush=True,
+            )
+            return
+
+        # 🚫 не торгуем низкую волу
+        if regime.volatility == "low":
+            return None
+
+        # ✔ breakout только в тренде
+        if regime.trend in ("up", "down"):
+            return self._breakout_logic(state)
+
     def _on_fill(self, event: dict):
         """
         Русский коммент: единая точка применения исполнений.
@@ -973,6 +1015,15 @@ class PaperTradingPipeline:
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
         )
+        try:
+            self.notifier.send(
+                f"📈 ENTRY\n"
+                f"{intent.get('symbol')}\n"
+                f"{intent.get('side')} qty={intent.get('qty')}\n"
+                f"price={fill_price}"
+            )
+        except Exception:
+            pass
         LOG.info("FILLED paper %s qty=%s price=%s id=%s",
                  getattr(fill, "symbol", None),
                  getattr(fill, "qty", None),

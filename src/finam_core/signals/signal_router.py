@@ -52,7 +52,8 @@ class SignalRouter:
             price = intent.get("price") or intent.get("last") or intent.get("last_price")
             if price is None:
                 return RoutedSignal(False, "no_price", None)
-
+            import inspect
+            print("DEBUG FILE:", inspect.getfile(self.__class__))
             price = float(price)
             side = str(intent["side"]).upper()
 
@@ -105,15 +106,14 @@ class SignalRouter:
         atr = intent.features.get("atr", 0)
         entry = intent.features.get("entry", 0)
 
+        trend = intent.features.get("trend")
+
+        # блокируем breakout в боковике
+        if trend == "flat":
+            return RoutedSignal(False, "flat_regime_block", intent)
         # защита от деления на ноль и мусора
         if entry > 0 and atr < entry * 0.003:
             return RoutedSignal(False, "low_volatility", intent)
-        # 🔹 фильтр тренда (если стратегия передаёт, с fallback)
-        trend = intent.features.get("trend")
-
-        # Русский коммент: если тренд не передан или явно flat — не торгуем
-        if trend is None or trend == "flat":
-            return RoutedSignal(False, "no_trend", intent)
         # 🔹 антидубли
         key = f"{intent.symbol}:{intent.side.upper()}:{intent.reason}"
         now = time.time()

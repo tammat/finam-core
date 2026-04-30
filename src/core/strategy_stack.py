@@ -14,16 +14,30 @@ class StrategyStack:
         if strategy is not None:
             self._strategies.append(strategy)
 
-    def generate(self, market_data: Any) -> List[Any]:
-        """
-        Returns a list of raw signals from all strategies.
-        """
-        signals: List[Any] = []
+    def generate(self, market_data: Any, policy: str = "first"):
+        signals = []
 
         for strategy in self._strategies:
-            if hasattr(strategy, "generate_signal"):
-                signal = strategy.generate_signal(market_data)
+            try:
+                if hasattr(strategy, "on_quote"):
+                    signal = strategy.on_quote(market_data)
+                elif hasattr(strategy, "generate"):
+                    signal = strategy.generate(market_data)
+                else:
+                    continue
+
                 if signal:
                     signals.append(signal)
 
-        return signals
+            except Exception as e:
+                print(f"[StrategyStack] {strategy.__class__.__name__} failed: {e}")
+
+        if not signals:
+            return None
+
+        # === ВЫБОР ===
+        if policy == "all":
+            return signals
+
+        # default = first
+        return signals[0]
