@@ -80,7 +80,8 @@ class SimFeed:
             price = 100.0
 
             while self._running:
-                price += random.uniform(-0.2, 0.2)
+                prev_price = price
+                price += random.uniform(-0.5, 0.5)
 
                 # создаём простой event
                 event = {
@@ -89,7 +90,20 @@ class SimFeed:
                     "last": price,
                     "price": price,
                     "timestamp": time.time(),
-                    "features": {},
+                    "features": {
+                        # 🔹 реальный тренд
+                        "trend": (
+                            "up" if price > prev_price
+                            else "down" if price < prev_price
+                            else "flat"
+                        ),
+
+                        # 🔹 реальный ATR (упрощённый)
+                        "atr": abs(price - prev_price) or price * 0.003,
+
+                        # 🔹 точка входа
+                        "entry": price
+                    },
                 }
                 if self.event_bus:
                     self.event_bus.publish(event)

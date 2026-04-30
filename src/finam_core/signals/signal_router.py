@@ -101,6 +101,19 @@ class SignalRouter:
         rr = intent.features.get("rr", 0)
         if rr < 1.5:
             return RoutedSignal(False, "low_rr", intent)
+        # 🔹 фильтр волатильности (убираем шум)
+        atr = intent.features.get("atr", 0)
+        entry = intent.features.get("entry", 0)
+
+        # защита от деления на ноль и мусора
+        if entry > 0 and atr < entry * 0.003:
+            return RoutedSignal(False, "low_volatility", intent)
+        # 🔹 фильтр тренда (если стратегия передаёт, с fallback)
+        trend = intent.features.get("trend")
+
+        # Русский коммент: если тренд не передан или явно flat — не торгуем
+        if trend is None or trend == "flat":
+            return RoutedSignal(False, "no_trend", intent)
         # 🔹 антидубли
         key = f"{intent.symbol}:{intent.side.upper()}:{intent.reason}"
         now = time.time()
