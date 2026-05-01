@@ -421,10 +421,10 @@ class PaperTradingPipeline:
         # =========================================================
         if not regime.is_tradeable():
             print(
-                f"PIPE_REGIME_WARN trend={regime.trend} vol={regime.volatility}",
+                f"PIPE_REGIME_BLOCK trend={regime.trend} vol={regime.volatility}",
                 flush=True,
             )
-            # НЕ БЛОКИРУЕМ
+            return
         # =========================================================
         # === ROUTER
         # =========================================================
@@ -454,36 +454,60 @@ class PaperTradingPipeline:
                 routed.allowed = True
             except Exception:
                 pass
-            try:
-                if hasattr(routed.intent, "qty"):
-                    routed.intent.qty = min(float(routed.intent.qty or 0.0), 1.0)
-            except Exception:
-                pass
+
 
         # =========================================================
-        # === POSITION GUARD (strict, no stacking)
+        # === SIGNAL VALIDATION (FIRST!)
         # =========================================================
-        pos = self.pm.positions.get(sym)
-        override = os.getenv("OVERRIDE_MODE", "0") == "1"
-
-        if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
-            if not override:
-                print(
-                    f"PIPE_POSITION_BLOCK symbol={sym} qty={getattr(pos, 'qty', None)}",
-                    flush=True
-                )
-                return
-            else:
-                print("PIPE_POSITION_OVERRIDE_ALLOW", flush=True)
-
-        # === SIGNAL VALIDATION ===
         if not routed.allowed:
-            print(f"PIPE_SIGNAL_REJECT reason={routed.reason}", flush=True)
+            # suppress noisy duplicate logs
+            if routed.reason != "duplicate_signal":
+                print(f"PIPE_SIGNAL_REJECT reason={routed.reason}", flush=True)
             return
 
         intent = routed.intent.to_dict()
 
-        # === ANTI-SPAM / COOLDOWN (apply ONLY before execution) ===
+        # =========================================================
+        # === SIGNAL DEDUP (ANTI-DUPLICATE CORE FIX, WITH TTL)
+        # =========================================================
+        try:
+            symbol = intent.get("symbol")
+            side = intent.get("side")
+            price = round(float(intent.get("price", 0.0)), 3)
+
+            signal_key = f"{symbol}:{side}:{price}"
+            now_ts = time.time()
+
+            last_key = getattr(self, "_last_signal_key", None)
+            last_ts = getattr(self, "_last_signal_ts", 0.0)
+
+            dedup_ttl = float(os.getenv("SIGNAL_DEDUP_TTL", "2"))
+
+            if last_key == signal_key and (now_ts - last_ts) < dedup_ttl:
+                # duplicate suppressed silently (cooldown will handle)
+                return
+
+            self._last_signal_key = signal_key
+            self._last_signal_ts = now_ts
+
+        except Exception as e:
+            print(f"PIPE_SIGNAL_KEY_ERROR {e}", flush=True)
+
+        # =========================================================
+        # === POSITION GUARD (STRICT, NO STACKING)
+        # =========================================================
+        pos = self.pm.positions.get(sym)
+
+        if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
+            print(
+                f"PIPE_POSITION_BLOCK symbol={sym} qty={getattr(pos, 'qty', None)}",
+                flush=True
+            )
+            return
+
+        # =========================================================
+        # === COOLDOWN (LAST FILTER BEFORE EXECUTION)
+        # =========================================================
         now_ts = time.time()
         last_ts = getattr(self, "_last_trade_ts", 0.0)
         cooldown_sec = float(os.getenv("TRADE_COOLDOWN_SEC", "5"))
@@ -493,8 +517,6 @@ class PaperTradingPipeline:
             return
 
         self._last_trade_ts = now_ts
-
-
         # =========================================================
         # === RISK
         # =========================================================
