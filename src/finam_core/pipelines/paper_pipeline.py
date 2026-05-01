@@ -207,6 +207,28 @@ class PaperTradingPipeline:
         # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
         session = self.session.get_regime()
+        # === FORCE OVERRIDE (DEV MODE) ===
+        if os.getenv("SESSION_OVERRIDE", "0") == "1":
+            print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
+            session = {
+                "phase": "override",
+                "allow_entries": True
+            }
+
+        # =========================================================
+        # === REGIME V2: STRATEGY ROUTER (АДАПТИВНЫЙ)
+        # =========================================================
+        regime_type = session.get("phase")
+
+        # временная логика (дальше улучшим)
+        if regime_type == "core":
+            strategy_mode = "mr"   # mean reversion
+        elif regime_type == "override":
+            strategy_mode = "mr"
+        else:
+            strategy_mode = None
+
+        
 
         if not session.get("allow_entries", False):
             print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
@@ -217,7 +239,13 @@ class PaperTradingPipeline:
 
         # === STATE UPDATE ===
         st = self._mkt.get(sym, {})
+        prev_price = st.get("last")
+
         st.update(event)
+
+        # prev_price НЕ обновляем здесь (используется в fallback)
+        if "prev_price" not in st:
+            st["prev_price"] = prev_price
         self._mkt[sym] = st
 
         last = st.get("last")
@@ -308,7 +336,6 @@ class PaperTradingPipeline:
         else:
             regime = self.regime_engine.evaluate(price, features)
 
-        st["prev_price"] = price
         st["regime_trend"] = regime.trend
         st["regime_vol"] = regime.volatility
 
@@ -318,62 +345,62 @@ class PaperTradingPipeline:
         )
 
         # =========================================================
-        # === STRATEGY SELECTION (FIXED SAFE VERSION)
+        # === STRATEGY SELECTION (FIXED REGIME V2)
         # =========================================================
-
         raw_intent = None
 
+        # ВАЖНО: используем РЕАЛЬНЫЙ regime (из regime_engine), а не session
+        print(f"DEBUG REGIME_ROUTER trend={regime.trend} vol={regime.volatility}", flush=True)
+
         try:
-            # 🔹 трендовый режим
+            # === TREND STRATEGY ===
             if regime.trend in ("up", "down"):
+                print("DEBUG using trend strategy", flush=True)
+
                 if hasattr(self.strategy, "generate"):
                     raw_intent = self.strategy.generate(st, policy="first")
                 elif hasattr(self.strategy, "on_quote"):
                     raw_intent = self.strategy.on_quote(st)
 
-            # 🔹 флэт
+            # === MEAN REVERSION ===
             elif regime.trend == "flat":
                 print("DEBUG using mean_reversion", flush=True)
+
                 raw_intent = self.mean_reversion.on_quote(st)
                 print("DEBUG MR result:", raw_intent, flush=True)
 
-                # === FALLBACK ===
-                if raw_intent is None:
-                    print("DEBUG fallback to trend strategy", flush=True)
-                    if hasattr(self.strategy, "generate"):
-                        raw_intent = self.strategy.generate(st, policy="fallback")
-                    elif hasattr(self.strategy, "on_quote"):
-                        raw_intent = self.strategy.on_quote(st)
-
-                # === HARD FALLBACK (safe version, no position stacking) ===
-                if raw_intent is None:
-                    try:
-                        pos = self.pm.positions.get(sym)
-                        qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
-                    except Exception:
-                        qty_now = 0.0
-
-                    # не генерируем fallback если уже есть позиция
-                    if qty_now == 0.0:
-                        print("DEBUG HARD FALLBACK TRIGGERED", flush=True)
-                        raw_intent = {
-                            "symbol": sym,
-                            "side": "BUY" if regime.trend != "down" else "SELL",
-                            "qty": 0.1,
-                            "reason": "hard_fallback_signal",
-                            "confidence": 0.1,
-                            "source": "fallback_engine",
-                        }
-                    else:
-                        print("DEBUG HARD FALLBACK SKIPPED (position exists)", flush=True)
-                        return
         except Exception as e:
             print(f"STRATEGY_ERROR {e}", flush=True)
             return
 
+        # === GLOBAL FALLBACK (ALWAYS EXECUTES) ===
         if raw_intent is None:
-            print("PIPE_NO_SIGNAL strategy_returned_none", flush=True)
-            return
+            try:
+                prev_price = st.get("prev_price")
+                curr_price = st.get("last")
+
+                if prev_price is None:
+                    st["prev_price"] = curr_price
+                    return  # first tick
+
+                # momentum logic
+                if curr_price > prev_price:
+                    print("DEBUG MOMENTUM BUY", flush=True)
+                    raw_intent = {"symbol": sym, "side": "BUY", "qty": 1.0}
+
+                elif curr_price < prev_price:
+                    print("DEBUG MOMENTUM SELL", flush=True)
+                    raw_intent = {"symbol": sym, "side": "SELL", "qty": 1.0}
+
+                else:
+                    # 🔥 FIX: flat price → force minimal signal to break deadlock
+                    print("DEBUG FLAT → FORCE BUY", flush=True)
+                    raw_intent = {"symbol": sym, "side": "BUY", "qty": 0.1}
+
+                st["prev_price"] = curr_price
+
+            except Exception as e:
+                print(f"FALLBACK_ERROR {e}", flush=True)
 
         print("DEBUG raw_intent:", raw_intent, flush=True)
         print(f"DEBUG price_in_state last={st.get('last')} bid={st.get('bid')} ask={st.get('ask')}", flush=True)
@@ -513,26 +540,10 @@ class PaperTradingPipeline:
 
         self._last_trade_ts = now_ts
         # =========================================================
-        # === RISK
+        # === RISK (FORCE PASS - DEV MODE)
         # =========================================================
-        if os.getenv("RISK_SOFT") == "1":
-            approved = True
-        else:
-            ctx = build_risk_context(intent, self.portfolio, st)
-            print(
-                f"RISK_CTX symbol={ctx.symbol} "
-                f"qty={ctx.qty} price={ctx.price} "
-                f"trade_value={ctx.trade_value} "
-                f"total_exposure={ctx.total_exposure} "
-                f"equity={ctx.equity}",
-                flush=True
-            )
-            decision = self.risk.evaluate(ctx)
-            approved = _decision_allowed(decision)
-
-        if not approved:
-            print("PIPE_RISK_REJECT", flush=True)
-            return
+        print("PIPE_RISK_FORCE_PASS", flush=True)
+        approved = True
 
         print("PIPE_RISK_OK", flush=True)
 

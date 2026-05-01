@@ -87,6 +87,7 @@ class SessionManager:
                 "phase": "core",
                 "allow_entries": True,
                 "allow_exits": True,
+                "market_open": True,
                 "reason": "sim_or_debug",
             }
 
