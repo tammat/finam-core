@@ -141,6 +141,9 @@ class PaperTradingPipeline:
 
     def __init__(self, bus, portfolio, position_manager, risk, paper, strategy, done=None, filter_engine=None, filter_context_builder=None):
         from finam_core.strategy.mean_reversion import MeanReversionStrategy
+        from finam_core.session.session_manager import SessionManager
+
+        self.session = SessionManager()
         self.mean_reversion = MeanReversionStrategy()
 
         self.bus = bus
@@ -200,6 +203,22 @@ class PaperTradingPipeline:
         self.bus.subscribe("QUOTE", self._on_quote)
 
     def _on_quote(self, event: dict):
+        # =========================================================
+        # === SESSION LAYER (ПЕРВЫЙ ФИЛЬТР)
+        # =========================================================
+        session_state = self.session.get_state()
+
+        if not session_state["market_open"]:
+            print("PIPE_SESSION_CLOSED", flush=True)
+            return
+
+        if session_state["warmup"]:
+            print("PIPE_SESSION_WARMUP", flush=True)
+            return
+
+        if not session_state["trading_allowed"]:
+            print("PIPE_SESSION_BLOCK", flush=True)
+            return
         sym = event.get("symbol")
         if not sym:
             return
@@ -322,17 +341,50 @@ class PaperTradingPipeline:
 
             # 🔹 флэт
             elif regime.trend == "flat":
-                if hasattr(self.mean_reversion, "on_quote"):
-                    raw_intent = self.mean_reversion.on_quote(st)
+                print("DEBUG using mean_reversion", flush=True)
+                raw_intent = self.mean_reversion.on_quote(st)
+                print("DEBUG MR result:", raw_intent, flush=True)
 
+                # === FALLBACK ===
+                if raw_intent is None:
+                    print("DEBUG fallback to trend strategy", flush=True)
+                    if hasattr(self.strategy, "generate"):
+                        raw_intent = self.strategy.generate(st, policy="fallback")
+                    elif hasattr(self.strategy, "on_quote"):
+                        raw_intent = self.strategy.on_quote(st)
+
+                # === HARD FALLBACK (safe version, no position stacking) ===
+                if raw_intent is None:
+                    try:
+                        pos = self.pm.positions.get(sym)
+                        qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
+                    except Exception:
+                        qty_now = 0.0
+
+                    # не генерируем fallback если уже есть позиция
+                    if qty_now == 0.0:
+                        print("DEBUG HARD FALLBACK TRIGGERED", flush=True)
+                        raw_intent = {
+                            "symbol": sym,
+                            "side": "BUY" if regime.trend != "down" else "SELL",
+                            "qty": 0.1,
+                            "reason": "hard_fallback_signal",
+                            "confidence": 0.1,
+                            "source": "fallback_engine",
+                        }
+                    else:
+                        print("DEBUG HARD FALLBACK SKIPPED (position exists)", flush=True)
+                        return
         except Exception as e:
             print(f"STRATEGY_ERROR {e}", flush=True)
             return
 
         if raw_intent is None:
+            print("PIPE_NO_SIGNAL strategy_returned_none", flush=True)
             return
 
         print("DEBUG raw_intent:", raw_intent, flush=True)
+        print(f"DEBUG price_in_state last={st.get('last')} bid={st.get('bid')} ask={st.get('ask')}", flush=True)
         # === ENSURE PRICE IN INTENT (FIX no_price) ===
         try:
             if isinstance(raw_intent, dict):
@@ -380,20 +432,68 @@ class PaperTradingPipeline:
 
         print("DEBUG routed:", routed)
 
+        # =========================================================
+        # === SESSION FILTER (POST-ROUTER HARD GATE)
+        # =========================================================
+        try:
+            session_state = self.session.get_state()
+            if not session_state.get("trading_allowed", True):
+                print("PIPE_SESSION_BLOCK_AFTER_ROUTER", flush=True)
+                return
+        except Exception as e:
+            print(f"PIPE_SESSION_ERROR {e}", flush=True)
+
+        # =========================================================
+        # === OVERRIDE LAYER
+        # =========================================================
+        override = os.getenv("OVERRIDE_MODE", "0") == "1"
+
+        if override:
+            print("PIPE_OVERRIDE_ACTIVE", flush=True)
+            try:
+                routed.allowed = True
+            except Exception:
+                pass
+            try:
+                if hasattr(routed.intent, "qty"):
+                    routed.intent.qty = min(float(routed.intent.qty or 0.0), 1.0)
+            except Exception:
+                pass
+
+        # =========================================================
+        # === POSITION GUARD (strict, no stacking)
+        # =========================================================
+        pos = self.pm.positions.get(sym)
+        override = os.getenv("OVERRIDE_MODE", "0") == "1"
+
+        if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
+            if not override:
+                print(
+                    f"PIPE_POSITION_BLOCK symbol={sym} qty={getattr(pos, 'qty', None)}",
+                    flush=True
+                )
+                return
+            else:
+                print("PIPE_POSITION_OVERRIDE_ALLOW", flush=True)
+
+        # === SIGNAL VALIDATION ===
         if not routed.allowed:
             print(f"PIPE_SIGNAL_REJECT reason={routed.reason}", flush=True)
             return
 
         intent = routed.intent.to_dict()
 
-        # =========================================================
-        # === POSITION GUARD
-        # =========================================================
-        pos = self.pm.positions.get(sym)
-        if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
-            print("PIPE_POSITION_BLOCK", flush=True)
+        # === ANTI-SPAM / COOLDOWN (apply ONLY before execution) ===
+        now_ts = time.time()
+        last_ts = getattr(self, "_last_trade_ts", 0.0)
+        cooldown_sec = float(os.getenv("TRADE_COOLDOWN_SEC", "5"))
+
+        if now_ts - last_ts < cooldown_sec:
+            print("PIPE_COOLDOWN_BLOCK", flush=True)
             return
-        # НЕ блокируем — даём риск-движку решать
+
+        self._last_trade_ts = now_ts
+
 
         # =========================================================
         # === RISK
