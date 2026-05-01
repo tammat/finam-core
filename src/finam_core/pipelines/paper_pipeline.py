@@ -204,20 +204,12 @@ class PaperTradingPipeline:
 
     def _on_quote(self, event: dict):
         # =========================================================
-        # === SESSION LAYER (ПЕРВЫЙ ФИЛЬТР)
+        # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
-        session_state = self.session.get_state()
+        session = self.session.get_regime()
 
-        if not session_state["market_open"]:
-            print("PIPE_SESSION_CLOSED", flush=True)
-            return
-
-        if session_state["warmup"]:
-            print("PIPE_SESSION_WARMUP", flush=True)
-            return
-
-        if not session_state["trading_allowed"]:
-            print("PIPE_SESSION_BLOCK", flush=True)
+        if not session.get("allow_entries", False):
+            print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
             return
         sym = event.get("symbol")
         if not sym:
@@ -433,15 +425,18 @@ class PaperTradingPipeline:
         print("DEBUG routed:", routed)
 
         # =========================================================
-        # === SESSION FILTER (POST-ROUTER HARD GATE)
+        # === SESSION FILTER (ЕДИНЫЙ ИСТОЧНИК, POST-ROUTER)
         # =========================================================
         try:
-            session_state = self.session.get_state()
-            if not session_state.get("trading_allowed", True):
-                print("PIPE_SESSION_BLOCK_AFTER_ROUTER", flush=True)
+            session = self.session.get_regime()
+
+            if not session.get("allow_entries", False):
+                print(f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}", flush=True)
                 return
+
         except Exception as e:
             print(f"PIPE_SESSION_ERROR {e}", flush=True)
+            return
 
         # =========================================================
         # === OVERRIDE LAYER
@@ -524,6 +519,14 @@ class PaperTradingPipeline:
             approved = True
         else:
             ctx = build_risk_context(intent, self.portfolio, st)
+            print(
+                f"RISK_CTX symbol={ctx.symbol} "
+                f"qty={ctx.qty} price={ctx.price} "
+                f"trade_value={ctx.trade_value} "
+                f"total_exposure={ctx.total_exposure} "
+                f"equity={ctx.equity}",
+                flush=True
+            )
             decision = self.risk.evaluate(ctx)
             approved = _decision_allowed(decision)
 
