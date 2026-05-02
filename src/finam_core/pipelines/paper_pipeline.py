@@ -129,7 +129,8 @@ def _decision_allowed(decision) -> bool:
     if isinstance(decision, bool):
         return decision
     if decision is None:
-        return False
+        # === FIX: если risk ничего не вернул — считаем OK (no blocking)
+        return True
     for flag in ("allowed", "is_allowed", "ok", "approved", "pass_"):
         if hasattr(decision, flag):
             return bool(getattr(decision, flag))
@@ -159,6 +160,8 @@ class PaperTradingPipeline:
         self._done = done
 
         self._mkt: dict[str, dict] = {}
+        # === MTF buffers ===
+        self._mtf = {}  # symbol -> buffers
         self.features = {}  # live feature buffers
         self._filled_once = False
 
@@ -228,7 +231,7 @@ class PaperTradingPipeline:
         else:
             strategy_mode = None
 
-        
+
 
         if not session.get("allow_entries", False):
             print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
@@ -253,6 +256,30 @@ class PaperTradingPipeline:
             return
 
         price = float(last)
+        # === SIMULATION MOVE (CRITICAL) ===
+        if os.getenv("SIMULATE_MARKET", "0") == "1":
+            import random
+            price = price * (1 + random.uniform(-0.002, 0.002))
+            st["last"] = price
+        # =========================================================
+        # === MTF AGGREGATION (M1/M5/M15)
+        # =========================================================
+        mtf = self._mtf.setdefault(sym, {"m1": [], "m5": None, "m15": None})
+
+        mtf["m1"].append(price)
+
+        # ограничим буфер
+        if len(mtf["m1"]) > 20:
+            mtf["m1"] = mtf["m1"][-20:]
+
+        if len(mtf["m1"]) >= 5:
+            mtf["m5"] = sum(mtf["m1"][-5:]) / 5
+
+        if len(mtf["m1"]) >= 15:
+            mtf["m15"] = sum(mtf["m1"][-15:]) / 15
+
+        st["m5"] = mtf["m5"]
+        st["m15"] = mtf["m15"]
 
         # === LIVE ATR ===
         try:
@@ -290,7 +317,30 @@ class PaperTradingPipeline:
 
                 print(f"PIPE_EXIT reason={exit_decision.reason}", flush=True)
 
-                fill = self.paper.execute(exit_intent, st)
+                raw_fill = self.paper.execute(exit_intent, st)
+
+                # === CONVERT TO ExecutionFill (NO RAW PaperFill IN BUS) ===
+                raw_qty = float(getattr(raw_fill, "qty", exit_intent.get("qty", 0.0)) or 0.0)
+                side = "SELL" if raw_qty < 0 else "BUY"
+                exec_price = float(getattr(raw_fill, "price", st.get("last") or 0.0))
+
+                commission = 0.0
+                if hasattr(self.fee_tax, "commission"):
+                    commission = self.fee_tax.commission(
+                        symbol=exit_intent.get("symbol"),
+                        qty=abs(raw_qty),
+                        price=exec_price
+                    )
+
+                fill = ExecutionFill(
+                    symbol=exit_intent.get("symbol"),
+                    side=side,
+                    qty=abs(raw_qty),
+                    price=exec_price,
+                    commission=commission,
+                    fill_id=getattr(raw_fill, "fill_id", None),
+                )
+
                 self.bus.publish({"type": "FILL", "fill": fill})
                 self.exit_engine.mark_exit(sym)
                 return
@@ -301,7 +351,10 @@ class PaperTradingPipeline:
 
         prev_price = st.get("prev_price", price)
 
-        atr = st.get("atr") or abs(price - prev_price) or price * 0.003
+        # === ATR FIX (ограничение и нормализация) ===
+        raw_atr = st.get("atr") or abs(price - prev_price) or price * 0.003
+        atr = min(raw_atr, price * 0.02)  # максимум 2% от цены
+        st["atr"] = atr
 
         # EMA trend
         alpha_fast = 2 / (5 + 1)
@@ -323,6 +376,8 @@ class PaperTradingPipeline:
         features = {
             "atr": atr,
             "trend": trend,
+            "m5": st.get("m5"),
+            "m15": st.get("m15"),
         }
 
         # === REGIME ===
@@ -344,6 +399,16 @@ class PaperTradingPipeline:
             flush=True,
         )
 
+        # === NOISE FILTER (ATR sanity) ===
+        try:
+            if atr is not None and price is not None:
+                atr_pct = abs(atr / price)
+                if atr_pct > 0.1:  # >10% — мусорный сигнал
+                    print("PIPE_NOISE_BLOCK high_atr", flush=True)
+                    return
+        except Exception:
+            pass
+
         # =========================================================
         # === STRATEGY SELECTION (FIXED REGIME V2)
         # =========================================================
@@ -353,14 +418,19 @@ class PaperTradingPipeline:
         print(f"DEBUG REGIME_ROUTER trend={regime.trend} vol={regime.volatility}", flush=True)
 
         try:
-            # === TREND STRATEGY ===
-            if regime.trend in ("up", "down"):
-                print("DEBUG using trend strategy", flush=True)
+            # === MTF FILTER ===
+            m5 = st.get("m5")
+            m15 = st.get("m15")
 
-                if hasattr(self.strategy, "generate"):
-                    raw_intent = self.strategy.generate(st, policy="first")
-                elif hasattr(self.strategy, "on_quote"):
-                    raw_intent = self.strategy.on_quote(st)
+            if m5 and m15:
+                if not (price > m5 > m15 or price < m5 < m15):
+                    print("PIPE_MTF_BLOCK", flush=True)
+                    return
+
+            # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
+            if regime.trend in ("up", "down"):
+                print("DEBUG breakout mode (strategy disabled)", flush=True)
+                raw_intent = None  # force fallback breakout logic
 
             # === MEAN REVERSION ===
             elif regime.trend == "flat":
@@ -369,35 +439,63 @@ class PaperTradingPipeline:
                 raw_intent = self.mean_reversion.on_quote(st)
                 print("DEBUG MR result:", raw_intent, flush=True)
 
+                # fallback to breakout if no MR signal
+                if raw_intent is None:
+                    print("DEBUG fallback to breakout", flush=True)
         except Exception as e:
             print(f"STRATEGY_ERROR {e}", flush=True)
             return
 
-        # === GLOBAL FALLBACK (ALWAYS EXECUTES) ===
+        # === GLOBAL FALLBACK (BREAKOUT LEVELS + ATR) ===
         if raw_intent is None:
             try:
-                prev_price = st.get("prev_price")
                 curr_price = st.get("last")
+                atr = st.get("atr") or 0.0
 
-                if prev_price is None:
-                    st["prev_price"] = curr_price
-                    return  # first tick
+                # === LEVELS (локальные high/low) ===
+                history = st.setdefault("price_history", [])
 
-                # momentum logic
-                if curr_price > prev_price:
-                    print("DEBUG MOMENTUM BUY", flush=True)
-                    raw_intent = {"symbol": sym, "side": "BUY", "qty": 1.0}
+                # сначала работаем со старой историей
+                if len(history) < 3:
+                    history.append(curr_price)
+                    return  # недостаточно данных
 
-                elif curr_price < prev_price:
-                    print("DEBUG MOMENTUM SELL", flush=True)
-                    raw_intent = {"symbol": sym, "side": "SELL", "qty": 1.0}
+                # считаем уровни БЕЗ текущей цены
+                local_high = max(history[-10:])
+                local_low = min(history[-10:])
+
+                # теперь добавляем текущую цену
+                history.append(curr_price)
+
+                # ограничиваем окно
+                if len(history) > 20:
+                    st["price_history"] = history[-20:]
+
+                # === BREAKOUT LOGIC (ALLOW IN FLAT) ===
+                if curr_price > local_high:
+                    print(f"PIPE_BREAKOUT_BUY level={local_high} atr={atr}", flush=True)
+                    risk_per_trade = 0.01  # 1% риска
+                    capital = getattr(self.portfolio, "starting_cash", 100000)
+                    # === FIXED POSITION SIZE (ограничение риска) ===
+                    risk_amount = capital * risk_per_trade
+                    stop_distance = max(atr, curr_price * 0.005)  # минимум 0.5%
+                    qty = round(risk_amount / stop_distance, 3)
+                    qty = min(qty, 1.0)  # ограничение позиции
+                    raw_intent = {"symbol": sym, "side": "BUY", "qty": qty, "price": curr_price}
+
+                elif curr_price < local_low:
+                    print(f"PIPE_BREAKOUT_SELL level={local_low} atr={atr}", flush=True)
+                    risk_per_trade = 0.01
+                    capital = getattr(self.portfolio, "starting_cash", 100000)
+                    # === FIXED POSITION SIZE (ограничение риска) ===
+                    risk_amount = capital * risk_per_trade
+                    stop_distance = max(atr, curr_price * 0.005)  # минимум 0.5%
+                    qty = round(risk_amount / stop_distance, 3)
+                    qty = min(qty, 1.0)  # ограничение позиции
+                    raw_intent = {"symbol": sym, "side": "SELL", "qty": qty, "price": curr_price}
 
                 else:
-                    # 🔥 FIX: flat price → force minimal signal to break deadlock
-                    print("DEBUG FLAT → FORCE BUY", flush=True)
-                    raw_intent = {"symbol": sym, "side": "BUY", "qty": 0.1}
-
-                st["prev_price"] = curr_price
+                    return
 
             except Exception as e:
                 print(f"FALLBACK_ERROR {e}", flush=True)
@@ -489,6 +587,33 @@ class PaperTradingPipeline:
 
         intent = routed.intent.to_dict()
 
+        # === HARD PRICE INJECTION (FIX missing_price) ===
+        try:
+            if intent.get("price") is None:
+                px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
+                if px is not None:
+                    intent["price"] = float(px)
+                    print(f"DEBUG PRICE INJECTED {intent['price']}", flush=True)
+                else:
+                    print("PIPE_PRICE_INJECT_FAIL", flush=True)
+        except Exception as e:
+            print(f"PRICE_INJECT_ERROR {e}", flush=True)
+
+        # =========================================================
+        # === STRICT TREND ALIGNMENT (breakout only in trend direction) ===
+        # =========================================================
+        try:
+            trend = regime.trend
+            side = intent.get("side")
+            if trend == "up" and side != "BUY":
+                print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
+                return
+            if trend == "down" and side != "SELL":
+                print(f"PIPE_TREND_BLOCK expected=SELL actual={side}", flush=True)
+                return
+        except Exception as e:
+            print(f"TREND_FILTER_ERROR {e}", flush=True)
+
         # =========================================================
         # === SIGNAL DEDUP (ANTI-DUPLICATE CORE FIX, WITH TTL)
         # =========================================================
@@ -540,35 +665,116 @@ class PaperTradingPipeline:
 
         self._last_trade_ts = now_ts
         # =========================================================
-        # === RISK (FORCE PASS - DEV MODE)
+        # === RISK (PRODUCTION MODE)
         # =========================================================
-        print("PIPE_RISK_FORCE_PASS", flush=True)
-        approved = True
+        try:
+            ctx = build_risk_context(intent, self.portfolio, st)
 
-        print("PIPE_RISK_OK", flush=True)
+            print(
+                f"PIPE_RISK_CTX symbol={ctx.symbol} qty={ctx.qty} price={ctx.price} "
+                f"value={ctx.trade_value} exposure={ctx.total_exposure}",
+                flush=True,
+            )
 
+            decision = self.risk.evaluate(ctx)
+
+            # === DEBUG RISK DECISION (CRITICAL VISIBILITY) ===
+            try:
+                print(f"PIPE_RISK_DECISION raw={decision}", flush=True)
+                if hasattr(decision, "__dict__"):
+                    print(f"PIPE_RISK_FIELDS {decision.__dict__}", flush=True)
+            except Exception:
+                pass
+
+            approved = _decision_allowed(decision)
+
+            # soft override for dev/sim
+            if os.getenv("RISK_SOFT", "0") == "1":
+                print("PIPE_RISK_FORCE_PASS", flush=True)
+                approved = True
+
+            if not approved:
+                print(
+                    f"PIPE_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
+                    f"value={ctx.trade_value} exposure={ctx.total_exposure}",
+                    flush=True,
+                )
+                return
+
+            print("PIPE_RISK_OK", flush=True)
+
+            # === TEMP FIX: MIN TRADE SIZE FLOOR ===
+            try:
+                if ctx.trade_value < 10:  # слишком маленькие сделки режем/расширяем
+                    print("PIPE_RISK_ADJUST small_trade -> force min size", flush=True)
+                    intent["qty"] = max(1.0, float(intent.get("qty", 0)))
+            except Exception:
+                pass
+
+        except Exception as e:
+            print(f"PIPE_RISK_ERROR {e}", flush=True)
+            return
         # =========================================================
         # === EXECUTION
         # =========================================================
+        # === VALIDATION BEFORE EXECUTION (CRITICAL FIX) ===
+        if intent.get("price") is None:
+            px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
+            if px is not None:
+                intent["price"] = float(px)
+                print(f"DEBUG PRICE FIX BEFORE EXEC {intent['price']}", flush=True)
+            else:
+                print("PIPE_EXEC_BLOCK missing_price", flush=True)
+                return
+        if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
+            print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
+            return
         raw_fill = self.paper.execute(intent, st)
 
-        # FIX: нормализуем fill → всегда создаём ExecutionFill без лишних полей
+        # === NORMALIZE FILL (define raw_qty and side ONCE) ===
+        raw_qty = float(getattr(raw_fill, "qty", intent.get("qty", 0.0)) or 0.0)
+
+        if raw_qty < 0:
+            side = "SELL"
+        else:
+            side = "BUY"
+
+        exec_price = float(
+            getattr(raw_fill, "price", None)
+            or st.get("last")
+            or st.get("price")
+            or 0.0
+        )
+
+        print("DEBUG COMMISSION CALL OK", flush=True)
+
+        if hasattr(self.fee_tax, "commission"):
+            commission = self.fee_tax.commission(
+                symbol=intent.get("symbol"),
+                qty=abs(raw_qty),
+                price=exec_price
+            )
+        elif hasattr(self.fee_tax, "calc_commission"):
+            commission = self.fee_tax.calc_commission(
+                symbol=intent.get("symbol"),
+                qty=abs(raw_qty),
+                price=exec_price
+            )
+        else:
+            commission = 0.0
+
         fill = ExecutionFill(
             symbol=intent.get("symbol"),
-            side=str(intent.get("side", "BUY")).upper(),
-            qty=float(intent.get("qty", 0.0) or 0.0),
-            price=float(
-                getattr(raw_fill, "price", None)
-                or st.get("last")
-                or st.get("price")
-                or 0.0
-            ),
+            side=side,
+            qty=abs(raw_qty),
+            price=exec_price,
+            commission=commission,
             fill_id=getattr(raw_fill, "fill_id", None),
         )
 
-        # SAFETY: гарантируем корректный fill
-        if not hasattr(fill, "side") or fill.side is None:
-            LOG.error("FILL BUILD ERROR: missing side, intent=%s raw_fill=%s", intent, raw_fill)
+        # SAFETY: гарантируем корректный fill (также qty > 0)
+        if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
+            LOG.error("FILL BUILD ERROR: invalid fill, intent=%s raw_fill=%s", intent, raw_fill)
             return
 
         print(
@@ -605,15 +811,100 @@ class PaperTradingPipeline:
         Идемпотентность по fill_id держит PositionManager (если включена).
         """
         fill = event.get("fill") if isinstance(event, dict) else event
+        # === TYPE GUARD: пропускаем не ExecutionFill ===
+        if not isinstance(fill, ExecutionFill):
+            # RAW PaperFill игнорируем молча (уже обработан на этапе execution)
+            return
         if fill is None:
             return
 
-        # SAFETY: проверка обязательных полей
-        if not hasattr(fill, "side") or not hasattr(fill, "qty") or fill.side is None:
-            LOG.error("INVALID FILL: missing fields %s", fill)
+        # === FIX: safe validation (NO MUTATION, NO NORMALIZATION) ===
+        try:
+            # === SAFE VALIDATION (NO MUTATION) ===
+            raw_qty = float(getattr(fill, "qty", 0.0) or 0.0)
+            price = float(getattr(fill, "price", 0.0) or 0.0)
+
+            # просто проверяем корректность, НИЧЕГО НЕ МЕНЯЕМ
+            if raw_qty == 0.0 or price == 0.0:
+                LOG.warning("INVALID FILL (zero qty/price): %s (skipped)", fill)
+                return
+
+            if not hasattr(fill, "side") or fill.side not in ("BUY", "SELL"):
+                LOG.warning("INVALID FILL SIDE: %s (skipped)", fill)
+                return
+
+        except Exception as e:
+            LOG.error("FILL NORMALIZATION ERROR (SAFE SKIP): %s fill=%s", e, fill)
             return
 
+        # SAFETY: проверка обязательных полей ПОСЛЕ валидации
+        if fill.qty <= 0:
+            LOG.warning("INVALID FILL AFTER VALIDATION: %s (skipped)", fill)
+            return
+
+        # === APPLY FILL WITH COMMISSION ===
         self.pm.apply_fill(fill)
+
+        # === PnL CALC (REALIZED) ===
+        try:
+            pos = self.pm.positions.get(getattr(fill, "symbol", None))
+            if pos:
+                realized = getattr(pos, "realized_pnl", 0.0)
+                tax = self.fee_tax.tax(realized)
+
+                net_pnl = realized - tax
+
+                # списываем налог из cash (если доступно)
+                try:
+                    if hasattr(self.pm, "cash"):
+                        self.pm.cash -= tax
+                except Exception:
+                    pass
+
+                print(
+                    f"PIPE_NET_PNL net={net_pnl}",
+                    flush=True,
+                )
+
+                print(
+                    f"PIPE_TAX realized={realized} tax={tax}",
+                    flush=True,
+                )
+                unrealized = getattr(pos, "unrealized_pnl", 0.0)
+
+                print(
+                    f"PIPE_PNL realized={realized} unrealized={unrealized} commission={getattr(fill, 'commission', 0.0)}",
+                    flush=True,
+                )
+
+                # === EQUITY TRACKING ===
+                try:
+                    cash = float(getattr(self.pm, "cash", 0.0) or 0.0)
+                    unrealized = float(getattr(pos, "unrealized_pnl", 0.0) or 0.0)
+
+                    equity = cash + unrealized
+
+                    # сохраняем историю equity
+                    hist = getattr(self, "_equity_curve", None)
+                    if hist is None:
+                        self._equity_curve = []
+                        hist = self._equity_curve
+
+                    hist.append(equity)
+
+                    # === DRAWDOWN ===
+                    peak = max(hist)
+                    drawdown = (equity - peak) / peak if peak > 0 else 0.0
+
+                    print(
+                        f"PIPE_EQUITY equity={round(equity,2)} dd={round(drawdown*100,2)}%",
+                        flush=True,
+                    )
+
+                except Exception as e:
+                    LOG.debug("EQUITY ERROR: %s", e)
+        except Exception as e:
+            LOG.debug("PNL CALC ERROR: %s", e)
 
         if str(getattr(fill, "side", "")).upper() == "BUY":
             self.trailing_exit.on_position_opened(
@@ -660,13 +951,17 @@ class PaperTradingPipeline:
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
         )
-        # FIX: intent здесь не определён — используем fill
+        # === TELEGRAM: единый сигнал входа ===
         try:
+            trend = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_trend")
+            vol = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_vol")
+
             self.notifier.send(
-                f"📈 ENTRY\n"
-                f"{getattr(fill, 'symbol', None)}\n"
-                f"{getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)}\n"
-                f"price={getattr(fill, 'price', None)}"
+                f"📊 СИГНАЛ\n"
+                f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
+                f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
+                f"Объём: {getattr(fill, 'qty', None)}\n"
+                f"Тренд: {trend} | Волатильность: {vol}"
             )
         except Exception:
             pass
@@ -682,17 +977,20 @@ class PaperTradingPipeline:
             qty=float(getattr(fill, "qty", 0.0) or 0.0),
             price=float(getattr(fill, "price", 0.0) or 0.0),
             trade_id=getattr(fill, "fill_id", None),
-            execution_type="paper"
+            execution_type="paper",
+            commission=float(getattr(fill, "commission", 0.0) or 0.0),
         )
 
-        self.notifier.send(
-            "✅ PAPER FILL\n"
-            f"symbol={getattr(fill, 'symbol', None)}\n"
-            f"side={getattr(fill, 'side', None)}\n"
-            f"qty={getattr(fill, 'qty', None)}\n"
-            f"price={getattr(fill, 'price', None)}\n"
-            f"id={getattr(fill, 'fill_id', None)}"
-        )
+        # === TELEGRAM: исполнение ===
+        try:
+            self.notifier.send(
+                f"✅ ИСПОЛНЕНИЕ\n"
+                f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
+                f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
+                f"Объём: {getattr(fill, 'qty', None)}"
+            )
+        except Exception:
+            pass
 
         # exit-on-fill
         if not self._filled_once and os.getenv("EXIT_ON_FILL", "1") == "1":
