@@ -358,8 +358,49 @@ class PaperTradingPipeline:
 
                 self.bus.publish({"type": "FILL", "fill": fill})
                 self.exit_engine.mark_exit(sym)
+                # === LOSS COOLDOWN (LEVEL 2) ===
+                try:
+                    if "stop_loss" in exit_decision.reason:
+                        self._cooldown_until[sym] = time.time() + 180  # 1 мин пауза
+                except Exception:
+                    pass
                 return
+        # === PROFIT PROTECTION (BREAK-EVEN + TRAILING) ===
+        try:
+            if avg_now > 0:
+                if qty_now > 0:
+                    pnl_pct = (price - avg_now) / avg_now
+                else:
+                    pnl_pct = (avg_now - price) / avg_now
 
+                # === BREAK-EVEN ===
+                if pnl_pct > 0.003:  # +0.3%
+                    if qty_now > 0:
+                        be_price = avg_now * 1.0005
+                        if price > be_price:
+                            self.exit_engine._dynamic_stops[sym] = be_price
+                            print(f"PIPE_BE_LONG {be_price}", flush=True)
+                    else:
+                        be_price = avg_now * 0.9995
+                        if price < be_price:
+                            self.exit_engine._dynamic_stops[sym] = be_price
+                            print(f"PIPE_BE_SHORT {be_price}", flush=True)
+
+                # === TRAILING ===
+                if pnl_pct > 0.006:  # +0.6%
+                    trail_distance = max(st.get("atr", 0.0), price * 0.003)
+
+                    if qty_now > 0:
+                        trail_price = price - trail_distance
+                        self.exit_engine._dynamic_stops[sym] = trail_price
+                        print(f"PIPE_TRAIL_LONG {trail_price}", flush=True)
+                    else:
+                        trail_price = price + trail_distance
+                        self.exit_engine._dynamic_stops[sym] = trail_price
+                        print(f"PIPE_TRAIL_SHORT {trail_price}", flush=True)
+
+        except Exception as e:
+            print(f"PIPE_PROFIT_PROTECT_ERROR {e}", flush=True)
         # =========================================================
         # === FEATURES + REGIME (ОДИН РАЗ)
         # =========================================================
@@ -413,6 +454,32 @@ class PaperTradingPipeline:
             f"REGIME trend={regime.trend} vol={regime.volatility} atr={regime.atr}",
             flush=True,
         )
+
+        # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
+        try:
+            atr_pct = abs(regime.atr / price) if price else 0
+
+            # === 1. Слабая волатильность → нет сделки
+            if atr_pct < 0.004:
+                print("PIPE_VOL_LOW_BLOCK", flush=True)
+                return
+
+            # === 2. Слишком высокая вола → шум
+            if atr_pct > 0.03:
+                print("PIPE_VOL_HIGH_BLOCK", flush=True)
+                return
+
+            # === 3. СЛАБЫЙ ТРЕНД (главный фикс)
+            if regime.trend in ("up", "down"):
+                trend_strength = abs(st.get("ema_fast", price) - st.get("ema_slow", price)) / price
+
+                if trend_strength < 0.0015:  # ключевой параметр
+                    print("PIPE_TREND_WEAK_BLOCK", flush=True)
+                    return
+
+        except Exception:
+            pass
+
 
         # === NOISE FILTER (ATR sanity) ===
         try:
@@ -503,7 +570,8 @@ class PaperTradingPipeline:
                     # === FUND MODE: стабильный широкий стоп ===
                     stop_distance = max(
                         atr_safe * 2.0,
-                        curr_price * 0.01
+                        curr_price * 0.01,
+                        0.15  # минимальный стоп (очень важно)
                     )
 
                     stop_distance = max(stop_distance, 0.05)
@@ -511,7 +579,7 @@ class PaperTradingPipeline:
                     qty = round(risk_amount / stop_distance, 3)
                     qty = max(min(qty, 1.0), 0.1)
 
-                    rr = 2.5  # увеличенный RR
+                    rr = 3.0 if regime.volatility == "high" else 2.0  # увеличенный RR
                     take_distance = stop_distance * rr
 
                     raw_intent = {
@@ -538,7 +606,8 @@ class PaperTradingPipeline:
                     # === FUND MODE: стабильный широкий стоп ===
                     stop_distance = max(
                         atr_safe * 2.0,
-                        curr_price * 0.01
+                        curr_price * 0.01,
+                        0.15  # минимальный стоп (очень важно)
                     )
 
                     stop_distance = max(stop_distance, 0.05)
@@ -546,7 +615,7 @@ class PaperTradingPipeline:
                     qty = round(risk_amount / stop_distance, 3)
                     qty = max(min(qty, 1.0), 0.1)
 
-                    rr = 2.5
+                    rr = 3.0 if regime.volatility == "high" else 2.0
                     take_distance = stop_distance * rr
 
                     raw_intent = {
@@ -670,17 +739,39 @@ class PaperTradingPipeline:
             print(f"PRICE_INJECT_ERROR {e}", flush=True)
 
         # =========================================================
+        # === TREND FLIP GUARD (prevents rapid direction changes) ===
+        try:
+            prev_trend = st.get("prev_trend")
+            if prev_trend and prev_trend != regime.trend:
+                if abs(regime.atr / price) < 0.01:
+                    print("PIPE_TREND_FLIP_BLOCK", flush=True)
+                    return
+            st["prev_trend"] = regime.trend
+        except Exception:
+            pass
+
+        # =========================================================
         # === STRICT TREND ALIGNMENT (breakout only in trend direction) ===
         # =========================================================
         try:
             trend = regime.trend
             side = intent.get("side")
+
+            # === PRIMARY TREND ALIGNMENT ===
             if trend == "up" and side != "BUY":
                 print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
+                return
+            # === EXTRA IMPULSE FILTER ===
+            if abs(st.get("ema_fast", price) - price) / price < 0.0007:
+                print("PIPE_NO_IMPULSE_BLOCK", flush=True)
                 return
             if trend == "down" and side != "SELL":
                 print(f"PIPE_TREND_BLOCK expected=SELL actual={side}", flush=True)
                 return
+
+            # === REMOVE DUPLICATE HARD FILTER (it caused over-blocking & loops) ===
+            # (intentionally removed redundant conditions)
+
         except Exception as e:
             print(f"TREND_FILTER_ERROR {e}", flush=True)
 
@@ -727,13 +818,58 @@ class PaperTradingPipeline:
         # =========================================================
         now_ts = time.time()
         last_ts = getattr(self, "_last_trade_ts", 0.0)
-        cooldown_sec = float(os.getenv("TRADE_COOLDOWN_SEC", "5"))
+        # Русский коммент: базовый кулдаун + адаптация под волатильность (Level 2)
+        base_cooldown = float(os.getenv("TRADE_COOLDOWN_SEC", "45"))
+
+        try:
+            atr_pct = abs(st.get("atr", 0.0) / price) if price else 0.0
+
+            # высокая волатильность → быстрее торгуем
+            if atr_pct > 0.015:
+                cooldown_sec = base_cooldown * 0.6
+            # низкая волатильность → замедляемся
+            elif atr_pct < 0.005:
+                cooldown_sec = base_cooldown * 1.5
+            else:
+                cooldown_sec = base_cooldown
+
+        except Exception:
+            cooldown_sec = base_cooldown
 
         if now_ts - last_ts < cooldown_sec:
             print("PIPE_COOLDOWN_BLOCK", flush=True)
             return
 
+        # === LOSS COOLDOWN CHECK ===
+        if sym in self._cooldown_until:
+            if time.time() < self._cooldown_until[sym]:
+                print("PIPE_LOSS_COOLDOWN_BLOCK", flush=True)
+                return
+
+
         self._last_trade_ts = now_ts
+
+        # === TRADE LIMIT (LEVEL 2: лимит сделок) ===
+        try:
+            max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "5"))
+            now_ts = time.time()
+
+            trades = getattr(self, "_trade_timestamps", [])
+
+            # очищаем старые сделки (>1 часа)
+            trades = [t for t in trades if now_ts - t < 3600]
+
+            if len(trades) >= max_trades_per_hour:
+                print("PIPE_TRADE_LIMIT_BLOCK", flush=True)
+                self._trade_timestamps = trades
+                return
+
+            trades.append(now_ts)
+            print(f"PIPE_TRADE_EXEC count={len(trades)}", flush=True)
+            self._trade_timestamps = trades
+
+        except Exception as e:
+            print(f"PIPE_TRADE_LIMIT_ERROR {e}", flush=True)
         # =========================================================
         # === RISK (PRODUCTION MODE)
         # =========================================================
@@ -851,6 +987,7 @@ class PaperTradingPipeline:
             f"PIPE_EXEC side={intent.get('side')} qty={intent.get('qty')}",
             flush=True,
         )
+        print(f"PIPE_TRADE_EXEC symbol={intent.get('symbol')} side={intent.get('side')}", flush=True)
 
         self.bus.publish({"type": "FILL", "fill": fill})
 
