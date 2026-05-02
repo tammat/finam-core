@@ -562,6 +562,21 @@ class PaperTradingPipeline:
                     print(f"PIPE_BREAKOUT_BUY level={local_high} atr={atr}", flush=True)
 
                     risk_per_trade = 0.01
+                    # === DYNAMIC RISK SCALING (LEVEL 2) ===
+                    try:
+                        pm_ctx = self.pm.get_context()
+                        pnl = float(getattr(pm_ctx, "daily_realized_pnl", 0.0) or 0.0)
+
+                        if pnl < 0:
+                            risk_per_trade *= 0.7  # уменьшаем риск после убытков
+                        elif pnl > 0:
+                            risk_per_trade *= 1.2  # увеличиваем риск при прибыли
+
+                    except Exception:
+                        pass
+
+                    # === RISK CLAMP (защита от разгона) ===
+                    risk_per_trade = max(min(risk_per_trade, 0.02), 0.003)
                     capital = getattr(self.portfolio, "starting_cash", 100000)
                     risk_amount = capital * risk_per_trade
 
@@ -598,6 +613,21 @@ class PaperTradingPipeline:
                     print(f"PIPE_BREAKOUT_SELL level={local_low} atr={atr}", flush=True)
 
                     risk_per_trade = 0.01
+                    # === DYNAMIC RISK SCALING (LEVEL 2) ===
+                    try:
+                        pm_ctx = self.pm.get_context()
+                        pnl = float(getattr(pm_ctx, "daily_realized_pnl", 0.0) or 0.0)
+
+                        if pnl < 0:
+                            risk_per_trade *= 0.7
+                        elif pnl > 0:
+                            risk_per_trade *= 1.2
+
+                    except Exception:
+                        pass
+
+                    # === RISK CLAMP (защита от разгона) ===
+                    risk_per_trade = max(min(risk_per_trade, 0.02), 0.003)
                     capital = getattr(self.portfolio, "starting_cash", 100000)
                     risk_amount = capital * risk_per_trade
 
@@ -907,7 +937,55 @@ class PaperTradingPipeline:
                 )
                 return
 
+
             print("PIPE_RISK_OK", flush=True)
+
+            # =========================================================
+            # === KILL SWITCH (LEVEL 2: защита капитала)
+            # =========================================================
+            try:
+                pm_ctx = self.pm.get_context()
+
+                equity = float(getattr(pm_ctx, "portfolio_value", 0.0) or 0.0)
+                realized = float(getattr(pm_ctx, "daily_realized_pnl", 0.0) or 0.0)
+
+                # === INIT PEAK EQUITY ===
+                peak = getattr(self, "_equity_peak", None)
+                if peak is None:
+                    self._equity_peak = equity
+                    peak = equity
+
+                # === UPDATE PEAK ===
+                if equity > peak:
+                    self._equity_peak = equity
+                    peak = equity
+
+                # === DRAWDOWN ===
+                dd = (equity - peak) / peak if peak > 0 else 0.0
+
+                max_dd = float(os.getenv("MAX_DRAWDOWN", "-0.03"))  # -3%
+                max_daily_loss = float(os.getenv("MAX_DAILY_LOSS", "-0.02"))  # -2%
+
+                # === HARD LOCK (ONCE TRIGGERED) ===
+                if getattr(self, "_kill_switch_active", False):
+                    print("PIPE_KILL_SWITCH_ACTIVE", flush=True)
+                    return
+
+                if dd < max_dd:
+                    print(f"PIPE_KILL_SWITCH_DD dd={round(dd, 4)}", flush=True)
+                    self._kill_switch_active = True
+                    return
+
+                if realized < max_daily_loss * peak:
+                    print(f"PIPE_KILL_SWITCH_DAILY pnl={round(realized, 2)}", flush=True)
+                    self._kill_switch_active = True
+                    return
+                if realized < max_daily_loss * peak:
+                    print(f"PIPE_KILL_SWITCH_DAILY pnl={round(realized,2)}", flush=True)
+                    return
+
+            except Exception as e:
+                print(f"PIPE_KILL_SWITCH_ERROR {e}", flush=True)
 
             # === TEMP FIX: MIN TRADE SIZE FLOOR ===
             try:
