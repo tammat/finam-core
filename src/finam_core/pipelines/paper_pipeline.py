@@ -447,13 +447,34 @@ class PaperTradingPipeline:
         else:
             regime = self.regime_engine.evaluate(price, features)
 
-        st["regime_trend"] = regime.trend
-        st["regime_vol"] = regime.volatility
+        # === SAVE REGIME STATE (robust, deterministic) ===
+        trend_val = getattr(regime, "trend", "unknown")
+        vol_val = getattr(regime, "volatility", "unknown")
+        atr_val = _safe_float(getattr(regime, "atr", 0.0), 0.0)
 
-        print(
-            f"REGIME trend={regime.trend} vol={regime.volatility} atr={regime.atr}",
-            flush=True,
-        )
+        st["regime_trend"] = trend_val
+        st["regime_vol"] = vol_val
+        st["regime_atr"] = atr_val
+
+        # === CONTROLLED LOG (ONLY ON CHANGE, WITH TIME GUARD) ===
+        prev_trend = st.get("_last_logged_trend")
+        prev_vol = st.get("_last_logged_vol")
+        now_ts = time.time()
+
+        # логируем либо при изменении режима, либо раз в 10 сек (антишум)
+        if (
+            (prev_trend != trend_val)
+            or (prev_vol != vol_val)
+            or (now_ts - self._regime_last_log_ts > 10)
+        ):
+            print(
+                f"REGIME trend={trend_val} vol={vol_val} atr={round(atr_val, 5)}",
+                flush=True,
+            )
+
+            st["_last_logged_trend"] = trend_val
+            st["_last_logged_vol"] = vol_val
+            self._regime_last_log_ts = now_ts
 
         # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
         try:
@@ -879,24 +900,43 @@ class PaperTradingPipeline:
 
         self._last_trade_ts = now_ts
 
-        # === TRADE LIMIT (LEVEL 2: лимит сделок) ===
+        # === TRADE LIMIT (LEVEL 2: анти-овер-трейдинг) ===
         try:
             max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "5"))
+            max_trades_per_symbol = int(os.getenv("MAX_TRADES_PER_SYMBOL", "2"))
+
             now_ts = time.time()
 
+            # === GLOBAL TRADES ===
             trades = getattr(self, "_trade_timestamps", [])
-
-            # очищаем старые сделки (>1 часа)
             trades = [t for t in trades if now_ts - t < 3600]
 
             if len(trades) >= max_trades_per_hour:
-                print("PIPE_TRADE_LIMIT_BLOCK", flush=True)
+                print("PIPE_TRADE_LIMIT_BLOCK_GLOBAL", flush=True)
                 self._trade_timestamps = trades
                 return
 
+            # === SYMBOL TRADES ===
+            sym_trades_map = getattr(self, "_symbol_trade_timestamps", {})
+            sym_trades = sym_trades_map.get(sym, [])
+            sym_trades = [t for t in sym_trades if now_ts - t < 3600]
+
+            if len(sym_trades) >= max_trades_per_symbol:
+                print(f"PIPE_TRADE_LIMIT_BLOCK_SYMBOL {sym}", flush=True)
+                sym_trades_map[sym] = sym_trades
+                self._symbol_trade_timestamps = sym_trades_map
+                return
+
+            # === UPDATE STATE ===
             trades.append(now_ts)
-            print(f"PIPE_TRADE_EXEC count={len(trades)}", flush=True)
+            sym_trades.append(now_ts)
+
+            sym_trades_map[sym] = sym_trades
+
             self._trade_timestamps = trades
+            self._symbol_trade_timestamps = sym_trades_map
+
+            print(f"PIPE_TRADE_EXEC global={len(trades)} symbol={len(sym_trades)}", flush=True)
 
         except Exception as e:
             print(f"PIPE_TRADE_LIMIT_ERROR {e}", flush=True)
@@ -939,6 +979,53 @@ class PaperTradingPipeline:
 
 
             print("PIPE_RISK_OK", flush=True)
+
+            # =========================================================
+            # === PORTFOLIO RISK (LEVEL 2: portfolio heat limit)
+            # =========================================================
+            try:
+                pm_ctx = self.pm.get_context()
+
+                total_exposure = float(getattr(pm_ctx, "total_exposure", 0.0) or 0.0)
+                equity = float(getattr(pm_ctx, "portfolio_value", 0.0) or 0.0)
+
+                if equity > 0:
+                    heat = total_exposure / equity
+                else:
+                    heat = 0.0
+
+                max_heat = float(os.getenv("MAX_PORTFOLIO_HEAT", "0.3"))  # 30% default
+
+                if heat > max_heat:
+                    print(f"PIPE_PORTFOLIO_HEAT_BLOCK heat={round(heat,3)}", flush=True)
+                    return
+
+                print(f"PIPE_PORTFOLIO_HEAT_OK heat={round(heat,3)}", flush=True)
+
+            except Exception as e:
+                print(f"PIPE_PORTFOLIO_HEAT_ERROR {e}", flush=True)
+
+            # =========================================================
+            # === SYMBOL RISK (LEVEL 2: ограничение на инструмент)
+            # =========================================================
+            try:
+                symbol_exposure = float(getattr(pm_ctx, "current_symbol_exposure", 0.0) or 0.0)
+
+                if equity > 0:
+                    symbol_heat = symbol_exposure / equity
+                else:
+                    symbol_heat = 0.0
+
+                max_symbol_heat = float(os.getenv("MAX_SYMBOL_HEAT", "0.1"))  # 10% default
+
+                if symbol_heat > max_symbol_heat:
+                    print(f"PIPE_SYMBOL_HEAT_BLOCK heat={round(symbol_heat,3)}", flush=True)
+                    return
+
+                print(f"PIPE_SYMBOL_HEAT_OK heat={round(symbol_heat,3)}", flush=True)
+
+            except Exception as e:
+                print(f"PIPE_SYMBOL_HEAT_ERROR {e}", flush=True)
 
             # =========================================================
             # === KILL SWITCH (LEVEL 2: защита капитала)
