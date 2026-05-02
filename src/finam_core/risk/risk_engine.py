@@ -5,18 +5,15 @@ from finam_core.domain.risk.risk_config import RiskConfig
 from finam_core.domain.risk.risk_decision import RiskDecision
 from finam_core.domain.risk.risk_context import RiskContext
 
-
 __all__ = [
     "RiskEngine",
     "RiskDecision",
     "RiskContext",
 ]
 
-
 # ---- backward compatibility ----
 def _deny(reason, rule=None):
     return RiskDecision.reject(reason)
-
 
 if not hasattr(RiskDecision, "deny"):
     RiskDecision.deny = _deny
@@ -26,7 +23,7 @@ class RiskEngine:
     """
     Backward-compatible façade over RiskStack.
 
-    evaluate(signal, context) -> signal | None
+    evaluate(signal, context) -> RiskDecision
     """
 
     def __init__(
@@ -39,7 +36,6 @@ class RiskEngine:
         correlation_matrix=None,
         **kwargs,
     ):
-
         config = RiskConfig()
 
         if max_daily_loss_pct is not None:
@@ -55,27 +51,29 @@ class RiskEngine:
         self.last_decision: RiskDecision | None = None
         self.is_frozen: bool = False
 
-        # сохраняем лимиты локально для явного freeze
         self._daily_limit = max_daily_loss_pct
         self._dd_limit = max_drawdown_pct
 
     # ------------------------------------------------
 
     def evaluate(self, signal=None, context=None):
-
+        # HARD GUARD
         if context is None:
-            return None
+            decision = RiskDecision.reject("no_context")
+            self.last_decision = decision
+            return decision
 
-        # если уже заморожены — блок
+        # FROZEN
         if self.is_frozen:
-            return None
+            decision = RiskDecision.reject("frozen")
+            self.last_decision = decision
+            return decision
 
+        # STACK
         decision = self.stack.evaluate(context)
         self.last_decision = decision
 
-        # ---- explicit freeze logic for legacy tests ----
-
-        # 1. Daily loss freeze
+        # DAILY LOSS
         if (
             self._daily_limit is not None
             and hasattr(context, "daily_realized_pnl")
@@ -86,9 +84,11 @@ class RiskEngine:
                 daily_dd = float(context.daily_realized_pnl or 0.0) / equity
                 if daily_dd <= -abs(self._daily_limit):
                     self.is_frozen = True
-                    return None
+                    decision = RiskDecision.reject("daily_loss_freeze")
+                    self.last_decision = decision
+                    return decision
 
-        # 2. Max drawdown freeze
+        # DRAWDOWN
         if (
             self._dd_limit is not None
             and hasattr(context, "realized_pnl")
@@ -99,20 +99,20 @@ class RiskEngine:
                 dd = float(context.realized_pnl or 0.0) / equity
                 if dd <= -abs(self._dd_limit):
                     self.is_frozen = True
-                    return None
+                    decision = RiskDecision.reject("max_drawdown_freeze")
+                    self.last_decision = decision
+                    return decision
 
-        # 3. Stack decision
-        if not decision.allowed:
-            return None
+        if decision is None:
+            decision = RiskDecision.reject("no_decision")
 
-        return signal
+        self.last_decision = decision
+        return decision
 
     # ------------------------------------------------
 
     def validate(self, fill):
         return True
-
-    # ------------------------------------------------
 
     def get_state(self):
         return self.stack.get_state()
