@@ -111,13 +111,24 @@ def build_risk_context(intent: dict, portfolio, market_state: dict):
         qty=float(qty),
         price=float(px),
         trade_value=float(trade_value),
+
+        # === CORE RISK FIELDS ===
+        portfolio_value=float(equity),
+        realized_pnl=float(getattr(portfolio, "realized_pnl", 0.0) or 0.0),
+        daily_realized_pnl=float(daily_realized_pnl or 0.0),
+        max_drawdown=0.0,
+
+        # === EXPOSURE ===
         total_exposure=float(total_exposure),
         current_symbol_exposure=float(current_symbol_exposure),
+        portfolio_heat=float(portfolio_heat or 0.0),
+
+        # === CAPITAL ===
         equity=float(equity),
         starting_capital=float(starting_capital),
         starting_cash=float(starting_capital),
-        daily_realized_pnl=float(daily_realized_pnl or 0.0),
-        portfolio_heat=float(portfolio_heat or 0.0),
+
+        # === CONTEXT ===
         intent=intent,
         market_state=market_state,
         portfolio=portfolio,
@@ -233,9 +244,13 @@ class PaperTradingPipeline:
 
 
 
+        # === SESSION FILTER (FIX: do not block in SIM/OVERRIDE) ===
         if not session.get("allow_entries", False):
-            print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
-            return
+            if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
+                print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
+            else:
+                print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
+                return
         sym = event.get("symbol")
         if not sym:
             return
@@ -423,8 +438,12 @@ class PaperTradingPipeline:
             m15 = st.get("m15")
 
             if m5 and m15:
-                if not (price > m5 > m15 or price < m5 < m15):
-                    print("PIPE_MTF_BLOCK", flush=True)
+                trend = regime.trend
+                if trend == "up" and not (price > m5 > m15):
+                    print("PIPE_MTF_BLOCK_LONG", flush=True)
+                    return
+                if trend == "down" and not (price < m5 < m15):
+                    print("PIPE_MTF_BLOCK_SHORT", flush=True)
                     return
 
             # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
@@ -474,25 +493,73 @@ class PaperTradingPipeline:
                 # === BREAKOUT LOGIC (ALLOW IN FLAT) ===
                 if curr_price > local_high:
                     print(f"PIPE_BREAKOUT_BUY level={local_high} atr={atr}", flush=True)
-                    risk_per_trade = 0.01  # 1% риска
+
+                    risk_per_trade = 0.01
                     capital = getattr(self.portfolio, "starting_cash", 100000)
-                    # === FIXED POSITION SIZE (ограничение риска) ===
                     risk_amount = capital * risk_per_trade
-                    stop_distance = max(atr, curr_price * 0.005)  # минимум 0.5%
+
+                    atr_safe = max(atr, curr_price * 0.002)
+
+                    # === FUND MODE: стабильный широкий стоп ===
+                    stop_distance = max(
+                        atr_safe * 2.0,
+                        curr_price * 0.01
+                    )
+
+                    stop_distance = max(stop_distance, 0.05)
+
                     qty = round(risk_amount / stop_distance, 3)
-                    qty = min(qty, 1.0)  # ограничение позиции
-                    raw_intent = {"symbol": sym, "side": "BUY", "qty": qty, "price": curr_price}
+                    qty = max(min(qty, 1.0), 0.1)
+
+                    rr = 2.5  # увеличенный RR
+                    take_distance = stop_distance * rr
+
+                    raw_intent = {
+                        "symbol": sym,
+                        "side": "BUY",
+                        "qty": qty,
+                        "price": curr_price,
+                        "features": {
+                            "stop": curr_price - stop_distance,
+                            "take": curr_price + take_distance,
+                            "rr": rr,
+                        }
+                    }
 
                 elif curr_price < local_low:
                     print(f"PIPE_BREAKOUT_SELL level={local_low} atr={atr}", flush=True)
+
                     risk_per_trade = 0.01
                     capital = getattr(self.portfolio, "starting_cash", 100000)
-                    # === FIXED POSITION SIZE (ограничение риска) ===
                     risk_amount = capital * risk_per_trade
-                    stop_distance = max(atr, curr_price * 0.005)  # минимум 0.5%
+
+                    atr_safe = max(atr, curr_price * 0.002)
+
+                    # === FUND MODE: стабильный широкий стоп ===
+                    stop_distance = max(
+                        atr_safe * 2.0,
+                        curr_price * 0.01
+                    )
+
+                    stop_distance = max(stop_distance, 0.05)
+
                     qty = round(risk_amount / stop_distance, 3)
-                    qty = min(qty, 1.0)  # ограничение позиции
-                    raw_intent = {"symbol": sym, "side": "SELL", "qty": qty, "price": curr_price}
+                    qty = max(min(qty, 1.0), 0.1)
+
+                    rr = 2.5
+                    take_distance = stop_distance * rr
+
+                    raw_intent = {
+                        "symbol": sym,
+                        "side": "SELL",
+                        "qty": qty,
+                        "price": curr_price,
+                        "features": {
+                            "stop": curr_price + stop_distance,
+                            "take": curr_price - take_distance,
+                            "rr": rr,
+                        }
+                    }
 
                 else:
                     return
@@ -556,8 +623,11 @@ class PaperTradingPipeline:
             session = self.session.get_regime()
 
             if not session.get("allow_entries", False):
-                print(f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}", flush=True)
-                return
+                if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
+                    print("PIPE_SESSION_BYPASS_AFTER_ROUTER", flush=True)
+                else:
+                    print(f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}", flush=True)
+                    return
 
         except Exception as e:
             print(f"PIPE_SESSION_ERROR {e}", flush=True)
@@ -676,7 +746,7 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
-            decision = self.risk.evaluate(ctx)
+            decision = self.risk.evaluate(signal=intent, context=ctx)
 
             # === DEBUG RISK DECISION (CRITICAL VISIBILITY) ===
             try:
