@@ -263,45 +263,8 @@ class PaperTradingPipeline:
         self.bus.subscribe("QUOTE", self._on_quote)
         self.bus.subscribe("FILL", self._on_fill)
         LOG.debug("PIPE attach(): subscribed QUOTE/FILL")
-        # 🔥 ПОДПИСКА НА КОТИРОВКИ
-        self.bus.subscribe("QUOTE", self._on_quote)
 
     def _on_quote(self, event: dict):
-        # =========================================================
-        # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
-        # =========================================================
-        session = self.session.get_regime()
-        # === FORCE OVERRIDE (DEV MODE) ===
-        if os.getenv("SESSION_OVERRIDE", "0") == "1":
-            print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
-            session = {
-                "phase": "override",
-                "allow_entries": True
-            }
-
-        # =========================================================
-        # === REGIME V2: STRATEGY ROUTER (АДАПТИВНЫЙ)
-        # =========================================================
-        regime_type = session.get("phase")
-
-        # временная логика (дальше улучшим)
-        if regime_type == "core":
-            strategy_mode = "mr"   # mean reversion
-        elif regime_type == "override":
-            strategy_mode = "mr"
-        else:
-            strategy_mode = None
-
-
-
-        # === SESSION FILTER (FIX: do not block in SIM/OVERRIDE) ===
-        if not session.get("allow_entries", False):
-            if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
-                print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
-            else:
-                print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
-                return
-
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
         raw_sym = event.get("symbol")
@@ -320,7 +283,7 @@ class PaperTradingPipeline:
             st["prev_price"] = prev_price
         self._mkt[sym] = st
 
-        last = st.get("last")
+        last = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
         if last is None:
             return
 
@@ -332,12 +295,46 @@ class PaperTradingPipeline:
             from datetime import datetime, timezone
             ts = datetime.now(timezone.utc)
 
+        # Русский коммент: рыночные данные сохраняем до session/risk/strategy фильтров.
         self._record_live_quote_to_storage(
             symbol=sym,
             price=price,
             volume=volume,
             ts=ts,
         )
+
+        # =========================================================
+        # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
+        # =========================================================
+        session = self.session.get_regime()
+        # === FORCE OVERRIDE (DEV MODE) ===
+        if os.getenv("SESSION_OVERRIDE", "0") == "1":
+            print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
+            session = {
+                "phase": "override",
+                "allow_entries": True,
+            }
+
+        # =========================================================
+        # === REGIME V2: STRATEGY ROUTER (АДАПТИВНЫЙ)
+        # =========================================================
+        regime_type = session.get("phase")
+
+        # временная логика (дальше улучшим)
+        if regime_type == "core":
+            strategy_mode = "mr"   # mean reversion
+        elif regime_type == "override":
+            strategy_mode = "mr"
+        else:
+            strategy_mode = None
+
+        # === SESSION FILTER (FIX: do not block in SIM/OVERRIDE) ===
+        if not session.get("allow_entries", False):
+            if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
+                print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
+            else:
+                print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
+                return
         # === FIX CRITICAL (GLOBAL PRICE) ===
 
         curr_price = price
