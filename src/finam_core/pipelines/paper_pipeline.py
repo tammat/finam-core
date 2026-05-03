@@ -293,7 +293,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
-        session = self.session.get_regime()
+        session = self.session.get_regime(sym)
         # === FORCE OVERRIDE (DEV MODE) ===
         # SESSION_OVERRIDE removed (production)
         # =========================================================
@@ -1304,7 +1304,7 @@ class PaperTradingPipeline:
         # === SESSION FILTER (ЕДИНЫЙ ИСТОЧНИК, POST-ROUTER)
         # =========================================================
         try:
-            session = self.session.get_regime()
+            session = self.session.get_regime(sym)
 
             if not session.get("allow_entries", False):
                 print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)

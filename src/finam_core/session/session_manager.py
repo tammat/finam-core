@@ -1,126 +1,58 @@
-# src/finam_core/session/session_manager.py
-# Русский коммент: управление торговыми сессиями MOEX (упрощённая версия)
+# Patched SessionManager (FORTS-aware)
 
-from datetime import datetime, time, timedelta
-import os
+from datetime import datetime
 
 
 class SessionManager:
-    def __init__(self):
-        self.mode = os.getenv("MODE", "live")  # live / sim / debug
+    def get_regime(self, symbol: str | None = None):
+        now = datetime.now()
+        h = now.hour
+        m = now.minute
+        wd = now.weekday()
 
-        # UTC время (MOEX ~ UTC+3)
-        # Можно позже вынести в config
-        self.start_hour = int(os.getenv("SESSION_START_HOUR", "7"))
-        self.end_hour = int(os.getenv("SESSION_END_HOUR", "20"))
+        # === WEEKEND BLOCK ===
+        if wd >= 5:
+            return {"phase": "weekend", "allow_entries": False}
 
-        self.warmup_minutes = int(os.getenv("SESSION_WARMUP_MIN", "10"))
+        # === FORTS DETECT ===
+        if symbol and "@" in symbol:
+            return self._forts_session(h, m)
 
-    def is_market_open(self, now=None):
-        # DEBUG/SIM всегда открыто
-        if self.mode in ("sim", "debug"):
-            return True
+        # fallback (stocks)
+        return self._stock_session(h, m)
 
-        now = now or datetime.utcnow()
+    # =========================================================
+    # === FORTS SESSION ===
+    # =========================================================
+    def _forts_session(self, h, m):
+        # 09:00–18:45
+        if (h > 9 and h < 18) or (h == 9) or (h == 18 and m < 45):
+            return {"phase": "core", "allow_entries": True}
 
-        # корректный перевод UTC → MSK
-        now_msk = now + timedelta(hours=3)
+        # break 18:45–19:00
+        if h == 18 and m >= 45:
+            return {"phase": "break", "allow_entries": False}
 
-        # проверка дня недели (MOEX не торгует в выходные)
-        if now_msk.weekday() >= 5:
-            return False
+        # evening 19:00–23:50
+        if (h >= 19 and h < 23) or (h == 23 and m <= 50):
+            return {"phase": "evening", "allow_entries": True}
 
-        # диапазон сессии
-        session_start = time(self.start_hour, 0)
-        session_end = time(self.end_hour, 0)
+        return {"phase": "closed", "allow_entries": False}
 
-        return session_start <= now_msk.time() <= session_end
+    # =========================================================
+    # === STOCK SESSION (fallback)
+    # =========================================================
+    def _stock_session(self, h, m):
+        # 07:00–09:50
+        if (h == 7) or (h == 8) or (h == 9 and m < 50):
+            return {"phase": "morning", "allow_entries": True}
 
-    def is_warmup(self, now=None):
-        now = now or datetime.utcnow()
+        # 10:00–18:40
+        if (h >= 10 and h < 18) or (h == 18 and m < 40):
+            return {"phase": "core", "allow_entries": True}
 
-        # MSK время
-        now_msk = now + timedelta(hours=3)
+        # 19:00–23:50
+        if (h >= 19 and h < 23) or (h == 23 and m <= 50):
+            return {"phase": "evening", "allow_entries": True}
 
-        session_start = now_msk.replace(
-            hour=self.start_hour, minute=0, second=0, microsecond=0
-        )
-
-        return session_start <= now_msk <= session_start + timedelta(minutes=self.warmup_minutes)
-
-    def allow_trading(self, now=None):
-        regime = self.get_regime(now)
-        return regime.get("allow_entries", False)
-
-    def get_state(self, now=None):
-        now = now or datetime.utcnow()
-
-        # ЕДИНЫЙ источник истины
-        regime = self.get_regime(now)
-
-        return {
-            "mode": self.mode,
-            "market_open": regime.get("market_open", True),
-            "warmup": regime.get("phase") == "warmup",
-            "trading_allowed": regime.get("allow_entries", False),
-        }
-
-    def get_regime(self, now=None):
-        now = now or datetime.utcnow()
-
-        # override (форс-режим) — ВАЖНО: раньше проверки market_open
-        override = os.getenv("SESSION_OVERRIDE", "0") == "1"
-
-        if override:
-            print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
-            return {
-                "phase": "override",
-                "allow_entries": True,
-                "allow_exits": True,
-                "market_open": True,
-                "reason": "manual_override",
-            }
-
-        # режимы для debug/sim — всегда торгуем
-        if self.mode in ("debug", "sim"):
-            return {
-                "phase": "core",
-                "allow_entries": True,
-                "allow_exits": True,
-                "market_open": True,
-                "reason": "sim_or_debug",
-            }
-
-        market_open = self.is_market_open(now)
-        warmup = self.is_warmup(now)
-
-        # SAFETY: если нет рынка — блок
-        if not market_open:
-            print("PIPE_SESSION_CLOSED", flush=True)
-            return {
-                "phase": "closed",
-                "allow_entries": False,
-                "allow_exits": False,
-                "market_open": False,
-                "reason": "market_closed",
-            }
-
-        # фаза
-        if warmup:
-            phase = "warmup"
-        else:
-            phase = "core"
-
-        # логика допуска
-        allow_entries = not warmup
-        allow_exits = True
-
-        print(f"PIPE_SESSION phase={phase} allow_entries={allow_entries}", flush=True)
-
-        return {
-            "phase": phase,
-            "allow_entries": allow_entries,
-            "allow_exits": allow_exits,
-            "market_open": True,
-            "reason": "warmup_block" if warmup else "normal",
-        }
+        return {"phase": "closed", "allow_entries": False}
