@@ -68,7 +68,12 @@ class FinamMarketDataClient:
         self._debug_msg_count = 0
         self._watchdog_thread: Optional[threading.Thread] = None
 
-        self.tm = FinamTokenManager()
+        # === FIX: simulation mode bypass ===
+        if os.getenv("SIMULATE_MARKET", "0") == "1":
+            print("SIMULATED MARKET DATA ENABLED (no token)", flush=True)
+            self.tm = None
+        else:
+            self.tm = FinamTokenManager()
 
         # Русский коммент: параметры reconnect без правки кода.
         self.reconnect_initial_sec = float(os.getenv("MD_RECONNECT_INITIAL_SEC", "0.5"))
