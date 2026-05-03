@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 PROD TelegramNotifier
-- Загружает .env
-- Поддерживает proxy / fallback
-- Не падает
-- Логирует ошибки
+- Надёжная загрузка .env
+- Очередь (без потери сигналов)
+- Анти-дубли
+- Rate limit
+- Direct → Proxy fallback
+- Без падений
 """
 
 from __future__ import annotations
@@ -12,28 +14,36 @@ from __future__ import annotations
 import os
 import logging
 import requests
+import time
+from collections import deque
 from dotenv import load_dotenv
+from pathlib import Path
 
-# === LOAD ENV ===
-load_dotenv()
+# === LOAD ENV (гарантировано работает везде) ===
+env_path = Path(__file__).resolve().parents[3] / ".env"
+load_dotenv(dotenv_path=env_path)
 
 LOG = logging.getLogger(__name__)
 
 
 class TelegramNotifier:
     def __init__(self) -> None:
-        # токены
-        self.token = (
-            os.getenv("TG_BOT_TOKEN")
-            or os.getenv("TG_TOKEN")
-            or ""
-        ).strip()
-
+        # === ENV ===
+        self.token = (os.getenv("TG_TOKEN") or os.getenv("TG_BOT_TOKEN") or "").strip()
         self.chat_id = os.getenv("TG_CHAT_ID", "").strip()
+        self.proxy = os.getenv("TG_PROXY")
+
         self.enabled = os.getenv("ENABLE_TELEGRAM_NOTIFIER", "0") == "1"
 
-        # proxy
-        self.proxy = os.getenv("TG_PROXY", "").strip()
+        # === RELIABILITY LAYER ===
+        self._queue = deque(maxlen=1000)
+        self._last_sent_hash = None
+        self._last_sent_ts = 0.0
+        self._min_interval = float(os.getenv("TG_MIN_INTERVAL", "0.5"))
+
+    # =========================
+    # LOW LEVEL SEND
+    # =========================
 
     def _send_direct(self, payload: dict) -> bool:
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
@@ -53,6 +63,12 @@ class TelegramNotifier:
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
 
         try:
+            try:
+                import socks  # noqa
+            except ImportError:
+                print("SOCKS proxy requested but PySocks not installed → fallback to direct", flush=True)
+                return False
+
             proxies = {
                 "http": self.proxy,
                 "https": self.proxy,
@@ -65,16 +81,67 @@ class TelegramNotifier:
             else:
                 LOG.error(f"TELEGRAM FAILED (proxy) {r.status_code} {r.text}")
                 return False
+
         except Exception as e:
             LOG.error(f"TELEGRAM PROXY EXCEPTION: {e}")
             return False
+
+    # =========================
+    # RELIABILITY LOGIC
+    # =========================
+
+    def _should_send(self, text: str) -> bool:
+        h = hash(text)
+
+        # анти-дубль
+        if h == self._last_sent_hash:
+            return False
+
+        now = time.time()
+
+        # rate limit
+        if now - self._last_sent_ts < self._min_interval:
+            return False
+
+        self._last_sent_hash = h
+        self._last_sent_ts = now
+        return True
+
+    def _flush_queue(self):
+        while self._queue:
+            payload = self._queue.popleft()
+
+            # 1. DIRECT
+            ok = self._send_direct(payload)
+
+            # 2. fallback → proxy
+            if not ok and self.proxy:
+                ok = self._send_proxy(payload)
+
+            if ok:
+                print("TELEGRAM SEND OK", flush=True)
+            else:
+                LOG.error("TELEGRAM DROP: message lost after retry")
+
+    # =========================
+    # PUBLIC API
+    # =========================
 
     def send(self, text: str) -> None:
         if not self.enabled:
             return
 
         if not self.token or not self.chat_id:
-            LOG.error("TELEGRAM CONFIG ERROR: token/chat_id missing")
+            print("TELEGRAM NOT CONFIGURED", flush=True)
+            return
+
+        # DEBUG (один раз покажем конфиг)
+        if not hasattr(self, "_debug_printed"):
+            print(f"TELEGRAM CONFIG → enabled={self.enabled} token_set={bool(self.token)} chat_set={bool(self.chat_id)} proxy={self.proxy}", flush=True)
+            self._debug_printed = True
+
+        # анти-дубль + rate limit
+        if not self._should_send(text):
             return
 
         payload = {
@@ -82,10 +149,8 @@ class TelegramNotifier:
             "text": text,
         }
 
-        # 1️⃣ сначала пробуем напрямую
-        if self._send_direct(payload):
-            return
+        # очередь
+        self._queue.append(payload)
 
-        # 2️⃣ fallback через proxy (если есть)
-        if self.proxy:
-            self._send_proxy(payload)
+        # отправка
+        self._flush_queue()

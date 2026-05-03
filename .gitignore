@@ -52,3 +52,4 @@ __pycache__/
 logs.txt
 *.txt
 logs*
+.env

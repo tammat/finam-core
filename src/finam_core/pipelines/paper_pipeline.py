@@ -295,13 +295,7 @@ class PaperTradingPipeline:
         # =========================================================
         session = self.session.get_regime()
         # === FORCE OVERRIDE (DEV MODE) ===
-        if os.getenv("SESSION_OVERRIDE", "0") == "1":
-            print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
-            session = {
-                "phase": "override",
-                "allow_entries": True
-            }
-
+        # SESSION_OVERRIDE removed (production)
         # =========================================================
         # === REGIME V2: STRATEGY ROUTER (АДАПТИВНЫЙ)
         # =========================================================
@@ -317,13 +311,12 @@ class PaperTradingPipeline:
 
 
 
-        # === SESSION FILTER (FIX: do not block in SIM/OVERRIDE) ===
+        # === SESSION FILTER (production) ===
         if not session.get("allow_entries", False):
-            if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
-                print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
-            else:
-                print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
-                return
+            print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
+            return
+        else:
+            print("PIPE_SESSION_OK", flush=True)
 
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
@@ -468,8 +461,8 @@ class PaperTradingPipeline:
                         if avg_now > 0:
                             local_pnl_pct = (price_now - avg_now) / avg_now if qty_now > 0 else (avg_now - price_now) / avg_now
 
-                        # первый частичный выход
-                        if local_pnl_pct > 0.006 and abs(qty_now) > 0.3:
+                        # первый частичный выход (PROFIT BOOST — позже фиксируем)
+                        if local_pnl_pct > 0.01 and abs(qty_now) > 0.3:
                             part_qty = round(abs(qty_now) * 0.5, 3)
                             part_side = "SELL" if qty_now > 0 else "BUY"
 
@@ -526,12 +519,12 @@ class PaperTradingPipeline:
                             print(f"PIPE_BE_SHORT {be_price}", flush=True)
 
                 # === ADAPTIVE TRAILING (VOL + PROFIT STAGE) ===
-                if pnl_pct > 0.004:  # раньше включаем трейлинг
+                if pnl_pct > 0.006:  # раньше включаем трейлинг
                     atr_val = st.get("atr", 0.0) or 0.0
                     atr_pct = abs(atr_val / price) if price else 0.0
 
                     # базовая дистанция
-                    base_k = 1.0
+                    base_k = 1.3
 
                     # при высокой волатильности — расширяем (чтобы не выбивало)
                     if atr_pct > 0.02:
@@ -571,7 +564,7 @@ class PaperTradingPipeline:
                     if avg_price:
                         local_pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
 
-                    partial_tp = float(os.getenv("PARTIAL_TP_PCT", "0.004"))  # 0.4%
+                    partial_tp = float(os.getenv("PARTIAL_TP_PCT", "0.01"))  # 1%
 
                     if local_pnl_pct > partial_tp and not st.get("_partial_tp_done"):
                         close_qty = round(abs(qty_now) * 0.5, 3)
@@ -629,7 +622,7 @@ class PaperTradingPipeline:
                         if avg_price:
                             local_pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
 
-                        if local_pnl_pct > 0.002:  # +0.2% достаточно
+                        if local_pnl_pct > 0.004:  # +0.2% достаточно
                             exit_side = "SELL" if qty_now > 0 else "BUY"
 
                             print("PIPE_MOMENTUM_EXIT", flush=True)
@@ -969,9 +962,17 @@ class PaperTradingPipeline:
                 if (trend_dir == "up" and curr_price > prev_price) or (trend_dir == "down" and curr_price < prev_price):
                     score += 1
 
-                # DEBUG
-                if score >= 2:
-                    print(f"PIPE_ENTRY_SCORE {score}", flush=True)
+                # DEBUG (only strong signals)
+                if score >= 3:
+                    print(f"PIPE_ENTRY_SCORE_STRONG {score}", flush=True)
+
+                # === WINRATE BOOST FILTERS ===
+                if score < 2:
+                    if os.getenv("DISABLE_SCORE_FILTER", "0") != "1":
+                        print("PIPE_ENTRY_BLOCK_LOW_SCORE", flush=True)
+                        return
+                    else:
+                        print("PIPE_SCORE_BYPASS (env)", flush=True)
 
                 move = abs(curr_price - prev_price)
 
@@ -985,7 +986,7 @@ class PaperTradingPipeline:
                 trend_dir = st.get("regime_trend")
 
                 # усиливаем только при нормальной волатильности
-                if impulse and atr_pct > 0.003:
+                if impulse and atr_pct > 0.004 and score >= 2:
                     if trend_dir == "up" and curr_price > prev_price:
                         print("PIPE_IMPULSE_ENTRY BUY", flush=True)
                         entry_side = "BUY"
@@ -1017,11 +1018,11 @@ class PaperTradingPipeline:
                         # === ADAPTIVE TP FOR IMPULSE ===
                         atr_pct = abs(atr_val / curr_price) if curr_price else 0.0
 
-                        base_rr = 1.6
+                        base_rr = 2.0
                         if atr_pct > 0.02:
                             base_rr += 0.5
                         if score >= 3:
-                            base_rr += 0.5
+                            base_rr += 0.8
 
                         rr = max(1.3, min(base_rr, 3.2))
 
@@ -1043,6 +1044,8 @@ class PaperTradingPipeline:
                         }
 
                         st["_smart_entry_fired"] = True
+                        # anti overtrading cooldown
+                        st["_smart_entry_reset_ts"] = time.time() + float(os.getenv("SMART_ENTRY_RESET_SEC", "10"))
                     else:
                         return
                 else:
@@ -1304,11 +1307,10 @@ class PaperTradingPipeline:
             session = self.session.get_regime()
 
             if not session.get("allow_entries", False):
-                if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
-                    print("PIPE_SESSION_BYPASS_AFTER_ROUTER", flush=True)
-                else:
-                    print(f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}", flush=True)
-                    return
+                print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
+                return
+            else:
+                print("PIPE_SESSION_OK", flush=True)
 
         except Exception as e:
             print(f"PIPE_SESSION_ERROR {e}", flush=True)
@@ -1687,10 +1689,13 @@ class PaperTradingPipeline:
             sym_trades = [t for t in sym_trades if now_ts - t < 3600]
 
             if len(sym_trades) >= max_trades_per_symbol:
-                print(f"PIPE_TRADE_LIMIT_BLOCK_SYMBOL {sym}", flush=True)
-                sym_trades_map[sym] = sym_trades
-                self._symbol_trade_timestamps = sym_trades_map
-                return
+                if os.getenv("DISABLE_TRADE_LIMIT", "0") != "1":
+                    print(f"PIPE_TRADE_LIMIT_BLOCK_SYMBOL {sym}", flush=True)
+                    sym_trades_map[sym] = sym_trades
+                    self._symbol_trade_timestamps = sym_trades_map
+                    return
+                else:
+                    print("PIPE_TRADE_LIMIT_BYPASS", flush=True)
 
             # === UPDATE STATE ===
             trades.append(now_ts)
