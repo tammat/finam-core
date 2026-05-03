@@ -111,6 +111,59 @@ class PostgresLogger:
         except Exception as e:
             print(f"POSTGRES LOG FILL FAILED: {e}", flush=True)
 
+    def log_market_tick(self, symbol: str, price: float, volume: float = 0.0) -> None:
+        """Русский коммент: запись текущих котировок/тиков в PostgreSQL."""
+        if not self.enabled:
+            return
+
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO market_ticks (symbol, price, volume, ts)
+                        VALUES (%s, %s, %s, now())
+                        """,
+                        (str(symbol), float(price), float(volume or 0.0)),
+                    )
+        except Exception as exc:
+            LOG.warning("POSTGRES LOG MARKET TICK FAILED: %s", exc)
+
+    def log_market_bar(self, symbol, timeframe, ts, open_price, high_price, low_price, close_price, volume=0.0) -> None:
+        """Русский коммент: запись свечей в PostgreSQL с защитой от дублей."""
+        if not self.enabled:
+            return
+
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO market_data (
+                            symbol, timeframe, open, high, low, close_price, volume, ts
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (symbol, timeframe, ts) DO UPDATE SET
+                            open = EXCLUDED.open,
+                            high = EXCLUDED.high,
+                            low = EXCLUDED.low,
+                            close_price = EXCLUDED.close_price,
+                            volume = EXCLUDED.volume
+                        """,
+                        (
+                            str(symbol),
+                            str(timeframe),
+                            float(open_price) if open_price is not None else None,
+                            float(high_price) if high_price is not None else None,
+                            float(low_price) if low_price is not None else None,
+                            float(close_price),
+                            float(volume or 0.0),
+                            ts,
+                        ),
+                    )
+        except Exception as exc:
+            LOG.warning("POSTGRES LOG MARKET BAR FAILED: %s", exc)
+
     def log_signal(self, symbol=None, strategy=None, side=None, qty=None, status="generated", payload=None) -> None:
         """Русский коммент: логирование всех сигналов стратегии/фильтра/риска, включая отклонённые."""
         if not self.enabled:
