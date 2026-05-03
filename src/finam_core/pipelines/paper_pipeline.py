@@ -743,8 +743,9 @@ class PaperTradingPipeline:
         # === SMART ENTRY STATE ===
         st.setdefault("pending_breakout", None)
 
-        # === STRICT TREND FILTER BEFORE BREAKOUT (FIX 2.1) ===
+        # === SOFT TREND FILTER (NO HARD BLOCK) ===
         trend_dir = st.get("regime_trend")
+        trend_penalty = 1.0
 
         # === BREAKOUT DEDUP (LEVEL TTL) ===
         try:
@@ -768,26 +769,28 @@ class PaperTradingPipeline:
         except Exception:
             pass
 
-        # тренд-фильтр: запрещаем только сигналы против тренда, но не блокируем breakout по тренду
-        if trend_dir == "down":
-            # запрещаем BUY (но НЕ блокируем SELL breakout)
-            if curr_price > local_high - atr * 1.2:
-                if st.get("_last_bo_block") != "down":
-                    print("PIPE_BREAKOUT_BLOCK trend_down_no_long", flush=True)
-                    st["_last_bo_block"] = "down"
-                # НЕ return → даём шанс SELL
+        # === HARD BLOCKS REMOVED, SOFT LOGIC ONLY ===
+        if trend_dir == "down" and curr_price > local_high - atr * 1.2:
+            trend_penalty = 0.6
+            if st.get("_last_bo_soft") != "down":
+                print("PIPE_BREAKOUT_SOFT trend_down_penalty", flush=True)
+                st["_last_bo_soft"] = "down"
+            # HARD BLOCK REMOVED — ALWAYS ALLOW FLOW
+            pass
 
-        if trend_dir == "up":
-            # запрещаем SELL (но НЕ блокируем BUY breakout)
-            if curr_price < local_low + atr * 1.2:
-                if st.get("_last_bo_block") != "up":
-                    print("PIPE_BREAKOUT_BLOCK trend_up_no_short", flush=True)
-                    st["_last_bo_block"] = "up"
-                # НЕ return → даём шанс BUY
+        elif trend_dir == "up" and curr_price < local_low + atr * 1.2:
+            trend_penalty = 0.6
+            if st.get("_last_bo_soft") != "up":
+                print("PIPE_BREAKOUT_SOFT trend_up_penalty", flush=True)
+                st["_last_bo_soft"] = "up"
+            # HARD BLOCK REMOVED — ALWAYS ALLOW FLOW
+            pass
 
         # === ALLOWED BREAKOUTS ONLY ===
         # === EARLY BREAKOUT (ANTICIPATION ENTRY) ===
-        if curr_price > local_high - atr * 0.3 and trend_dir == "up":
+        if curr_price > local_high - atr * 0.5 and trend_dir == "up":
+            # HARD BLOCK REMOVED — ALWAYS ALLOW FLOW
+            pass
             st["pending_breakout"] = {
                 "side": "BUY",
                 "level": local_high,
@@ -796,7 +799,9 @@ class PaperTradingPipeline:
             st["_last_breakout"] = {"side": "BUY", "level": local_high, "ts": time.time()}
             print(f"PIPE_BREAKOUT_DETECTED BUY level={local_high}", flush=True)
 
-        elif curr_price < local_low + atr * 0.3 and trend_dir == "down":
+        elif curr_price < local_low + atr * 0.5 and trend_dir == "down":
+            # HARD BLOCK REMOVED — ALWAYS ALLOW FLOW
+            pass
             st["pending_breakout"] = {
                 "side": "SELL",
                 "level": local_low,
@@ -828,13 +833,37 @@ class PaperTradingPipeline:
                     st["prev_price"] = curr_price
                     return
 
+                # === ENTRY ALPHA V2: MULTI-TRIGGER SCORE ===
+                score = 0
+
+                # breakout proximity
+                if abs(curr_price - local_high) < atr * 0.3 or abs(curr_price - local_low) < atr * 0.3:
+                    score += 1
+
+                # momentum
+                if prev_price and abs(curr_price - prev_price) > atr * 0.15:
+                    score += 1
+
+                # volatility support
+                if atr_pct > 0.01:
+                    score += 1
+
+                # trend alignment
+                if (trend_dir == "up" and curr_price > prev_price) or (trend_dir == "down" and curr_price < prev_price):
+                    score += 1
+
+                # DEBUG
+                if score >= 2:
+                    print(f"PIPE_ENTRY_SCORE {score}", flush=True)
+
                 move = abs(curr_price - prev_price)
 
                 atr_val = st.get("atr") or 0.0
                 atr_pct = abs(atr_val / curr_price) if curr_price else 0.0
 
                 impulse_k = float(os.getenv("IMPULSE_K", "0.2"))
-                impulse = move > atr_val * impulse_k
+                # impulse = move > atr_val * impulse_k
+                impulse = (move > atr_val * impulse_k) or score >= 2
 
                 trend_dir = st.get("regime_trend")
 
@@ -859,22 +888,30 @@ class PaperTradingPipeline:
                         atr_safe = max(atr_val, curr_price * 0.002)
                         stop_distance = max(atr_safe * 1.3, curr_price * 0.006, 0.08)
 
-                        qty = round(risk_amount / stop_distance, 3)
+                        alpha_boost = 1.0
+                        if score >= 3:
+                            alpha_boost = 1.3
+                        elif score == 2:
+                            alpha_boost = 1.15
+
+                        qty = round((risk_amount / stop_distance) * trend_penalty * alpha_boost, 3)
                         qty = max(min(qty, 1.0), 0.1)
 
                         # === ADAPTIVE TP FOR IMPULSE ===
                         atr_pct = abs(atr_val / curr_price) if curr_price else 0.0
 
                         base_rr = 1.6
-
                         if atr_pct > 0.02:
                             base_rr += 0.5
+                        if score >= 3:
+                            base_rr += 0.5
 
-                        rr = max(1.3, min(base_rr, 2.8))
+                        rr = max(1.3, min(base_rr, 3.2))
 
                         take_distance = stop_distance * rr
 
                         print(f"PIPE_ADAPTIVE_TP_IMPULSE rr={round(rr, 2)} atr_pct={round(atr_pct, 4)}", flush=True)
+                        print(f"PIPE_ENTRY_ALPHA_V2 side={entry_side} score={score}", flush=True)
                         raw_intent = {
                             "symbol": sym,
                             "side": entry_side,
@@ -946,7 +983,7 @@ class PaperTradingPipeline:
             stop_distance = max(atr_safe * 1.5, curr_price * 0.008, 0.1)
             stop_distance = max(stop_distance, 0.05)
 
-            qty = round(risk_amount / stop_distance, 3)
+            qty = round((risk_amount / stop_distance) * trend_penalty, 3)
             qty = max(min(qty, 1.0), 0.1)
 
             # === ADAPTIVE TAKE PROFIT (VOL + TREND BASED) ===
@@ -998,7 +1035,7 @@ class PaperTradingPipeline:
         else:
             return
 
-        # === ROLLBACK PROTECTION (анти-плохой вход) ===
+    # === ROLLBACK PROTECTION (анти-плохой вход) ===
         try:
             last_price = st.get("last")
             prev_price = st.get("prev_price")
@@ -1006,23 +1043,38 @@ class PaperTradingPipeline:
             if last_price and prev_price and raw_intent:
                 move = abs(last_price - prev_price)
 
-                # 1. слишком маленькое движение → шум
-                if move < (st.get("atr", 0.0) or 0.0) * 0.1:
-                    print("PIPE_ROLLBACK_BLOCK small_move", flush=True)
-                    st["prev_price"] = curr_price
-                    return
+                atr_val = (st.get("atr", 0.0) or 0.0)
+                atr_pct = abs(atr_val / curr_price) if curr_price else 0.0
 
-                # 2. вход против импульса
+                min_move_k = float(os.getenv("ROLLBACK_MIN_MOVE_K", "0.04"))  # чуть мягче
+
+                # === SMALL MOVE (только ультра шум блокируем) ===
+                if move < atr_val * min_move_k:
+                    if atr_pct < 0.008:  # 🔥 было 0.015 → теперь только мёртвый рынок
+                        print("PIPE_ROLLBACK_BLOCK tiny_move", flush=True)
+                        st["prev_price"] = curr_price
+                        return
+                    else:
+                        print("PIPE_ROLLBACK_SOFT_ALLOW small_move", flush=True)
+
+                # === DIRECTION CHECK (почти всегда allow) ===
                 side = raw_intent.get("side")
+
                 if side == "BUY" and last_price < prev_price:
-                    print("PIPE_ROLLBACK_BLOCK wrong_direction", flush=True)
-                    st["prev_price"] = curr_price
-                    return
+                    if atr_pct < 0.008:  # 🔥 было 0.02 → сильно ослабили
+                        print("PIPE_ROLLBACK_BLOCK wrong_direction_tiny", flush=True)
+                        st["prev_price"] = curr_price
+                        return
+                    else:
+                        print("PIPE_ROLLBACK_SOFT_ALLOW direction", flush=True)
 
                 if side == "SELL" and last_price > prev_price:
-                    print("PIPE_ROLLBACK_BLOCK wrong_direction", flush=True)
-                    st["prev_price"] = curr_price
-                    return
+                    if atr_pct < 0.008:
+                        print("PIPE_ROLLBACK_BLOCK wrong_direction_tiny", flush=True)
+                        st["prev_price"] = curr_price
+                        return
+                    else:
+                        print("PIPE_ROLLBACK_SOFT_ALLOW direction", flush=True)
 
         except Exception as e:
             print(f"PIPE_ROLLBACK_ERROR {e}", flush=True)
@@ -1033,19 +1085,11 @@ class PaperTradingPipeline:
             if raw_intent:
                 side = raw_intent.get("side")
                 trend = st.get("regime_trend")
-                atr_pct = abs(st.get("atr", 0.0) / curr_price) if curr_price else 0.0
-
-                # пропускаем импульсные сделки
-                is_impulse = raw_intent.get("features", {}).get("impulse")
-
-                if (trend == "down" and side == "BUY") or (trend == "up" and side == "SELL"):
-                    # блокируем ТОЛЬКО если нет импульса и низкая вола
-                    if not is_impulse and atr_pct < 0.015:
-                        print("PIPE_FINAL_TREND_BLOCK", flush=True)
-                        st["prev_price"] = curr_price
-                        return
-                    else:
-                        print("PIPE_FINAL_TREND_SOFT_ALLOW", flush=True)
+                # informational only, no blocking
+                if trend == "up" and side != "BUY":
+                    print("PIPE_TREND_SOFT_MISMATCH up", flush=True)
+                if trend == "down" and side != "SELL":
+                    print("PIPE_TREND_SOFT_MISMATCH down", flush=True)
         except Exception:
             pass
         # REMOVE DEBUG price_in_state print
@@ -1231,29 +1275,21 @@ class PaperTradingPipeline:
             else:
                 trend_min = base_trend_min
 
-            # === HARD ALIGNMENT ONLY IF TREND CONFIRMED ===
+            # === SOFT ALIGNMENT ONLY (NO HARD BLOCK) ===
             if trend in ("up", "down") and trend_strength > trend_min:
                 last_block = st.get("_last_trend_block")
 
                 if trend == "up" and side != "BUY":
                     if last_block != ("up", side):
-                        print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
+                        print(f"PIPE_TREND_MISMATCH expected=BUY actual={side}", flush=True)
                         st["_last_trend_block"] = ("up", side)
-                    # SOFT BLOCK: allow in high volatility
-                    if atr_pct < 0.015:
-                        return
-                    else:
-                        print("PIPE_TREND_SOFT_ALLOW", flush=True)
+                    print("PIPE_TREND_SOFT_MISMATCH up", flush=True)
 
                 if trend == "down" and side != "SELL":
                     if last_block != ("down", side):
-                        print(f"PIPE_TREND_BLOCK expected=SELL actual={side}", flush=True)
+                        print(f"PIPE_TREND_MISMATCH expected=SELL actual={side}", flush=True)
                         st["_last_trend_block"] = ("down", side)
-                    # SOFT BLOCK: allow in high volatility
-                    if atr_pct < 0.015:
-                        return
-                    else:
-                        print("PIPE_TREND_SOFT_ALLOW", flush=True)
+                    print("PIPE_TREND_SOFT_MISMATCH down", flush=True)
 
                 st["_last_trend_block"] = None
 
@@ -1270,8 +1306,7 @@ class PaperTradingPipeline:
                 impulse_min *= 0.5
 
             if impulse < impulse_min and regime.volatility != "high":
-                print("PIPE_NO_IMPULSE_BLOCK", flush=True)
-                return
+                print("PIPE_NO_IMPULSE_SOFT", flush=True)
 
         except Exception as e:
             print(f"TREND_FILTER_ERROR {e}", flush=True)
