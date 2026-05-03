@@ -538,20 +538,115 @@ class PaperTradingPipeline:
                         self.exit_engine._dynamic_stops[sym] = trail_price
                         print(f"PIPE_TRAIL_SHORT {round(trail_price, 4)} k={round(base_k,2)}", flush=True)
 
-                # === HARD PROFIT LOCK (late stage) ===
-                if pnl_pct > 0.015:
-                    try:
-                        lock_dist = (st.get("atr", 0.0) or 0.0) * 0.5
+        # === EXIT ALPHA V2: PARTIAL TAKE PROFIT ===
+        try:
+            pos = self.pm.positions.get(sym)
+            if pos:
+                qty_now = float(getattr(pos, "qty", 0.0) or 0.0)
+                avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0)
 
-                        if qty_now > 0:
-                            lock_price = price - lock_dist
-                        else:
-                            lock_price = price + lock_dist
+                if qty_now != 0 and avg_price:
+                    pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
 
-                        self.exit_engine._dynamic_stops[sym] = lock_price
-                        print("PIPE_PROFIT_LOCK", flush=True)
-                    except Exception:
-                        pass
+                    partial_tp = float(os.getenv("PARTIAL_TP_PCT", "0.004"))  # 0.4%
+
+                    if pnl_pct > partial_tp and not st.get("_partial_tp_done"):
+                        close_qty = round(abs(qty_now) * 0.5, 3)
+
+                        exit_side = "SELL" if qty_now > 0 else "BUY"
+
+                        print(f"PIPE_PARTIAL_EXIT qty={close_qty}", flush=True)
+
+                        exit_intent = {
+                            "symbol": sym,
+                            "side": exit_side,
+                            "qty": close_qty,
+                            "reason": "partial_tp"
+                        }
+
+                        raw_fill = self.paper.execute(exit_intent, st)
+
+                        fill = ExecutionFill(
+                            symbol=sym,
+                            side=exit_side,
+                            qty=close_qty,
+                            price=float(getattr(raw_fill, "price", price)),
+                            commission=0.0,
+                            fill_id=getattr(raw_fill, "fill_id", None),
+                        )
+
+                        self.bus.publish({"type": "FILL", "fill": fill})
+
+                        st["_partial_tp_done"] = True
+
+        except Exception as e:
+            print(f"PIPE_PARTIAL_EXIT_ERROR {e}", flush=True)
+
+        # === EXIT ALPHA V2: MOMENTUM EXIT (slowdown detection) ===
+        try:
+            pos = self.pm.positions.get(sym)
+            if pos:
+                qty_now = float(getattr(pos, "qty", 0.0) or 0.0)
+
+                if qty_now != 0:
+                    prev_price = st.get("prev_price")
+                    move = abs(price - prev_price) if prev_price else 0.0
+                    atr_val = st.get("atr", 0.0) or 0.0
+
+                    # замедление импульса
+                    if atr_val > 0 and move < atr_val * 0.05:
+                        if st.get("_last_momentum_warn") != True:
+                            print("PIPE_MOMENTUM_SLOW", flush=True)
+                            st["_last_momentum_warn"] = True
+
+                        # если уже был профит — выходим
+                        avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0)
+
+                        pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
+
+                        if pnl_pct > 0.002:  # +0.2% достаточно
+                            exit_side = "SELL" if qty_now > 0 else "BUY"
+
+                            print("PIPE_MOMENTUM_EXIT", flush=True)
+
+                            exit_intent = {
+                                "symbol": sym,
+                                "side": exit_side,
+                                "qty": abs(qty_now),
+                                "reason": "momentum_exit"
+                            }
+
+                            raw_fill = self.paper.execute(exit_intent, st)
+
+                            fill = ExecutionFill(
+                                symbol=sym,
+                                side=exit_side,
+                                qty=abs(qty_now),
+                                price=float(getattr(raw_fill, "price", price)),
+                                commission=0.0,
+                                fill_id=getattr(raw_fill, "fill_id", None),
+                            )
+
+                            self.bus.publish({"type": "FILL", "fill": fill})
+                            return
+
+        except Exception as e:
+            print(f"PIPE_MOMENTUM_EXIT_ERROR {e}", flush=True)
+
+        # === HARD PROFIT LOCK (late stage) ===
+        if pnl_pct > 0.015:
+            try:
+                lock_dist = (st.get("atr", 0.0) or 0.0) * 0.5
+
+                if qty_now > 0:
+                    lock_price = price - lock_dist
+                else:
+                    lock_price = price + lock_dist
+
+                self.exit_engine._dynamic_stops[sym] = lock_price
+                print("PIPE_PROFIT_LOCK", flush=True)
+            except Exception:
+                pass
 
         except Exception as e:
             print(f"PIPE_PROFIT_PROTECT_ERROR {e}", flush=True)
@@ -1342,6 +1437,10 @@ class PaperTradingPipeline:
         pos = self.pm.positions.get(sym)
         current_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
         avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos else 0.0
+
+        # === RESET PARTIAL TP FLAG ON POSITION CLOSE ===
+        if pos and float(getattr(pos, "qty", 0.0) or 0.0) == 0.0:
+            st["_partial_tp_done"] = False
 
         # === PYRAMIDING (LEVEL 2: add to winners only) ===
         if current_qty != 0.0:
