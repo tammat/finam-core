@@ -190,6 +190,7 @@ class PaperTradingPipeline:
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
         self.exit_engine = SlTpCooldownEngine()
+        # === FIX: dynamic stops storage ===
         self.vol_risk = VolatilityRiskEngine()
         self.live_atr = LiveAtrEstimator()
         self.portfolio_heat = PortfolioHeatEngine()
@@ -508,12 +509,12 @@ class PaperTradingPipeline:
                     if qty_now > 0:
                         be_price = avg_now * 1.0005
                         if price > be_price:
-                            self.exit_engine._dynamic_stops[sym] = be_price
+                            self.exit_engine.set_dynamic_stop(sym, be_price)
                             print(f"PIPE_BE_LONG {be_price}", flush=True)
                     else:
                         be_price = avg_now * 0.9995
                         if price < be_price:
-                            self.exit_engine._dynamic_stops[sym] = be_price
+                            self.exit_engine.set_dynamic_stop(sym, be_price)
                             print(f"PIPE_BE_SHORT {be_price}", flush=True)
 
                 # === ADAPTIVE TRAILING (VOL + PROFIT STAGE) ===
@@ -541,11 +542,11 @@ class PaperTradingPipeline:
 
                     if qty_now > 0:
                         trail_price = price - trail_distance
-                        self.exit_engine._dynamic_stops[sym] = trail_price
+                        self.exit_engine.set_dynamic_stop(sym, trail_price)
                         print(f"PIPE_TRAIL_LONG {round(trail_price, 4)} k={round(base_k,2)}", flush=True)
                     else:
                         trail_price = price + trail_distance
-                        self.exit_engine._dynamic_stops[sym] = trail_price
+                        self.exit_engine.set_dynamic_stop(sym, trail_price)
                         print(f"PIPE_TRAIL_SHORT {round(trail_price, 4)} k={round(base_k,2)}", flush=True)
         except Exception as e:
             print(f"PIPE_PROFIT_PROTECT_ERROR {e}", flush=True)
@@ -660,7 +661,7 @@ class PaperTradingPipeline:
                 else:
                     lock_price = price + lock_dist
 
-                self.exit_engine._dynamic_stops[sym] = lock_price
+                self.exit_engine.set_dynamic_stop(sym, lock_price)
                 print("PIPE_PROFIT_LOCK", flush=True)
             except Exception:
                 pass

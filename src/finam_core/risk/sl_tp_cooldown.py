@@ -27,6 +27,8 @@ class SlTpCooldownEngine:
         self.take_profit_abs = float(os.getenv("RISK_V2_TAKE_PROFIT_ABS", "0.60"))
         self.cooldown_sec = float(os.getenv("RISK_V2_COOLDOWN_SEC", "300"))
         self._cooldown_until: dict[str, float] = {}
+        # хранение динамических стопов (break-even / trailing)
+        self._dynamic_stops: dict[str, float] = {}
 
     def is_cooldown(self, symbol: str) -> bool:
         return time.time() < self._cooldown_until.get(symbol, 0.0)
@@ -34,8 +36,22 @@ class SlTpCooldownEngine:
     def mark_exit(self, symbol: str) -> None:
         self._cooldown_until[symbol] = time.time() + self.cooldown_sec
 
+    def set_dynamic_stop(self, symbol: str, price: float) -> None:
+        # безопасная установка динамического стопа
+        self._dynamic_stops[symbol] = float(price)
+
+    def get_dynamic_stop(self, symbol: str) -> float | None:
+        return self._dynamic_stops.get(symbol)
+
     def evaluate(self, symbol: str, qty: float, avg_price: float, last_price: float) -> ExitDecision:
         if qty == 0:
+            # === DYNAMIC STOP ===
+            dyn_stop = self.get_dynamic_stop(symbol)
+            if dyn_stop is not None:
+                if qty > 0 and last_price <= dyn_stop:
+                    return ExitDecision(True, "dynamic_stop_long", "SELL", abs_qty)
+                if qty < 0 and last_price >= dyn_stop:
+                    return ExitDecision(True, "dynamic_stop_short", "BUY", abs_qty)
             return ExitDecision(False)
 
         abs_qty = abs(float(qty))
