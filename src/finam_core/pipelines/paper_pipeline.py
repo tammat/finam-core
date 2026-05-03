@@ -398,6 +398,17 @@ class PaperTradingPipeline:
             qty_now = 0.0
             avg_now = 0.0
 
+        # === GLOBAL PNL SAFE INIT (single source of truth) ===
+        pnl_pct = 0.0
+        try:
+            if qty_now != 0.0 and avg_now > 0:
+                if qty_now > 0:
+                    pnl_pct = (price - avg_now) / avg_now
+                else:
+                    pnl_pct = (avg_now - price) / avg_now
+        except Exception:
+            pnl_pct = 0.0
+
         if qty_now != 0.0:
             exit_decision = self.exit_engine.evaluate(sym, qty_now, avg_now, price)
             if exit_decision.should_exit:
@@ -444,10 +455,12 @@ class PaperTradingPipeline:
                     price_now = st.get("last") or 0.0
 
                     if qty_now != 0.0 and avg_now > 0:
-                        pnl_pct = (price_now - avg_now) / avg_now if qty_now > 0 else (avg_now - price_now) / avg_now
+                        local_pnl_pct = 0.0
+                        if avg_now > 0:
+                            local_pnl_pct = (price_now - avg_now) / avg_now if qty_now > 0 else (avg_now - price_now) / avg_now
 
                         # первый частичный выход
-                        if pnl_pct > 0.006 and abs(qty_now) > 0.3:
+                        if local_pnl_pct > 0.006 and abs(qty_now) > 0.3:
                             part_qty = round(abs(qty_now) * 0.5, 3)
                             part_side = "SELL" if qty_now > 0 else "BUY"
 
@@ -488,10 +501,7 @@ class PaperTradingPipeline:
         # === PROFIT PROTECTION (BREAK-EVEN + TRAILING) ===
         try:
             if avg_now > 0:
-                if qty_now > 0:
-                    pnl_pct = (price - avg_now) / avg_now
-                else:
-                    pnl_pct = (avg_now - price) / avg_now
+                # use global pnl_pct (do not recompute here)
 
                 # === BREAK-EVEN ===
                 if pnl_pct > 0.003:  # +0.3%
@@ -537,6 +547,8 @@ class PaperTradingPipeline:
                         trail_price = price + trail_distance
                         self.exit_engine._dynamic_stops[sym] = trail_price
                         print(f"PIPE_TRAIL_SHORT {round(trail_price, 4)} k={round(base_k,2)}", flush=True)
+        except Exception as e:
+            print(f"PIPE_PROFIT_PROTECT_ERROR {e}", flush=True)
 
         # === EXIT ALPHA V2: PARTIAL TAKE PROFIT ===
         try:
@@ -546,11 +558,13 @@ class PaperTradingPipeline:
                 avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0)
 
                 if qty_now != 0 and avg_price:
-                    pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
+                    local_pnl_pct = 0.0
+                    if avg_price:
+                        local_pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
 
                     partial_tp = float(os.getenv("PARTIAL_TP_PCT", "0.004"))  # 0.4%
 
-                    if pnl_pct > partial_tp and not st.get("_partial_tp_done"):
+                    if local_pnl_pct > partial_tp and not st.get("_partial_tp_done"):
                         close_qty = round(abs(qty_now) * 0.5, 3)
 
                         exit_side = "SELL" if qty_now > 0 else "BUY"
@@ -602,9 +616,11 @@ class PaperTradingPipeline:
                         # если уже был профит — выходим
                         avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0)
 
-                        pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
+                        local_pnl_pct = 0.0
+                        if avg_price:
+                            local_pnl_pct = ((price - avg_price) / avg_price) if qty_now > 0 else ((avg_price - price) / avg_price)
 
-                        if pnl_pct > 0.002:  # +0.2% достаточно
+                        if local_pnl_pct > 0.002:  # +0.2% достаточно
                             exit_side = "SELL" if qty_now > 0 else "BUY"
 
                             print("PIPE_MOMENTUM_EXIT", flush=True)
@@ -633,8 +649,9 @@ class PaperTradingPipeline:
         except Exception as e:
             print(f"PIPE_MOMENTUM_EXIT_ERROR {e}", flush=True)
 
+        # (removed ensure pnl_pct always defined - now always defined above)
         # === HARD PROFIT LOCK (late stage) ===
-        if pnl_pct > 0.015:
+        if pnl_pct is not None and pnl_pct > 0.015:
             try:
                 lock_dist = (st.get("atr", 0.0) or 0.0) * 0.5
 
@@ -648,8 +665,6 @@ class PaperTradingPipeline:
             except Exception:
                 pass
 
-        except Exception as e:
-            print(f"PIPE_PROFIT_PROTECT_ERROR {e}", flush=True)
         # =========================================================
         # === FEATURES + REGIME (ОДИН РАЗ)
         # =========================================================
