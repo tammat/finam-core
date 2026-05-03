@@ -19,7 +19,15 @@ LOG = logging.getLogger(__name__)
 
 class PostgresLogger:
     def __init__(self) -> None:
+        # Русский коммент: logger использует DATABASE_URL либо собирает DSN из DB_* переменных.
         self.database_url = os.getenv("DATABASE_URL", "").strip()
+        if not self.database_url:
+            db_host = os.getenv("DB_HOST", "127.0.0.1")
+            db_port = os.getenv("DB_PORT", "5432")
+            db_name = os.getenv("DB_NAME", "finam")
+            db_user = os.getenv("DB_USER", "finam")
+            db_password = os.getenv("DB_PASSWORD", "finam")
+            self.database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
         self.enabled = bool(self.database_url)
 
     def _connect(self):
@@ -76,13 +84,6 @@ class PostgresLogger:
             or getattr(fill, "trade_id", None)
         )
 
-        origin = (
-            kwargs.get("origin")
-            or kwargs.get("execution_type")
-            or getattr(fill, "origin", None)
-            or "paper"
-        )
-
         if symbol is None or side is None or qty is None or price is None:
             return
 
@@ -91,20 +92,20 @@ class PostgresLogger:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO trades (
-                            symbol, side, qty, price, commission, fill_id, origin, payload
+                        INSERT INTO fills (
+                            fill_id, ts, symbol, side, qty, price, commission, order_id
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        VALUES (%s, now(), %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (fill_id) DO NOTHING
                         """,
                         (
+                            str(fill_id) if fill_id is not None else f"paper-{datetime.utcnow().timestamp()}",
                             str(symbol),
                             str(side).upper(),
                             float(qty),
                             float(price),
                             float(commission or 0.0),
-                            str(fill_id) if fill_id is not None else None,
-                            str(origin) if origin is not None else "paper",
-                            "{}",
+                            kwargs.get("order_id") or getattr(fill, "order_id", None),
                         ),
                     )
         except Exception as e:
