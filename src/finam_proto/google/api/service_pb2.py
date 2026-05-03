@@ -22,24 +22,24 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from google.api import auth_pb2 as google_dot_api_dot_auth__pb2
-from google.api import backend_pb2 as google_dot_api_dot_backend__pb2
-from google.api import billing_pb2 as google_dot_api_dot_billing__pb2
-from google.api import client_pb2 as google_dot_api_dot_client__pb2
-from google.api import context_pb2 as google_dot_api_dot_context__pb2
-from google.api import control_pb2 as google_dot_api_dot_control__pb2
-from google.api import documentation_pb2 as google_dot_api_dot_documentation__pb2
-from google.api import endpoint_pb2 as google_dot_api_dot_endpoint__pb2
-from google.api import http_pb2 as google_dot_api_dot_http__pb2
-from google.api import log_pb2 as google_dot_api_dot_log__pb2
-from google.api import logging_pb2 as google_dot_api_dot_logging__pb2
-from google.api import metric_pb2 as google_dot_api_dot_metric__pb2
-from google.api import monitored_resource_pb2 as google_dot_api_dot_monitored__resource__pb2
-from google.api import monitoring_pb2 as google_dot_api_dot_monitoring__pb2
-from google.api import quota_pb2 as google_dot_api_dot_quota__pb2
-from google.api import source_info_pb2 as google_dot_api_dot_source__info__pb2
-from google.api import system_parameter_pb2 as google_dot_api_dot_system__parameter__pb2
-from google.api import usage_pb2 as google_dot_api_dot_usage__pb2
+from finam_proto.google.api import auth_pb2 as google_dot_api_dot_auth__pb2
+from finam_proto.google.api import backend_pb2 as google_dot_api_dot_backend__pb2
+from finam_proto.google.api import billing_pb2 as google_dot_api_dot_billing__pb2
+from finam_proto.google.api import client_pb2 as google_dot_api_dot_client__pb2
+from finam_proto.google.api import context_pb2 as google_dot_api_dot_context__pb2
+from finam_proto.google.api import control_pb2 as google_dot_api_dot_control__pb2
+from finam_proto.google.api import documentation_pb2 as google_dot_api_dot_documentation__pb2
+from finam_proto.google.api import endpoint_pb2 as google_dot_api_dot_endpoint__pb2
+from finam_proto.google.api import http_pb2 as google_dot_api_dot_http__pb2
+from finam_proto.google.api import log_pb2 as google_dot_api_dot_log__pb2
+from finam_proto.google.api import logging_pb2 as google_dot_api_dot_logging__pb2
+from finam_proto.google.api import metric_pb2 as google_dot_api_dot_metric__pb2
+from finam_proto.google.api import monitored_resource_pb2 as google_dot_api_dot_monitored__resource__pb2
+from finam_proto.google.api import monitoring_pb2 as google_dot_api_dot_monitoring__pb2
+from finam_proto.google.api import quota_pb2 as google_dot_api_dot_quota__pb2
+from finam_proto.google.api import source_info_pb2 as google_dot_api_dot_source__info__pb2
+from finam_proto.google.api import system_parameter_pb2 as google_dot_api_dot_system__parameter__pb2
+from finam_proto.google.api import usage_pb2 as google_dot_api_dot_usage__pb2
 from google.protobuf import api_pb2 as google_dot_protobuf_dot_api__pb2
 from google.protobuf import type_pb2 as google_dot_protobuf_dot_type__pb2
 from google.protobuf import wrappers_pb2 as google_dot_protobuf_dot_wrappers__pb2

@@ -22,13 +22,13 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from google.api import annotations_pb2 as google_dot_api_dot_annotations__pb2
+from finam_proto.google.api import annotations_pb2 as google_dot_api_dot_annotations__pb2
 from google.type import date_pb2 as google_dot_type_dot_date__pb2
 from google.type import decimal_pb2 as google_dot_type_dot_decimal__pb2
 from google.type import interval_pb2 as google_dot_type_dot_interval__pb2
 from google.type import money_pb2 as google_dot_type_dot_money__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
-from protoc_gen_openapiv2.options import annotations_pb2 as protoc__gen__openapiv2_dot_options_dot_annotations__pb2
+from finam_proto.protoc_gen_openapiv2.options import annotations_pb2 as protoc__gen__openapiv2_dot_options_dot_annotations__pb2
 from google.protobuf import wrappers_pb2 as google_dot_protobuf_dot_wrappers__pb2
 
 

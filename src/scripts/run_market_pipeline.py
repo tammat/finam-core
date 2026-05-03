@@ -12,7 +12,34 @@ QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.ap
 import os
 import time
 import argparse
+import signal
 
+# предотвращаем BrokenPipe при использовании grep/pipe
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+import sys
+
+# безопасный вывод: подавляет BrokenPipeError при пайпах/grep
+class _SafeStdout:
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+    def write(self, s):
+        try:
+            return self._wrapped.write(s)
+        except BrokenPipeError:
+            return 0
+    def flush(self):
+        try:
+            return self._wrapped.flush()
+        except BrokenPipeError:
+            return None
+    def __getattr__(self, name):
+        return getattr(self._wrapped, name)
+
+sys.stdout = _SafeStdout(sys.stdout)
+
+from dotenv import load_dotenv
+load_dotenv()
 
 def parse_args():
     import argparse
@@ -300,13 +327,19 @@ def main() -> None:
                 md.stop()
         except Exception:
             pass
-        print("DONE", flush=True)
+        try:
+            print("DONE", flush=True)
+        except BrokenPipeError:
+            pass
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        # Русский коммент: штатная остановка от systemd/SIGINT не должна давать traceback в journalctl.
-        print("STOPPED by KeyboardInterrupt", flush=True)
+        # Русский коммент: штатная остановка без traceback и без BrokenPipe при пайпах
+        try:
+            print("STOPPED by KeyboardInterrupt", flush=True)
+        except BrokenPipeError:
+            pass
         raise SystemExit(0)
