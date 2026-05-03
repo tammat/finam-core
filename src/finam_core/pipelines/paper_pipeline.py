@@ -25,8 +25,14 @@ from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRe
 from finam_core.signals.signal_router import SignalRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
+from core.instrument_resolver import InstrumentResolver
 
-
+# === RISK CLUSTERS (упрощённая корреляция) ===
+CLUSTERS = {
+    "energy": ["NG", "BR"],
+    "metals": ["GC", "SI"],
+    "fx": ["SR"],
+}
 LOG = logging.getLogger(__name__)
 
 
@@ -251,7 +257,11 @@ class PaperTradingPipeline:
             else:
                 print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
                 return
-        sym = event.get("symbol")
+
+        self._resolver = getattr(self, "_resolver", InstrumentResolver())
+
+        raw_sym = event.get("symbol")
+        sym = self._resolver.resolve(raw_sym)
         if not sym:
             return
 
@@ -271,6 +281,9 @@ class PaperTradingPipeline:
             return
 
         price = float(last)
+        # === FIX CRITICAL (GLOBAL PRICE) ===
+
+        curr_price = price
         # === SIMULATION MOVE (CRITICAL) ===
         if os.getenv("SIMULATE_MARKET", "0") == "1":
             import random
@@ -481,7 +494,7 @@ class PaperTradingPipeline:
             atr_pct = abs(regime.atr / price) if price else 0
 
             # === 1. Слабая волатильность → нет сделки
-            if atr_pct < 0.004:
+            if atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
                 print("PIPE_VOL_LOW_BLOCK", flush=True)
                 return
 
@@ -494,7 +507,7 @@ class PaperTradingPipeline:
             if regime.trend in ("up", "down"):
                 trend_strength = abs(st.get("ema_fast", price) - st.get("ema_slow", price)) / price
 
-                if trend_strength < 0.0015:  # ключевой параметр
+                if trend_strength < float(os.getenv("TREND_STRENGTH_MIN","0.0003")) and regime.volatility != "high":  # ключевой параметр
                     print("PIPE_TREND_WEAK_BLOCK", flush=True)
                     return
 
@@ -521,18 +534,16 @@ class PaperTradingPipeline:
         print(f"DEBUG REGIME_ROUTER trend={regime.trend} vol={regime.volatility}", flush=True)
 
         try:
-            # === MTF FILTER ===
+            # === MTF FILTER (WEAK VERSION, no blocking) ===
             m5 = st.get("m5")
-            m15 = st.get("m15")
-
-            if m5 and m15:
+            if m5:
                 trend = regime.trend
-                if trend == "up" and not (price > m5 > m15):
-                    print("PIPE_MTF_BLOCK_LONG", flush=True)
-                    return
-                if trend == "down" and not (price < m5 < m15):
-                    print("PIPE_MTF_BLOCK_SHORT", flush=True)
-                    return
+
+                if trend == "up" and not (price > m5):
+                    print("PIPE_MTF_WEAK_LONG", flush=True)
+
+                if trend == "down" and not (price < m5):
+                    print("PIPE_MTF_WEAK_SHORT", flush=True)
 
             # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
             if regime.trend in ("up", "down"):
@@ -549,143 +560,140 @@ class PaperTradingPipeline:
                 # fallback to breakout if no MR signal
                 if raw_intent is None:
                     print("DEBUG fallback to breakout", flush=True)
+
         except Exception as e:
             print(f"STRATEGY_ERROR {e}", flush=True)
             return
 
+        # === GLOBAL SAFETY (ensure variables always defined) ===
+        curr_price = st.get("last")
+        if curr_price is None:
+            return
+
+        atr = st.get("atr") or 0.0
+
+        history = st.setdefault("price_history", [])
+        if len(history) < 2:
+            history.append(curr_price)
+            return
+
+        local_high = max(history[-10:])
+        local_low = min(history[-10:])
+
+        history.append(curr_price)
+        if len(history) > 20:
+            st["price_history"] = history[-20:]
+
         # === GLOBAL FALLBACK (BREAKOUT LEVELS + ATR) ===
-        if raw_intent is None:
-            try:
-                curr_price = st.get("last")
-                atr = st.get("atr") or 0.0
+        # PATCH: SMART ENTRY (RETEST MODE)
+        # вставить в fallback breakout блок
 
-                # === LEVELS (локальные high/low) ===
-                history = st.setdefault("price_history", [])
+        # === SMART ENTRY STATE ===
+        st.setdefault("pending_breakout", None)
 
-                # сначала работаем со старой историей
-                if len(history) < 3:
-                    history.append(curr_price)
-                    return  # недостаточно данных
+        # === DETECT BREAKOUT (не входим сразу) ===
+        if curr_price > local_high - atr * 0.5:
+            st["pending_breakout"] = {
+                "side": "BUY",
+                "level": local_high,
+                "ts": time.time()
+            }
+            print(f"PIPE_BREAKOUT_DETECTED BUY level={local_high}", flush=True)
 
-                # считаем уровни БЕЗ текущей цены
-                local_high = max(history[-10:])
-                local_low = min(history[-10:])
+        elif curr_price < local_low + atr * 0.5:
+            st["pending_breakout"] = {
+                "side": "SELL",
+                "level": local_low,
+                "ts": time.time()
+            }
+            print(f"PIPE_BREAKOUT_DETECTED SELL level={local_low}", flush=True)
 
-                # теперь добавляем текущую цену
-                history.append(curr_price)
+        # === RETEST ENTRY ===
+        pb = st.get("pending_breakout")
 
-                # ограничиваем окно
-                if len(history) > 20:
-                    st["price_history"] = history[-20:]
+        if pb:
+            side = pb["side"]
+            level = pb["level"]
 
-                # === BREAKOUT LOGIC (ALLOW IN FLAT) ===
-                if curr_price > local_high:
-                    print(f"PIPE_BREAKOUT_BUY level={local_high} atr={atr}", flush=True)
+            # TTL (устаревание сигнала)
+            if time.time() - pb["ts"] > 60:
+                st["pending_breakout"] = None
+                return
 
-                    risk_per_trade = 0.01
-                    # === DYNAMIC RISK SCALING (LEVEL 2) ===
-                    try:
-                        pm_ctx = self.pm.get_context()
-                        pnl = float(getattr(pm_ctx, "daily_realized_pnl", 0.0) or 0.0)
-
-                        if pnl < 0:
-                            risk_per_trade *= 0.7  # уменьшаем риск после убытков
-                        elif pnl > 0:
-                            risk_per_trade *= 1.2  # увеличиваем риск при прибыли
-
-                    except Exception:
-                        pass
-
-                    # === RISK CLAMP (защита от разгона) ===
-                    risk_per_trade = max(min(risk_per_trade, 0.02), 0.003)
-                    capital = getattr(self.portfolio, "starting_cash", 100000)
-                    risk_amount = capital * risk_per_trade
-
-                    atr_safe = max(atr, curr_price * 0.002)
-
-                    # === FUND MODE: стабильный широкий стоп ===
-                    stop_distance = max(
-                        atr_safe * 2.0,
-                        curr_price * 0.01,
-                        0.15  # минимальный стоп (очень важно)
-                    )
-
-                    stop_distance = max(stop_distance, 0.05)
-
-                    qty = round(risk_amount / stop_distance, 3)
-                    qty = max(min(qty, 1.0), 0.1)
-
-                    rr = 3.0 if regime.volatility == "high" else 2.0  # увеличенный RR
-                    take_distance = stop_distance * rr
-
-                    raw_intent = {
-                        "symbol": sym,
-                        "side": "BUY",
-                        "qty": qty,
-                        "price": curr_price,
-                        "features": {
-                            "stop": curr_price - stop_distance,
-                            "take": curr_price + take_distance,
-                            "rr": rr,
-                        }
-                    }
-
-                elif curr_price < local_low:
-                    print(f"PIPE_BREAKOUT_SELL level={local_low} atr={atr}", flush=True)
-
-                    risk_per_trade = 0.01
-                    # === DYNAMIC RISK SCALING (LEVEL 2) ===
-                    try:
-                        pm_ctx = self.pm.get_context()
-                        pnl = float(getattr(pm_ctx, "daily_realized_pnl", 0.0) or 0.0)
-
-                        if pnl < 0:
-                            risk_per_trade *= 0.7
-                        elif pnl > 0:
-                            risk_per_trade *= 1.2
-
-                    except Exception:
-                        pass
-
-                    # === RISK CLAMP (защита от разгона) ===
-                    risk_per_trade = max(min(risk_per_trade, 0.02), 0.003)
-                    capital = getattr(self.portfolio, "starting_cash", 100000)
-                    risk_amount = capital * risk_per_trade
-
-                    atr_safe = max(atr, curr_price * 0.002)
-
-                    # === FUND MODE: стабильный широкий стоп ===
-                    stop_distance = max(
-                        atr_safe * 2.0,
-                        curr_price * 0.01,
-                        0.15  # минимальный стоп (очень важно)
-                    )
-
-                    stop_distance = max(stop_distance, 0.05)
-
-                    qty = round(risk_amount / stop_distance, 3)
-                    qty = max(min(qty, 1.0), 0.1)
-
-                    rr = 3.0 if regime.volatility == "high" else 2.0
-                    take_distance = stop_distance * rr
-
-                    raw_intent = {
-                        "symbol": sym,
-                        "side": "SELL",
-                        "qty": qty,
-                        "price": curr_price,
-                        "features": {
-                            "stop": curr_price + stop_distance,
-                            "take": curr_price - take_distance,
-                            "rr": rr,
-                        }
-                    }
-
+            # BUY RETEST
+            if side == "BUY":
+                if curr_price <= level + atr * 0.2:
+                    print("PIPE_SMART_ENTRY BUY", flush=True)
+                    entry_side = "BUY"
                 else:
                     return
 
-            except Exception as e:
-                print(f"FALLBACK_ERROR {e}", flush=True)
+            # SELL RETEST
+            elif side == "SELL":
+                if curr_price >= level - atr * 0.2:
+                    print("PIPE_SMART_ENTRY SELL", flush=True)
+                    entry_side = "SELL"
+                else:
+                    return
+
+            # === EXECUTE ENTRY ===
+            risk_per_trade = 0.01
+            capital = getattr(self.portfolio, "starting_cash", 100000)
+            risk_amount = capital * risk_per_trade
+
+            atr_safe = max(atr, curr_price * 0.002)
+            stop_distance = max(atr_safe * 2.0, curr_price * 0.01, 0.15)
+            stop_distance = max(stop_distance, 0.05)
+
+            qty = round(risk_amount / stop_distance, 3)
+            qty = max(min(qty, 1.0), 0.1)
+
+            rr = 2.0
+            take_distance = stop_distance * rr
+
+            raw_intent = {
+                "symbol": sym,
+                "side": entry_side,
+                "qty": qty,
+                "price": curr_price,
+                "features": {
+                    "stop": curr_price - stop_distance if entry_side == "BUY" else curr_price + stop_distance,
+                    "take": curr_price + take_distance if entry_side == "BUY" else curr_price - take_distance,
+                    "rr": rr,
+                }
+            }
+
+            # сброс состояния
+            st["pending_breakout"] = None
+
+        else:
+            return
+
+        # === ROLLBACK PROTECTION (анти-плохой вход) ===
+        try:
+            last_price = st.get("last")
+            prev_price = st.get("prev_price")
+
+            if last_price and prev_price and raw_intent:
+                move = abs(last_price - prev_price)
+
+                # 1. слишком маленькое движение → шум
+                if move < (st.get("atr", 0.0) or 0.0) * 0.1:
+                    print("PIPE_ROLLBACK_BLOCK small_move", flush=True)
+                    return
+
+                # 2. вход против импульса
+                side = raw_intent.get("side")
+                if side == "BUY" and last_price < prev_price:
+                    print("PIPE_ROLLBACK_BLOCK wrong_direction", flush=True)
+                    return
+
+                if side == "SELL" and last_price > prev_price:
+                    print("PIPE_ROLLBACK_BLOCK wrong_direction", flush=True)
+                    return
+
+        except Exception as e:
+            print(f"PIPE_ROLLBACK_ERROR {e}", flush=True)
 
         print("DEBUG raw_intent:", raw_intent, flush=True)
         print(f"DEBUG price_in_state last={st.get('last')} bid={st.get('bid')} ask={st.get('ask')}", flush=True)
@@ -776,7 +784,11 @@ class PaperTradingPipeline:
             return
 
         intent = routed.intent.to_dict()
-
+        # === CONTRACT RESOLVE BEFORE EXECUTION ===
+        try:
+            intent["symbol"] = self._resolver.resolve(intent["symbol"])
+        except Exception:
+            pass
         # === HARD PRICE INJECTION (FIX missing_price) ===
         try:
             if intent.get("price") is None:
@@ -813,7 +825,7 @@ class PaperTradingPipeline:
                 print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
                 return
             # === EXTRA IMPULSE FILTER ===
-            if abs(st.get("ema_fast", price) - price) / price < 0.0007:
+            if abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
                 print("PIPE_NO_IMPULSE_BLOCK", flush=True)
                 return
             if trend == "down" and side != "SELL":
@@ -856,13 +868,44 @@ class PaperTradingPipeline:
         # === POSITION GUARD (STRICT, NO STACKING)
         # =========================================================
         pos = self.pm.positions.get(sym)
+        current_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
+        avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos else 0.0
 
-        if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
-            print(
-                f"PIPE_POSITION_BLOCK symbol={sym} qty={getattr(pos, 'qty', None)}",
-                flush=True
-            )
-            return
+        # === PYRAMIDING (LEVEL 2: add to winners only) ===
+        if current_qty != 0.0:
+            side = intent.get("side")
+
+            # позиция должна совпадать по направлению
+            if (current_qty > 0 and side == "BUY") or (current_qty < 0 and side == "SELL"):
+
+                # считаем текущую прибыль по реальной рыночной цене
+                market_price = st.get("last") or price
+                if current_qty > 0:
+                    pnl_pct = (market_price - avg_price) / avg_price if avg_price else 0.0
+                else:
+                    pnl_pct = (avg_price - market_price) / avg_price if avg_price else 0.0
+
+                # более гибкий порог для пирамидинга (более агрессивный для MOEX low-vol)
+                threshold = float(os.getenv("PYRAMIDING_THRESHOLD", "0.0003"))  # 0.03% (ускорение)
+                print(f"DEBUG_PYRAMID pnl={round(pnl_pct,6)} threshold={threshold} avg={avg_price} mkt={market_price}", flush=True)
+                # добавляем только если уже есть прибыль
+                if pnl_pct > threshold:
+                    print(f"PIPE_PYRAMID_ADD pnl={round(pnl_pct,4)}", flush=True)
+
+                    # уменьшаем размер добавки (без увеличения риска)
+                    intent["qty"] = round(intent.get("qty", 0.0) * 0.5, 3)
+
+                else:
+                    print("PIPE_PYRAMID_WAIT not_ready", flush=True)
+                    return
+            else:
+                print("PIPE_POSITION_BLOCK opposite_direction", flush=True)
+                return
+
+        # === REMOVE position exists guard (handled by pyramiding logic) ===
+        # if pos and float(getattr(pos, "qty", 0.0)) != 0.0:
+        #     print(f"PIPE_POSITION_BLOCK symbol={sym} qty={getattr(pos, 'qty', 0.0)}", flush=True)
+        #     return
 
         # =========================================================
         # === COOLDOWN (LAST FILTER BEFORE EXECUTION)
@@ -1089,6 +1132,30 @@ class PaperTradingPipeline:
         # === EXECUTION
         # =========================================================
         # === VALIDATION BEFORE EXECUTION (CRITICAL FIX) ===
+        # === CORRELATION FILTER ===
+        try:
+            current_positions = getattr(self.pm, "positions", {}) or {}
+
+            active_symbols = list(current_positions.keys())
+
+            def get_cluster(sym):
+                base = sym.split("@")[0][:2]
+                for k, v in CLUSTERS.items():
+                    if base in v:
+                        return k
+                return None
+
+            new_cluster = get_cluster(intent.get("symbol"))
+
+            for s in active_symbols:
+                existing_cluster = get_cluster(s)
+
+                if existing_cluster and existing_cluster == new_cluster:
+                    print(f"PIPE_CLUSTER_BLOCK {new_cluster}", flush=True)
+                    return
+
+        except Exception:
+            pass
         if intent.get("price") is None:
             px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
             if px is not None:
