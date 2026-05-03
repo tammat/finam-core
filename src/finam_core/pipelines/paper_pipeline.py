@@ -158,6 +158,14 @@ class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
 
     def __init__(self, bus, portfolio, position_manager, risk, paper, strategy, done=None, filter_engine=None, filter_context_builder=None):
+        # === TELEGRAM NOTIFIER INIT ===
+        try:
+            from finam_core.notifications.telegram_notifier import TelegramNotifier
+            self.notifier = TelegramNotifier()
+        except Exception as e:
+            print("TELEGRAM INIT ERROR:", e)
+            self.notifier = None
+
         from finam_core.strategy.mean_reversion import MeanReversionStrategy
         from finam_core.session.session_manager import SessionManager
 
@@ -749,15 +757,13 @@ class PaperTradingPipeline:
         try:
             atr_pct = abs(regime.atr / price) if price else 0
 
-            # === 1. Слабая волатильность → нет сделки
+            # === 1. Слабая волатильность → soft allow
             if atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
-                print("PIPE_VOL_LOW_BLOCK", flush=True)
-                return
+                print("PIPE_VOL_LOW_SOFT_ALLOW", flush=True)
 
-            # === 2. Слишком высокая вола → шум
+            # === 2. Слишком высокая вола → soft allow
             if atr_pct > 0.03:
-                print("PIPE_VOL_HIGH_BLOCK", flush=True)
-                return
+                print("PIPE_VOL_HIGH_SOFT_ALLOW", flush=True)
 
             # === 3. СЛАБЫЙ ТРЕНД (главный фикс)
             if regime.trend in ("up", "down"):
@@ -1172,7 +1178,7 @@ class PaperTradingPipeline:
                 side = raw_intent.get("side")
 
                 if side == "BUY" and last_price < prev_price:
-                    if atr_pct < 0.008:  # 🔥 было 0.02 → сильно ослабили
+                    if atr_pct < 0.0025:  # 🔥 было 0.02 → сильно ослабили
                         print("PIPE_ROLLBACK_BLOCK wrong_direction_tiny", flush=True)
                         st["prev_price"] = curr_price
                         return
@@ -1180,7 +1186,7 @@ class PaperTradingPipeline:
                         print("PIPE_ROLLBACK_SOFT_ALLOW direction", flush=True)
 
                 if side == "SELL" and last_price > prev_price:
-                    if atr_pct < 0.008:
+                    if atr_pct < 0.0025:
                         print("PIPE_ROLLBACK_BLOCK wrong_direction_tiny", flush=True)
                         st["prev_price"] = curr_price
                         return
@@ -1375,7 +1381,7 @@ class PaperTradingPipeline:
             atr_pct = abs(st.get("atr", 0.0) / price) if price else 0.0
 
             # динамический порог силы тренда
-            base_trend_min = float(os.getenv("TREND_STRENGTH_MIN", "0.0003"))
+            base_trend_min = float(os.getenv("TREND_STRENGTH_MIN", "0.00008"))
 
             # сильная вола → снижаем требования (ловим импульс)
             if atr_pct > 0.02:
@@ -1410,7 +1416,7 @@ class PaperTradingPipeline:
 
             # === IMPULSE FILTER (adaptive)
             impulse = abs(st.get("ema_fast", price) - price) / price if price else 0.0
-            impulse_min = float(os.getenv("IMPULSE_MIN", "0.0003"))
+            impulse_min = float(os.getenv("IMPULSE_MIN", "0.00008"))
 
             # при высокой воле даём больше свободы
             if atr_pct > 0.02:
@@ -1480,7 +1486,7 @@ class PaperTradingPipeline:
                     pnl_pct = (avg_price - market_price) / avg_price if avg_price else 0.0
 
                 # более гибкий порог для пирамидинга (более агрессивный для MOEX low-vol)
-                threshold = float(os.getenv("PYRAMIDING_THRESHOLD", "0.0003"))  # 0.03% (ускорение)
+                threshold = float(os.getenv("PYRAMIDING_THRESHOLD", "0.00012"))  # 0.03% (ускорение)
                 # REMOVE DEBUG_PYRAMID print
                 # добавляем только если уже есть прибыль
                 if pnl_pct > threshold:
@@ -1509,9 +1515,8 @@ class PaperTradingPipeline:
                     atr_pct = abs(st.get("atr", 0.0) / (st.get("last") or 1.0))
                     is_impulse = intent.get("features", {}).get("impulse")
 
-                    if not is_impulse and atr_pct < 0.015:
-                        print("PIPE_FLIP_BLOCK weak_signal", flush=True)
-                        return
+                    if not is_impulse and atr_pct < 0.003:
+                        print("PIPE_FLIP_SOFT_ALLOW weak_signal", flush=True)
 
                 except Exception:
                     pass
@@ -1576,7 +1581,7 @@ class PaperTradingPipeline:
         now_ts = time.time()
         last_ts = getattr(self, "_last_trade_ts", 0.0)
         # Русский коммент: базовый кулдаун + адаптация под волатильность (Level 2)
-        base_cooldown = float(os.getenv("TRADE_COOLDOWN_SEC", "20"))
+        base_cooldown = float(os.getenv("TRADE_COOLDOWN_SEC", "8"))
 
         try:
             atr_pct = abs(st.get("atr", 0.0) / price) if price else 0.0
@@ -1662,8 +1667,8 @@ class PaperTradingPipeline:
 
         # === TRADE LIMIT (LEVEL 2: анти-овер-трейдинг) ===
         try:
-            max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "5"))
-            max_trades_per_symbol = int(os.getenv("MAX_TRADES_PER_SYMBOL", "2"))
+            max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "20"))
+            max_trades_per_symbol = int(os.getenv("MAX_TRADES_PER_SYMBOL", "8"))
 
             now_ts = time.time()
 
@@ -1860,10 +1865,10 @@ class PaperTradingPipeline:
                 intent["price"] = float(px)
             else:
                 print("PIPE_EXEC_BLOCK missing_price", flush=True)
-                return
         if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             return
+
         raw_fill = self.paper.execute(intent, st)
 
         # === NORMALIZE FILL (define raw_qty and side ONCE) ===
@@ -1906,18 +1911,26 @@ class PaperTradingPipeline:
             fill_id=getattr(raw_fill, "fill_id", None),
         )
 
-        # SAFETY: гарантируем корректный fill (также qty > 0)
+        # SAFETY: гарантируем корректный fill
         if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
             LOG.error("FILL BUILD ERROR: invalid fill, intent=%s raw_fill=%s", intent, raw_fill)
             return
 
+        # === EXEC LOG ===
         print(
             f"PIPE_EXEC side={intent.get('side')} qty={intent.get('qty')}",
             flush=True,
         )
-        print(f"PIPE_TRADE_EXEC symbol={intent.get('symbol')} side={intent.get('side')}", flush=True)
 
+        # === EXEC TRACE ===
+        print(
+            f"PIPE_TRADE_EXEC symbol={intent.get('symbol')} side={intent.get('side')}",
+            flush=True,
+        )
+
+        # === PUBLISH FILL ===
         self.bus.publish({"type": "FILL", "fill": fill})
+
 
     def generate(self, state, regime=None):
 
@@ -1932,9 +1945,9 @@ class PaperTradingPipeline:
             )
             return
 
-        # 🚫 не торгуем низкую волу
+        # MOEX: разрешаем торговлю в низкой волатильности (soft режим)
         if regime.volatility == "low":
-            return None
+            print("PIPE_VOL_LOW_SOFT_ALLOW", flush=True)
 
         # ✔ breakout только в тренде
         if regime.trend in ("up", "down"):
@@ -2086,20 +2099,18 @@ class PaperTradingPipeline:
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
         )
-        # === TELEGRAM: единый сигнал входа ===
-        try:
-            trend = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_trend")
-            vol = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_vol")
 
-            self.notifier.send(
-                f"📊 СИГНАЛ\n"
-                f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
-                f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
-                f"Объём: {getattr(fill, 'qty', None)}\n"
-                f"Тренд: {trend} | Волатильность: {vol}"
-            )
-        except Exception:
-            pass
+        # === TELEGRAM: FILL ===
+        try:
+            if getattr(self, "notifier", None):
+                self.notifier.send(
+                    f"✅ ИСПОЛНЕНИЕ\n"
+                    f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
+                    f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
+                    f"Объём: {getattr(fill, 'qty', None)}"
+                )
+        except Exception as e:
+            print("TELEGRAM FILL ERROR:", e)
         LOG.info("FILLED paper %s qty=%s price=%s id=%s",
                  getattr(fill, "symbol", None),
                  getattr(fill, "qty", None),
@@ -2116,16 +2127,6 @@ class PaperTradingPipeline:
             commission=float(getattr(fill, "commission", 0.0) or 0.0),
         )
 
-        # === TELEGRAM: исполнение ===
-        try:
-            self.notifier.send(
-                f"✅ ИСПОЛНЕНИЕ\n"
-                f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
-                f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
-                f"Объём: {getattr(fill, 'qty', None)}"
-            )
-        except Exception:
-            pass
 
         # exit-on-fill
         if not self._filled_once and os.getenv("EXIT_ON_FILL", "1") == "1":

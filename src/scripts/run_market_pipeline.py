@@ -285,7 +285,14 @@ def main() -> None:
         print("SIM FEED ENABLED", flush=True)
     else:
         try:
-            md = FinamMarketDataClient(bus, heartbeat_sec=args.md_heartbeat_sec)
+            # === AUTO SWITCH: SIMULATION OR REAL MARKET DATA ===
+            if os.getenv("SIMULATE_MARKET", "0") == "1":
+                print("RUN_PIPELINE: using SimFeed (simulation)", flush=True)
+                from finam_core.market.sim_feed import SimFeed
+                md = SimFeed(symbol=symbol, event_bus=bus)
+            else:
+                print("RUN_PIPELINE: using FinamMarketDataClient", flush=True)
+                md = FinamMarketDataClient(bus, heartbeat_sec=args.md_heartbeat_sec)
         except TypeError:
             md = FinamMarketDataClient(bus)
 

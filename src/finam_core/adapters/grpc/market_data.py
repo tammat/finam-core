@@ -136,6 +136,9 @@ class FinamMarketDataClient:
     # Internal helpers
     # -----------------------------
     def _md(self):
+        # === FIX: simulation mode — no auth metadata ===
+        if self.tm is None:
+            return []
         jwt = self.tm.get_token()
         return [("authorization", f"Bearer {jwt}")]
 
@@ -205,6 +208,12 @@ class FinamMarketDataClient:
     # Streaming loop
     # -----------------------------
     def subscribe_quotes(self, symbols: List[str]):
+        # === FIX: full simulation mode — disable gRPC completely ===
+        if self.tm is None:
+            print("SIMULATION MODE ACTIVE — skipping Finam gRPC", flush=True)
+            while not self._stop.is_set():
+                time.sleep(1)
+            return
         backoff = self.reconnect_initial_sec
         while not self._stop.is_set():
             try:
