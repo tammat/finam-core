@@ -1623,7 +1623,11 @@ class PaperTradingPipeline:
         return float(sum(abs(float(qty or 0.0)) for qty in positions.values()))
 
     def _paper_orders_count_for_portfolio_guard(self) -> int:
-        """Русский комментарий: количество уже отправленных paper orders в текущем run."""
+        """Русский комментарий: глобальное количество paper orders в текущем run."""
+        shared = getattr(self, "portfolio_guard_state", None)
+        if isinstance(shared, dict):
+            return int(shared.get("paper_orders_total", 0) or 0)
+
         paper = getattr(self, "paper", None)
         return int(getattr(paper, "orders_total", 0) or 0)
 
