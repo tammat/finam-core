@@ -31,6 +31,61 @@ def dsn() -> str:
         f"@{os.getenv('DB_HOST','127.0.0.1')}:{os.getenv('DB_PORT','5432')}/{os.getenv('DB_NAME','finam')}"
     )
 
+def ema_series(values: list[float], period: int) -> list[float]:
+    """Русский комментарий: EMA по списку значений для построения regime filter."""
+    k = 2 / (period + 1)
+    result: list[float] = []
+    prev = None
+
+    for v in values:
+        if prev is None:
+            prev = v
+        else:
+            prev = v * k + prev * (1 - k)
+        result.append(prev)
+
+    return result
+
+
+def build_regime_map(regime_bars: list[Bar], fast_period: int, slow_period: int) -> list[tuple[datetime, int]]:
+    """Русский комментарий: строит карту режима по старшему ТФ: 1=up, -1=down, 0=neutral."""
+    if not regime_bars:
+        return []
+    if fast_period < 2 or slow_period < 2:
+        raise ValueError("regime EMA periods must be >= 2")
+
+    closes = [b.close for b in regime_bars]
+    fast = ema_series(closes, fast_period)
+    slow = ema_series(closes, slow_period)
+
+    result: list[tuple[datetime, int]] = []
+    warmup = max(fast_period, slow_period)
+
+    for i, bar in enumerate(regime_bars):
+        if i < warmup:
+            continue
+        direction = 0
+        if fast[i] > slow[i]:
+            direction = 1
+        elif fast[i] < slow[i]:
+            direction = -1
+        result.append((bar.ts, direction))
+
+    return result
+
+
+def regime_direction_at(regime_map: list[tuple[datetime, int]], ts: datetime, start_idx: int) -> tuple[int, int]:
+    """Русский комментарий: возвращает последний известный режим M15 на момент M5-бара."""
+    if not regime_map:
+        return 0, start_idx
+
+    idx = start_idx
+    while idx + 1 < len(regime_map) and regime_map[idx + 1][0] <= ts:
+        idx += 1
+
+    if regime_map[idx][0] <= ts:
+        return regime_map[idx][1], idx
+    return 0, idx
 
 def parse_ts(value: str | None):
     if not value:
@@ -106,6 +161,7 @@ def run_breakout_backtest(
     stop_atr: float,
     take_atr: float,
     fee_pct: float,
+    regime_map: list[tuple[datetime, int]] | None = None,
 ) -> dict:
     """Русский комментарий: breakout по пробою диапазона последних N баров."""
     position = 0
@@ -120,6 +176,8 @@ def run_breakout_backtest(
     lows: deque[float] = deque(maxlen=window)
     tr_values: deque[float] = deque(maxlen=atr_period)
     prev_close: float | None = None
+    regime_map = regime_map or []
+    regime_idx = 0
 
     for bar in bars:
         tr_values.append(true_range(bar, prev_close))
@@ -130,13 +188,17 @@ def run_breakout_backtest(
             range_low = min(lows)
             atr = sum(tr_values) / len(tr_values)
 
+            regime_direction = 0
+            if regime_map:
+                regime_direction, regime_idx = regime_direction_at(regime_map, bar.ts, regime_idx)
+
             if position == 0:
-                if bar.close > range_high:
+                if bar.close > range_high and (not regime_map or regime_direction == 1):
                     position = 1
                     entry_price = bar.close
                     stop_price = entry_price - atr * stop_atr
                     take_price = entry_price + atr * take_atr
-                elif bar.close < range_low:
+                elif bar.close < range_low and (not regime_map or regime_direction == -1):
                     position = -1
                     entry_price = bar.close
                     stop_price = entry_price + atr * stop_atr
@@ -302,6 +364,9 @@ def main() -> int:
     p.add_argument("--stop-atr", type=float, default=1.5)
     p.add_argument("--take-atr", type=float, default=2.0)
     p.add_argument("--min-bars", type=int, default=30)
+    p.add_argument("--regime-timeframe", default=None)
+    p.add_argument("--regime-fast", type=int, default=5)
+    p.add_argument("--regime-slow", type=int, default=20)
     args = p.parse_args()
 
     bars = load_bars(
@@ -311,11 +376,30 @@ def main() -> int:
         to_ts=parse_ts(args.to_ts),
     )
 
+    regime_map: list[tuple[datetime, int]] = []
+    if args.regime_timeframe:
+        regime_bars = load_bars(
+            symbol=args.symbol,
+            timeframe=args.regime_timeframe,
+            from_ts=parse_ts(args.from_ts),
+            to_ts=parse_ts(args.to_ts),
+        )
+        regime_map = build_regime_map(
+            regime_bars=regime_bars,
+            fast_period=args.regime_fast,
+            slow_period=args.regime_slow,
+        )
+
     print("BACKTEST_FROM_POSTGRES")
     print(f"symbol={args.symbol}")
     print(f"timeframe={args.timeframe}")
     print(f"bars={len(bars)}")
     print(f"mode={args.mode}")
+    if args.regime_timeframe:
+        print(f"regime_timeframe={args.regime_timeframe}")
+        print(f"regime_fast={args.regime_fast}")
+        print(f"regime_slow={args.regime_slow}")
+        print(f"regime_points={len(regime_map)}")
 
     if len(bars) < args.min_bars:
         print(f"STATUS=FAIL reason=NOT_ENOUGH_BARS min_bars={args.min_bars}")
@@ -331,6 +415,7 @@ def main() -> int:
             stop_atr=args.stop_atr,
             take_atr=args.take_atr,
             fee_pct=args.fee_pct,
+            regime_map=regime_map,
         )
 
     print(f"trades={result['trades']}")
