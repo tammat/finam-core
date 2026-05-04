@@ -8,6 +8,7 @@ Replay исторических BR M5/M15 баров через PAPER signal pro
 from __future__ import annotations
 
 import argparse
+import uuid
 import os
 import json
 from dataclasses import dataclass
@@ -280,6 +281,7 @@ def build_replay_pipeline(symbol: str):
     pipeline.notifier = NullNotifier()
     pipeline.paper = CountingPaperExecution(PaperExecutionEngine())
     pipeline.risk = None
+    pipeline.run_id = run_id
     pipeline.finam_limits_adapter = FinamLimitsAdapter()
     return pipeline
 
@@ -291,6 +293,8 @@ def main() -> int:
     parser.add_argument("--from-ts")
     parser.add_argument("--to-ts")
     args = parser.parse_args()
+    run_id = str(uuid.uuid4())
+    print(f"RUN_ID={run_id}")
 
     symbols = args.symbols if args.symbols else [args.symbol]
 

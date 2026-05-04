@@ -35,7 +35,7 @@ def load_last_prices(symbols: list[str]) -> dict[str, float]:
     """
     with psycopg2.connect(dsn()) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (symbols,))
+            cur.execute(sql, (symbols, args.run_id, args.run_id))
             return {str(symbol): float(price) for symbol, price in cur.fetchall()}
 
 
@@ -65,7 +65,7 @@ def load_trades(symbols: list[str]):
     """
     with psycopg2.connect(dsn()) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (symbols,))
+            cur.execute(sql, (symbols, args.run_id, args.run_id))
             return cur.fetchall()
 
 
@@ -113,6 +113,7 @@ def apply_trade(pos: Position, side: str, qty: float, price: float) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", nargs="+", required=True)
+    parser.add_argument("--run-id", required=False)
     parser.add_argument("--telegram", action="store_true")
     args = parser.parse_args()
 
