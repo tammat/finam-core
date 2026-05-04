@@ -1604,6 +1604,52 @@ class PaperTradingPipeline:
             }
             self.pg_logger.log_trade(trade)
 
+    def _max_abs_position_for_br(self, symbol: str) -> float:
+        """Русский комментарий: лимит позиции по инструменту через env, без хардкода ограничений Финама."""
+        key = (
+            "MAX_ABS_POSITION_"
+            + symbol.upper()
+            .replace("@", "_")
+            .replace("-", "_")
+            .replace(".", "_")
+            .replace("/", "_")
+        )
+        return float(os.getenv(key, os.getenv("MAX_ABS_POSITION_DEFAULT", "1")))
+
+    def _current_replay_position_for_br(self, symbol: str) -> float:
+        """Русский комментарий: текущая PAPER/replay позиция внутри pipeline."""
+        positions = getattr(self, "_br_replay_positions", None)
+        if positions is None:
+            positions = {}
+            self._br_replay_positions = positions
+        return float(positions.get(symbol, 0.0))
+
+    def _apply_replay_position_for_br(self, symbol: str, side: str, qty: float) -> None:
+        """Русский комментарий: обновляем PAPER/replay позицию после успешного paper-fill."""
+        positions = getattr(self, "_br_replay_positions", None)
+        if positions is None:
+            positions = {}
+            self._br_replay_positions = positions
+        signed = qty if side.upper() == "BUY" else -qty
+        positions[symbol] = float(positions.get(symbol, 0.0)) + signed
+
+    def _position_limit_allows_br(self, br_signal, qty: float) -> tuple[bool, str]:
+        """Русский комментарий: не разрешаем наращивать позицию сверх лимита; сокращение разрешаем."""
+        symbol = br_signal.symbol
+        side = br_signal.side.upper()
+        current_pos = self._current_replay_position_for_br(symbol)
+        limit = self._max_abs_position_for_br(symbol)
+        signed = qty if side == "BUY" else -qty
+        new_pos = current_pos + signed
+
+        if abs(new_pos) <= limit:
+            return True, f"POSITION_LIMIT_OK current={current_pos} new={new_pos} limit={limit}"
+
+        if abs(new_pos) < abs(current_pos):
+            return True, f"POSITION_REDUCE_ALLOWED current={current_pos} new={new_pos} limit={limit}"
+
+        return False, f"MAX_POSITION_LIMIT current={current_pos} requested={signed} new={new_pos} limit={limit}"
+
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
         """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
         if os.getenv("EXECUTION_MODE", "paper").lower() != "paper":
@@ -1611,6 +1657,10 @@ class PaperTradingPipeline:
 
         if not hasattr(self, "paper") or self.paper is None:
             return False, "NO_PAPER_EXECUTION_ENGINE_ATTACHED"
+
+        allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
+        if not allowed:
+            return False, limit_reason
 
         order = {
             "symbol": br_signal.symbol,
@@ -1663,6 +1713,7 @@ class PaperTradingPipeline:
                     fill=fill,
                     paper_reason=paper_reason,
                 )
+                self._apply_replay_position_for_br(br_signal.symbol, br_signal.side, qty)
                 return True, paper_reason
 
             if hasattr(self.pg_logger, "log_trade"):

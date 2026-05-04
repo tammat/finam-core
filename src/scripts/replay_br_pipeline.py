@@ -367,7 +367,9 @@ def main() -> int:
             f"paper_orders={symbol_stats.paper_orders} "
             f"paper_buy_orders={symbol_stats.paper_buy_orders} "
             f"paper_sell_orders={symbol_stats.paper_sell_orders} "
-            f"trades_logged={symbol_stats.trades_logged}"
+            f"trades_logged={symbol_stats.trades_logged} "
+            f"open_position={round(getattr(pipeline, '_br_replay_positions', {}).get(symbol, 0.0), 6)} "
+            f"max_abs_position={getattr(pipeline, '_max_abs_position_for_br')(symbol) if hasattr(pipeline, '_max_abs_position_for_br') else 'n/a'}"
         )
 
     print("TOTAL_STATS")
