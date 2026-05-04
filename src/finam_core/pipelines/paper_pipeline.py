@@ -1503,6 +1503,74 @@ class PaperTradingPipeline:
                 except Exception:
                     pass
 
+    def _risk_check_br_signal(self, br_signal, qty: float) -> tuple[bool, str]:
+        """Русский комментарий: BR PAPER-сигнал проходит RiskEngine, но real orders не создаются."""
+        if not hasattr(self, "risk") or self.risk is None:
+            return True, "NO_RISK_ENGINE_ATTACHED_PAPER_ONLY"
+
+        try:
+            if hasattr(self.risk, "check_order"):
+                decision = self.risk.check_order(
+                    symbol=br_signal.symbol,
+                    side=br_signal.side,
+                    qty=qty,
+                    price=br_signal.price,
+                )
+                accepted = bool(getattr(decision, "accepted", decision))
+                reason = str(getattr(decision, "reason", "RISK_CHECK_ORDER"))
+                return accepted, reason
+
+            if hasattr(self.risk, "evaluate"):
+                candidate = {
+                    "symbol": br_signal.symbol,
+                    "side": br_signal.side,
+                    "qty": qty,
+                    "price": br_signal.price,
+                    "stop": br_signal.stop,
+                    "take": br_signal.take,
+                    "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+                    "source": "paper_pipeline_closed_bar",
+                }
+                decision = self.risk.evaluate(candidate)
+                accepted = bool(getattr(decision, "accepted", decision))
+                reason = str(getattr(decision, "reason", "RISK_EVALUATE"))
+                return accepted, reason
+
+            return True, "RISK_ENGINE_NO_COMPATIBLE_METHOD_PAPER_ONLY"
+
+        except Exception as exc:
+            return False, f"RISK_EXCEPTION:{type(exc).__name__}:{exc}"
+
+    def _log_br_risk_event(self, br_signal, qty: float, accepted: bool, reason: str) -> None:
+        """Русский комментарий: логируем результат risk gate без отправки реальных заявок."""
+        if not hasattr(self, "pg_logger") or self.pg_logger is None:
+            return
+
+        payload = {
+            "symbol": br_signal.symbol,
+            "side": br_signal.side,
+            "qty": qty,
+            "price": br_signal.price,
+            "stop": br_signal.stop,
+            "take": br_signal.take,
+            "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+            "accepted": accepted,
+            "reason": reason,
+            "paper_only": True,
+            "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+        }
+
+        try:
+            if hasattr(self.pg_logger, "log_risk_event"):
+                self.pg_logger.log_risk_event(
+                    symbol=br_signal.symbol,
+                    event_type="BR_PAPER_SIGNAL_RISK_ACCEPTED" if accepted else "BR_PAPER_SIGNAL_RISK_REJECTED",
+                    severity="info" if accepted else "warning",
+                    payload=payload,
+                )
+        except Exception:
+            pass
+
     def _process_br_closed_bar_for_paper_signal(self, bar) -> None:
         """Русский комментарий: единая обработка закрытых M5/M15 баров BR для live и historical replay."""
         if not (self.br_breakout_enabled and self.br_breakout is not None):
@@ -1539,32 +1607,45 @@ class PaperTradingPipeline:
             return
 
         current_params = getattr(self.br_breakout, "current_params", None)
+        qty = float(os.getenv("BR_BREAKOUT_QTY", "1"))
+        risk_accepted, risk_reason = self._risk_check_br_signal(br_signal, qty)
+        signal_status = "risk_accepted" if risk_accepted else "risk_rejected"
+
+        payload = {
+            "price": br_signal.price,
+            "stop": br_signal.stop,
+            "take": br_signal.take,
+            "reason": br_signal.reason,
+            "ts": br_signal.ts.isoformat(),
+            "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+            "paper_only": True,
+            "source": "paper_pipeline_closed_bar",
+            "risk_accepted": risk_accepted,
+            "risk_reason": risk_reason,
+            "online_mode": getattr(current_params, "mode", None),
+            "online_allow_trade": getattr(current_params, "allow_trade", None),
+            "online_reason": getattr(current_params, "reason", None),
+            "selected_window": getattr(current_params, "breakout_window", None),
+            "selected_stop_atr": getattr(current_params, "stop_atr", None),
+            "selected_take_atr": getattr(current_params, "take_atr", None),
+            "regime_direction": getattr(self.br_breakout, "regime_direction", None),
+            "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
+            "regime_strength": getattr(self.br_breakout, "regime_strength", None),
+        }
+
         self.pg_logger.log_signal(
             symbol=br_signal.symbol,
             strategy="BR_CONSERVATIVE_BREAKOUT_M5",
             side=br_signal.side,
-            qty=float(os.getenv("BR_BREAKOUT_QTY", "1")),
-            status="generated",
-            payload={
-                "price": br_signal.price,
-                "stop": br_signal.stop,
-                "take": br_signal.take,
-                "reason": br_signal.reason,
-                "ts": br_signal.ts.isoformat(),
-                "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
-                "paper_only": True,
-                "source": "paper_pipeline_closed_bar",
-                "online_mode": getattr(current_params, "mode", None),
-                "online_allow_trade": getattr(current_params, "allow_trade", None),
-                "online_reason": getattr(current_params, "reason", None),
-                "selected_window": getattr(current_params, "breakout_window", None),
-                "selected_stop_atr": getattr(current_params, "stop_atr", None),
-                "selected_take_atr": getattr(current_params, "take_atr", None),
-                "regime_direction": getattr(self.br_breakout, "regime_direction", None),
-                "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
-                "regime_strength": getattr(self.br_breakout, "regime_strength", None),
-            },
+            qty=qty,
+            status=signal_status,
+            payload=payload,
         )
+
+        self._log_br_risk_event(br_signal=br_signal, qty=qty, accepted=risk_accepted, reason=risk_reason)
+
+        if not risk_accepted:
+            return
 
         try:
             self.notifier.send(
@@ -1573,7 +1654,8 @@ class PaperTradingPipeline:
                 f"Цена: {round(br_signal.price, 4)}\n"
                 f"Стоп: {round(br_signal.stop, 4)}\n"
                 f"Цель: {round(br_signal.take, 4)}\n"
-                f"Причина: {br_signal.reason}"
+                f"Причина: {br_signal.reason}\n"
+                f"Risk: {risk_reason}"
             )
         except Exception:
             pass

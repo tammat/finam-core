@@ -48,6 +48,8 @@ class CountingLogger:
         self.signals_total = 0
         self.buy_count = 0
         self.sell_count = 0
+        self.risk_accepted_count = 0
+        self.risk_rejected_count = 0
 
     def log_signal(self, **kwargs):
         self.signals_total += 1
@@ -56,7 +58,17 @@ class CountingLogger:
             self.buy_count += 1
         elif side == "SELL":
             self.sell_count += 1
+
+        status = kwargs.get("status")
+        if status == "risk_accepted":
+            self.risk_accepted_count += 1
+        elif status == "risk_rejected":
+            self.risk_rejected_count += 1
+
         return self.inner.log_signal(**kwargs)
+
+    def log_risk_event(self, **kwargs):
+        return self.inner.log_risk_event(**kwargs)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -207,6 +219,8 @@ def main() -> int:
     print(f"signals_generated={getattr(logger, 'signals_total', 0)}")
     print(f"buy_signals={getattr(logger, 'buy_count', 0)}")
     print(f"sell_signals={getattr(logger, 'sell_count', 0)}")
+    print(f"risk_accepted={getattr(logger, 'risk_accepted_count', 0)}")
+    print(f"risk_rejected={getattr(logger, 'risk_rejected_count', 0)}")
     print("STATUS=OK")
     return 0
 
