@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 import psycopg2
 
+from finam_core.execution.paper_execution import PaperExecutionEngine
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
@@ -76,21 +77,40 @@ class CountingLogger:
 
 
 class CountingPaperExecution:
-    """Русский комментарий: PAPER execution stub для replay; реальных заявок не отправляет."""
+    """Русский комментарий: обёртка над настоящим PaperExecutionEngine для replay-диагностики."""
 
-    def __init__(self):
+    def __init__(self, inner: PaperExecutionEngine):
+        self.inner = inner
         self.orders_total = 0
         self.buy_orders = 0
         self.sell_orders = 0
 
-    def execute(self, order: dict):
+    def _count(self, order: dict) -> None:
         self.orders_total += 1
         side = order.get("side")
         if side == "BUY":
             self.buy_orders += 1
         elif side == "SELL":
             self.sell_orders += 1
-        return {"status": "filled", "paper_only": True, "order": order}
+
+    def execute(self, order: dict):
+        self._count(order)
+        if hasattr(self.inner, "execute"):
+            return self.inner.execute(order)
+        if hasattr(self.inner, "execute_order"):
+            return self.inner.execute_order(order)
+        if hasattr(self.inner, "submit_order"):
+            return self.inner.submit_order(order)
+        return {"status": "paper_counted_only", "paper_only": True, "order": order}
+
+    def execute_order(self, order: dict):
+        return self.execute(order)
+
+    def submit_order(self, order: dict):
+        return self.execute(order)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
 
 
 def dsn() -> str:
@@ -193,7 +213,7 @@ def build_replay_pipeline(symbol: str):
     base_logger = PostgresLogger()
     pipeline.pg_logger = CountingLogger(base_logger)
     pipeline.notifier = NullNotifier()
-    pipeline.paper = CountingPaperExecution()
+    pipeline.paper = CountingPaperExecution(PaperExecutionEngine())
     pipeline.risk = None
     return pipeline
 
