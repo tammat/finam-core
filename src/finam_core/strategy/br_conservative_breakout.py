@@ -47,6 +47,7 @@ class BrConservativeBreakout:
         regime_min_atr_pct: float = 0.0003,
         regime_max_atr_pct: float = 0.005,
         signal_cooldown_bars: int = 12,
+        enable_rsi_filter: bool = True,
     ) -> None:
         self.symbol = symbol
         self.breakout_window = breakout_window
@@ -62,6 +63,7 @@ class BrConservativeBreakout:
 
         # Русский комментарий: подавление повторных сигналов в одном и том же режиме рынка.
         self.signal_cooldown_bars = signal_cooldown_bars
+        self.enable_rsi_filter = enable_rsi_filter
         self.cooldown_counter = 0
         self.last_signal_side: str | None = None
         self.last_signal_regime_direction: int | None = None
@@ -265,5 +267,13 @@ class BrConservativeBreakout:
 
         self.highs.append(high)
         self.lows.append(low)
+
+        ok, reason = self._rsi_filter(signal.side)
+        signal.payload = signal.payload if hasattr(signal, "payload") else {}
+        signal.payload["rsi_filter_passed"] = ok
+        signal.payload["rsi_filter_reason"] = reason
+
+        if not ok:
+            return None
 
         return signal
