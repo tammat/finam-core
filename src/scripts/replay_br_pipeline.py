@@ -74,6 +74,25 @@ class CountingLogger:
         return getattr(self.inner, name)
 
 
+
+class CountingPaperExecution:
+    """Русский комментарий: PAPER execution stub для replay; реальных заявок не отправляет."""
+
+    def __init__(self):
+        self.orders_total = 0
+        self.buy_orders = 0
+        self.sell_orders = 0
+
+    def execute(self, order: dict):
+        self.orders_total += 1
+        side = order.get("side")
+        if side == "BUY":
+            self.buy_orders += 1
+        elif side == "SELL":
+            self.sell_orders += 1
+        return {"status": "filled", "paper_only": True, "order": order}
+
+
 def dsn() -> str:
     return (
         f"postgresql://{os.getenv('DB_USER', 'finam')}:{os.getenv('DB_PASSWORD', 'finam')}"
@@ -174,6 +193,8 @@ def build_replay_pipeline(symbol: str):
     base_logger = PostgresLogger()
     pipeline.pg_logger = CountingLogger(base_logger)
     pipeline.notifier = NullNotifier()
+    pipeline.paper = CountingPaperExecution()
+    pipeline.risk = None
     return pipeline
 
 
@@ -221,6 +242,10 @@ def main() -> int:
     print(f"sell_signals={getattr(logger, 'sell_count', 0)}")
     print(f"risk_accepted={getattr(logger, 'risk_accepted_count', 0)}")
     print(f"risk_rejected={getattr(logger, 'risk_rejected_count', 0)}")
+    paper = getattr(pipeline, "paper", None)
+    print(f"paper_orders={getattr(paper, 'orders_total', 0)}")
+    print(f"paper_buy_orders={getattr(paper, 'buy_orders', 0)}")
+    print(f"paper_sell_orders={getattr(paper, 'sell_orders', 0)}")
     print("STATUS=OK")
     return 0
 

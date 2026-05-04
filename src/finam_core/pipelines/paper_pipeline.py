@@ -1571,6 +1571,64 @@ class PaperTradingPipeline:
         except Exception:
             pass
 
+    def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
+        """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
+        if os.getenv("EXECUTION_MODE", "paper").lower() != "paper":
+            return False, "SKIPPED_NOT_PAPER_MODE"
+
+        if not hasattr(self, "paper") or self.paper is None:
+            return False, "NO_PAPER_EXECUTION_ENGINE_ATTACHED"
+
+        order = {
+            "symbol": br_signal.symbol,
+            "side": br_signal.side,
+            "qty": qty,
+            "price": br_signal.price,
+            "stop": br_signal.stop,
+            "take": br_signal.take,
+            "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+            "source": "paper_pipeline_closed_bar",
+            "paper_only": True,
+        }
+
+        try:
+            if hasattr(self.paper, "execute"):
+                self.paper.execute(order)
+                return True, "PAPER_EXECUTE_ORDER_DICT"
+
+            if hasattr(self.paper, "execute_order"):
+                self.paper.execute_order(order)
+                return True, "PAPER_EXECUTE_ORDER_DICT"
+
+            if hasattr(self.paper, "submit_order"):
+                self.paper.submit_order(order)
+                return True, "PAPER_SUBMIT_ORDER_DICT"
+
+            if hasattr(self.paper, "fill_market_order"):
+                self.paper.fill_market_order(
+                    symbol=br_signal.symbol,
+                    side=br_signal.side,
+                    qty=qty,
+                    price=br_signal.price,
+                )
+                return True, "PAPER_FILL_MARKET_ORDER"
+
+            if hasattr(self.pg_logger, "log_trade"):
+                self.pg_logger.log_trade(
+                    symbol=br_signal.symbol,
+                    side=br_signal.side,
+                    qty=qty,
+                    price=br_signal.price,
+                    trade_id=f"paper_br_{int(br_signal.ts.timestamp())}",
+                    execution_type="paper_replay",
+                )
+                return True, "PAPER_TRADE_LOG_FALLBACK"
+
+            return False, "PAPER_ENGINE_NO_COMPATIBLE_METHOD"
+
+        except Exception as exc:
+            return False, f"PAPER_EXCEPTION:{type(exc).__name__}:{exc}"
+
     def _process_br_closed_bar_for_paper_signal(self, bar) -> None:
         """Русский комментарий: единая обработка закрытых M5/M15 баров BR для live и historical replay."""
         if not (self.br_breakout_enabled and self.br_breakout is not None):
@@ -1647,6 +1705,10 @@ class PaperTradingPipeline:
         if not risk_accepted:
             return
 
+        paper_executed, paper_reason = self._execute_br_signal_in_paper(br_signal=br_signal, qty=qty)
+        payload["paper_executed"] = paper_executed
+        payload["paper_reason"] = paper_reason
+
         try:
             self.notifier.send(
                 f"🛢 BR PAPER SIGNAL\n"
@@ -1655,7 +1717,8 @@ class PaperTradingPipeline:
                 f"Стоп: {round(br_signal.stop, 4)}\n"
                 f"Цель: {round(br_signal.take, 4)}\n"
                 f"Причина: {br_signal.reason}\n"
-                f"Risk: {risk_reason}"
+                f"Risk: {risk_reason}\n"
+                f"Paper: {paper_reason}"
             )
         except Exception:
             pass
