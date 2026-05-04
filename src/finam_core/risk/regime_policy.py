@@ -37,3 +37,22 @@ class RegimePolicy:
             return True, f"REGIME_ALLOWED:{regime}"
 
         return False, f"REGIME_BLOCKED:{regime}"
+
+
+class SymbolDrawdownGuard:
+    """Русский комментарий: лимит просадки по инструменту через env перед live-paper."""
+
+    def max_drawdown_for(self, symbol: str) -> float:
+        key = f"MAX_SYMBOL_DRAWDOWN_{env_symbol_key(symbol)}"
+        raw = os.getenv(key, os.getenv("MAX_SYMBOL_DRAWDOWN_DEFAULT", "0")).strip()
+        return float(raw or 0.0)
+
+    def is_allowed(self, symbol: str, current_drawdown: float) -> tuple[bool, str]:
+        limit = self.max_drawdown_for(symbol)
+        if limit <= 0:
+            return True, "SYMBOL_DRAWDOWN_GUARD_NOT_CONFIGURED"
+
+        if current_drawdown <= -abs(limit):
+            return False, f"SYMBOL_DRAWDOWN_LIMIT current_drawdown={current_drawdown} limit={limit}"
+
+        return True, f"SYMBOL_DRAWDOWN_OK current_drawdown={current_drawdown} limit={limit}"

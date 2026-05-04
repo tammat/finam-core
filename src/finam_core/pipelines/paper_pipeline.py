@@ -29,7 +29,7 @@ from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
-from finam_core.risk.regime_policy import RegimePolicy
+from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -212,6 +212,7 @@ class PaperTradingPipeline:
         self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
         self.finam_limits_adapter = FinamLimitsAdapter()
         self.regime_policy = RegimePolicy()
+        self.symbol_drawdown_guard = SymbolDrawdownGuard()
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -1612,6 +1613,73 @@ class PaperTradingPipeline:
             }
             self.pg_logger.log_trade(trade)
 
+
+    def _br_symbol_state(self, symbol: str) -> dict:
+        """Русский комментарий: PAPER-состояние PnL по символу для drawdown guard."""
+        states = getattr(self, "_br_symbol_pnl_state", None)
+        if states is None:
+            states = {}
+            self._br_symbol_pnl_state = states
+        if symbol not in states:
+            states[symbol] = {
+                "qty": 0.0,
+                "avg_price": 0.0,
+                "realized_pnl": 0.0,
+                "peak_realized_pnl": 0.0,
+                "drawdown": 0.0,
+            }
+        return states[symbol]
+
+    def _br_symbol_drawdown(self, symbol: str) -> float:
+        state = self._br_symbol_state(symbol)
+        return float(state.get("drawdown", 0.0) or 0.0)
+
+    def _symbol_drawdown_allows_br(self, br_signal) -> tuple[bool, str]:
+        """Русский комментарий: блокируем новый paper-сигнал при превышении просадки по символу."""
+        guard = getattr(self, "symbol_drawdown_guard", None)
+        if guard is None:
+            guard = SymbolDrawdownGuard()
+            self.symbol_drawdown_guard = guard
+        current_drawdown = self._br_symbol_drawdown(br_signal.symbol)
+        return guard.is_allowed(br_signal.symbol, current_drawdown)
+
+    def _update_br_symbol_pnl_after_fill(self, symbol: str, side: str, qty: float, price: float) -> None:
+        """Русский комментарий: обновляем realized PnL и drawdown после успешного paper-fill."""
+        state = self._br_symbol_state(symbol)
+        current_qty = float(state.get("qty", 0.0) or 0.0)
+        avg_price = float(state.get("avg_price", 0.0) or 0.0)
+        realized = float(state.get("realized_pnl", 0.0) or 0.0)
+
+        signed = abs(float(qty)) if side.upper() == "BUY" else -abs(float(qty))
+
+        if current_qty == 0 or (current_qty > 0 and signed > 0) or (current_qty < 0 and signed < 0):
+            new_qty = current_qty + signed
+            if new_qty != 0:
+                state["avg_price"] = ((abs(current_qty) * avg_price) + (abs(signed) * price)) / abs(new_qty)
+            state["qty"] = new_qty
+        else:
+            closing_qty = min(abs(current_qty), abs(signed))
+            if current_qty > 0:
+                pnl = (price - avg_price) * closing_qty
+            else:
+                pnl = (avg_price - price) * closing_qty
+
+            realized += pnl
+            remaining_qty = current_qty + signed
+
+            if remaining_qty == 0:
+                state["qty"] = 0.0
+                state["avg_price"] = 0.0
+            elif (current_qty > 0 and remaining_qty > 0) or (current_qty < 0 and remaining_qty < 0):
+                state["qty"] = remaining_qty
+            else:
+                state["qty"] = remaining_qty
+                state["avg_price"] = price
+
+        state["realized_pnl"] = realized
+        state["peak_realized_pnl"] = max(float(state.get("peak_realized_pnl", 0.0) or 0.0), realized)
+        state["drawdown"] = realized - float(state.get("peak_realized_pnl", 0.0) or 0.0)
+
     def _current_br_regime(self) -> str:
         """Русский комментарий: текущий режим из M15-состояния BR-стратегии."""
         br = getattr(self, "br_breakout", None)
@@ -1702,6 +1770,10 @@ class PaperTradingPipeline:
         if not regime_allowed:
             return False, regime_reason
 
+        drawdown_allowed, drawdown_reason = self._symbol_drawdown_allows_br(br_signal)
+        if not drawdown_allowed:
+            return False, drawdown_reason
+
         allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
         if not allowed:
             return False, limit_reason
@@ -1758,6 +1830,12 @@ class PaperTradingPipeline:
                     paper_reason=paper_reason,
                 )
                 self._apply_replay_position_for_br(br_signal.symbol, br_signal.side, qty)
+                self._update_br_symbol_pnl_after_fill(
+                    symbol=br_signal.symbol,
+                    side=br_signal.side,
+                    qty=qty,
+                    price=float(getattr(fill, "price", 0.0) or 0.0),
+                )
                 return True, paper_reason
 
             if hasattr(self.pg_logger, "log_trade"):
@@ -1851,6 +1929,7 @@ class PaperTradingPipeline:
         paper_executed, paper_reason = self._execute_br_signal_in_paper(br_signal=br_signal, qty=qty)
         payload["paper_executed"] = paper_executed
         payload["paper_reason"] = paper_reason
+        payload["symbol_drawdown"] = self._br_symbol_drawdown(br_signal.symbol)
         payload["run_id"] = getattr(self, "run_id", "unknown")
 
         # Русский комментарий: разделяем причины отказа execution-gate для replay-аналитики.
@@ -1860,6 +1939,8 @@ class PaperTradingPipeline:
                 self._br_position_limit_rejected = int(getattr(self, "_br_position_limit_rejected", 0)) + 1
             elif "REGIME_" in reason_text:
                 self._br_regime_policy_rejected = int(getattr(self, "_br_regime_policy_rejected", 0)) + 1
+            elif reason_text.startswith("SYMBOL_DRAWDOWN_LIMIT"):
+                self._br_symbol_drawdown_rejected = int(getattr(self, "_br_symbol_drawdown_rejected", 0)) + 1
             else:
                 self._br_other_execution_rejected = int(getattr(self, "_br_other_execution_rejected", 0)) + 1
 
