@@ -1592,6 +1592,7 @@ class PaperTradingPipeline:
                 price=fill_price,
                 trade_id=fill_id,
                 execution_type=paper_reason,
+                run_id=getattr(self, "run_id", "unknown"),
             )
         except TypeError:
             trade = {
@@ -1602,6 +1603,7 @@ class PaperTradingPipeline:
                 "price": fill_price,
                 "trade_id": fill_id,
                 "execution_type": paper_reason,
+                "run_id": getattr(self, "run_id", "unknown"),
                 "ts": br_signal.ts,
             }
             self.pg_logger.log_trade(trade)
