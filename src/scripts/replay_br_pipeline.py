@@ -270,7 +270,7 @@ def load_bars(symbols: list[str], from_ts=None, to_ts=None) -> list[ReplayBar]:
     return rows
 
 
-def build_replay_pipeline(symbol: str):
+def build_replay_pipeline(symbol: str, run_id: str):
     """Русский комментарий: создаем минимальный pipeline-объект только для BR signal processor."""
     pipeline = object.__new__(PaperTradingPipeline)
     pipeline.br_breakout_enabled = True
@@ -308,7 +308,7 @@ def main() -> int:
         to_ts=parse_ts(args.to_ts),
     )
 
-    pipelines = {symbol: build_replay_pipeline(symbol) for symbol in symbols}
+    pipelines = {symbol: build_replay_pipeline(symbol, run_id=run_id) for symbol in symbols}
     stats = {symbol: ReplayStats() for symbol in symbols}
 
     for bar in bars:
