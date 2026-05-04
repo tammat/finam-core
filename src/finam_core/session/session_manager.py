@@ -1,40 +1,61 @@
-# Patched SessionManager (FORTS-aware)
+# -*- coding: utf-8 -*-
+from __future__ import annotations
 
 from datetime import datetime
 
 
 class SessionManager:
+    """Русский комментарий: определяет торговую фазу MOEX для PAPER/live-paper gate."""
+
+    def __init__(self, market: str = "FORTS") -> None:
+        self.market = str(market or "FORTS").upper()
+
     def get_regime(self, symbol: str | None = None):
         now = datetime.now()
         h = now.hour
         m = now.minute
-        wd = now.weekday()
 
-        # === WEEKEND BLOCK ===
-        if wd >= 5:
-            return {"phase": "weekend", "allow_entries": False}
+        # Русский комментарий: на выходных отдельное окно торгов 10:00–19:00 МСК.
+        if self._is_weekend():
+            return self._weekend_session(h, m)
 
-        # === FORTS DETECT ===
-        if symbol and "@" in symbol:
+        market = self.market
+        if symbol:
+            symbol_upper = str(symbol).upper()
+            if "@MISX" in symbol_upper:
+                market = "STOCK"
+            elif "@RTSX" in symbol_upper:
+                market = "FORTS"
+
+        if market == "FORTS":
             return self._forts_session(h, m)
 
-        # fallback (stocks)
         return self._stock_session(h, m)
 
-    # =========================================================
-    # === FORTS SESSION ===
-    # =========================================================
     def _minute_of_day(self, h: int, m: int) -> int:
         return int(h) * 60 + int(m)
+
+    def _is_weekend(self) -> bool:
+        """Русский комментарий: суббота/воскресенье для отдельного окна торгов."""
+        return datetime.now().weekday() in (5, 6)
+
+    def _weekend_session(self, h, m):
+        now_min = self._minute_of_day(h, m)
+        weekend_start = 10 * 60
+        weekend_end = 19 * 60
+
+        if weekend_start <= now_min < weekend_end:
+            return {"phase": "weekend", "allow_entries": True}
+
+        return {"phase": "closed", "allow_entries": False}
 
     def _forts_session(self, h, m):
         now_min = self._minute_of_day(h, m)
 
-        # Русский комментарий: актуальное расписание Срочного рынка MOEX после перехода на ЕТС.
+        # Русский комментарий: срочный рынок MOEX.
         # Утренняя торговая сессия: 09:00–10:00 МСК.
         # Основная торговая сессия: 10:00–19:00 МСК.
         # Вечерняя торговая сессия: 19:00–23:50 МСК.
-        # Аукцион открытия 08:50–09:00 не используем для новых входов.
         morning_start = 9 * 60
         main_start = 10 * 60
         evening_start = 19 * 60
@@ -54,7 +75,7 @@ class SessionManager:
     def _stock_session(self, h, m):
         now_min = self._minute_of_day(h, m)
 
-        # Русский комментарий: фондовый рынок MOEX: утренняя, основная и вечерняя сессии.
+        # Русский комментарий: фондовый рынок MOEX.
         # Утренняя дополнительная сессия: 06:50–09:50 МСК.
         # Основная сессия: 09:50–19:00 МСК.
         # Вечерняя дополнительная сессия: 19:00–23:50 МСК.
@@ -73,4 +94,3 @@ class SessionManager:
             return {"phase": "evening", "allow_entries": True}
 
         return {"phase": "closed", "allow_entries": False}
-
