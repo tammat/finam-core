@@ -35,7 +35,7 @@ def load_last_prices(symbols: list[str]) -> dict[str, float]:
     """
     with psycopg2.connect(dsn()) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (symbols, run_id, run_id))
+            cur.execute(sql, (symbols,))
             return {str(symbol): float(price) for symbol, price in cur.fetchall()}
 
 
