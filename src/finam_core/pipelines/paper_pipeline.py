@@ -36,7 +36,11 @@ CLUSTERS = {
     "metals": ["GC", "SI"],
     "fx": ["SR"],
 }
+
 LOG = logging.getLogger(__name__)
+
+# PIPELINE DEBUG FLAG
+PIPE_DEBUG = os.getenv("PIPE_DEBUG", "0") == "1"
 
 
 def _safe_float(x, default=0.0) -> float:
@@ -703,7 +707,8 @@ class PaperTradingPipeline:
         raw_intent = None
 
         # ВАЖНО: используем РЕАЛЬНЫЙ regime (из regime_engine), а не session
-        print(f"DEBUG REGIME_ROUTER trend={regime.trend} vol={regime.volatility}", flush=True)
+        if PIPE_DEBUG:
+            print(f"DEBUG REGIME_ROUTER trend={regime.trend} vol={regime.volatility}", flush=True)
 
         try:
             # === MTF FILTER (WEAK VERSION, no blocking) ===
@@ -719,19 +724,23 @@ class PaperTradingPipeline:
 
             # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
             if regime.trend in ("up", "down"):
-                print("DEBUG breakout mode (strategy disabled)", flush=True)
+                if PIPE_DEBUG:
+                    print("DEBUG breakout mode (strategy disabled)", flush=True)
                 raw_intent = None  # force fallback breakout logic
 
             # === MEAN REVERSION ===
             elif regime.trend == "flat":
-                print("DEBUG using mean_reversion", flush=True)
+                if PIPE_DEBUG:
+                    print("DEBUG using mean_reversion", flush=True)
 
                 raw_intent = self.mean_reversion.on_quote(st)
-                print("DEBUG MR result:", raw_intent, flush=True)
+                if PIPE_DEBUG:
+                    print("DEBUG MR result:", raw_intent, flush=True)
 
                 # fallback to breakout if no MR signal
                 if raw_intent is None:
-                    print("DEBUG fallback to breakout", flush=True)
+                    if PIPE_DEBUG:
+                        print("DEBUG fallback to breakout", flush=True)
 
         except Exception as e:
             print(f"STRATEGY_ERROR {e}", flush=True)
@@ -867,8 +876,10 @@ class PaperTradingPipeline:
         except Exception as e:
             print(f"PIPE_ROLLBACK_ERROR {e}", flush=True)
 
-        print("DEBUG raw_intent:", raw_intent, flush=True)
-        print(f"DEBUG price_in_state last={st.get('last')} bid={st.get('bid')} ask={st.get('ask')}", flush=True)
+        if PIPE_DEBUG:
+            print(f"DEBUG raw_intent:", raw_intent, flush=True)
+        if PIPE_DEBUG:
+            print(f"DEBUG price_in_state last={st.get('last')} bid={st.get('bid')} ask={st.get('ask')}", flush=True)
         # === ENSURE PRICE IN INTENT (FIX no_price) ===
         try:
             if isinstance(raw_intent, dict):
@@ -915,7 +926,8 @@ class PaperTradingPipeline:
         routed = self.signal_router.route(raw_intent)
 
         if self._should_log_routed_signal(routed):
-            print(f"DEBUG routed: {routed}", flush=True)
+            if PIPE_DEBUG:
+                print(f"DEBUG routed: {routed}", flush=True)
 
         # =========================================================
         # === SESSION FILTER (ЕДИНЫЙ ИСТОЧНИК, POST-ROUTER)
@@ -968,7 +980,8 @@ class PaperTradingPipeline:
                 px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask")
                 if px is not None:
                     intent["price"] = float(px)
-                    print(f"DEBUG PRICE INJECTED {intent['price']}", flush=True)
+                    if PIPE_DEBUG:
+                        print(f"DEBUG PRICE INJECTED {intent['price']}", flush=True)
                 else:
                     print("PIPE_PRICE_INJECT_FAIL", flush=True)
         except Exception as e:
