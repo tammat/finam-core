@@ -45,6 +45,7 @@ def dsn() -> str:
     )
 
 
+
 def parse_ts(value: str | None):
     if not value:
         return None
@@ -57,8 +58,23 @@ def parse_ts(value: str | None):
     return ts.astimezone(timezone.utc)
 
 
+# Helper: get columns in market_data table
+def get_market_data_columns(conn) -> set[str]:
+    """Русский комментарий: определяем фактические колонки market_data на текущей БД."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'market_data'
+            """
+        )
+        return {str(row[0]) for row in cur.fetchall()}
+
+
+
 def load_bars(symbol: str, from_ts=None, to_ts=None) -> list[ReplayBar]:
-    """Русский комментарий: загружаем M15 и M5 бары; M15 идет первым при равном ts."""
+    """Русский комментарий: загружаем M15 и M5 бары; если OHLC нет, строим их из close_price."""
     where = ["symbol = %s", "timeframe IN ('M15', 'M5')"]
     params: list[object] = [symbol]
 
@@ -69,16 +85,32 @@ def load_bars(symbol: str, from_ts=None, to_ts=None) -> list[ReplayBar]:
         where.append("ts <= %s")
         params.append(to_ts)
 
-    sql = f"""
-        SELECT symbol, timeframe, ts, open_price, high_price, low_price, close_price, volume
-        FROM market_data
-        WHERE {' AND '.join(where)}
-        ORDER BY ts ASC,
-                 CASE WHEN timeframe = 'M15' THEN 0 WHEN timeframe = 'M5' THEN 1 ELSE 2 END ASC
-    """
-
     rows: list[ReplayBar] = []
     with psycopg2.connect(dsn()) as conn:
+        columns = get_market_data_columns(conn)
+
+        close_col = "close_price" if "close_price" in columns else "close"
+        open_expr = "open_price" if "open_price" in columns else close_col
+        high_expr = "high_price" if "high_price" in columns else close_col
+        low_expr = "low_price" if "low_price" in columns else close_col
+        volume_expr = "volume" if "volume" in columns else "0.0"
+
+        sql = f"""
+            SELECT
+                symbol,
+                timeframe,
+                ts,
+                {open_expr} AS open_value,
+                {high_expr} AS high_value,
+                {low_expr} AS low_value,
+                {close_col} AS close_value,
+                {volume_expr} AS volume_value
+            FROM market_data
+            WHERE {' AND '.join(where)}
+            ORDER BY ts ASC,
+                     CASE WHEN timeframe = 'M15' THEN 0 WHEN timeframe = 'M5' THEN 1 ELSE 2 END ASC
+        """
+
         with conn.cursor() as cur:
             cur.execute(sql, params)
             for symbol_v, timeframe, ts, open_p, high_p, low_p, close_p, volume in cur.fetchall():
