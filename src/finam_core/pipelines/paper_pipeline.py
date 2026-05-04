@@ -27,7 +27,7 @@ from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
 from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
-
+from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -201,6 +201,13 @@ class PaperTradingPipeline:
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
         self.regime_engine = RegimeEngine()
+        # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
+        self.br_breakout_enabled = (
+            os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
+            and os.getenv("ENABLE_BR_CONSERVATIVE_BREAKOUT", "0") == "1"
+        )
+        self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
+        self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -247,6 +254,57 @@ class PaperTradingPipeline:
                     close_price=bar.close_price,
                     volume=bar.volume,
                 )
+                # Русский комментарий: PAPER-only BR strategy consumes closed M15/M5 bars; it never sends broker orders directly.
+                if self.br_breakout_enabled and self.br_breakout is not None and bar.symbol == self.br_breakout_symbol:
+                    if str(bar.timeframe).upper() == "M15":
+                        self.br_breakout.on_regime_bar(
+                            ts=bar.ts,
+                            open_=float(bar.open),
+                            high=float(bar.high),
+                            low=float(bar.low),
+                            close=float(bar.close_price),
+                            volume=float(bar.volume or 0.0),
+                        )
+
+                    elif str(bar.timeframe).upper() == "M5":
+                        br_signal = self.br_breakout.on_signal_bar(
+                            ts=bar.ts,
+                            open_=float(bar.open),
+                            high=float(bar.high),
+                            low=float(bar.low),
+                            close=float(bar.close_price),
+                            volume=float(bar.volume or 0.0),
+                        )
+
+                        if br_signal is not None:
+                            self.pg_logger.log_signal(
+                                symbol=br_signal.symbol,
+                                strategy="BR_CONSERVATIVE_BREAKOUT_M5",
+                                side=br_signal.side,
+                                qty=float(os.getenv("BR_BREAKOUT_QTY", "1")),
+                                status="generated",
+                                payload={
+                                    "price": br_signal.price,
+                                    "stop": br_signal.stop,
+                                    "take": br_signal.take,
+                                    "reason": br_signal.reason,
+                                    "ts": br_signal.ts.isoformat(),
+                                    "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+                                    "paper_only": True,
+                                },
+                            )
+
+                            try:
+                                self.notifier.send(
+                                    f"🛢 BR PAPER SIGNAL\n"
+                                    f"{br_signal.symbol} | {br_signal.side}\n"
+                                    f"Цена: {round(br_signal.price, 4)}\n"
+                                    f"Стоп: {round(br_signal.stop, 4)}\n"
+                                    f"Цель: {round(br_signal.take, 4)}\n"
+                                    f"Причина: {br_signal.reason}"
+                                )
+                            except Exception:
+                                pass
                 LOG.info(
                     "PIPE_MTF_BAR_CLOSED symbol=%s tf=%s ts=%s close=%s volume=%s",
                     bar.symbol,
