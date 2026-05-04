@@ -1842,14 +1842,6 @@ class PaperTradingPipeline:
             "rsi_filter_reason": getattr(self.br_breakout, "rsi_filter_reason", None),
         }
 
-        self.pg_logger.log_signal(
-            symbol=br_signal.symbol,
-            strategy="BR_CONSERVATIVE_BREAKOUT_M5",
-            side=br_signal.side,
-            qty=qty,
-            status=signal_status,
-            payload=payload,
-        )
 
         self._log_br_risk_event(br_signal=br_signal, qty=qty, accepted=risk_accepted, reason=risk_reason)
 
@@ -1870,6 +1862,15 @@ class PaperTradingPipeline:
                 self._br_regime_policy_rejected = int(getattr(self, "_br_regime_policy_rejected", 0)) + 1
             else:
                 self._br_other_execution_rejected = int(getattr(self, "_br_other_execution_rejected", 0)) + 1
+
+        self.pg_logger.log_signal(
+            symbol=br_signal.symbol,
+            strategy="BR_CONSERVATIVE_BREAKOUT_M5",
+            side=br_signal.side,
+            qty=qty,
+            status=signal_status,
+            payload=payload,
+        )
 
         try:
             self.notifier.send(
