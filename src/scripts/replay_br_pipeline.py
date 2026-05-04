@@ -19,6 +19,7 @@ import psycopg2
 from finam_core.execution.paper_engine import PaperExecutionEngine
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
+from finam_core.risk.regime_policy import RegimePolicy
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 
@@ -50,6 +51,7 @@ class ReplayStats:
     paper_sell_orders: int = 0
     trades_logged: int = 0
     position_limit_rejected: int = 0
+    regime_policy_rejected: int = 0
 
 
 
@@ -179,6 +181,33 @@ class CountingPaperExecution:
         return getattr(self.inner, name)
 
 
+
+def current_pipeline_regime(pipeline) -> str:
+    """Русский комментарий: берём режим из стратегии BR по текущему M15-состоянию."""
+    br = getattr(pipeline, "br_breakout", None)
+    if br is None:
+        return "unknown"
+
+    direction = int(getattr(br, "regime_direction", 0) or 0)
+    atr_pct = float(getattr(br, "regime_atr_pct", 0.0) or 0.0)
+
+    if direction > 0:
+        trend = "up"
+    elif direction < 0:
+        trend = "down"
+    else:
+        trend = "flat"
+
+    if atr_pct < 0.0005:
+        vol = "low_vol"
+    elif atr_pct > 0.003:
+        vol = "high_vol"
+    else:
+        vol = "normal_vol"
+
+    return f"{trend}_{vol}"
+
+
 def dsn() -> str:
     return (
         f"postgresql://{os.getenv('DB_USER', 'finam')}:{os.getenv('DB_PASSWORD', 'finam')}"
@@ -283,6 +312,8 @@ def build_replay_pipeline(symbol: str, run_id: str):
     pipeline.risk = None
     pipeline.run_id = run_id
     pipeline.finam_limits_adapter = FinamLimitsAdapter()
+    pipeline.regime_policy = RegimePolicy()
+    pipeline.current_replay_regime = "unknown"
     return pipeline
 
 
@@ -323,7 +354,17 @@ def main() -> int:
         elif tf == "M5":
             symbol_stats.m5_processed += 1
 
-        pipeline._process_br_closed_bar_for_paper_signal(bar)
+        if tf == "M15":
+            pipeline._process_br_closed_bar_for_paper_signal(bar)
+            pipeline.current_replay_regime = current_pipeline_regime(pipeline)
+        else:
+            regime = getattr(pipeline, "current_replay_regime", "unknown")
+            allowed, _regime_reason = pipeline.regime_policy.is_allowed(bar.symbol, regime)
+            if not allowed:
+                symbol_stats.regime_policy_rejected += 1
+            else:
+                pipeline._process_br_closed_bar_for_paper_signal(bar)
+
         symbol_stats.bars_processed += 1
 
     print("REPLAY_BR_PIPELINE")
@@ -361,6 +402,7 @@ def main() -> int:
         total.paper_sell_orders += symbol_stats.paper_sell_orders
         total.trades_logged += symbol_stats.trades_logged
         total.position_limit_rejected += symbol_stats.position_limit_rejected
+        total.regime_policy_rejected += symbol_stats.regime_policy_rejected
 
         print(
             "SYMBOL_STATS "
@@ -378,6 +420,8 @@ def main() -> int:
             f"paper_sell_orders={symbol_stats.paper_sell_orders} "
             f"trades_logged={symbol_stats.trades_logged} "
             f"position_limit_rejected={symbol_stats.position_limit_rejected} "
+            f"regime_policy_rejected={symbol_stats.regime_policy_rejected} "
+            f"current_regime={getattr(pipeline, 'current_replay_regime', 'unknown')} "
             f"open_position={round(getattr(pipeline, '_br_replay_positions', {}).get(symbol, 0.0), 6)} "
             f"max_abs_position={getattr(pipeline, '_max_abs_position_for_br')(symbol) if hasattr(pipeline, '_max_abs_position_for_br') else 'n/a'} "
             f"limit_source={getattr(getattr(pipeline, 'finam_limits_adapter', None), 'get_symbol_limit')(symbol).source if hasattr(getattr(pipeline, 'finam_limits_adapter', None), 'get_symbol_limit') else 'n/a'} "
@@ -398,6 +442,7 @@ def main() -> int:
     print(f"paper_sell_orders={total.paper_sell_orders}")
     print(f"trades_logged={total.trades_logged}")
     print(f"position_limit_rejected={total.position_limit_rejected}")
+    print(f"regime_policy_rejected={total.regime_policy_rejected}")
     print("STATUS=OK")
     return 0
 
