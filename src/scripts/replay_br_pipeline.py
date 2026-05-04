@@ -98,10 +98,10 @@ class CountingPaperExecution:
         elif side == "SELL":
             self.sell_orders += 1
 
-    def execute(self, order: dict):
+    def execute(self, order: dict, market_state: dict | None = None):
         self._count(order)
         if hasattr(self.inner, "execute"):
-            return self.inner.execute(order)
+            return self.inner.execute(order, market_state=market_state)
         if hasattr(self.inner, "execute_order"):
             return self.inner.execute_order(order)
         if hasattr(self.inner, "submit_order"):
