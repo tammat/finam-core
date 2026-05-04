@@ -1704,17 +1704,13 @@ class PaperTradingPipeline:
             elif pnl > 0:
                 state["loss_streak"] = 0
 
-            loss_limit_raw = os.getenv(
-                f"LOSS_STREAK_LIMIT_{env_symbol_key(symbol)}",
-                os.getenv("LOSS_STREAK_LIMIT_DEFAULT", "0"),
-            ).strip()
-            pause_raw = os.getenv(
-                f"LOSS_STREAK_PAUSE_BARS_{env_symbol_key(symbol)}",
-                os.getenv("LOSS_STREAK_PAUSE_BARS_DEFAULT", "0"),
-            ).strip()
+            guard = getattr(self, "symbol_loss_streak_guard", None)
+            if guard is None:
+                guard = SymbolLossStreakGuard()
+                self.symbol_loss_streak_guard = guard
 
-            loss_limit = int(loss_limit_raw or 0)
-            pause_bars = int(pause_raw or 0)
+            loss_limit = int(guard.loss_limit_for(symbol))
+            pause_bars = int(guard.pause_bars_for(symbol))
 
             if loss_limit > 0 and pause_bars > 0 and int(state.get("loss_streak", 0) or 0) >= loss_limit:
                 state["loss_streak_pause_left"] = pause_bars
