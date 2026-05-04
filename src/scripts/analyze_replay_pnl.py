@@ -65,7 +65,7 @@ def load_trades(symbols: list[str], run_id: str | None = None):
     """
     with psycopg2.connect(dsn()) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (symbols, args.run_id, args.run_id))
+            cur.execute(sql, (symbols, run_id, run_id))
             return cur.fetchall()
 
 
