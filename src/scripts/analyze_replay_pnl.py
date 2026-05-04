@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 import psycopg2
 
+from finam_core.regime.regime_classifier import RegimeClassifier
+
 
 @dataclass
 class Position:
@@ -21,6 +23,8 @@ class Position:
     losses: int = 0
     equity_curve: list[tuple[str, float]] | None = None
     max_drawdown: float = 0.0
+    regime_pnl: dict[str, float] | None = None
+    regime_trades: dict[str, int] | None = None
 
 
 def dsn() -> str:
@@ -59,6 +63,67 @@ def send_telegram(text: str) -> None:
         print(f"TELEGRAM_SKIPPED reason={type(exc).__name__}:{exc}")
 
 
+def load_regimes(symbols: list[str]) -> dict[str, list[tuple]]:
+    """
+    Русский комментарий: строим M15 regime timeline по каждому символу.
+    Возвращает symbol -> [(ts, regime), ...].
+    """
+    sql = """
+        SELECT symbol, ts, close_price
+        FROM market_data
+        WHERE symbol = ANY(%s)
+          AND timeframe = 'M15'
+        ORDER BY symbol, ts ASC
+    """
+    rows_by_symbol: dict[str, list[tuple]] = {symbol: [] for symbol in symbols}
+
+    with psycopg2.connect(dsn()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (symbols,))
+            for symbol, ts, close_price in cur.fetchall():
+                rows_by_symbol[str(symbol)].append((ts, float(close_price)))
+
+    classifier = RegimeClassifier()
+    out: dict[str, list[tuple]] = {symbol: [] for symbol in symbols}
+
+    for symbol, rows in rows_by_symbol.items():
+        closes: list[float] = []
+        prev_close: float | None = None
+
+        for ts, close in rows:
+            closes.append(close)
+
+            if len(closes) < 20:
+                prev_close = close
+                continue
+
+            fast = sum(closes[-5:]) / 5.0
+            slow = sum(closes[-20:]) / 20.0
+
+            if prev_close is None or prev_close == 0:
+                atr_pct = 0.0
+            else:
+                # Русский комментарий: упрощённый ATR proxy для аналитики режима.
+                atr_pct = abs(close - prev_close) / prev_close
+
+            regime = classifier.classify(fast_ma=fast, slow_ma=slow, atr_pct=atr_pct)
+            out[symbol].append((ts, regime.regime))
+            prev_close = close
+
+    return out
+
+
+def regime_at_ts(regimes: dict[str, list[tuple]], symbol: str, ts) -> str:
+    items = regimes.get(symbol, [])
+    current = "unknown"
+    for r_ts, regime in items:
+        if r_ts <= ts:
+            current = regime
+        else:
+            break
+    return current
+
+
 def load_trades(symbols: list[str], run_id: str | None = None):
     sql = """
         SELECT symbol, side, qty, price, ts
@@ -74,9 +139,13 @@ def load_trades(symbols: list[str], run_id: str | None = None):
             return cur.fetchall()
 
 
-def apply_trade(pos: Position, side: str, qty: float, price: float, ts=None) -> None:
+def apply_trade(pos: Position, side: str, qty: float, price: float, ts=None, regime: str = "unknown") -> None:
     if pos.equity_curve is None:
         pos.equity_curve = []
+    if pos.regime_pnl is None:
+        pos.regime_pnl = {}
+    if pos.regime_trades is None:
+        pos.regime_trades = {}
     pos.trades += 1
 
     signed_qty = qty if side == "BUY" else -qty
@@ -98,6 +167,8 @@ def apply_trade(pos: Position, side: str, qty: float, price: float, ts=None) -> 
         pnl = (pos.avg_price - price) * closing_qty
 
     pos.realized_pnl += pnl
+    pos.regime_pnl[regime] = pos.regime_pnl.get(regime, 0.0) + pnl
+    pos.regime_trades[regime] = pos.regime_trades.get(regime, 0) + 1
     pos.equity_curve.append((str(ts), float(pos.realized_pnl)))
     pos.max_drawdown = min(pos.max_drawdown, calc_drawdown(pos.equity_curve))
 
@@ -149,15 +220,18 @@ def main() -> int:
 
     rows = load_trades(args.symbols, run_id=args.run_id)
     last_prices = load_last_prices(args.symbols)
+    regimes = load_regimes(args.symbols)
     positions = {symbol: Position() for symbol in args.symbols}
 
     for symbol, side, qty, price, _ts in rows:
+        sym = str(symbol)
         apply_trade(
-            positions[str(symbol)],
+            positions[sym],
             str(side).upper(),
             float(qty),
             float(price),
             ts=_ts,
+            regime=regime_at_ts(regimes, sym, _ts),
         )
 
     lines: list[str] = []
@@ -203,6 +277,18 @@ def main() -> int:
             f"equity_pnl={round(equity_pnl, 6)} "
             f"max_drawdown={round(p.max_drawdown, 6)}"
         )
+
+    for symbol in args.symbols:
+        p = positions[symbol]
+        for regime, pnl in sorted((p.regime_pnl or {}).items()):
+            trades = (p.regime_trades or {}).get(regime, 0)
+            lines.append(
+                "REGIME_PNL "
+                f"symbol={symbol} "
+                f"regime={regime} "
+                f"closed_trades={trades} "
+                f"realized_pnl={round(pnl, 6)}"
+            )
 
     lines.append("TOTAL_PNL")
     lines.append(f"symbols={len(args.symbols)}")
