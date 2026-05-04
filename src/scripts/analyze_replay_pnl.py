@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import requests
 from dataclasses import dataclass
 
 import psycopg2
@@ -23,6 +24,32 @@ def dsn() -> str:
         f"postgresql://{os.getenv('DB_USER', 'finam')}:{os.getenv('DB_PASSWORD', 'finam')}"
         f"@{os.getenv('DB_HOST', '127.0.0.1')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME', 'finam')}"
     )
+
+
+def load_last_prices(symbols: list[str]) -> dict[str, float]:
+    sql = """
+        SELECT DISTINCT ON (symbol) symbol, close_price
+        FROM market_data
+        WHERE symbol = ANY(%s)
+        ORDER BY symbol, ts DESC
+    """
+    with psycopg2.connect(dsn()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (symbols,))
+            return {str(symbol): float(price) for symbol, price in cur.fetchall()}
+
+
+def send_telegram(text: str) -> None:
+    token = (os.getenv("TG_BOT_TOKEN") or os.getenv("TG_TOKEN") or "").strip()
+    chat_id = os.getenv("TG_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        print("TELEGRAM_SKIPPED reason=missing_token_or_chat_id")
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    r = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=15)
+    r.raise_for_status()
+    print("TELEGRAM_SENT")
 
 
 def load_trades(symbols: list[str]):
@@ -83,9 +110,11 @@ def apply_trade(pos: Position, side: str, qty: float, price: float) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", nargs="+", required=True)
+    parser.add_argument("--telegram", action="store_true")
     args = parser.parse_args()
 
     rows = load_trades(args.symbols)
+    last_prices = load_last_prices(args.symbols)
     positions = {symbol: Position() for symbol in args.symbols}
 
     for symbol, side, qty, price, _ts in rows:
@@ -96,19 +125,34 @@ def main() -> int:
             float(price),
         )
 
-    print("REPLAY_PNL_REPORT")
+    lines: list[str] = []
+    lines.append("REPLAY_PNL_REPORT")
 
-    total_pnl = 0.0
+    total_realized = 0.0
+    total_unrealized = 0.0
+    total_equity = 0.0
     total_trades = 0
 
     for symbol in args.symbols:
         p = positions[symbol]
         closed = p.wins + p.losses
         winrate = (p.wins / closed * 100.0) if closed else 0.0
-        total_pnl += p.realized_pnl
+        last_price = last_prices.get(symbol, 0.0)
+        if p.qty > 0:
+            unrealized = (last_price - p.avg_price) * abs(p.qty)
+        elif p.qty < 0:
+            unrealized = (p.avg_price - last_price) * abs(p.qty)
+        else:
+            unrealized = 0.0
+
+        equity_pnl = p.realized_pnl + unrealized
+
+        total_realized += p.realized_pnl
+        total_unrealized += unrealized
+        total_equity += equity_pnl
         total_trades += p.trades
 
-        print(
+        lines.append(
             "SYMBOL_PNL "
             f"symbol={symbol} "
             f"trades={p.trades} "
@@ -117,15 +161,27 @@ def main() -> int:
             f"losses={p.losses} "
             f"winrate={round(winrate, 2)}% "
             f"realized_pnl={round(p.realized_pnl, 6)} "
+            f"last_price={round(last_price, 6)} "
             f"open_qty={round(p.qty, 6)} "
-            f"avg_price={round(p.avg_price, 6)}"
+            f"avg_price={round(p.avg_price, 6)} "
+            f"unrealized_pnl={round(unrealized, 6)} "
+            f"equity_pnl={round(equity_pnl, 6)}"
         )
 
-    print("TOTAL_PNL")
-    print(f"symbols={len(args.symbols)}")
-    print(f"trades={total_trades}")
-    print(f"realized_pnl={round(total_pnl, 6)}")
-    print("STATUS=OK")
+    lines.append("TOTAL_PNL")
+    lines.append(f"symbols={len(args.symbols)}")
+    lines.append(f"trades={total_trades}")
+    lines.append(f"realized_pnl={round(total_realized, 6)}")
+    lines.append(f"unrealized_pnl={round(total_unrealized, 6)}")
+    lines.append(f"equity_pnl={round(total_equity, 6)}")
+    lines.append("STATUS=OK")
+
+    report = "\n".join(lines)
+    print(report)
+
+    if args.telegram:
+        send_telegram(report)
+
     return 0
 
 
