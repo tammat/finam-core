@@ -277,6 +277,7 @@ class PaperTradingPipeline:
                         )
 
                         if br_signal is not None:
+                            current_params = getattr(self.br_breakout, "current_params", None)
                             self.pg_logger.log_signal(
                                 symbol=br_signal.symbol,
                                 strategy="BR_CONSERVATIVE_BREAKOUT_M5",
@@ -291,6 +292,15 @@ class PaperTradingPipeline:
                                     "ts": br_signal.ts.isoformat(),
                                     "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
                                     "paper_only": True,
+                                    "online_mode": getattr(current_params, "mode", None),
+                                    "online_allow_trade": getattr(current_params, "allow_trade", None),
+                                    "online_reason": getattr(current_params, "reason", None),
+                                    "selected_window": getattr(current_params, "breakout_window", None),
+                                    "selected_stop_atr": getattr(current_params, "stop_atr", None),
+                                    "selected_take_atr": getattr(current_params, "take_atr", None),
+                                    "regime_direction": getattr(self.br_breakout, "regime_direction", None),
+                                    "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
+                                    "regime_strength": getattr(self.br_breakout, "regime_strength", None),
                                 },
                             )
 
