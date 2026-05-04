@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import requests
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ class Position:
     trades: int = 0
     wins: int = 0
     losses: int = 0
+    equity_curve: list[tuple[str, float]] | None = None
+    max_drawdown: float = 0.0
 
 
 def dsn() -> str:
@@ -70,7 +73,9 @@ def load_trades(symbols: list[str], run_id: str | None = None):
             return cur.fetchall()
 
 
-def apply_trade(pos: Position, side: str, qty: float, price: float) -> None:
+def apply_trade(pos: Position, side: str, qty: float, price: float, ts=None) -> None:
+    if pos.equity_curve is None:
+        pos.equity_curve = []
     pos.trades += 1
 
     signed_qty = qty if side == "BUY" else -qty
@@ -92,6 +97,8 @@ def apply_trade(pos: Position, side: str, qty: float, price: float) -> None:
         pnl = (pos.avg_price - price) * closing_qty
 
     pos.realized_pnl += pnl
+    pos.equity_curve.append((str(ts), float(pos.realized_pnl)))
+    pos.max_drawdown = min(pos.max_drawdown, calc_drawdown(pos.equity_curve))
 
     if pnl > 0:
         pos.wins += 1
@@ -111,10 +118,31 @@ def apply_trade(pos: Position, side: str, qty: float, price: float) -> None:
         pos.avg_price = price
 
 
+def calc_drawdown(curve: list[tuple[str, float]]) -> float:
+    peak = 0.0
+    max_dd = 0.0
+    for _ts, equity in curve:
+        peak = max(peak, equity)
+        dd = equity - peak
+        max_dd = min(max_dd, dd)
+    return max_dd
+
+
+def write_curve_csv(path: str, positions: dict[str, Position]) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["symbol", "ts", "realized_equity"])
+        for symbol, pos in positions.items():
+            for ts, equity in pos.equity_curve or []:
+                w.writerow([symbol, ts, round(equity, 6)])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", nargs="+", required=True)
     parser.add_argument("--run-id", required=False)
+    parser.add_argument("--curve-csv", default="reports/replay_pnl_curve.csv")
     parser.add_argument("--telegram", action="store_true")
     args = parser.parse_args()
 
@@ -128,6 +156,7 @@ def main() -> int:
             str(side).upper(),
             float(qty),
             float(price),
+            ts=_ts,
         )
 
     lines: list[str] = []
@@ -170,7 +199,8 @@ def main() -> int:
             f"open_qty={round(p.qty, 6)} "
             f"avg_price={round(p.avg_price, 6)} "
             f"unrealized_pnl={round(unrealized, 6)} "
-            f"equity_pnl={round(equity_pnl, 6)}"
+            f"equity_pnl={round(equity_pnl, 6)} "
+            f"max_drawdown={round(p.max_drawdown, 6)}"
         )
 
     lines.append("TOTAL_PNL")
@@ -178,8 +208,13 @@ def main() -> int:
     lines.append(f"trades={total_trades}")
     lines.append(f"realized_pnl={round(total_realized, 6)}")
     lines.append(f"unrealized_pnl={round(total_unrealized, 6)}")
+    total_max_drawdown = sum(p.max_drawdown for p in positions.values())
     lines.append(f"equity_pnl={round(total_equity, 6)}")
+    lines.append(f"sum_symbol_max_drawdown={round(total_max_drawdown, 6)}")
+    lines.append(f"curve_csv={args.curve_csv}")
     lines.append("STATUS=OK")
+
+    write_curve_csv(args.curve_csv, positions)
 
     report = "\n".join(lines)
     print(report)
