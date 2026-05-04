@@ -375,7 +375,9 @@ def main() -> int:
             f"trades_logged={symbol_stats.trades_logged} "
             f"position_limit_rejected={symbol_stats.position_limit_rejected} "
             f"open_position={round(getattr(pipeline, '_br_replay_positions', {}).get(symbol, 0.0), 6)} "
-            f"max_abs_position={getattr(pipeline, '_max_abs_position_for_br')(symbol) if hasattr(pipeline, '_max_abs_position_for_br') else 'n/a'}"
+            f"max_abs_position={getattr(pipeline, '_max_abs_position_for_br')(symbol) if hasattr(pipeline, '_max_abs_position_for_br') else 'n/a'} "
+            f"limit_source={getattr(getattr(pipeline, 'finam_limits_adapter', None), 'get_symbol_limit')(symbol).source if hasattr(getattr(pipeline, 'finam_limits_adapter', None), 'get_symbol_limit') else 'n/a'} "
+            f"finam_current_position={getattr(getattr(pipeline, 'finam_limits_adapter', None), 'get_symbol_limit')(symbol).current_position if hasattr(getattr(pipeline, 'finam_limits_adapter', None), 'get_symbol_limit') else 'n/a'}"
         )
 
     print("TOTAL_STATS")
