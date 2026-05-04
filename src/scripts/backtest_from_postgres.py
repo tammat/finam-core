@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import argparse
 from dataclasses import dataclass
+from collections import deque
 from datetime import datetime, timezone
 
 import psycopg2
@@ -84,6 +85,134 @@ def ema(prev: float | None, value: float, period: int) -> float:
         return value
     alpha = 2.0 / (period + 1.0)
     return alpha * value + (1.0 - alpha) * prev
+
+
+
+def true_range(bar: Bar, prev_close: float | None) -> float:
+    """Русский комментарий: расчет true range для ATR в breakout-backtest."""
+    if prev_close is None:
+        return bar.high - bar.low
+    return max(
+        bar.high - bar.low,
+        abs(bar.high - prev_close),
+        abs(bar.low - prev_close),
+    )
+
+
+def run_breakout_backtest(
+    bars: list[Bar],
+    window: int,
+    atr_period: int,
+    stop_atr: float,
+    take_atr: float,
+    fee_pct: float,
+) -> dict:
+    """Русский комментарий: breakout по пробою диапазона последних N баров."""
+    position = 0
+    entry_price = 0.0
+    stop_price = 0.0
+    take_price = 0.0
+    cash = 0.0
+    trades: list[float] = []
+    equity_curve: list[float] = []
+
+    highs: deque[float] = deque(maxlen=window)
+    lows: deque[float] = deque(maxlen=window)
+    tr_values: deque[float] = deque(maxlen=atr_period)
+    prev_close: float | None = None
+
+    for bar in bars:
+        tr_values.append(true_range(bar, prev_close))
+        prev_close = bar.close
+
+        if len(highs) >= window and len(lows) >= window and len(tr_values) >= atr_period:
+            range_high = max(highs)
+            range_low = min(lows)
+            atr = sum(tr_values) / len(tr_values)
+
+            if position == 0:
+                if bar.close > range_high:
+                    position = 1
+                    entry_price = bar.close
+                    stop_price = entry_price - atr * stop_atr
+                    take_price = entry_price + atr * take_atr
+                elif bar.close < range_low:
+                    position = -1
+                    entry_price = bar.close
+                    stop_price = entry_price + atr * stop_atr
+                    take_price = entry_price - atr * take_atr
+
+            elif position > 0:
+                exit_price = None
+                if bar.low <= stop_price:
+                    exit_price = stop_price
+                elif bar.high >= take_price:
+                    exit_price = take_price
+                elif bar.close < range_low:
+                    exit_price = bar.close
+
+                if exit_price is not None:
+                    pnl = exit_price - entry_price
+                    fee = abs(entry_price + exit_price) * fee_pct
+                    result = pnl - fee
+                    cash += result
+                    trades.append(result)
+                    position = 0
+
+            elif position < 0:
+                exit_price = None
+                if bar.high >= stop_price:
+                    exit_price = stop_price
+                elif bar.low <= take_price:
+                    exit_price = take_price
+                elif bar.close > range_high:
+                    exit_price = bar.close
+
+                if exit_price is not None:
+                    pnl = entry_price - exit_price
+                    fee = abs(entry_price + exit_price) * fee_pct
+                    result = pnl - fee
+                    cash += result
+                    trades.append(result)
+                    position = 0
+
+        unrealized = 0.0
+        if position > 0:
+            unrealized = bar.close - entry_price
+        elif position < 0:
+            unrealized = entry_price - bar.close
+        equity_curve.append(cash + unrealized)
+
+        highs.append(bar.high)
+        lows.append(bar.low)
+
+    if position != 0 and bars:
+        last = bars[-1].close
+        pnl = (last - entry_price) if position > 0 else (entry_price - last)
+        fee = abs(entry_price + last) * fee_pct
+        result = pnl - fee
+        cash += result
+        trades.append(result)
+        equity_curve.append(cash)
+
+    if not equity_curve:
+        return {"trades": 0, "pnl": 0.0, "winrate": 0.0, "max_drawdown": 0.0}
+
+    peak = equity_curve[0]
+    max_dd = 0.0
+    for equity in equity_curve:
+        peak = max(peak, equity)
+        max_dd = min(max_dd, equity - peak)
+
+    wins = [t for t in trades if t > 0]
+    winrate = len(wins) / len(trades) * 100.0 if trades else 0.0
+
+    return {
+        "trades": len(trades),
+        "pnl": round(cash, 6),
+        "winrate": round(winrate, 2),
+        "max_drawdown": round(max_dd, 6),
+    }
 
 
 def run_backtest(bars: list[Bar], fast: int, slow: int, fee_pct: float) -> dict:
@@ -164,9 +293,14 @@ def main() -> int:
     p.add_argument("--timeframe", default="M1")
     p.add_argument("--from-ts")
     p.add_argument("--to-ts")
+    p.add_argument("--mode", choices=("ema", "breakout"), default="ema")
     p.add_argument("--fast", type=int, default=5)
     p.add_argument("--slow", type=int, default=20)
     p.add_argument("--fee-pct", type=float, default=0.0002)
+    p.add_argument("--breakout-window", type=int, default=20)
+    p.add_argument("--atr-period", type=int, default=14)
+    p.add_argument("--stop-atr", type=float, default=1.5)
+    p.add_argument("--take-atr", type=float, default=2.0)
     p.add_argument("--min-bars", type=int, default=30)
     args = p.parse_args()
 
@@ -181,12 +315,23 @@ def main() -> int:
     print(f"symbol={args.symbol}")
     print(f"timeframe={args.timeframe}")
     print(f"bars={len(bars)}")
+    print(f"mode={args.mode}")
 
     if len(bars) < args.min_bars:
         print(f"STATUS=FAIL reason=NOT_ENOUGH_BARS min_bars={args.min_bars}")
         return 1
 
-    result = run_backtest(bars, args.fast, args.slow, args.fee_pct)
+    if args.mode == "ema":
+        result = run_backtest(bars, args.fast, args.slow, args.fee_pct)
+    else:
+        result = run_breakout_backtest(
+            bars=bars,
+            window=args.breakout_window,
+            atr_period=args.atr_period,
+            stop_atr=args.stop_atr,
+            take_atr=args.take_atr,
+            fee_pct=args.fee_pct,
+        )
 
     print(f"trades={result['trades']}")
     print(f"pnl={result['pnl']}")
