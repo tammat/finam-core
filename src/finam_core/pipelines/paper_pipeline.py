@@ -5,6 +5,7 @@
 from __future__ import annotations
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
+import json
 import logging
 import os
 import time
@@ -386,6 +387,123 @@ class PaperTradingPipeline:
         self.bus.subscribe("FILL", self._on_fill)
         LOG.debug("PIPE attach(): subscribed QUOTE/FILL")
 
+
+    def _portfolio_stats_state(self) -> dict:
+        """Русский комментарий: runtime-состояние PnL портфеля для live-paper."""
+        state = getattr(self, "_portfolio_stats", None)
+        if state is None:
+            state = {
+                "realized_pnl_total": 0.0,
+                "realized_pnl_by_symbol": {},
+                "equity_peak": 0.0,
+                "max_drawdown": 0.0,
+            }
+            self._portfolio_stats = state
+        return state
+
+    def _update_portfolio_stats(self, symbol: str, realized_pnl: float) -> dict:
+        """Русский комментарий: обновляет накопленный realized PnL и drawdown по live-paper."""
+        state = self._portfolio_stats_state()
+        pnl = float(realized_pnl or 0.0)
+
+        state["realized_pnl_total"] = float(state.get("realized_pnl_total", 0.0) or 0.0) + pnl
+
+        by_symbol = state.setdefault("realized_pnl_by_symbol", {})
+        by_symbol[symbol] = float(by_symbol.get(symbol, 0.0) or 0.0) + pnl
+
+        equity = float(state["realized_pnl_total"])
+        state["equity_peak"] = max(float(state.get("equity_peak", 0.0) or 0.0), equity)
+
+        drawdown = equity - float(state.get("equity_peak", 0.0) or 0.0)
+        state["max_drawdown"] = min(float(state.get("max_drawdown", 0.0) or 0.0), drawdown)
+
+        return state
+
+    def _postgres_dsn_for_pnl(self) -> str:
+        """Русский комментарий: DSN PostgreSQL для записи live-paper PnL."""
+        explicit = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN")
+        if explicit:
+            return explicit
+
+        host = os.getenv("PGHOST", "127.0.0.1")
+        port = os.getenv("PGPORT", "5432")
+        db = os.getenv("PGDATABASE", "finam")
+        user = os.getenv("PGUSER", "finam")
+        password = os.getenv("PGPASSWORD", "finam")
+
+        return f"host={host} port={port} dbname={db} user={user} password={password}"
+
+    def _log_portfolio_pnl_to_postgres(
+        self,
+        *,
+        symbol: str,
+        realized_pnl: float,
+        cumulative_pnl: float,
+        max_drawdown: float,
+        reason: str,
+        fill,
+        extra: dict | None = None,
+    ) -> None:
+        """Русский комментарий: пишет live-paper PnL event в PostgreSQL без влияния на торговый цикл."""
+        try:
+            import psycopg2
+
+            run_id = str(getattr(self, "run_id", "live-paper"))
+            payload = {
+                "run_id": run_id,
+                "paper_only": True,
+                "reason": reason,
+                "fill_id": str(getattr(fill, "fill_id", "") or ""),
+                "side": str(getattr(fill, "side", "") or ""),
+                "qty": float(getattr(fill, "qty", 0.0) or 0.0),
+                "price": float(getattr(fill, "price", 0.0) or 0.0),
+                "extra": extra or {},
+            }
+
+            with psycopg2.connect(self._postgres_dsn_for_pnl()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS portfolio_pnl_events (
+                            id BIGSERIAL PRIMARY KEY,
+                            ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+                            run_id TEXT NOT NULL,
+                            symbol TEXT NOT NULL,
+                            realized_pnl DOUBLE PRECISION NOT NULL,
+                            cumulative_pnl DOUBLE PRECISION NOT NULL,
+                            max_drawdown DOUBLE PRECISION NOT NULL,
+                            reason TEXT,
+                            raw_json JSONB NOT NULL DEFAULT '{}'::jsonb
+                        )
+                        """
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO portfolio_pnl_events (
+                            run_id,
+                            symbol,
+                            realized_pnl,
+                            cumulative_pnl,
+                            max_drawdown,
+                            reason,
+                            raw_json
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                        """,
+                        (
+                            run_id,
+                            symbol,
+                            float(realized_pnl),
+                            float(cumulative_pnl),
+                            float(max_drawdown),
+                            reason,
+                            json.dumps(payload, ensure_ascii=False),
+                        ),
+                    )
+
+        except Exception as exc:
+            LOG.warning("PIPE_PORTFOLIO_PNL_LOG_FAILED symbol=%s error=%s", symbol, exc)
+
+
     def _on_quote(self, event: dict):
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
@@ -520,6 +638,15 @@ class PaperTradingPipeline:
                 }
 
                 print(f"PIPE_EXIT reason={exit_decision.reason}", flush=True)
+                try:
+                    print(
+                        f"PIPE_EXIT_DETAIL symbol={sym} side={exit_decision.side} "
+                        f"qty={exit_decision.qty} price={price} "
+                        f"avg_price={avg_now}",
+                        flush=True,
+                    )
+                except Exception:
+                    pass
 
                 raw_fill = self.paper.execute(exit_intent, st)
 
@@ -546,6 +673,43 @@ class PaperTradingPipeline:
                 )
 
                 self.bus.publish({"type": "FILL", "fill": fill})
+                try:
+                    pnl = 0.0
+                    if avg_now > 0:
+                        if fill.side == "SELL":
+                            pnl = (fill.price - avg_now) * fill.qty
+                        else:
+                            pnl = (avg_now - fill.price) * fill.qty
+
+                    stats = self._update_portfolio_stats(sym, pnl)
+                    cumulative_pnl = float(stats.get("realized_pnl_total", 0.0) or 0.0)
+                    max_drawdown = float(stats.get("max_drawdown", 0.0) or 0.0)
+
+                    print(
+                        f"PIPE_PNL symbol={sym} realized={round(pnl, 4)}",
+                        flush=True,
+                    )
+                    print(
+                        f"PIPE_PORTFOLIO_PNL realized_total={round(cumulative_pnl, 4)} "
+                        f"max_drawdown={round(max_drawdown, 4)}",
+                        flush=True,
+                    )
+
+                    self._log_portfolio_pnl_to_postgres(
+                        symbol=sym,
+                        realized_pnl=pnl,
+                        cumulative_pnl=cumulative_pnl,
+                        max_drawdown=max_drawdown,
+                        reason=str(exit_decision.reason),
+                        fill=fill,
+                        extra={
+                            "avg_price": avg_now,
+                            "exit_price": fill.price,
+                            "qty_before_exit": qty_now,
+                        },
+                    )
+                except Exception as exc:
+                    LOG.warning("PIPE_PNL_UPDATE_FAILED symbol=%s error=%s", sym, exc)
                 self.exit_engine.mark_exit(sym)
                 # === LOSS COOLDOWN (LEVEL 2) ===
                 try:
