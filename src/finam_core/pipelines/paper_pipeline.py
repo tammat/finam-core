@@ -771,23 +771,55 @@ class PaperTradingPipeline:
 
         # === SMART ENTRY STATE ===
         st.setdefault("pending_breakout", None)
+        st.setdefault("last_breakout_key", None)
+        st.setdefault("last_breakout_ts", 0.0)
 
         # === DETECT BREAKOUT (не входим сразу) ===
         if curr_price > local_high - atr * 0.5:
-            st["pending_breakout"] = {
-                "side": "BUY",
-                "level": local_high,
-                "ts": time.time()
-            }
-            print(f"PIPE_BREAKOUT_DETECTED BUY level={local_high}", flush=True)
+            now_breakout_ts = time.time()
+            breakout_level = round(float(local_high), 4)
+            breakout_key = f"BUY:{breakout_level}"
+            breakout_ttl = float(os.getenv("BREAKOUT_DEDUP_TTL", "30"))
+
+            if (
+                st.get("pending_breakout") is None
+                and not (
+                    st.get("last_breakout_key") == breakout_key
+                    and now_breakout_ts - float(st.get("last_breakout_ts", 0.0) or 0.0) < breakout_ttl
+                )
+            ):
+                st["pending_breakout"] = {
+                    "side": "BUY",
+                    "level": local_high,
+                    "key": breakout_key,
+                    "ts": now_breakout_ts,
+                }
+                st["last_breakout_key"] = breakout_key
+                st["last_breakout_ts"] = now_breakout_ts
+                print(f"PIPE_BREAKOUT_DETECTED BUY level={local_high}", flush=True)
 
         elif curr_price < local_low + atr * 0.5:
-            st["pending_breakout"] = {
-                "side": "SELL",
-                "level": local_low,
-                "ts": time.time()
-            }
-            print(f"PIPE_BREAKOUT_DETECTED SELL level={local_low}", flush=True)
+            now_breakout_ts = time.time()
+            breakout_level = round(float(local_low), 4)
+            breakout_key = f"SELL:{breakout_level}"
+            breakout_ttl = float(os.getenv("BREAKOUT_DEDUP_TTL", "30"))
+
+            if (
+                st.get("pending_breakout") is None
+                and not (
+                    st.get("last_breakout_key") == breakout_key
+                    and now_breakout_ts - float(st.get("last_breakout_ts", 0.0) or 0.0) < breakout_ttl
+                )
+            ):
+                st["pending_breakout"] = {
+                    "side": "SELL",
+                    "level": local_low,
+                    "key": breakout_key,
+                    "ts": now_breakout_ts,
+                }
+                st["last_breakout_key"] = breakout_key
+                st["last_breakout_ts"] = now_breakout_ts
+                print(f"PIPE_BREAKOUT_DETECTED SELL level={local_low}", flush=True)
 
         # === RETEST ENTRY ===
         pb = st.get("pending_breakout")
@@ -804,7 +836,8 @@ class PaperTradingPipeline:
             # BUY RETEST
             if side == "BUY":
                 if curr_price <= level + atr * 0.2:
-                    print("PIPE_SMART_ENTRY BUY", flush=True)
+                    if self._pipeline_log_throttle_allow(f"PIPE_SMART_ENTRY:{sym}:BUY", 10):
+                        print("PIPE_SMART_ENTRY BUY", flush=True)
                     entry_side = "BUY"
                 else:
                     return
@@ -812,7 +845,8 @@ class PaperTradingPipeline:
             # SELL RETEST
             elif side == "SELL":
                 if curr_price >= level - atr * 0.2:
-                    print("PIPE_SMART_ENTRY SELL", flush=True)
+                    if self._pipeline_log_throttle_allow(f"PIPE_SMART_ENTRY:{sym}:SELL", 10):
+                        print("PIPE_SMART_ENTRY SELL", flush=True)
                     entry_side = "SELL"
                 else:
                     return
