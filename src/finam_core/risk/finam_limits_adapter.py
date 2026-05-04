@@ -55,10 +55,17 @@ class FinamLimitsAdapter:
             return self._positions_cache
 
         try:
-            from finam_core.infra.finam.client import FinamClient  # type: ignore
+            # Русский комментарий: legacy finam_core.infra.finam.client сейчас зависит от finam_bot,
+            # поэтому для реальных позиций сначала пробуем более безопасный REST broker adapter.
+            from finam_core.infra.brokers.finam_rest import FinamRestBrokerAdapter, FinamRestConfig  # type: ignore
 
-            client = FinamClient()
-            positions = client.get_positions()
+            cfg = FinamRestConfig.from_env()
+            client = FinamRestBrokerAdapter(cfg)
+            account_id = os.getenv("FINAM_ACCOUNT_ID", os.getenv("ACCOUNT_ID", "")).strip()
+            if not account_id:
+                accounts = client.get_accounts()
+                account_id = str((accounts[0] or {}).get("account_id") or (accounts[0] or {}).get("id") or "") if accounts else ""
+            positions = client.get_positions(account_id) if account_id else []
             out: dict[str, float] = {}
 
             for pos in positions:
