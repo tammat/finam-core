@@ -31,11 +31,35 @@ class ReplayBar:
     volume: float
 
 
+
 class NullNotifier:
     """Русский комментарий: replay не должен спамить Telegram историческими сигналами."""
 
     def send(self, text: str) -> None:
         return None
+
+
+# CountingLogger wrapper for PostgresLogger
+class CountingLogger:
+    """Русский комментарий: обёртка над PostgresLogger для подсчёта сигналов."""
+
+    def __init__(self, inner: PostgresLogger):
+        self.inner = inner
+        self.signals_total = 0
+        self.buy_count = 0
+        self.sell_count = 0
+
+    def log_signal(self, **kwargs):
+        self.signals_total += 1
+        side = kwargs.get("side")
+        if side == "BUY":
+            self.buy_count += 1
+        elif side == "SELL":
+            self.sell_count += 1
+        return self.inner.log_signal(**kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
 
 
 def dsn() -> str:
@@ -135,7 +159,8 @@ def build_replay_pipeline(symbol: str):
     pipeline.br_breakout_enabled = True
     pipeline.br_breakout_symbol = symbol
     pipeline.br_breakout = BrConservativeBreakout(symbol=symbol)
-    pipeline.pg_logger = PostgresLogger()
+    base_logger = PostgresLogger()
+    pipeline.pg_logger = CountingLogger(base_logger)
     pipeline.notifier = NullNotifier()
     return pipeline
 
@@ -159,14 +184,29 @@ def main() -> int:
 
     pipeline = build_replay_pipeline(args.symbol)
 
+    m15_count = 0
+    m5_count = 0
+
     processed = 0
     for bar in bars:
+        tf = str(bar.timeframe).upper()
+        if tf == "M15":
+            m15_count += 1
+        elif tf == "M5":
+            m5_count += 1
+
         pipeline._process_br_closed_bar_for_paper_signal(bar)
         processed += 1
 
     print("REPLAY_BR_PIPELINE")
     print(f"symbol={args.symbol}")
     print(f"bars_processed={processed}")
+    logger = pipeline.pg_logger
+    print(f"m15_processed={m15_count}")
+    print(f"m5_processed={m5_count}")
+    print(f"signals_generated={getattr(logger, 'signals_total', 0)}")
+    print(f"buy_signals={getattr(logger, 'buy_count', 0)}")
+    print(f"sell_signals={getattr(logger, 'sell_count', 0)}")
     print("STATUS=OK")
     return 0
 
