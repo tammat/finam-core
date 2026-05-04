@@ -1741,6 +1741,10 @@ class PaperTradingPipeline:
             "regime_direction": getattr(self.br_breakout, "regime_direction", None),
             "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
             "regime_strength": getattr(self.br_breakout, "regime_strength", None),
+            "regime_rsi": getattr(self.br_breakout, "regime_rsi", None),
+            "regime_rsi_state": getattr(self.br_breakout, "regime_rsi_state", None),
+            "rsi_filter_passed": getattr(self.br_breakout, "rsi_filter_passed", None),
+            "rsi_filter_reason": getattr(self.br_breakout, "rsi_filter_reason", None),
         }
 
         self.pg_logger.log_signal(

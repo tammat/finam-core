@@ -210,6 +210,34 @@ class BrConservativeBreakout:
         self.highs = deque(self.highs, maxlen=self.breakout_window)
         self.lows = deque(self.lows, maxlen=self.breakout_window)
 
+    def _rsi_filter_allows(self, side: str) -> bool:
+        """Русский комментарий: RSI подтверждает направление импульса старшего ТФ."""
+        if not getattr(self, "enable_rsi_filter", True):
+            self.rsi_filter_passed = True
+            self.rsi_filter_reason = "RSI_FILTER_DISABLED"
+            return True
+
+        if self.regime_rsi is None:
+            self.rsi_filter_passed = False
+            self.rsi_filter_reason = "RSI_WARMUP"
+            return False
+
+        if side == "BUY":
+            passed = self.regime_rsi >= 50.0
+            self.rsi_filter_passed = passed
+            self.rsi_filter_reason = "RSI_BUY_OK" if passed else "RSI_BUY_BLOCK"
+            return passed
+
+        if side == "SELL":
+            passed = self.regime_rsi <= 50.0
+            self.rsi_filter_passed = passed
+            self.rsi_filter_reason = "RSI_SELL_OK" if passed else "RSI_SELL_BLOCK"
+            return passed
+
+        self.rsi_filter_passed = False
+        self.rsi_filter_reason = "RSI_UNKNOWN_SIDE"
+        return False
+
     def _signal_blocked_by_cooldown(self, side: str) -> bool:
         """Русский комментарий: блокируем повторный сигнал в ту же сторону до смены режима."""
         if self.last_signal_side != side:
@@ -267,13 +295,5 @@ class BrConservativeBreakout:
 
         self.highs.append(high)
         self.lows.append(low)
-
-        ok, reason = self._rsi_filter(signal.side)
-        signal.payload = signal.payload if hasattr(signal, "payload") else {}
-        signal.payload["rsi_filter_passed"] = ok
-        signal.payload["rsi_filter_reason"] = reason
-
-        if not ok:
-            return None
 
         return signal
