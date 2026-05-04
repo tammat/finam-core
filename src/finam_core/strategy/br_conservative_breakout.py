@@ -7,6 +7,17 @@ from datetime import datetime
 
 
 @dataclass
+class BrOnlineParams:
+    """Русский комментарий: online-параметры BR-стратегии, выбранные по regime/volatility."""
+    mode: str
+    breakout_window: int
+    stop_atr: float
+    take_atr: float
+    allow_trade: bool
+    reason: str
+
+
+@dataclass
 class BrSignal:
     symbol: str
     side: str
@@ -59,6 +70,16 @@ class BrConservativeBreakout:
         self.regime_tr_values: deque[float] = deque(maxlen=14)
         self.regime_prev_close: float | None = None
         self.regime_direction: int = 0
+        self.current_params = BrOnlineParams(
+            mode="initial",
+            breakout_window=self.breakout_window,
+            stop_atr=self.stop_atr,
+            take_atr=self.take_atr,
+            allow_trade=False,
+            reason="WARMUP",
+        )
+        self.regime_atr_pct: float = 0.0
+        self.regime_strength: float = 0.0
 
     @staticmethod
     def _ema(prev: float | None, value: float, period: int) -> float:
@@ -73,6 +94,78 @@ class BrConservativeBreakout:
             return high - low
         return max(high - low, abs(high - prev_close), abs(low - prev_close))
 
+    def _select_online_params(self, atr_pct: float, strength: float) -> BrOnlineParams:
+        """Русский комментарий: выбирает параметры breakout по текущему режиму M15 без переобучения на тиках."""
+        if self.regime_direction == 0:
+            return BrOnlineParams(
+                mode="no_trade",
+                breakout_window=self.breakout_window,
+                stop_atr=self.stop_atr,
+                take_atr=self.take_atr,
+                allow_trade=False,
+                reason="REGIME_NEUTRAL",
+            )
+
+        if atr_pct < self.regime_min_atr_pct:
+            return BrOnlineParams(
+                mode="no_trade",
+                breakout_window=self.breakout_window,
+                stop_atr=self.stop_atr,
+                take_atr=self.take_atr,
+                allow_trade=False,
+                reason="ATR_TOO_LOW",
+            )
+
+        if atr_pct > self.regime_max_atr_pct:
+            return BrOnlineParams(
+                mode="no_trade",
+                breakout_window=self.breakout_window,
+                stop_atr=self.stop_atr,
+                take_atr=self.take_atr,
+                allow_trade=False,
+                reason="ATR_TOO_HIGH",
+            )
+
+        if strength < self.regime_min_strength:
+            return BrOnlineParams(
+                mode="no_trade",
+                breakout_window=self.breakout_window,
+                stop_atr=self.stop_atr,
+                take_atr=self.take_atr,
+                allow_trade=False,
+                reason="TREND_STRENGTH_LOW",
+            )
+
+        # Русский комментарий: консервативные preset-режимы, подтверждённые walk-forward.
+        if atr_pct >= 0.003:
+            return BrOnlineParams(
+                mode="trend_high_vol",
+                breakout_window=30,
+                stop_atr=2.0,
+                take_atr=3.0,
+                allow_trade=True,
+                reason="HIGH_VOL_TREND_PRESET",
+            )
+
+        if strength >= 0.002:
+            return BrOnlineParams(
+                mode="strong_trend",
+                breakout_window=30,
+                stop_atr=1.5,
+                take_atr=2.5,
+                allow_trade=True,
+                reason="STRONG_TREND_PRESET",
+            )
+
+        return BrOnlineParams(
+            mode="normal",
+            breakout_window=20,
+            stop_atr=2.5,
+            take_atr=2.5,
+            allow_trade=True,
+            reason="NORMAL_REGIME_PRESET",
+        )
+
     def on_regime_bar(self, ts: datetime, open_: float, high: float, low: float, close: float, volume: float = 0.0) -> None:
         tr = self._true_range(high, low, self.regime_prev_close)
         self.regime_prev_close = close
@@ -85,12 +178,20 @@ class BrConservativeBreakout:
         atr_pct = atr / close if close else 0.0
         strength = abs(self.regime_ema_fast - self.regime_ema_slow) / close if close else 0.0
 
+        self.regime_atr_pct = atr_pct
+        self.regime_strength = strength
+
         self.regime_direction = 0
         if self.regime_min_atr_pct <= atr_pct <= self.regime_max_atr_pct and strength >= self.regime_min_strength:
             if self.regime_ema_fast > self.regime_ema_slow:
                 self.regime_direction = 1
             elif self.regime_ema_fast < self.regime_ema_slow:
                 self.regime_direction = -1
+
+        self.current_params = self._select_online_params(atr_pct=atr_pct, strength=strength)
+        self.breakout_window = self.current_params.breakout_window
+        self.highs = deque(self.highs, maxlen=self.breakout_window)
+        self.lows = deque(self.lows, maxlen=self.breakout_window)
 
     def on_signal_bar(self, ts: datetime, open_: float, high: float, low: float, close: float, volume: float = 0.0) -> BrSignal | None:
         tr = self._true_range(high, low, self.prev_close)
@@ -99,20 +200,27 @@ class BrConservativeBreakout:
 
         signal: BrSignal | None = None
 
+        if not self.current_params.allow_trade:
+            self.highs.append(high)
+            self.lows.append(low)
+            return None
+
         if len(self.highs) >= self.breakout_window and len(self.lows) >= self.breakout_window and len(self.tr_values) >= self.atr_period:
             range_high = max(self.highs)
             range_low = min(self.lows)
             atr = sum(self.tr_values) / len(self.tr_values)
+            stop_atr = self.current_params.stop_atr
+            take_atr = self.current_params.take_atr
 
             if close > range_high and self.regime_direction == 1:
                 signal = BrSignal(
                     symbol=self.symbol,
                     side="BUY",
                     price=close,
-                    stop=close - atr * self.stop_atr,
-                    take=close + atr * self.take_atr,
+                    stop=close - atr * stop_atr,
+                    take=close + atr * take_atr,
                     ts=ts,
-                    reason="BR_M5_BREAKOUT_UP_M15_REGIME_OK",
+                    reason=f"BR_M5_BREAKOUT_UP_{self.current_params.mode}_{self.current_params.reason}",
                 )
 
             elif close < range_low and self.regime_direction == -1:
@@ -120,10 +228,10 @@ class BrConservativeBreakout:
                     symbol=self.symbol,
                     side="SELL",
                     price=close,
-                    stop=close + atr * self.stop_atr,
-                    take=close - atr * self.take_atr,
+                    stop=close + atr * stop_atr,
+                    take=close - atr * take_atr,
                     ts=ts,
-                    reason="BR_M5_BREAKOUT_DOWN_M15_REGIME_OK",
+                    reason=f"BR_M5_BREAKOUT_DOWN_{self.current_params.mode}_{self.current_params.reason}",
                 )
 
         self.highs.append(high)

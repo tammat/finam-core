@@ -21,6 +21,12 @@ def main() -> int:
             close=price,
         )
 
+    if not s.current_params.allow_trade:
+        print(f"FAIL: online params block trading: {s.current_params}")
+        return 1
+
+    print("ONLINE_PARAMS", s.current_params)
+
     # Русский комментарий: прогреваем M5 диапазон.
     price = 82.0
     signal = None
@@ -49,6 +55,10 @@ def main() -> int:
 
     if signal.side != "BUY":
         print(f"FAIL: unexpected side={signal.side}")
+        return 1
+
+    if "PRESET" not in signal.reason:
+        print(f"FAIL: online preset was not used: {signal.reason}")
         return 1
 
     print("OK: BR conservative breakout signal generated")
