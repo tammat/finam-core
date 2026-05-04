@@ -53,3 +53,4 @@ logs.txt
 *.txt
 logs*
 .env
+.env.paper_safe
