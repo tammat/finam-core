@@ -1860,6 +1860,16 @@ class PaperTradingPipeline:
         payload["paper_executed"] = paper_executed
         payload["paper_reason"] = paper_reason
 
+        # Русский комментарий: разделяем причины отказа execution-gate для replay-аналитики.
+        if not paper_executed:
+            reason_text = str(paper_reason or "")
+            if reason_text.startswith("MAX_POSITION_LIMIT"):
+                self._br_position_limit_rejected = int(getattr(self, "_br_position_limit_rejected", 0)) + 1
+            elif "REGIME_" in reason_text:
+                self._br_regime_policy_rejected = int(getattr(self, "_br_regime_policy_rejected", 0)) + 1
+            else:
+                self._br_other_execution_rejected = int(getattr(self, "_br_other_execution_rejected", 0)) + 1
+
         try:
             self.notifier.send(
                 f"🛢 BR PAPER SIGNAL\n"
