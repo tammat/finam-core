@@ -33,6 +33,22 @@ class ReplayBar:
     volume: float
 
 
+@dataclass
+class ReplayStats:
+    bars_processed: int = 0
+    m15_processed: int = 0
+    m5_processed: int = 0
+    signals_generated: int = 0
+    buy_signals: int = 0
+    sell_signals: int = 0
+    risk_accepted: int = 0
+    risk_rejected: int = 0
+    paper_orders: int = 0
+    paper_buy_orders: int = 0
+    paper_sell_orders: int = 0
+    trades_logged: int = 0
+
+
 
 class NullNotifier:
     """Русский комментарий: replay не должен спамить Telegram историческими сигналами."""
@@ -195,10 +211,10 @@ def get_market_data_columns(conn) -> set[str]:
 
 
 
-def load_bars(symbol: str, from_ts=None, to_ts=None) -> list[ReplayBar]:
+def load_bars(symbols: list[str], from_ts=None, to_ts=None) -> list[ReplayBar]:
     """Русский комментарий: загружаем M15 и M5 бары; если OHLC нет, строим их из close_price."""
-    where = ["symbol = %s", "timeframe IN ('M15', 'M5')"]
-    params: list[object] = [symbol]
+    where = ["symbol = ANY(%s)", "timeframe IN ('M15', 'M5')"]
+    params: list[object] = [symbols]
 
     if from_ts is not None:
         where.append("ts >= %s")
@@ -268,52 +284,105 @@ def build_replay_pipeline(symbol: str):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", default="BRM6@RTSX")
+    parser.add_argument("--symbols", nargs="+")
     parser.add_argument("--from-ts")
     parser.add_argument("--to-ts")
     args = parser.parse_args()
 
+    symbols = args.symbols if args.symbols else [args.symbol]
+
     os.environ["EXECUTION_MODE"] = os.getenv("EXECUTION_MODE", "paper")
     os.environ["ENABLE_BR_CONSERVATIVE_BREAKOUT"] = "1"
-    os.environ["BR_BREAKOUT_SYMBOL"] = args.symbol
+    os.environ["BR_BREAKOUT_SYMBOL"] = symbols[0]
 
     bars = load_bars(
-        symbol=args.symbol,
+        symbols=symbols,
         from_ts=parse_ts(args.from_ts),
         to_ts=parse_ts(args.to_ts),
     )
 
-    pipeline = build_replay_pipeline(args.symbol)
+    pipelines = {symbol: build_replay_pipeline(symbol) for symbol in symbols}
+    stats = {symbol: ReplayStats() for symbol in symbols}
 
-    m15_count = 0
-    m5_count = 0
-
-    processed = 0
     for bar in bars:
+        pipeline = pipelines.get(bar.symbol)
+        if pipeline is None:
+            continue
+
+        symbol_stats = stats[bar.symbol]
         tf = str(bar.timeframe).upper()
         if tf == "M15":
-            m15_count += 1
+            symbol_stats.m15_processed += 1
         elif tf == "M5":
-            m5_count += 1
+            symbol_stats.m5_processed += 1
 
         pipeline._process_br_closed_bar_for_paper_signal(bar)
-        processed += 1
+        symbol_stats.bars_processed += 1
 
     print("REPLAY_BR_PIPELINE")
-    print(f"symbol={args.symbol}")
-    print(f"bars_processed={processed}")
-    logger = pipeline.pg_logger
-    print(f"m15_processed={m15_count}")
-    print(f"m5_processed={m5_count}")
-    print(f"signals_generated={getattr(logger, 'signals_total', 0)}")
-    print(f"buy_signals={getattr(logger, 'buy_count', 0)}")
-    print(f"sell_signals={getattr(logger, 'sell_count', 0)}")
-    print(f"risk_accepted={getattr(logger, 'risk_accepted_count', 0)}")
-    print(f"risk_rejected={getattr(logger, 'risk_rejected_count', 0)}")
-    paper = getattr(pipeline, "paper", None)
-    print(f"paper_orders={getattr(paper, 'orders_total', 0)}")
-    print(f"paper_buy_orders={getattr(paper, 'buy_orders', 0)}")
-    print(f"paper_sell_orders={getattr(paper, 'sell_orders', 0)}")
-    print(f"trades_logged={getattr(logger, 'trades_logged_count', 0)}")
+    print(f"symbols={','.join(symbols)}")
+
+    total = ReplayStats()
+
+    for symbol in symbols:
+        pipeline = pipelines[symbol]
+        logger = pipeline.pg_logger
+        paper = getattr(pipeline, "paper", None)
+        symbol_stats = stats[symbol]
+
+        symbol_stats.signals_generated = int(getattr(logger, "signals_total", 0))
+        symbol_stats.buy_signals = int(getattr(logger, "buy_count", 0))
+        symbol_stats.sell_signals = int(getattr(logger, "sell_count", 0))
+        symbol_stats.risk_accepted = int(getattr(logger, "risk_accepted_count", 0))
+        symbol_stats.risk_rejected = int(getattr(logger, "risk_rejected_count", 0))
+        symbol_stats.paper_orders = int(getattr(paper, "orders_total", 0))
+        symbol_stats.paper_buy_orders = int(getattr(paper, "buy_orders", 0))
+        symbol_stats.paper_sell_orders = int(getattr(paper, "sell_orders", 0))
+        symbol_stats.trades_logged = int(getattr(logger, "trades_logged_count", 0))
+
+        total.bars_processed += symbol_stats.bars_processed
+        total.m15_processed += symbol_stats.m15_processed
+        total.m5_processed += symbol_stats.m5_processed
+        total.signals_generated += symbol_stats.signals_generated
+        total.buy_signals += symbol_stats.buy_signals
+        total.sell_signals += symbol_stats.sell_signals
+        total.risk_accepted += symbol_stats.risk_accepted
+        total.risk_rejected += symbol_stats.risk_rejected
+        total.paper_orders += symbol_stats.paper_orders
+        total.paper_buy_orders += symbol_stats.paper_buy_orders
+        total.paper_sell_orders += symbol_stats.paper_sell_orders
+        total.trades_logged += symbol_stats.trades_logged
+
+        print(
+            "SYMBOL_STATS "
+            f"symbol={symbol} "
+            f"bars_processed={symbol_stats.bars_processed} "
+            f"m15_processed={symbol_stats.m15_processed} "
+            f"m5_processed={symbol_stats.m5_processed} "
+            f"signals_generated={symbol_stats.signals_generated} "
+            f"buy_signals={symbol_stats.buy_signals} "
+            f"sell_signals={symbol_stats.sell_signals} "
+            f"risk_accepted={symbol_stats.risk_accepted} "
+            f"risk_rejected={symbol_stats.risk_rejected} "
+            f"paper_orders={symbol_stats.paper_orders} "
+            f"paper_buy_orders={symbol_stats.paper_buy_orders} "
+            f"paper_sell_orders={symbol_stats.paper_sell_orders} "
+            f"trades_logged={symbol_stats.trades_logged}"
+        )
+
+    print("TOTAL_STATS")
+    print(f"bars_processed={total.bars_processed}")
+    print(f"m15_processed={total.m15_processed}")
+    print(f"m5_processed={total.m5_processed}")
+    print(f"signals_generated={total.signals_generated}")
+    print(f"buy_signals={total.buy_signals}")
+    print(f"sell_signals={total.sell_signals}")
+    print(f"risk_accepted={total.risk_accepted}")
+    print(f"risk_rejected={total.risk_rejected}")
+    print(f"paper_orders={total.paper_orders}")
+    print(f"paper_buy_orders={total.paper_buy_orders}")
+    print(f"paper_sell_orders={total.paper_sell_orders}")
+    print(f"trades_logged={total.trades_logged}")
     print("STATUS=OK")
     return 0
 
