@@ -777,7 +777,7 @@ class PaperTradingPipeline:
         # === DETECT BREAKOUT (не входим сразу) ===
         if curr_price > local_high - atr * 0.5:
             now_breakout_ts = time.time()
-            breakout_level = round(float(local_high), 4)
+            breakout_level = self._breakout_bucketed_level(sym, local_high)
             breakout_key = f"BUY:{breakout_level}"
             breakout_ttl = float(os.getenv("BREAKOUT_DEDUP_TTL", "30"))
 
@@ -800,7 +800,7 @@ class PaperTradingPipeline:
 
         elif curr_price < local_low + atr * 0.5:
             now_breakout_ts = time.time()
-            breakout_level = round(float(local_low), 4)
+            breakout_level = self._breakout_bucketed_level(sym, local_low)
             breakout_key = f"SELL:{breakout_level}"
             breakout_ttl = float(os.getenv("BREAKOUT_DEDUP_TTL", "30"))
 
@@ -2236,3 +2236,20 @@ class PaperTradingPipeline:
             )
         except Exception:
             pass
+    def _breakout_level_bucket_for_symbol(self, symbol: str) -> float:
+        """Русский комментарий: шаг округления breakout-уровня для дедупликации близких цен."""
+        import os
+        safe_key = str(symbol).replace("@", "_").replace(".", "_").replace("-", "_").upper()
+        raw = os.getenv(
+            f"BREAKOUT_LEVEL_BUCKET_{safe_key}",
+            os.getenv("BREAKOUT_LEVEL_BUCKET_DEFAULT", "0"),
+        )
+        return float(raw or 0.0)
+
+    def _breakout_bucketed_level(self, symbol: str, level: float) -> float:
+        """Русский комментарий: приводит уровень к bucket, если bucket включён."""
+        bucket = self._breakout_level_bucket_for_symbol(symbol)
+        value = float(level)
+        if bucket <= 0:
+            return round(value, 4)
+        return round(round(value / bucket) * bucket, 4)
