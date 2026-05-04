@@ -4,6 +4,21 @@ from __future__ import annotations
 import argparse
 import itertools
 
+
+
+def score_result(result: dict, overtrade_limit: int = 80) -> float:
+    """Русский комментарий: устойчивый score вместо выбора только по train PnL."""
+    pnl = float(result.get("pnl", 0.0) or 0.0)
+    max_dd = abs(float(result.get("max_drawdown", 0.0) or 0.0))
+    winrate = float(result.get("winrate", 0.0) or 0.0)
+    trades = int(result.get("trades", 0) or 0)
+
+    drawdown_penalty = max_dd * 1.5
+    overtrade_penalty = max(0, trades - overtrade_limit) * 0.05
+    winrate_bonus = max(0.0, winrate - 50.0) * 0.03
+
+    return round(pnl - drawdown_penalty - overtrade_penalty + winrate_bonus, 6)
+
 from backtest_from_postgres import (
     parse_ts,
     load_bars,
@@ -22,6 +37,7 @@ def main() -> int:
     p.add_argument("--atr-period", type=int, default=14)
     p.add_argument("--fee-pct", type=float, default=0.0002)
     p.add_argument("--min-bars", type=int, default=300)
+    p.add_argument("--top-n", type=int, default=5)
     args = p.parse_args()
 
     windows = [10, 15, 20, 30]
@@ -71,10 +87,12 @@ def main() -> int:
             "stop": s,
             "take": t,
             "train": train,
+            "train_score": score_result(train),
         })
 
     results.sort(
         key=lambda x: (
+            x["train_score"],
             x["train"]["pnl"],
             -abs(x["train"]["max_drawdown"]),
             x["train"]["winrate"],
@@ -82,21 +100,52 @@ def main() -> int:
         reverse=True,
     )
 
-    best = results[0]
+    top = results[: max(1, args.top_n)]
 
-    test = run_breakout_backtest(
-        bars=test_bars,
-        window=best["window"],
-        atr_period=args.atr_period,
-        stop_atr=best["stop"],
-        take_atr=best["take"],
-        fee_pct=args.fee_pct,
+    print("TOP_TRAIN")
+    for i, item in enumerate(top, start=1):
+        tr = item["train"]
+        print(
+            f"rank={i} window={item['window']} stop_atr={item['stop']} take_atr={item['take']} "
+            f"train_score={item['train_score']} train_pnl={tr['pnl']} "
+            f"train_trades={tr['trades']} train_winrate={tr['winrate']}% "
+            f"train_max_drawdown={tr['max_drawdown']}"
+        )
+
+    tested = []
+    for item in top:
+        test = run_breakout_backtest(
+            bars=test_bars,
+            window=item["window"],
+            atr_period=args.atr_period,
+            stop_atr=item["stop"],
+            take_atr=item["take"],
+            fee_pct=args.fee_pct,
+        )
+        tested.append({
+            **item,
+            "test": test,
+            "test_score": score_result(test, overtrade_limit=40),
+        })
+
+    tested.sort(
+        key=lambda x: (
+            x["test_score"],
+            x["test"]["pnl"],
+            -abs(x["test"]["max_drawdown"]),
+            x["test"]["winrate"],
+        ),
+        reverse=True,
     )
 
-    print("BEST_TRAIN")
+    best = tested[0]
+    test = best["test"]
+
+    print("BEST_WALK_FORWARD")
     print(f"window={best['window']}")
     print(f"stop_atr={best['stop']}")
     print(f"take_atr={best['take']}")
+    print(f"train_score={best['train_score']}")
     print(f"train_trades={best['train']['trades']}")
     print(f"train_pnl={best['train']['pnl']}")
     print(f"train_winrate={best['train']['winrate']}%")
@@ -107,6 +156,7 @@ def main() -> int:
     print(f"test_pnl={test['pnl']}")
     print(f"test_winrate={test['winrate']}%")
     print(f"test_max_drawdown={test['max_drawdown']}")
+    print(f"test_score={best['test_score']}")
 
     if test["pnl"] <= 0:
         print("STATUS=FAIL reason=OUT_OF_SAMPLE_NEGATIVE")
