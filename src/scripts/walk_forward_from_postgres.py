@@ -43,6 +43,8 @@ def main() -> int:
     p.add_argument("--regime-fast", type=int, default=5)
     p.add_argument("--regime-slow", type=int, default=20)
     p.add_argument("--regime-min-strength", type=float, default=0.0)
+    p.add_argument("--regime-min-atr-pct", type=float, default=0.0)
+    p.add_argument("--regime-max-atr-pct", type=float, default=1.0)
     args = p.parse_args()
 
     windows = [10, 15, 20, 30]
@@ -82,12 +84,16 @@ def main() -> int:
             fast_period=args.regime_fast,
             slow_period=args.regime_slow,
             min_strength=args.regime_min_strength,
+            min_atr_pct=args.regime_min_atr_pct,
+            max_atr_pct=args.regime_max_atr_pct,
         )
         test_regime_map = build_regime_map(
             regime_bars=test_regime_bars,
             fast_period=args.regime_fast,
             slow_period=args.regime_slow,
             min_strength=args.regime_min_strength,
+            min_atr_pct=args.regime_min_atr_pct,
+            max_atr_pct=args.regime_max_atr_pct,
         )
 
     print("WALK_FORWARD_FROM_POSTGRES")
@@ -100,6 +106,8 @@ def main() -> int:
         print(f"regime_fast={args.regime_fast}")
         print(f"regime_slow={args.regime_slow}")
         print(f"regime_min_strength={args.regime_min_strength}")
+        print(f"regime_min_atr_pct={args.regime_min_atr_pct}")
+        print(f"regime_max_atr_pct={args.regime_max_atr_pct}")
         print(f"train_regime_points={len(train_regime_map)}")
         print(f"test_regime_points={len(test_regime_map)}")
 

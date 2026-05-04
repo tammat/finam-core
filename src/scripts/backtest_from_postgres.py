@@ -52,6 +52,8 @@ def build_regime_map(
     fast_period: int,
     slow_period: int,
     min_strength: float = 0.0,
+    min_atr_pct: float = 0.0,
+    max_atr_pct: float = 1.0,
 ) -> list[tuple[datetime, int]]:
     """Русский комментарий: строит карту режима по старшему ТФ: 1=up, -1=down, 0=neutral."""
     if not regime_bars:
@@ -63,6 +65,17 @@ def build_regime_map(
     fast = ema_series(closes, fast_period)
     slow = ema_series(closes, slow_period)
 
+    # Русский комментарий: ATR старшего ТФ для фильтра волатильности режима.
+    atr_values: list[float] = []
+    tr_window: deque[float] = deque(maxlen=14)
+    prev_close: float | None = None
+
+    for b in regime_bars:
+        tr = true_range(b, prev_close)
+        tr_window.append(tr)
+        atr_values.append(sum(tr_window) / len(tr_window))
+        prev_close = b.close
+
     result: list[tuple[datetime, int]] = []
     warmup = max(fast_period, slow_period)
 
@@ -71,7 +84,10 @@ def build_regime_map(
             continue
         direction = 0
         strength = abs(fast[i] - slow[i]) / bar.close if bar.close else 0.0
-        if strength >= min_strength:
+        atr_pct = atr_values[i] / bar.close if bar.close else 0.0
+
+        # Русский комментарий: слишком низкая/высокая волатильность переводит режим в neutral.
+        if min_atr_pct <= atr_pct <= max_atr_pct and strength >= min_strength:
             if fast[i] > slow[i]:
                 direction = 1
             elif fast[i] < slow[i]:
@@ -375,6 +391,8 @@ def main() -> int:
     p.add_argument("--regime-fast", type=int, default=5)
     p.add_argument("--regime-slow", type=int, default=20)
     p.add_argument("--regime-min-strength", type=float, default=0.0)
+    p.add_argument("--regime-min-atr-pct", type=float, default=0.0)
+    p.add_argument("--regime-max-atr-pct", type=float, default=1.0)
     args = p.parse_args()
 
     bars = load_bars(
@@ -397,6 +415,8 @@ def main() -> int:
             fast_period=args.regime_fast,
             slow_period=args.regime_slow,
             min_strength=args.regime_min_strength,
+            min_atr_pct=args.regime_min_atr_pct,
+            max_atr_pct=args.regime_max_atr_pct,
         )
 
     print("BACKTEST_FROM_POSTGRES")
@@ -409,6 +429,8 @@ def main() -> int:
         print(f"regime_fast={args.regime_fast}")
         print(f"regime_slow={args.regime_slow}")
         print(f"regime_min_strength={args.regime_min_strength}")
+        print(f"regime_min_atr_pct={args.regime_min_atr_pct}")
+        print(f"regime_max_atr_pct={args.regime_max_atr_pct}")
         print(f"regime_points={len(regime_map)}")
 
     if len(bars) < args.min_bars:
