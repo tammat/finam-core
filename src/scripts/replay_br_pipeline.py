@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -73,8 +74,49 @@ class CountingLogger:
         return self.inner.log_risk_event(**kwargs)
 
     def log_trade(self, *args, **kwargs):
-        self.trades_logged_count += 1
-        return self.inner.log_trade(*args, **kwargs)
+        """Русский комментарий: пишем paper-fill в trades; если PostgresLogger не совпал по сигнатуре — прямой INSERT."""
+        try:
+            result = self.inner.log_trade(*args, **kwargs)
+            self.trades_logged_count += 1
+            return result
+        except Exception:
+            trade = args[0] if args and isinstance(args[0], dict) else dict(kwargs)
+            self._insert_trade_direct(trade)
+            self.trades_logged_count += 1
+            return None
+
+    def _insert_trade_direct(self, trade: dict) -> None:
+        """Русский комментарий: replay fallback под фактическую таблицу trades на Debian."""
+        symbol = str(trade.get("symbol", ""))
+        side = str(trade.get("side", ""))
+        qty = float(trade.get("qty", trade.get("quantity", 0.0)) or 0.0)
+        price = float(trade.get("price", 0.0) or 0.0)
+        trade_id = str(trade.get("trade_id", f"paper_replay_{symbol}_{side}_{price}"))
+        account_id = str(os.getenv("FINAM_ACCOUNT_ID", os.getenv("ACCOUNT_ID", "paper")))
+        commission = float(trade.get("commission", 0.0) or 0.0)
+        raw_json = dict(trade)
+        raw_json.setdefault("execution_type", trade.get("execution_type", "paper_replay"))
+        raw_json.setdefault("paper_only", True)
+
+        with psycopg2.connect(dsn()) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO trades (trade_id, account_id, symbol, side, qty, price, commission, ts, raw_json)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, now(), %s::jsonb)
+                    ON CONFLICT (trade_id) DO NOTHING
+                    """,
+                    (
+                        trade_id,
+                        account_id,
+                        symbol,
+                        side,
+                        qty,
+                        price,
+                        commission,
+                        json.dumps(raw_json, ensure_ascii=False, default=str),
+                    ),
+                )
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
