@@ -1859,6 +1859,7 @@ class PaperTradingPipeline:
         paper_executed, paper_reason = self._execute_br_signal_in_paper(br_signal=br_signal, qty=qty)
         payload["paper_executed"] = paper_executed
         payload["paper_reason"] = paper_reason
+        payload["run_id"] = getattr(self, "run_id", "unknown")
 
         # Русский комментарий: разделяем причины отказа execution-gate для replay-аналитики.
         if not paper_executed:
