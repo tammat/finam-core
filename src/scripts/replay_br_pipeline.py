@@ -277,7 +277,7 @@ def load_bars(symbols: list[str], from_ts=None, to_ts=None) -> list[ReplayBar]:
     return rows
 
 
-def build_replay_pipeline(symbol: str, run_id: str):
+def build_replay_pipeline(symbol: str, run_id: str, portfolio_guard_state: dict):
     """Русский комментарий: создаем минимальный pipeline-объект только для BR signal processor."""
     pipeline = object.__new__(PaperTradingPipeline)
     pipeline.br_breakout_enabled = True
@@ -289,6 +289,7 @@ def build_replay_pipeline(symbol: str, run_id: str):
     pipeline.paper = CountingPaperExecution(PaperExecutionEngine())
     pipeline.risk = None
     pipeline.run_id = run_id
+    pipeline.portfolio_guard_state = portfolio_guard_state
     pipeline.finam_limits_adapter = FinamLimitsAdapter()
     return pipeline
 
@@ -302,6 +303,7 @@ def main() -> int:
     args = parser.parse_args()
     run_id = str(uuid.uuid4())
     print(f"RUN_ID={run_id}")
+    portfolio_guard_state = {"paper_orders_total": 0, "positions": {}}
 
     symbols = args.symbols if args.symbols else [args.symbol]
 
@@ -315,7 +317,10 @@ def main() -> int:
         to_ts=parse_ts(args.to_ts),
     )
 
-    pipelines = {symbol: build_replay_pipeline(symbol, run_id=run_id) for symbol in symbols}
+    pipelines = {
+        symbol: build_replay_pipeline(symbol, run_id=run_id, portfolio_guard_state=portfolio_guard_state)
+        for symbol in symbols
+    }
     stats = {symbol: ReplayStats() for symbol in symbols}
 
     for bar in bars:

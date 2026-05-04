@@ -1816,6 +1816,13 @@ class PaperTradingPipeline:
         signed = qty if side.upper() == "BUY" else -qty
         positions[symbol] = float(positions.get(symbol, 0.0)) + signed
 
+        # Русский комментарий: синхронизируем глобальное состояние PortfolioGuard между symbol pipelines.
+        shared = getattr(self, "portfolio_guard_state", None)
+        if isinstance(shared, dict):
+            positions = shared.setdefault("positions", {})
+            positions[symbol] = float(self._current_replay_position_for_br(symbol))
+
+
     def _position_limit_allows_br(self, br_signal, qty: float) -> tuple[bool, str]:
         """Русский комментарий: не разрешаем наращивать позицию сверх лимита; сокращение разрешаем."""
         symbol = br_signal.symbol
@@ -1913,6 +1920,11 @@ class PaperTradingPipeline:
                     paper_reason=paper_reason,
                 )
                 self._apply_replay_position_for_br(br_signal.symbol, br_signal.side, qty)
+
+                # Русский комментарий: глобальный счётчик исполненных paper orders для PortfolioGuard.
+                shared = getattr(self, "portfolio_guard_state", None)
+                if isinstance(shared, dict):
+                    shared["paper_orders_total"] = int(shared.get("paper_orders_total", 0) or 0) + 1
                 self._update_br_symbol_pnl_after_fill(
                     symbol=br_signal.symbol,
                     side=br_signal.side,
