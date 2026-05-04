@@ -361,16 +361,18 @@ class PaperTradingPipeline:
         return True
 
     def _should_log_routed_signal(self, routed) -> bool:
-        """Русский комментарий: гасим только повторяющийся duplicate_signal; остальные routed-события логируем."""
+        """Русский комментарий: duplicate_signal по умолчанию не печатаем, чтобы не забивать live-paper лог."""
         reason = str(getattr(routed, "reason", "") or "")
         if reason != "duplicate_signal":
             return True
+
+        if os.getenv("LOG_DUPLICATE_SIGNAL", "0") != "1":
+            return False
 
         intent = getattr(routed, "intent", None)
         symbol = str(getattr(intent, "symbol", "") or "unknown")
         side = str(getattr(intent, "side", "") or "unknown")
         source = str(getattr(intent, "source", "") or "unknown")
-
         key = f"duplicate_signal:{symbol}:{side}:{source}"
         return self._pipeline_log_throttle_allow(key)
 
