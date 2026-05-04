@@ -24,35 +24,53 @@ class SessionManager:
     # =========================================================
     # === FORTS SESSION ===
     # =========================================================
+    def _minute_of_day(self, h: int, m: int) -> int:
+        return int(h) * 60 + int(m)
+
     def _forts_session(self, h, m):
-        # 09:00–18:45
-        if (h > 9 and h < 18) or (h == 9) or (h == 18 and m < 45):
-            return {"phase": "core", "allow_entries": True}
+        now_min = self._minute_of_day(h, m)
 
-        # break 18:45–19:00
-        if h == 18 and m >= 45:
-            return {"phase": "break", "allow_entries": False}
+        # Русский комментарий: актуальное расписание Срочного рынка MOEX после перехода на ЕТС.
+        # Утренняя торговая сессия: 09:00–10:00 МСК.
+        # Основная торговая сессия: 10:00–19:00 МСК.
+        # Вечерняя торговая сессия: 19:00–23:50 МСК.
+        # Аукцион открытия 08:50–09:00 не используем для новых входов.
+        morning_start = 9 * 60
+        main_start = 10 * 60
+        evening_start = 19 * 60
+        trading_end = 23 * 60 + 50
 
-        # evening 19:00–23:50
-        if (h >= 19 and h < 23) or (h == 23 and m <= 50):
-            return {"phase": "evening", "allow_entries": True}
-
-        return {"phase": "closed", "allow_entries": False}
-
-    # =========================================================
-    # === STOCK SESSION (fallback)
-    # =========================================================
-    def _stock_session(self, h, m):
-        # 07:00–09:50
-        if (h == 7) or (h == 8) or (h == 9 and m < 50):
+        if now_min < morning_start:
+            return {"phase": "preopen", "allow_entries": False}
+        if morning_start <= now_min < main_start:
             return {"phase": "morning", "allow_entries": True}
-
-        # 10:00–18:40
-        if (h >= 10 and h < 18) or (h == 18 and m < 40):
-            return {"phase": "core", "allow_entries": True}
-
-        # 19:00–23:50
-        if (h >= 19 and h < 23) or (h == 23 and m <= 50):
+        if main_start <= now_min < evening_start:
+            return {"phase": "main", "allow_entries": True}
+        if evening_start <= now_min < trading_end:
             return {"phase": "evening", "allow_entries": True}
 
         return {"phase": "closed", "allow_entries": False}
+
+    def _stock_session(self, h, m):
+        now_min = self._minute_of_day(h, m)
+
+        # Русский комментарий: фондовый рынок MOEX: утренняя, основная и вечерняя сессии.
+        # Утренняя дополнительная сессия: 06:50–09:50 МСК.
+        # Основная сессия: 09:50–19:00 МСК.
+        # Вечерняя дополнительная сессия: 19:00–23:50 МСК.
+        morning_start = 6 * 60 + 50
+        main_start = 9 * 60 + 50
+        evening_start = 19 * 60
+        trading_end = 23 * 60 + 50
+
+        if now_min < morning_start:
+            return {"phase": "closed", "allow_entries": False}
+        if morning_start <= now_min < main_start:
+            return {"phase": "morning", "allow_entries": True}
+        if main_start <= now_min < evening_start:
+            return {"phase": "main", "allow_entries": True}
+        if evening_start <= now_min < trading_end:
+            return {"phase": "evening", "allow_entries": True}
+
+        return {"phase": "closed", "allow_entries": False}
+
