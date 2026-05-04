@@ -50,6 +50,34 @@ def normalize_response(response, symbol: str, timeframe: str) -> list[HistoryBar
         except TypeError:
             raw_bars = []
 
+    bars: list[HistoryBar] = []
+
+    for b in raw_bars:
+        ts_raw = get_attr(b, "timestamp", "ts", "time", "date_time")
+        open_raw = get_attr(b, "open", "open_price")
+        high_raw = get_attr(b, "high", "high_price")
+        low_raw = get_attr(b, "low", "low_price")
+        close_raw = get_attr(b, "close", "close_price")
+        volume_raw = get_attr(b, "volume", "vol")
+
+        close_price = as_float(close_raw)
+        if close_price is None:
+            continue
+
+        bars.append(
+            HistoryBar(
+                symbol=symbol,
+                timeframe=timeframe,
+                ts=as_dt(ts_raw),
+                open=as_float(open_raw),
+                high=as_float(high_raw),
+                low=as_float(low_raw),
+                close_price=close_price,
+                volume=float(as_float(volume_raw) or 0.0),
+            )
+        )
+
+    return bars
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--symbol", default="BRM6@RTSX")
