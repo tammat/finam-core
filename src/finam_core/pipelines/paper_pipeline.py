@@ -273,6 +273,73 @@ class PaperTradingPipeline:
         except Exception as exc:
             LOG.warning("PIPE_MTF_AGG_FAILED symbol=%s error=%s", symbol, exc)
 
+
+    def _current_position_qty_for_symbol(self, symbol: str) -> float:
+        """Русский комментарий: текущая PAPER-позиция по символу для anti-reentry."""
+        pm = getattr(self, "position_manager", None) or getattr(self, "pm", None)
+        if pm is None:
+            pm = getattr(self, "positions", None) or getattr(self, "position_mgr", None)
+
+        positions = getattr(pm, "positions", None) if pm is not None else None
+        if isinstance(positions, dict) and symbol in positions:
+            pos = positions[symbol]
+            if isinstance(pos, dict):
+                return float(pos.get("qty") or pos.get("quantity") or 0.0)
+            for attr in ("qty", "quantity", "position_qty"):
+                if hasattr(pos, attr):
+                    return float(getattr(pos, attr) or 0.0)
+
+        try:
+            return float(self._current_replay_position_for_br(symbol))
+        except Exception:
+            return 0.0
+
+    def _entry_cooldown_sec_for_symbol(self, symbol: str) -> float:
+        """Русский комментарий: cooldown повторного входа по символу через env."""
+        safe_key = str(symbol).replace("@", "_").replace(".", "_").replace("-", "_").upper()
+        raw = os.getenv(
+            f"ENTRY_COOLDOWN_SEC_{safe_key}",
+            os.getenv("ENTRY_COOLDOWN_SEC_DEFAULT", "60"),
+        )
+        return float(raw or 0.0)
+
+    def _anti_reentry_allows(self, symbol: str, side: str) -> tuple[bool, str]:
+        """Русский комментарий: запрещает повторный вход при открытой позиции или активном cooldown."""
+        qty = self._current_position_qty_for_symbol(symbol)
+        if abs(qty) > 0:
+            return False, f"ANTI_REENTRY_OPEN_POSITION symbol={symbol} qty={qty}"
+
+        cooldown = self._entry_cooldown_sec_for_symbol(symbol)
+        if cooldown <= 0:
+            return True, "ANTI_REENTRY_OK_NO_COOLDOWN"
+
+        state = getattr(self, "_anti_reentry_last_entry_ts", None)
+        if state is None:
+            state = {}
+            self._anti_reentry_last_entry_ts = state
+
+        key = f"{symbol}:{side}"
+        now = time.monotonic()
+        last = float(state.get(key, 0.0) or 0.0)
+
+        if last > 0 and now - last < cooldown:
+            return False, (
+                f"ANTI_REENTRY_COOLDOWN symbol={symbol} side={side} "
+                f"left={round(cooldown - (now - last), 2)}"
+            )
+
+        return True, "ANTI_REENTRY_OK"
+
+    def _mark_anti_reentry_entry(self, symbol: str, side: str) -> None:
+        """Русский комментарий: фиксирует успешный вход для cooldown."""
+        state = getattr(self, "_anti_reentry_last_entry_ts", None)
+        if state is None:
+            state = {}
+            self._anti_reentry_last_entry_ts = state
+
+        state[f"{symbol}:{side}"] = time.monotonic()
+        self._anti_reentry_entry_count = int(getattr(self, "_anti_reentry_entry_count", 0)) + 1
+
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
         self.bus.subscribe("QUOTE", self._on_quote)
@@ -1092,6 +1159,14 @@ class PaperTradingPipeline:
 
             print("PIPE_RISK_OK", flush=True)
 
+            symbol_for_anti = str(intent.get("symbol") or "")
+            side_for_anti = str(intent.get("side") or "")
+            anti_ok, anti_reason = self._anti_reentry_allows(symbol_for_anti, side_for_anti)
+            if not anti_ok:
+                self._anti_reentry_blocked_count = int(getattr(self, "_anti_reentry_blocked_count", 0)) + 1
+                print(f"PIPE_ANTI_REENTRY_BLOCK {anti_reason}", flush=True)
+                return
+
             # =========================================================
             # === PORTFOLIO RISK (LEVEL 2: portfolio heat limit)
             # =========================================================
@@ -1458,6 +1533,10 @@ class PaperTradingPipeline:
             f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)} "
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
+        )
+        self._mark_anti_reentry_entry(
+            str(getattr(fill, "symbol", None) or intent.get("symbol") or ""),
+            str(getattr(fill, "side", None) or intent.get("side") or ""),
         )
         # === TELEGRAM: единый сигнал входа ===
         try:
