@@ -60,10 +60,12 @@ class BrConservativeBreakout:
         self.regime_min_atr_pct = regime_min_atr_pct
         self.regime_max_atr_pct = regime_max_atr_pct
 
-        # Русский комментарий: подавление повторных сигналов, чтобы replay/live не спамили одинаковыми входами.
+        # Русский комментарий: подавление повторных сигналов в одном и том же режиме рынка.
         self.signal_cooldown_bars = signal_cooldown_bars
         self.cooldown_counter = 0
         self.last_signal_side: str | None = None
+        self.last_signal_regime_direction: int | None = None
+        self._previous_regime_direction: int = 0
 
         self.highs: deque[float] = deque(maxlen=breakout_window)
         self.lows: deque[float] = deque(maxlen=breakout_window)
@@ -194,18 +196,28 @@ class BrConservativeBreakout:
             elif self.regime_ema_fast < self.regime_ema_slow:
                 self.regime_direction = -1
 
+        # Русский комментарий: при смене направления режима разрешаем новый сигнал.
+        if self.regime_direction != self._previous_regime_direction:
+            self.last_signal_side = None
+            self.last_signal_regime_direction = None
+            self.cooldown_counter = 0
+        self._previous_regime_direction = self.regime_direction
+
         self.current_params = self._select_online_params(atr_pct=atr_pct, strength=strength)
         self.breakout_window = self.current_params.breakout_window
         self.highs = deque(self.highs, maxlen=self.breakout_window)
         self.lows = deque(self.lows, maxlen=self.breakout_window)
 
     def _signal_blocked_by_cooldown(self, side: str) -> bool:
-        """Русский комментарий: блокируем повторный сигнал в ту же сторону во время cooldown."""
-        return self.cooldown_counter > 0 and self.last_signal_side == side
+        """Русский комментарий: блокируем повторный сигнал в ту же сторону до смены режима."""
+        if self.last_signal_side != side:
+            return False
+        return self.last_signal_regime_direction == self.regime_direction
 
     def _register_signal(self, side: str) -> None:
-        """Русский комментарий: фиксируем сторону сигнала и запускаем cooldown."""
+        """Русский комментарий: фиксируем сторону сигнала до смены режима."""
         self.last_signal_side = side
+        self.last_signal_regime_direction = self.regime_direction
         self.cooldown_counter = self.signal_cooldown_bars
 
     def on_signal_bar(self, ts: datetime, open_: float, high: float, low: float, close: float, volume: float = 0.0) -> BrSignal | None:
@@ -214,8 +226,6 @@ class BrConservativeBreakout:
         self.tr_values.append(tr)
 
         signal: BrSignal | None = None
-        if self.cooldown_counter > 0:
-            self.cooldown_counter -= 1
 
         if not self.current_params.allow_trade:
             self.highs.append(high)
