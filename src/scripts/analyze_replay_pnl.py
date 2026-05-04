@@ -61,6 +61,7 @@ def load_trades(symbols: list[str], run_id: str | None = None):
         FROM trades
         WHERE symbol = ANY(%s)
           AND raw_json->>'paper_only' = 'true'
+          AND (%s IS NULL OR raw_json->>'run_id' = %s)
         ORDER BY symbol, ts ASC
     """
     with psycopg2.connect(dsn()) as conn:
