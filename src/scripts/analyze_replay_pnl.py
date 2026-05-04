@@ -35,7 +35,7 @@ def load_last_prices(symbols: list[str]) -> dict[str, float]:
     """
     with psycopg2.connect(dsn()) as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (symbols, args.run_id, args.run_id))
+            cur.execute(sql, (symbols, run_id, run_id))
             return {str(symbol): float(price) for symbol, price in cur.fetchall()}
 
 
@@ -55,7 +55,7 @@ def send_telegram(text: str) -> None:
         print(f"TELEGRAM_SKIPPED reason={type(exc).__name__}:{exc}")
 
 
-def load_trades(symbols: list[str]):
+def load_trades(symbols: list[str], run_id: str | None = None):
     sql = """
         SELECT symbol, side, qty, price, ts
         FROM trades
@@ -117,7 +117,7 @@ def main() -> int:
     parser.add_argument("--telegram", action="store_true")
     args = parser.parse_args()
 
-    rows = load_trades(args.symbols)
+    rows = load_trades(args.symbols, run_id=args.run_id)
     last_prices = load_last_prices(args.symbols)
     positions = {symbol: Position() for symbol in args.symbols}
 
