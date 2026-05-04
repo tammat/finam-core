@@ -1582,7 +1582,9 @@ class PaperTradingPipeline:
 
         fill_qty = float(getattr(fill, "qty", qty) or qty)
         fill_price = float(getattr(fill, "price", br_signal.price) or br_signal.price)
-        fill_id = str(getattr(fill, "fill_id", f"paper_br_{int(br_signal.ts.timestamp())}"))
+        run_id = str(getattr(self, "run_id", "unknown"))
+        fill_id_raw = str(getattr(fill, "fill_id", f"paper_br_{int(br_signal.ts.timestamp())}"))
+        fill_id = f"{run_id}_{fill_id_raw}"
 
         try:
             self.pg_logger.log_trade(
@@ -1592,7 +1594,7 @@ class PaperTradingPipeline:
                 price=fill_price,
                 trade_id=fill_id,
                 execution_type=paper_reason,
-                run_id=getattr(self, "run_id", "unknown"),
+                run_id=run_id,
             )
         except TypeError:
             trade = {
@@ -1603,7 +1605,7 @@ class PaperTradingPipeline:
                 "price": fill_price,
                 "trade_id": fill_id,
                 "execution_type": paper_reason,
-                "run_id": getattr(self, "run_id", "unknown"),
+                "run_id": run_id,
                 "ts": br_signal.ts,
             }
             self.pg_logger.log_trade(trade)
