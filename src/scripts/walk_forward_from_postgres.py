@@ -42,6 +42,7 @@ def main() -> int:
     p.add_argument("--regime-timeframe", default=None)
     p.add_argument("--regime-fast", type=int, default=5)
     p.add_argument("--regime-slow", type=int, default=20)
+    p.add_argument("--regime-min-strength", type=float, default=0.0)
     args = p.parse_args()
 
     windows = [10, 15, 20, 30]
@@ -80,11 +81,13 @@ def main() -> int:
             regime_bars=train_regime_bars,
             fast_period=args.regime_fast,
             slow_period=args.regime_slow,
+            min_strength=args.regime_min_strength,
         )
         test_regime_map = build_regime_map(
             regime_bars=test_regime_bars,
             fast_period=args.regime_fast,
             slow_period=args.regime_slow,
+            min_strength=args.regime_min_strength,
         )
 
     print("WALK_FORWARD_FROM_POSTGRES")
@@ -96,6 +99,7 @@ def main() -> int:
         print(f"regime_timeframe={args.regime_timeframe}")
         print(f"regime_fast={args.regime_fast}")
         print(f"regime_slow={args.regime_slow}")
+        print(f"regime_min_strength={args.regime_min_strength}")
         print(f"train_regime_points={len(train_regime_map)}")
         print(f"test_regime_points={len(test_regime_map)}")
 
