@@ -1571,6 +1571,39 @@ class PaperTradingPipeline:
         except Exception:
             pass
 
+    def _log_br_paper_fill(self, br_signal, qty: float, fill, paper_reason: str) -> None:
+        """Русский комментарий: PaperExecutionEngine возвращает PaperFill; здесь явно пишем его в trades."""
+        if not hasattr(self, "pg_logger") or self.pg_logger is None:
+            return
+        if not hasattr(self.pg_logger, "log_trade"):
+            return
+
+        fill_qty = float(getattr(fill, "qty", qty) or qty)
+        fill_price = float(getattr(fill, "price", br_signal.price) or br_signal.price)
+        fill_id = str(getattr(fill, "fill_id", f"paper_br_{int(br_signal.ts.timestamp())}"))
+
+        try:
+            self.pg_logger.log_trade(
+                symbol=br_signal.symbol,
+                side=br_signal.side,
+                qty=abs(fill_qty),
+                price=fill_price,
+                trade_id=fill_id,
+                execution_type=paper_reason,
+            )
+        except TypeError:
+            trade = {
+                "symbol": br_signal.symbol,
+                "side": br_signal.side,
+                "qty": abs(fill_qty),
+                "quantity": abs(fill_qty),
+                "price": fill_price,
+                "trade_id": fill_id,
+                "execution_type": paper_reason,
+                "ts": br_signal.ts,
+            }
+            self.pg_logger.log_trade(trade)
+
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
         """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
         if os.getenv("EXECUTION_MODE", "paper").lower() != "paper":
@@ -1592,26 +1625,45 @@ class PaperTradingPipeline:
         }
 
         try:
+            fill = None
+            paper_reason = "PAPER_ENGINE_NO_COMPATIBLE_METHOD"
+
             if hasattr(self.paper, "execute"):
-                self.paper.execute(order)
-                return True, "PAPER_EXECUTE_ORDER_DICT"
+                fill = self.paper.execute(
+                    order,
+                    market_state={
+                        "price": br_signal.price,
+                        "last": br_signal.price,
+                        "timestamp": br_signal.ts.timestamp(),
+                    },
+                )
+                paper_reason = "PAPER_EXECUTE_ORDER_DICT"
 
-            if hasattr(self.paper, "execute_order"):
-                self.paper.execute_order(order)
-                return True, "PAPER_EXECUTE_ORDER_DICT"
+            elif hasattr(self.paper, "execute_order"):
+                fill = self.paper.execute_order(order)
+                paper_reason = "PAPER_EXECUTE_ORDER_DICT"
 
-            if hasattr(self.paper, "submit_order"):
-                self.paper.submit_order(order)
-                return True, "PAPER_SUBMIT_ORDER_DICT"
+            elif hasattr(self.paper, "submit_order"):
+                fill = self.paper.submit_order(order)
+                paper_reason = "PAPER_SUBMIT_ORDER_DICT"
 
-            if hasattr(self.paper, "fill_market_order"):
-                self.paper.fill_market_order(
+            elif hasattr(self.paper, "fill_market_order"):
+                fill = self.paper.fill_market_order(
                     symbol=br_signal.symbol,
                     side=br_signal.side,
                     qty=qty,
                     price=br_signal.price,
                 )
-                return True, "PAPER_FILL_MARKET_ORDER"
+                paper_reason = "PAPER_FILL_MARKET_ORDER"
+
+            if fill is not None:
+                self._log_br_paper_fill(
+                    br_signal=br_signal,
+                    qty=qty,
+                    fill=fill,
+                    paper_reason=paper_reason,
+                )
+                return True, paper_reason
 
             if hasattr(self.pg_logger, "log_trade"):
                 self.pg_logger.log_trade(
@@ -1620,7 +1672,7 @@ class PaperTradingPipeline:
                     qty=qty,
                     price=br_signal.price,
                     trade_id=f"paper_br_{int(br_signal.ts.timestamp())}",
-                    execution_type="paper_replay",
+                    execution_type="paper_replay_fallback",
                 )
                 return True, "PAPER_TRADE_LOG_FALLBACK"
 

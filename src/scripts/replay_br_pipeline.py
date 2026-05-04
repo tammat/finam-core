@@ -51,6 +51,7 @@ class CountingLogger:
         self.sell_count = 0
         self.risk_accepted_count = 0
         self.risk_rejected_count = 0
+        self.trades_logged_count = 0
 
     def log_signal(self, **kwargs):
         self.signals_total += 1
@@ -70,6 +71,10 @@ class CountingLogger:
 
     def log_risk_event(self, **kwargs):
         return self.inner.log_risk_event(**kwargs)
+
+    def log_trade(self, *args, **kwargs):
+        self.trades_logged_count += 1
+        return self.inner.log_trade(*args, **kwargs)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -266,6 +271,7 @@ def main() -> int:
     print(f"paper_orders={getattr(paper, 'orders_total', 0)}")
     print(f"paper_buy_orders={getattr(paper, 'buy_orders', 0)}")
     print(f"paper_sell_orders={getattr(paper, 'sell_orders', 0)}")
+    print(f"trades_logged={getattr(logger, 'trades_logged_count', 0)}")
     print("STATUS=OK")
     return 0
 
