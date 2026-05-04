@@ -29,7 +29,7 @@ from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
-from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard
+from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -214,6 +214,7 @@ class PaperTradingPipeline:
         self.regime_policy = RegimePolicy()
         self.symbol_drawdown_guard = SymbolDrawdownGuard()
         self.symbol_loss_streak_guard = SymbolLossStreakGuard()
+        self.portfolio_guard = PortfolioGuard()
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -1615,6 +1616,29 @@ class PaperTradingPipeline:
             self.pg_logger.log_trade(trade)
 
 
+
+    def _br_total_open_abs_position(self) -> float:
+        """Русский комментарий: сумма абсолютных открытых PAPER-позиций по BR replay/paper."""
+        positions = getattr(self, "_br_replay_positions", None) or {}
+        return float(sum(abs(float(qty or 0.0)) for qty in positions.values()))
+
+    def _paper_orders_count_for_portfolio_guard(self) -> int:
+        """Русский комментарий: количество уже отправленных paper orders в текущем run."""
+        paper = getattr(self, "paper", None)
+        return int(getattr(paper, "orders_total", 0) or 0)
+
+    def _portfolio_guard_allows_br(self) -> tuple[bool, str]:
+        """Русский комментарий: портфельный gate перед paper execution."""
+        guard = getattr(self, "portfolio_guard", None)
+        if guard is None:
+            guard = PortfolioGuard()
+            self.portfolio_guard = guard
+
+        return guard.is_allowed(
+            total_open_abs_position=self._br_total_open_abs_position(),
+            paper_orders_count=self._paper_orders_count_for_portfolio_guard(),
+        )
+
     def _br_symbol_state(self, symbol: str) -> dict:
         """Русский комментарий: PAPER-состояние PnL по символу для drawdown guard."""
         states = getattr(self, "_br_symbol_pnl_state", None)
@@ -1829,6 +1853,10 @@ class PaperTradingPipeline:
         if not loss_streak_allowed:
             return False, loss_streak_reason
 
+        portfolio_allowed, portfolio_reason = self._portfolio_guard_allows_br()
+        if not portfolio_allowed:
+            return False, portfolio_reason
+
         allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
         if not allowed:
             return False, limit_reason
@@ -1987,6 +2015,8 @@ class PaperTradingPipeline:
         payload["symbol_drawdown"] = self._br_symbol_drawdown(br_signal.symbol)
         payload["loss_streak"] = self._br_symbol_loss_streak(br_signal.symbol)
         payload["loss_streak_pause_left"] = self._br_symbol_pause_left(br_signal.symbol)
+        payload["portfolio_open_abs_position"] = self._br_total_open_abs_position()
+        payload["portfolio_paper_orders_count"] = self._paper_orders_count_for_portfolio_guard()
         payload["run_id"] = getattr(self, "run_id", "unknown")
 
         # Русский комментарий: разделяем причины отказа execution-gate для replay-аналитики.
@@ -2000,6 +2030,8 @@ class PaperTradingPipeline:
                 self._br_symbol_drawdown_rejected = int(getattr(self, "_br_symbol_drawdown_rejected", 0)) + 1
             elif reason_text.startswith("LOSS_STREAK_PAUSE_ACTIVE"):
                 self._br_loss_streak_rejected = int(getattr(self, "_br_loss_streak_rejected", 0)) + 1
+            elif reason_text.startswith("PORTFOLIO_"):
+                self._br_portfolio_guard_rejected = int(getattr(self, "_br_portfolio_guard_rejected", 0)) + 1
             else:
                 self._br_other_execution_rejected = int(getattr(self, "_br_other_execution_rejected", 0)) + 1
 

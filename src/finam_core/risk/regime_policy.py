@@ -82,3 +82,37 @@ class SymbolLossStreakGuard:
             return False, f"LOSS_STREAK_PAUSE_ACTIVE loss_streak={loss_streak} pause_left={pause_left}"
 
         return True, f"LOSS_STREAK_OK loss_streak={loss_streak} limit={limit} pause_bars={pause_bars}"
+
+
+class PortfolioGuard:
+    """Русский комментарий: портфельный защитный слой перед live-paper."""
+
+    def max_open_abs_position(self) -> float:
+        raw = os.getenv("PORTFOLIO_MAX_OPEN_ABS_POSITION", "0").strip()
+        return float(raw or 0.0)
+
+    def max_paper_orders_per_run(self) -> int:
+        raw = os.getenv("PORTFOLIO_MAX_PAPER_ORDERS_PER_RUN", "0").strip()
+        return int(raw or 0)
+
+    def kill_switch_enabled(self) -> bool:
+        return os.getenv("PORTFOLIO_KILL_SWITCH", "0").strip() == "1"
+
+    def is_allowed(
+        self,
+        *,
+        total_open_abs_position: float,
+        paper_orders_count: int,
+    ) -> tuple[bool, str]:
+        if self.kill_switch_enabled():
+            return False, "PORTFOLIO_KILL_SWITCH_ENABLED"
+
+        max_orders = self.max_paper_orders_per_run()
+        if max_orders > 0 and paper_orders_count >= max_orders:
+            return False, f"PORTFOLIO_MAX_PAPER_ORDERS_PER_RUN current={paper_orders_count} limit={max_orders}"
+
+        max_open_abs = self.max_open_abs_position()
+        if max_open_abs > 0 and total_open_abs_position >= max_open_abs:
+            return False, f"PORTFOLIO_MAX_OPEN_ABS_POSITION current={total_open_abs_position} limit={max_open_abs}"
+
+        return True, f"PORTFOLIO_OK open_abs={total_open_abs_position} orders={paper_orders_count}"
