@@ -52,6 +52,7 @@ class ReplayStats:
     position_limit_rejected: int = 0
     regime_policy_rejected: int = 0
     symbol_drawdown_rejected: int = 0
+    loss_streak_rejected: int = 0
     other_execution_rejected: int = 0
 
 
@@ -354,6 +355,7 @@ def main() -> int:
         symbol_stats.position_limit_rejected = int(getattr(pipeline, "_br_position_limit_rejected", 0))
         symbol_stats.regime_policy_rejected = int(getattr(pipeline, "_br_regime_policy_rejected", 0))
         symbol_stats.symbol_drawdown_rejected = int(getattr(pipeline, "_br_symbol_drawdown_rejected", 0))
+        symbol_stats.loss_streak_rejected = int(getattr(pipeline, "_br_loss_streak_rejected", 0))
         symbol_stats.other_execution_rejected = int(getattr(pipeline, "_br_other_execution_rejected", 0))
 
         total.bars_processed += symbol_stats.bars_processed
@@ -371,6 +373,7 @@ def main() -> int:
         total.position_limit_rejected += symbol_stats.position_limit_rejected
         total.regime_policy_rejected += symbol_stats.regime_policy_rejected
         total.symbol_drawdown_rejected += symbol_stats.symbol_drawdown_rejected
+        total.loss_streak_rejected += symbol_stats.loss_streak_rejected
         total.other_execution_rejected += symbol_stats.other_execution_rejected
 
         print(
@@ -391,6 +394,7 @@ def main() -> int:
             f"position_limit_rejected={symbol_stats.position_limit_rejected} "
             f"regime_policy_rejected={symbol_stats.regime_policy_rejected} "
             f"symbol_drawdown_rejected={symbol_stats.symbol_drawdown_rejected} "
+            f"loss_streak_rejected={symbol_stats.loss_streak_rejected} "
             f"other_execution_rejected={symbol_stats.other_execution_rejected} "
             f"open_position={round(getattr(pipeline, '_br_replay_positions', {}).get(symbol, 0.0), 6)} "
             f"max_abs_position={getattr(pipeline, '_max_abs_position_for_br')(symbol) if hasattr(pipeline, '_max_abs_position_for_br') else 'n/a'} "
@@ -414,6 +418,7 @@ def main() -> int:
     print(f"position_limit_rejected={total.position_limit_rejected}")
     print(f"regime_policy_rejected={total.regime_policy_rejected}")
     print(f"symbol_drawdown_rejected={total.symbol_drawdown_rejected}")
+    print(f"loss_streak_rejected={total.loss_streak_rejected}")
     print(f"other_execution_rejected={total.other_execution_rejected}")
     print("STATUS=OK")
     return 0

@@ -29,7 +29,7 @@ from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
-from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard
+from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -213,6 +213,7 @@ class PaperTradingPipeline:
         self.finam_limits_adapter = FinamLimitsAdapter()
         self.regime_policy = RegimePolicy()
         self.symbol_drawdown_guard = SymbolDrawdownGuard()
+        self.symbol_loss_streak_guard = SymbolLossStreakGuard()
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -1634,6 +1635,38 @@ class PaperTradingPipeline:
         state = self._br_symbol_state(symbol)
         return float(state.get("drawdown", 0.0) or 0.0)
 
+
+    def _br_symbol_loss_streak(self, symbol: str) -> int:
+        state = self._br_symbol_state(symbol)
+        return int(state.get("loss_streak", 0) or 0)
+
+    def _br_symbol_pause_left(self, symbol: str) -> int:
+        state = self._br_symbol_state(symbol)
+        return int(state.get("loss_streak_pause_left", 0) or 0)
+
+    def _decrement_br_symbol_pause(self, symbol: str) -> None:
+        state = self._br_symbol_state(symbol)
+        pause_left = int(state.get("loss_streak_pause_left", 0) or 0)
+        if pause_left > 0:
+            state["loss_streak_pause_left"] = pause_left - 1
+
+    def _symbol_loss_streak_allows_br(self, br_signal) -> tuple[bool, str]:
+        """Русский комментарий: временно блокируем сигнал после серии убыточных закрытий."""
+        guard = getattr(self, "symbol_loss_streak_guard", None)
+        if guard is None:
+            guard = SymbolLossStreakGuard()
+            self.symbol_loss_streak_guard = guard
+
+        symbol = br_signal.symbol
+        loss_streak = self._br_symbol_loss_streak(symbol)
+        pause_left = self._br_symbol_pause_left(symbol)
+
+        allowed, reason = guard.is_allowed(symbol, loss_streak, pause_left)
+        if not allowed:
+            self._decrement_br_symbol_pause(symbol)
+
+        return allowed, reason
+
     def _symbol_drawdown_allows_br(self, br_signal) -> tuple[bool, str]:
         """Русский комментарий: блокируем новый paper-сигнал при превышении просадки по символу."""
         guard = getattr(self, "symbol_drawdown_guard", None)
@@ -1665,6 +1698,28 @@ class PaperTradingPipeline:
                 pnl = (avg_price - price) * closing_qty
 
             realized += pnl
+
+            if pnl < 0:
+                state["loss_streak"] = int(state.get("loss_streak", 0) or 0) + 1
+            elif pnl > 0:
+                state["loss_streak"] = 0
+
+            loss_limit_raw = os.getenv(
+                f"LOSS_STREAK_LIMIT_{env_symbol_key(symbol)}",
+                os.getenv("LOSS_STREAK_LIMIT_DEFAULT", "0"),
+            ).strip()
+            pause_raw = os.getenv(
+                f"LOSS_STREAK_PAUSE_BARS_{env_symbol_key(symbol)}",
+                os.getenv("LOSS_STREAK_PAUSE_BARS_DEFAULT", "0"),
+            ).strip()
+
+            loss_limit = int(loss_limit_raw or 0)
+            pause_bars = int(pause_raw or 0)
+
+            if loss_limit > 0 and pause_bars > 0 and int(state.get("loss_streak", 0) or 0) >= loss_limit:
+                state["loss_streak_pause_left"] = pause_bars
+                state["loss_streak"] = 0
+
             remaining_qty = current_qty + signed
 
             if remaining_qty == 0:
@@ -1773,6 +1828,10 @@ class PaperTradingPipeline:
         drawdown_allowed, drawdown_reason = self._symbol_drawdown_allows_br(br_signal)
         if not drawdown_allowed:
             return False, drawdown_reason
+
+        loss_streak_allowed, loss_streak_reason = self._symbol_loss_streak_allows_br(br_signal)
+        if not loss_streak_allowed:
+            return False, loss_streak_reason
 
         allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
         if not allowed:
@@ -1930,6 +1989,8 @@ class PaperTradingPipeline:
         payload["paper_executed"] = paper_executed
         payload["paper_reason"] = paper_reason
         payload["symbol_drawdown"] = self._br_symbol_drawdown(br_signal.symbol)
+        payload["loss_streak"] = self._br_symbol_loss_streak(br_signal.symbol)
+        payload["loss_streak_pause_left"] = self._br_symbol_pause_left(br_signal.symbol)
         payload["run_id"] = getattr(self, "run_id", "unknown")
 
         # Русский комментарий: разделяем причины отказа execution-gate для replay-аналитики.
@@ -1941,6 +2002,8 @@ class PaperTradingPipeline:
                 self._br_regime_policy_rejected = int(getattr(self, "_br_regime_policy_rejected", 0)) + 1
             elif reason_text.startswith("SYMBOL_DRAWDOWN_LIMIT"):
                 self._br_symbol_drawdown_rejected = int(getattr(self, "_br_symbol_drawdown_rejected", 0)) + 1
+            elif reason_text.startswith("LOSS_STREAK_PAUSE_ACTIVE"):
+                self._br_loss_streak_rejected = int(getattr(self, "_br_loss_streak_rejected", 0)) + 1
             else:
                 self._br_other_execution_rejected = int(getattr(self, "_br_other_execution_rejected", 0)) + 1
 

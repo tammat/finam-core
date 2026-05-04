@@ -56,3 +56,29 @@ class SymbolDrawdownGuard:
             return False, f"SYMBOL_DRAWDOWN_LIMIT current_drawdown={current_drawdown} limit={limit}"
 
         return True, f"SYMBOL_DRAWDOWN_OK current_drawdown={current_drawdown} limit={limit}"
+
+
+class SymbolLossStreakGuard:
+    """Русский комментарий: пауза по инструменту после серии убыточных закрытых сделок."""
+
+    def loss_limit_for(self, symbol: str) -> int:
+        key = f"LOSS_STREAK_LIMIT_{env_symbol_key(symbol)}"
+        raw = os.getenv(key, os.getenv("LOSS_STREAK_LIMIT_DEFAULT", "0")).strip()
+        return int(raw or 0)
+
+    def pause_bars_for(self, symbol: str) -> int:
+        key = f"LOSS_STREAK_PAUSE_BARS_{env_symbol_key(symbol)}"
+        raw = os.getenv(key, os.getenv("LOSS_STREAK_PAUSE_BARS_DEFAULT", "0")).strip()
+        return int(raw or 0)
+
+    def is_allowed(self, symbol: str, loss_streak: int, pause_left: int) -> tuple[bool, str]:
+        limit = self.loss_limit_for(symbol)
+        pause_bars = self.pause_bars_for(symbol)
+
+        if limit <= 0 or pause_bars <= 0:
+            return True, "LOSS_STREAK_GUARD_NOT_CONFIGURED"
+
+        if pause_left > 0:
+            return False, f"LOSS_STREAK_PAUSE_ACTIVE loss_streak={loss_streak} pause_left={pause_left}"
+
+        return True, f"LOSS_STREAK_OK loss_streak={loss_streak} limit={limit} pause_bars={pause_bars}"
