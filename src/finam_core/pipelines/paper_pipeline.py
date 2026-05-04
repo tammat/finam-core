@@ -419,6 +419,25 @@ class PaperTradingPipeline:
 
         return state
 
+
+    def _portfolio_kill_switch_allows(self) -> tuple[bool, str]:
+        """Русский комментарий: портфельный kill-switch по cumulative PnL и max drawdown."""
+        state = self._portfolio_stats_state()
+
+        cumulative_pnl = float(state.get("realized_pnl_total", 0.0) or 0.0)
+        max_drawdown = float(state.get("max_drawdown", 0.0) or 0.0)
+
+        max_loss = float(os.getenv("PORTFOLIO_MAX_CUMULATIVE_LOSS", "0") or 0.0)
+        if max_loss > 0 and cumulative_pnl <= -abs(max_loss):
+            return False, f"PORTFOLIO_CUMULATIVE_LOSS_LIMIT pnl={round(cumulative_pnl, 4)} limit={-abs(max_loss)}"
+
+        dd_limit = float(os.getenv("PORTFOLIO_MAX_DRAWDOWN", "0") or 0.0)
+        if dd_limit > 0 and max_drawdown <= -abs(dd_limit):
+            return False, f"PORTFOLIO_DRAWDOWN_LIMIT drawdown={round(max_drawdown, 4)} limit={-abs(dd_limit)}"
+
+        return True, "PORTFOLIO_KILL_SWITCH_OK"
+
+
     def _postgres_dsn_for_pnl(self) -> str:
         """Русский комментарий: DSN PostgreSQL для записи live-paper PnL."""
         explicit = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN")
@@ -1367,6 +1386,14 @@ class PaperTradingPipeline:
 
         except Exception as e:
             print(f"PIPE_TRADE_LIMIT_ERROR {e}", flush=True)
+        # =========================================================
+        # === PORTFOLIO KILL-SWITCH (cumulative PnL / max drawdown)
+        # =========================================================
+        kill_ok, kill_reason = self._portfolio_kill_switch_allows()
+        if not kill_ok:
+            print(f"PIPE_PORTFOLIO_KILL_SWITCH_BLOCK {kill_reason}", flush=True)
+            return
+
         # =========================================================
         # === RISK (PRODUCTION MODE)
         # =========================================================
