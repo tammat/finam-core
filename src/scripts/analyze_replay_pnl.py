@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from pathlib import Path
 import os
 import requests
 from dataclasses import dataclass
