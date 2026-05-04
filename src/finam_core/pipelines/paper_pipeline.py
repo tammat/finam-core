@@ -340,6 +340,40 @@ class PaperTradingPipeline:
         state[f"{symbol}:{side}"] = time.monotonic()
         self._anti_reentry_entry_count = int(getattr(self, "_anti_reentry_entry_count", 0)) + 1
 
+
+    def _pipeline_log_throttle_allow(self, key: str, interval_sec: float | None = None) -> bool:
+        """Русский комментарий: runtime throttle для шумных повторяющихся логов pipeline."""
+        raw_interval = os.getenv("LOG_THROTTLE_SEC", "30")
+        interval = float(raw_interval or 30.0) if interval_sec is None else float(interval_sec)
+
+        state = getattr(self, "_pipeline_log_throttle_state", None)
+        if state is None:
+            state = {}
+            self._pipeline_log_throttle_state = state
+
+        now = time.monotonic()
+        last = float(state.get(key, 0.0) or 0.0)
+
+        if last > 0 and now - last < interval:
+            return False
+
+        state[key] = now
+        return True
+
+    def _should_log_routed_signal(self, routed) -> bool:
+        """Русский комментарий: гасим только повторяющийся duplicate_signal; остальные routed-события логируем."""
+        reason = str(getattr(routed, "reason", "") or "")
+        if reason != "duplicate_signal":
+            return True
+
+        intent = getattr(routed, "intent", None)
+        symbol = str(getattr(intent, "symbol", "") or "unknown")
+        side = str(getattr(intent, "side", "") or "unknown")
+        source = str(getattr(intent, "source", "") or "unknown")
+
+        key = f"duplicate_signal:{symbol}:{side}:{source}"
+        return self._pipeline_log_throttle_allow(key)
+
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
         self.bus.subscribe("QUOTE", self._on_quote)
@@ -878,7 +912,8 @@ class PaperTradingPipeline:
         # =========================================================
         routed = self.signal_router.route(raw_intent)
 
-        print("DEBUG routed:", routed)
+        if self._should_log_routed_signal(routed):
+            print(f"DEBUG routed: {routed}", flush=True)
 
         # =========================================================
         # === SESSION FILTER (ЕДИНЫЙ ИСТОЧНИК, POST-ROUTER)

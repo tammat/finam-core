@@ -1,53 +1,14 @@
 # -*- coding: utf-8 -*-
-"""run_market_pipeline.py — тонкий entrypoint для Pipeline B."""
+"""run_market_pipeline.py — тонкий entrypoint для Pipeline B.
 
-from __future__ import annotations
-
-import os
-class LogThrottle:# -*- coding: utf-8 -*-
-
-
-    """Русский комментарий: ограничивает частоту повторяющихся debug-логов без изменения торговой логики."""
-
-    def __init__(self, default_interval_sec: float = 30.0) -> None:
-        self.default_interval_sec = float(default_interval_sec)
-        self._last_seen: dict[str, float] = {}
-
-    def allow(self, key: str, interval_sec: float | None = None) -> bool:
-        now = time.monotonic()
-        interval = self.default_interval_sec if interval_sec is None else float(interval_sec)
-        last = self._last_seen.get(key)
-
-        if last is not None and now - last < interval:
-            return False
-
-        self._last_seen[key] = now
-        return True
-
-
-LOG_THROTTLE = LogThrottle(default_interval_sec=float(os.getenv("LOG_THROTTLE_SEC", "30")))
-
-
-def should_log_routed_signal(routed) -> bool:
-    """Русский комментарий: гасим только повторяющийся duplicate_signal; остальные routed-события логируем."""
-    reason = str(getattr(routed, "reason", "") or "")
-    if reason != "duplicate_signal":
-        return True
-
-    intent = getattr(routed, "intent", None)
-    symbol = str(getattr(intent, "symbol", "") or "unknown")
-    side = str(getattr(intent, "side", "") or "unknown")
-    source = str(getattr(intent, "source", "") or "unknown")
-
-    key = f"duplicate_signal:{symbol}:{side}:{source}"
-    return LOG_THROTTLE.allow(key)
-
-"""Pipeline B:
+Pipeline B:
 QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
 
 Русский коммент: этот файл специально держим "тонким".
 Вся логика пайплайна живёт в finam_core.pipelines.paper_pipeline.
 """
+
+from __future__ import annotations
 
 import os
 import time
