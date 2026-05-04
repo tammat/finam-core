@@ -47,7 +47,12 @@ def ema_series(values: list[float], period: int) -> list[float]:
     return result
 
 
-def build_regime_map(regime_bars: list[Bar], fast_period: int, slow_period: int) -> list[tuple[datetime, int]]:
+def build_regime_map(
+    regime_bars: list[Bar],
+    fast_period: int,
+    slow_period: int,
+    min_strength: float = 0.0,
+) -> list[tuple[datetime, int]]:
     """Русский комментарий: строит карту режима по старшему ТФ: 1=up, -1=down, 0=neutral."""
     if not regime_bars:
         return []
@@ -65,10 +70,12 @@ def build_regime_map(regime_bars: list[Bar], fast_period: int, slow_period: int)
         if i < warmup:
             continue
         direction = 0
-        if fast[i] > slow[i]:
-            direction = 1
-        elif fast[i] < slow[i]:
-            direction = -1
+        strength = abs(fast[i] - slow[i]) / bar.close if bar.close else 0.0
+        if strength >= min_strength:
+            if fast[i] > slow[i]:
+                direction = 1
+            elif fast[i] < slow[i]:
+                direction = -1
         result.append((bar.ts, direction))
 
     return result
@@ -367,6 +374,7 @@ def main() -> int:
     p.add_argument("--regime-timeframe", default=None)
     p.add_argument("--regime-fast", type=int, default=5)
     p.add_argument("--regime-slow", type=int, default=20)
+    p.add_argument("--regime-min-strength", type=float, default=0.0)
     args = p.parse_args()
 
     bars = load_bars(
@@ -388,6 +396,7 @@ def main() -> int:
             regime_bars=regime_bars,
             fast_period=args.regime_fast,
             slow_period=args.regime_slow,
+            min_strength=args.regime_min_strength,
         )
 
     print("BACKTEST_FROM_POSTGRES")
@@ -399,6 +408,7 @@ def main() -> int:
         print(f"regime_timeframe={args.regime_timeframe}")
         print(f"regime_fast={args.regime_fast}")
         print(f"regime_slow={args.regime_slow}")
+        print(f"regime_min_strength={args.regime_min_strength}")
         print(f"regime_points={len(regime_map)}")
 
     if len(bars) < args.min_bars:
