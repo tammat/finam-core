@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import psycopg2
 
-from finam_core.execution.paper_execution import PaperExecutionEngine
+from finam_core.execution.paper_engine import PaperExecutionEngine
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
