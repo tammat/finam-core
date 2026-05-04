@@ -29,6 +29,7 @@ from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
+from finam_core.risk.regime_policy import RegimePolicy
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -210,6 +211,7 @@ class PaperTradingPipeline:
         self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
         self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
         self.finam_limits_adapter = FinamLimitsAdapter()
+        self.regime_policy = RegimePolicy()
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -1610,6 +1612,42 @@ class PaperTradingPipeline:
             }
             self.pg_logger.log_trade(trade)
 
+    def _current_br_regime(self) -> str:
+        """Русский комментарий: текущий режим из M15-состояния BR-стратегии."""
+        br = getattr(self, "br_breakout", None)
+        if br is None:
+            return "unknown"
+
+        direction = int(getattr(br, "regime_direction", 0) or 0)
+        atr_pct = float(getattr(br, "regime_atr_pct", 0.0) or 0.0)
+
+        if direction > 0:
+            trend = "up"
+        elif direction < 0:
+            trend = "down"
+        else:
+            trend = "flat"
+
+        if atr_pct < 0.0005:
+            vol = "low_vol"
+        elif atr_pct > 0.003:
+            vol = "high_vol"
+        else:
+            vol = "normal_vol"
+
+        return f"{trend}_{vol}"
+
+    def _regime_policy_allows_br(self, br_signal) -> tuple[bool, str]:
+        """Русский комментарий: блокируем не бары, а уже сформированный сигнал перед PaperExecution."""
+        policy = getattr(self, "regime_policy", None)
+        if policy is None:
+            policy = RegimePolicy()
+            self.regime_policy = policy
+
+        regime = self._current_br_regime()
+        allowed, reason = policy.is_allowed(br_signal.symbol, regime)
+        return allowed, f"{reason};regime={regime}"
+
     def _max_abs_position_for_br(self, symbol: str) -> float:
         """Русский комментарий: лимит позиции берём через adapter; при недоступности Финама работает .env fallback."""
         adapter = getattr(self, "finam_limits_adapter", None)
@@ -1659,6 +1697,10 @@ class PaperTradingPipeline:
 
         if not hasattr(self, "paper") or self.paper is None:
             return False, "NO_PAPER_EXECUTION_ENGINE_ATTACHED"
+
+        regime_allowed, regime_reason = self._regime_policy_allows_br(br_signal)
+        if not regime_allowed:
+            return False, regime_reason
 
         allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
         if not allowed:
