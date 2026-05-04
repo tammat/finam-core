@@ -47,6 +47,7 @@ class ReplayStats:
     paper_buy_orders: int = 0
     paper_sell_orders: int = 0
     trades_logged: int = 0
+    position_limit_rejected: int = 0
 
 
 
@@ -339,6 +340,7 @@ def main() -> int:
         symbol_stats.paper_buy_orders = int(getattr(paper, "buy_orders", 0))
         symbol_stats.paper_sell_orders = int(getattr(paper, "sell_orders", 0))
         symbol_stats.trades_logged = int(getattr(logger, "trades_logged_count", 0))
+        symbol_stats.position_limit_rejected = max(0, symbol_stats.signals_generated - symbol_stats.paper_orders)
 
         total.bars_processed += symbol_stats.bars_processed
         total.m15_processed += symbol_stats.m15_processed
@@ -352,6 +354,7 @@ def main() -> int:
         total.paper_buy_orders += symbol_stats.paper_buy_orders
         total.paper_sell_orders += symbol_stats.paper_sell_orders
         total.trades_logged += symbol_stats.trades_logged
+        total.position_limit_rejected += symbol_stats.position_limit_rejected
 
         print(
             "SYMBOL_STATS "
@@ -368,6 +371,7 @@ def main() -> int:
             f"paper_buy_orders={symbol_stats.paper_buy_orders} "
             f"paper_sell_orders={symbol_stats.paper_sell_orders} "
             f"trades_logged={symbol_stats.trades_logged} "
+            f"position_limit_rejected={symbol_stats.position_limit_rejected} "
             f"open_position={round(getattr(pipeline, '_br_replay_positions', {}).get(symbol, 0.0), 6)} "
             f"max_abs_position={getattr(pipeline, '_max_abs_position_for_br')(symbol) if hasattr(pipeline, '_max_abs_position_for_br') else 'n/a'}"
         )
@@ -385,6 +389,7 @@ def main() -> int:
     print(f"paper_buy_orders={total.paper_buy_orders}")
     print(f"paper_sell_orders={total.paper_sell_orders}")
     print(f"trades_logged={total.trades_logged}")
+    print(f"position_limit_rejected={total.position_limit_rejected}")
     print("STATUS=OK")
     return 0
 
