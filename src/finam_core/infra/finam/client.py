@@ -1,10 +1,10 @@
-# finam_bot/finam_client.py
+# DISABLED_LEGACY_IMPORT: # finam_bot/finam_client.py
 
 import os
 os.environ["GRPC_DNS_RESOLVER"] = "native"
 from datetime import datetime, timedelta, timezone,time as dt_time
 from pathlib import Path
-from finam_bot.clients import schema
+# DISABLED_LEGACY_IMPORT: from finam_bot.clients import schema
 from typing import Any, Callable, Dict, List, Optional
 import time
 import grpc
@@ -14,23 +14,23 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from google.protobuf import timestamp_pb2
 #from datetime import datetime, time as dt_time
 # --- gRPC stubs ---
-from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import (
+# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import (
     accounts_service_pb2,
     accounts_service_pb2_grpc,
 )
-from finam_bot.grpc_api.grpc.tradeapi.v1.orders import (
+# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.orders import (
     orders_service_pb2,
     orders_service_pb2_grpc,
 )
-from finam_bot.grpc_api.grpc.tradeapi.v1.marketdata import (
+# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.marketdata import (
     marketdata_service_pb2_grpc,
 )
-from finam_bot.grpc_api.grpc.tradeapi.v1.auth import (
+# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.auth import (
     auth_service_pb2,
     auth_service_pb2_grpc,
 )
-from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
-from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
+# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
+# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
 from google.type import decimal_pb2
 from datetime import datetime
 import pytz
@@ -55,7 +55,7 @@ _load_env_once()
 # -------------------------------------------------
 # CLIENT
 # -------------------------------------------------
-from finam_bot.clients.base import BaseTradingClient
+# DISABLED_LEGACY_IMPORT: from finam_bot.clients.base import BaseTradingClient
 
 class FinamClient(BaseTradingClient):
     def __init__(self):
@@ -137,7 +137,7 @@ class FinamClient(BaseTradingClient):
         retries>0 allowed only for safe operations (Cancel/Get)
         """
         last_exc = None
-        from finam_bot.system.health_monitor import HealthMonitor
+# DISABLED_LEGACY_IMPORT:         from finam_bot.system.health_monitor import HealthMonitor
 
         self.health = HealthMonitor()
 
@@ -300,7 +300,7 @@ class FinamClient(BaseTradingClient):
     # TRADES
     # -------------------------------------------------
     def get_trades_raw(self, limit: int = 100, days: int = 7):
-        from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import accounts_service_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import accounts_service_pb2
         from google.type import interval_pb2
         from google.protobuf import timestamp_pb2
         from datetime import datetime, timedelta, timezone
@@ -324,7 +324,7 @@ class FinamClient(BaseTradingClient):
     # TRANSACTIONS
     # -------------------------------------------------
     def get_transactions_raw(self, days: int = 7, limit: int = 100):
-        from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import accounts_service_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import accounts_service_pb2
         from google.type import interval_pb2
         from google.protobuf import timestamp_pb2
         from datetime import datetime, timedelta, timezone
@@ -389,8 +389,8 @@ class FinamClient(BaseTradingClient):
             order_type,
             price: float | None = None,
     ):
-        from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
-        from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
 
         # если символ содержит @ — убираем суффикс
         base_symbol = symbol.split("@")[0]
@@ -466,8 +466,8 @@ class FinamClient(BaseTradingClient):
     # -------------------------------------------------
 
     def place_market_order(self, symbol: str, side: str, qty: float, mic: str):
-        from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
-        from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
 
         side_enum = side_pb2.SIDE_BUY if side.upper() == "BUY" else side_pb2.SIDE_SELL
 
@@ -490,8 +490,8 @@ class FinamClient(BaseTradingClient):
             price: float,
             mic: str,
     ):
-        from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
-        from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
+# DISABLED_LEGACY_IMPORT:         from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
         from google.type import decimal_pb2
 
         symbol = self._join_symbol_mic(symbol, mic)
