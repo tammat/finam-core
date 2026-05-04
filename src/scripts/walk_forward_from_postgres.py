@@ -23,6 +23,7 @@ from backtest_from_postgres import (
     parse_ts,
     load_bars,
     run_breakout_backtest,
+    build_regime_map,
 )
 
 
@@ -38,6 +39,9 @@ def main() -> int:
     p.add_argument("--fee-pct", type=float, default=0.0002)
     p.add_argument("--min-bars", type=int, default=300)
     p.add_argument("--top-n", type=int, default=5)
+    p.add_argument("--regime-timeframe", default=None)
+    p.add_argument("--regime-fast", type=int, default=5)
+    p.add_argument("--regime-slow", type=int, default=20)
     args = p.parse_args()
 
     windows = [10, 15, 20, 30]
@@ -57,11 +61,43 @@ def main() -> int:
         parse_ts(args.test_to),
     )
 
+    train_regime_map = []
+    test_regime_map = []
+    if args.regime_timeframe:
+        train_regime_bars = load_bars(
+            args.symbol,
+            args.regime_timeframe,
+            parse_ts(args.train_from),
+            parse_ts(args.train_to),
+        )
+        test_regime_bars = load_bars(
+            args.symbol,
+            args.regime_timeframe,
+            parse_ts(args.test_from),
+            parse_ts(args.test_to),
+        )
+        train_regime_map = build_regime_map(
+            regime_bars=train_regime_bars,
+            fast_period=args.regime_fast,
+            slow_period=args.regime_slow,
+        )
+        test_regime_map = build_regime_map(
+            regime_bars=test_regime_bars,
+            fast_period=args.regime_fast,
+            slow_period=args.regime_slow,
+        )
+
     print("WALK_FORWARD_FROM_POSTGRES")
     print(f"symbol={args.symbol}")
     print(f"timeframe={args.timeframe}")
     print(f"train_bars={len(train_bars)}")
     print(f"test_bars={len(test_bars)}")
+    if args.regime_timeframe:
+        print(f"regime_timeframe={args.regime_timeframe}")
+        print(f"regime_fast={args.regime_fast}")
+        print(f"regime_slow={args.regime_slow}")
+        print(f"train_regime_points={len(train_regime_map)}")
+        print(f"test_regime_points={len(test_regime_map)}")
 
     if len(train_bars) < args.min_bars:
         print("STATUS=FAIL reason=NOT_ENOUGH_TRAIN_BARS")
@@ -80,6 +116,7 @@ def main() -> int:
             stop_atr=s,
             take_atr=t,
             fee_pct=args.fee_pct,
+            regime_map=train_regime_map,
         )
 
         results.append({
@@ -121,6 +158,7 @@ def main() -> int:
             stop_atr=item["stop"],
             take_atr=item["take"],
             fee_pct=args.fee_pct,
+            regime_map=test_regime_map,
         )
         tested.append({
             **item,
