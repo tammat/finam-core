@@ -46,6 +46,7 @@ class BrConservativeBreakout:
         regime_min_strength: float = 0.001,
         regime_min_atr_pct: float = 0.0003,
         regime_max_atr_pct: float = 0.005,
+        signal_cooldown_bars: int = 12,
     ) -> None:
         self.symbol = symbol
         self.breakout_window = breakout_window
@@ -58,6 +59,11 @@ class BrConservativeBreakout:
         self.regime_min_strength = regime_min_strength
         self.regime_min_atr_pct = regime_min_atr_pct
         self.regime_max_atr_pct = regime_max_atr_pct
+
+        # Русский комментарий: подавление повторных сигналов, чтобы replay/live не спамили одинаковыми входами.
+        self.signal_cooldown_bars = signal_cooldown_bars
+        self.cooldown_counter = 0
+        self.last_signal_side: str | None = None
 
         self.highs: deque[float] = deque(maxlen=breakout_window)
         self.lows: deque[float] = deque(maxlen=breakout_window)
@@ -193,12 +199,23 @@ class BrConservativeBreakout:
         self.highs = deque(self.highs, maxlen=self.breakout_window)
         self.lows = deque(self.lows, maxlen=self.breakout_window)
 
+    def _signal_blocked_by_cooldown(self, side: str) -> bool:
+        """Русский комментарий: блокируем повторный сигнал в ту же сторону во время cooldown."""
+        return self.cooldown_counter > 0 and self.last_signal_side == side
+
+    def _register_signal(self, side: str) -> None:
+        """Русский комментарий: фиксируем сторону сигнала и запускаем cooldown."""
+        self.last_signal_side = side
+        self.cooldown_counter = self.signal_cooldown_bars
+
     def on_signal_bar(self, ts: datetime, open_: float, high: float, low: float, close: float, volume: float = 0.0) -> BrSignal | None:
         tr = self._true_range(high, low, self.prev_close)
         self.prev_close = close
         self.tr_values.append(tr)
 
         signal: BrSignal | None = None
+        if self.cooldown_counter > 0:
+            self.cooldown_counter -= 1
 
         if not self.current_params.allow_trade:
             self.highs.append(high)
@@ -212,7 +229,7 @@ class BrConservativeBreakout:
             stop_atr = self.current_params.stop_atr
             take_atr = self.current_params.take_atr
 
-            if close > range_high and self.regime_direction == 1:
+            if close > range_high and self.regime_direction == 1 and not self._signal_blocked_by_cooldown("BUY"):
                 signal = BrSignal(
                     symbol=self.symbol,
                     side="BUY",
@@ -222,8 +239,9 @@ class BrConservativeBreakout:
                     ts=ts,
                     reason=f"BR_M5_BREAKOUT_UP_{self.current_params.mode}_{self.current_params.reason}",
                 )
+                self._register_signal("BUY")
 
-            elif close < range_low and self.regime_direction == -1:
+            elif close < range_low and self.regime_direction == -1 and not self._signal_blocked_by_cooldown("SELL"):
                 signal = BrSignal(
                     symbol=self.symbol,
                     side="SELL",
@@ -233,6 +251,7 @@ class BrConservativeBreakout:
                     ts=ts,
                     reason=f"BR_M5_BREAKOUT_DOWN_{self.current_params.mode}_{self.current_params.reason}",
                 )
+                self._register_signal("SELL")
 
         self.highs.append(high)
         self.lows.append(low)
