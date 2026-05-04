@@ -17,6 +17,7 @@ import psycopg2
 
 from finam_core.execution.paper_engine import PaperExecutionEngine
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
+from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 
@@ -279,6 +280,7 @@ def build_replay_pipeline(symbol: str):
     pipeline.notifier = NullNotifier()
     pipeline.paper = CountingPaperExecution(PaperExecutionEngine())
     pipeline.risk = None
+    pipeline.finam_limits_adapter = FinamLimitsAdapter()
     return pipeline
 
 

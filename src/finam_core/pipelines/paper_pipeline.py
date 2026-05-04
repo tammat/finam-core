@@ -28,6 +28,7 @@ from finam_core.regime.regime_engine import RegimeEngine
 from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
+from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -208,6 +209,7 @@ class PaperTradingPipeline:
         )
         self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
         self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
+        self.finam_limits_adapter = FinamLimitsAdapter()
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -1605,16 +1607,12 @@ class PaperTradingPipeline:
             self.pg_logger.log_trade(trade)
 
     def _max_abs_position_for_br(self, symbol: str) -> float:
-        """Русский комментарий: лимит позиции по инструменту через env, без хардкода ограничений Финама."""
-        key = (
-            "MAX_ABS_POSITION_"
-            + symbol.upper()
-            .replace("@", "_")
-            .replace("-", "_")
-            .replace(".", "_")
-            .replace("/", "_")
-        )
-        return float(os.getenv(key, os.getenv("MAX_ABS_POSITION_DEFAULT", "1")))
+        """Русский комментарий: лимит позиции берём через adapter; при недоступности Финама работает .env fallback."""
+        adapter = getattr(self, "finam_limits_adapter", None)
+        if adapter is None:
+            adapter = FinamLimitsAdapter()
+            self.finam_limits_adapter = adapter
+        return float(adapter.get_symbol_limit(symbol).max_abs_position)
 
     def _current_replay_position_for_br(self, symbol: str) -> float:
         """Русский комментарий: текущая PAPER/replay позиция внутри pipeline."""
