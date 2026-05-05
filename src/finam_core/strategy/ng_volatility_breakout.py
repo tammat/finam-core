@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+from finam_core.strategy.ng_event_filters import Candle, KnifeState, is_knife_bar
 
 
 @dataclass
@@ -38,6 +39,7 @@ class NgVolatilityBreakout:
         self.min_atr_pct = min_atr_pct
         self.max_atr_pct = max_atr_pct
         self._last_key: str | None = None
+        self.knife_state = KnifeState(cooldown_bars=3)
 
     def _atr(self, bars: list[dict]) -> float:
         recent = bars[-self.atr_period:]
@@ -61,6 +63,31 @@ class NgVolatilityBreakout:
         if atr_pct < self.min_atr_pct:
             return None
         if atr_pct > self.max_atr_pct:
+            return None
+
+        prev_close = float(bars[-2]["close"])
+        candle = Candle(
+            open=float(last.get("open", price)),
+            high=float(last.get("high", price)),
+            low=float(last.get("low", price)),
+            close=price,
+        )
+        knife_side = "UP" if price > prev_close else "DOWN"
+        knife = is_knife_bar(candle, prev_close, atr)
+        self.knife_state.on_bar(knife, side=knife_side if knife else None)
+
+        if knife:
+            print(
+                f"PIPE_NG_KNIFE_DETECTED side={knife_side} price={round(price, 6)} "
+                f"prev_close={round(prev_close, 6)} atr={round(atr, 6)}",
+                flush=True,
+            )
+
+        if self.knife_state.is_blocked():
+            print(
+                f"PIPE_NG_KNIFE_BLOCK cooldown_left={self.knife_state.cooldown_left}",
+                flush=True,
+            )
             return None
 
         high = max(float(b["high"]) for b in prev)
