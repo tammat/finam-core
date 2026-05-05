@@ -1129,7 +1129,7 @@ class PaperTradingPipeline:
                 return
 
             # === 3. СЛАБЫЙ ТРЕНД (главный фикс)
-            if regime.trend in ("up", "down"):
+            if (not is_exit_intent) and regime.trend in ("up", "down"):
                 trend_strength = abs(st.get("ema_fast", price) - st.get("ema_slow", price)) / price
 
                 if trend_strength < float(os.getenv("TREND_STRENGTH_MIN","0.0003")) and regime.volatility != "high":  # ключевой параметр
@@ -1172,7 +1172,7 @@ class PaperTradingPipeline:
                     print("PIPE_MTF_WEAK_SHORT", flush=True)
 
             # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
-            if regime.trend in ("up", "down"):
+            if (not is_exit_intent) and regime.trend in ("up", "down"):
                 if PIPE_DEBUG:
                     print("DEBUG breakout mode (strategy disabled)", flush=True)
                 raw_intent = None  # force fallback breakout logic
