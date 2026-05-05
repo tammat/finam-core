@@ -28,7 +28,7 @@ class RealExecutionEngine:
 
     def __init__(self, orders_client: Any) -> None:
         self.orders_client = orders_client
-        self.mode = os.getenv("EXECUTION_MODE", "paper").strip()
+        self.mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
 
     def execute(self, intent: dict, market_state: dict | None = None) -> RealOrderResult:
         symbol = str(intent.get("symbol") or "")
@@ -64,6 +64,16 @@ class RealExecutionEngine:
                 price=price,
                 status="REJECTED",
                 reason=f"unsupported_execution_mode={self.mode}",
+            )
+
+        if self.orders_client is None:
+            return RealOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                reason="orders_client_not_configured",
             )
 
         return self.orders_client.place_market_order(

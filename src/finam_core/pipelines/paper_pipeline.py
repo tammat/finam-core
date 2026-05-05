@@ -990,12 +990,12 @@ class PaperTradingPipeline:
 
                 print("PIPE_EXIT_HARD_RISK_OK", flush=True)
 
-                if self.execution_mode == "real_dry_run":
+                if self.execution_mode in ("real_dry_run", "real"):
                     real_result = self.real_execution.execute(intent, st)
                     print(
-                        f"PIPE_REAL_DRY_RUN_ACCEPTED symbol={real_result.symbol} "
+                        f"PIPE_REAL_EXECUTION_RESULT mode={self.execution_mode} symbol={real_result.symbol} "
                         f"side={real_result.side} qty={real_result.qty} price={real_result.price} "
-                        f"status={real_result.status} order_id={real_result.order_id}",
+                        f"status={real_result.status} order_id={real_result.order_id} reason={real_result.reason}",
                         flush=True,
                     )
                     return
