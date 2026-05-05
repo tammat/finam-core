@@ -14,6 +14,7 @@ from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
+from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
 from finam_core.notifications.telegram_notifier import TelegramNotifier
@@ -179,6 +180,9 @@ class PaperTradingPipeline:
         self.pm = position_manager
         self.risk = risk
         self.paper = paper
+        # Русский комментарий: единый режим исполнения. real_dry_run не отправляет заявки брокеру.
+        self.execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
+        self.real_execution = RealExecutionEngine(orders_client=None)
         self.fee_tax = FeeTaxModel()
         self.strategy = strategy
         # Русский коммент: единый pre-risk фильтр сигналов. По умолчанию отключён.
@@ -985,6 +989,16 @@ class PaperTradingPipeline:
                     return
 
                 print("PIPE_EXIT_HARD_RISK_OK", flush=True)
+
+                if self.execution_mode == "real_dry_run":
+                    real_result = self.real_execution.execute(intent, st)
+                    print(
+                        f"PIPE_REAL_DRY_RUN_ACCEPTED symbol={real_result.symbol} "
+                        f"side={real_result.side} qty={real_result.qty} price={real_result.price} "
+                        f"status={real_result.status} order_id={real_result.order_id}",
+                        flush=True,
+                    )
+                    return
 
                 raw_fill = self.paper.execute(intent, st)
                 raw_qty = float(getattr(raw_fill, "qty", intent.get("qty", 0.0)) or 0.0)
