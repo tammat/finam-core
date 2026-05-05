@@ -923,6 +923,11 @@ class PaperTradingPipeline:
         )
         if exit_raw_intent is not None:
             raw_intent = exit_raw_intent
+            # Русский комментарий: exit-intent обязан идти на закрытие позиции сразу.
+            # Его нельзя фильтровать как новый вход по MTF/trend/impulse/position guards.
+            raw_intent["intent_type"] = "EXIT"
+            raw_intent["source"] = "ExitEngine"
+            raw_intent.setdefault("features", {})["is_exit"] = True
             print(
                 f"PIPE_EXIT_ENGINE_ROUTE symbol={sym} side={raw_intent.get('side')} "
                 f"qty={raw_intent.get('qty')} reason={raw_intent.get('reason')}",
@@ -1107,17 +1112,19 @@ class PaperTradingPipeline:
             st["_last_logged_vol"] = vol_val
             self._regime_last_log_ts = now_ts
 
+        is_exit_intent = isinstance(raw_intent, dict) and raw_intent.get("intent_type") == "EXIT"
+
         # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
         try:
             atr_pct = abs(regime.atr / price) if price else 0
 
             # === 1. Слабая волатильность → нет сделки
-            if atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
+            if (not is_exit_intent) and atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
                 print("PIPE_VOL_LOW_BLOCK", flush=True)
                 return
 
             # === 2. Слишком высокая вола → шум
-            if atr_pct > 0.03:
+            if (not is_exit_intent) and atr_pct > 0.03:
                 print("PIPE_VOL_HIGH_BLOCK", flush=True)
                 return
 
@@ -1468,7 +1475,7 @@ class PaperTradingPipeline:
         try:
             prev_trend = st.get("prev_trend")
             if prev_trend and prev_trend != regime.trend:
-                if abs(regime.atr / price) < 0.01:
+                if (not is_exit_intent) and abs(regime.atr / price) < 0.01:
                     print("PIPE_TREND_FLIP_BLOCK", flush=True)
                     return
             st["prev_trend"] = regime.trend
@@ -1483,14 +1490,14 @@ class PaperTradingPipeline:
             side = intent.get("side")
 
             # === PRIMARY TREND ALIGNMENT ===
-            if trend == "up" and side != "BUY":
+            if (not is_exit_intent) and trend == "up" and side != "BUY":
                 print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
                 return
             # === EXTRA IMPULSE FILTER ===
-            if abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
+            if (not is_exit_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
                 print("PIPE_NO_IMPULSE_BLOCK", flush=True)
                 return
-            if trend == "down" and side != "SELL":
+            if (not is_exit_intent) and trend == "down" and side != "SELL":
                 print(f"PIPE_TREND_BLOCK expected=SELL actual={side}", flush=True)
                 return
 
@@ -1534,7 +1541,7 @@ class PaperTradingPipeline:
         avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos else 0.0
 
         # === PYRAMIDING (LEVEL 2: add to winners only) ===
-        if current_qty != 0.0:
+        if (not is_exit_intent) and current_qty != 0.0:
             side = intent.get("side")
 
             # позиция должна совпадать по направлению
