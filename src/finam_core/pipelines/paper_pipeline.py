@@ -733,27 +733,10 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
-    def _exit_pending_state_for_symbol(self, symbol: str) -> dict:
-        """Русский комментарий: защита от повторной генерации exit-сигнала до изменения позиции."""
-        states = getattr(self, "_exit_pending_by_symbol", None)
-        if states is None:
-            states = {}
-            self._exit_pending_by_symbol = states
-        if symbol not in states:
-            states[symbol] = {
-                "pending": False,
-                "qty": 0.0,
-                "side": None,
-                "reason": None,
-                "ticks": 0,
-            }
-        return states[symbol]
-
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         qty = self._position_qty_for_symbol(symbol)
         state = self._exit_state_for_symbol(symbol)
-        pending = self._exit_pending_state_for_symbol(symbol)
 
         print(
             f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
@@ -766,36 +749,7 @@ class PaperTradingPipeline:
             state["prev_close"] = float(price)
             state["stop_price"] = None
             state["last_qty"] = 0.0
-            pending["pending"] = False
-            pending["qty"] = 0.0
-            pending["side"] = None
-            pending["reason"] = None
-            pending["ticks"] = 0
             return None
-
-        if bool(pending.get("pending")) and float(pending.get("qty") or 0.0) == abs(float(qty)):
-            pending["ticks"] = int(pending.get("ticks") or 0) + 1
-            print(
-                f"PIPE_EXIT_ENGINE_PENDING symbol={symbol} qty={abs(float(qty))} "
-                f"side={pending.get('side')} reason={pending.get('reason')} ticks={pending['ticks']}",
-                flush=True,
-            )
-
-            if pending["ticks"] < int(os.getenv("EXIT_PENDING_MAX_TICKS", "10")):
-                state["prev_close"] = float(price)
-                return None
-
-            print(
-                f"PIPE_EXIT_ENGINE_PENDING_STALE_CLEAR symbol={symbol} qty={abs(float(qty))} "
-                f"side={pending.get('side')} reason={pending.get('reason')}",
-                flush=True,
-            )
-            pending["pending"] = False
-            pending["qty"] = 0.0
-            pending["side"] = None
-            pending["reason"] = None
-            pending["ticks"] = 0
-
 
         avg_price = self._position_avg_price_for_symbol(symbol)
         if avg_price is None:
@@ -851,12 +805,6 @@ class PaperTradingPipeline:
             f"price={round(float(price), 6)} reason={decision.reason}",
             flush=True,
         )
-
-        pending["pending"] = True
-        pending["qty"] = abs(float(qty))
-        pending["side"] = close_side
-        pending["reason"] = decision.reason
-        pending["ticks"] = 0
 
         return {
             "symbol": symbol,
