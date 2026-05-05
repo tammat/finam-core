@@ -16,6 +16,7 @@ class RealOrderResult:
     status: str
     order_id: str | None = None
     reason: str | None = None
+    raw: dict | None = None
 
 
 class RealExecutionEngine:
@@ -76,9 +77,35 @@ class RealExecutionEngine:
                 reason="orders_client_not_configured",
             )
 
-        return self.orders_client.place_market_order(
+        result = self.orders_client.place_market_order(
             symbol=symbol,
             side=side,
             qty=qty,
             price=price,
+        )
+
+        if isinstance(result, RealOrderResult):
+            return result
+
+        if isinstance(result, dict):
+            return RealOrderResult(
+                symbol=str(result.get("symbol") or symbol),
+                side=str(result.get("side") or side),
+                qty=float(result.get("qty") or qty),
+                price=result.get("price", price),
+                status=str(result.get("status") or "UNKNOWN"),
+                order_id=result.get("order_id"),
+                reason=result.get("reason"),
+                raw=result,
+            )
+
+        return RealOrderResult(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            price=price,
+            status=str(getattr(result, "status", "UNKNOWN")),
+            order_id=getattr(result, "order_id", None),
+            reason=getattr(result, "reason", None),
+            raw={"result_type": type(result).__name__, "result_repr": repr(result)},
         )
