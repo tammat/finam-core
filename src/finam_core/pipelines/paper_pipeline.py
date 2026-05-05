@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
+from finam_core.strategy.exit_engine import ExitEngine
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
@@ -635,6 +636,132 @@ class PaperTradingPipeline:
         }
 
 
+
+    def _exit_engine_for_symbol(self, symbol: str) -> ExitEngine:
+        """Русский комментарий: один ExitEngine на символ, без права отправлять заявки напрямую."""
+        engines = getattr(self, "_exit_engine_by_symbol", None)
+        if engines is None:
+            engines = {}
+            self._exit_engine_by_symbol = engines
+        if symbol not in engines:
+            engines[symbol] = ExitEngine()
+        return engines[symbol]
+
+    def _exit_state_for_symbol(self, symbol: str) -> dict:
+        """Русский комментарий: состояние удержания позиции для ExitEngine."""
+        states = getattr(self, "_exit_state_by_symbol", None)
+        if states is None:
+            states = {}
+            self._exit_state_by_symbol = states
+        if symbol not in states:
+            states[symbol] = {
+                "bars_held": 0,
+                "prev_close": None,
+                "stop_price": None,
+                "last_qty": 0.0,
+            }
+        return states[symbol]
+
+    def _position_qty_for_symbol(self, symbol: str) -> float:
+        """Русский комментарий: безопасно получаем текущий paper qty по символу."""
+        pm = getattr(self, "position_manager", None)
+        if pm is None:
+            return 0.0
+        positions = getattr(pm, "positions", {}) or {}
+        pos = positions.get(symbol)
+        if pos is None:
+            return 0.0
+        return float(getattr(pos, "qty", getattr(pos, "quantity", 0.0)) or 0.0)
+
+    def _position_avg_price_for_symbol(self, symbol: str) -> float | None:
+        """Русский комментарий: безопасно получаем среднюю цену paper-позиции."""
+        pm = getattr(self, "position_manager", None)
+        if pm is None:
+            return None
+        positions = getattr(pm, "positions", {}) or {}
+        pos = positions.get(symbol)
+        if pos is None:
+            return None
+        value = getattr(pos, "avg_price", getattr(pos, "average_price", None))
+        return None if value is None else float(value)
+
+    def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
+        """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
+        qty = self._position_qty_for_symbol(symbol)
+        state = self._exit_state_for_symbol(symbol)
+
+        if qty == 0:
+            state["bars_held"] = 0
+            state["prev_close"] = float(price)
+            state["stop_price"] = None
+            state["last_qty"] = 0.0
+            return None
+
+        avg_price = self._position_avg_price_for_symbol(symbol)
+        if avg_price is None:
+            return None
+
+        if float(state.get("last_qty") or 0.0) == 0.0:
+            state["bars_held"] = 0
+            state["stop_price"] = None
+
+        state["bars_held"] = int(state.get("bars_held") or 0) + 1
+        state["last_qty"] = float(qty)
+
+        side = "BUY" if qty > 0 else "SELL"
+        close_side = "SELL" if qty > 0 else "BUY"
+        effective_atr = float(atr if atr is not None else 0.0)
+
+        if effective_atr <= 0:
+            state["prev_close"] = float(price)
+            return None
+
+        decision = self._exit_engine_for_symbol(symbol).evaluate(
+            side=side,
+            entry_price=float(avg_price),
+            current_price=float(price),
+            atr=effective_atr,
+            bars_held=int(state["bars_held"]),
+            prev_close=state.get("prev_close"),
+            current_stop=state.get("stop_price"),
+        )
+
+        state["prev_close"] = float(price)
+        state["stop_price"] = decision.stop_price
+
+        if not decision.should_exit:
+            print(
+                f"PIPE_EXIT_ENGINE_HOLD symbol={symbol} side={side} qty={abs(qty)} "
+                f"price={round(float(price), 6)} reason={decision.reason} stop={decision.stop_price}",
+                flush=True,
+            )
+            return None
+
+        print(
+            f"PIPE_EXIT_ENGINE_SIGNAL symbol={symbol} close_side={close_side} qty={abs(qty)} "
+            f"price={round(float(price), 6)} reason={decision.reason}",
+            flush=True,
+        )
+
+        return {
+            "symbol": symbol,
+            "side": close_side,
+            "qty": abs(float(qty)),
+            "price": float(price),
+            "source": "exit_engine",
+            "confidence": 1.0,
+            "reason": decision.reason,
+            "features": {
+                "entry": float(avg_price),
+                "exit_price": float(price),
+                "atr": effective_atr,
+                "bars_held": int(state["bars_held"]),
+                "stop": decision.stop_price,
+                "exit_engine": True,
+            },
+        }
+
+
     def _on_quote(self, event: dict):
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
@@ -722,6 +849,23 @@ class PaperTradingPipeline:
         # === FIX CRITICAL (GLOBAL PRICE) ===
 
         curr_price = price
+
+        # =========================================================
+        # === EXIT ENGINE ROUTE (position management)
+        # =========================================================
+        exit_raw_intent = self._build_exit_intent_if_any(
+            sym,
+            curr_price,
+            atr=event.get("atr"),
+        )
+        if exit_raw_intent is not None:
+            raw_intent = exit_raw_intent
+            print(
+                f"PIPE_EXIT_ENGINE_ROUTE symbol={sym} side={raw_intent.get('side')} "
+                f"qty={raw_intent.get('qty')} reason={raw_intent.get('reason')}",
+                flush=True,
+            )
+
 
         # =========================================================
         # === NG STRATEGY ROUTE (gas-specific volatility breakout)
