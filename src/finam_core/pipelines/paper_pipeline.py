@@ -636,6 +636,16 @@ class PaperTradingPipeline:
             else:
                 print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
                 return
+
+        # =========================================================
+        # === PORTFOLIO KILL-SWITCH EARLY GATE ===
+        # =========================================================
+        kill_ok, kill_reason = self._portfolio_kill_switch_allows()
+        if not kill_ok:
+            if self._pipeline_log_throttle_allow("PIPE_PORTFOLIO_KILL_SWITCH_BLOCK", 30):
+                print(f"PIPE_PORTFOLIO_KILL_SWITCH_BLOCK {kill_reason}", flush=True)
+            return
+
         # === FIX CRITICAL (GLOBAL PRICE) ===
 
         curr_price = price
