@@ -42,6 +42,8 @@ class FinamOrdersClient:
             return "FINAM_ACCOUNT_ID_not_set"
         if not self.token:
             return "FINAM_TOKEN_not_set"
+        if self.token.count(".") != 2:
+            return "FINAM_TOKEN_not_jwt"
         if not symbol:
             return "symbol_not_set"
         if side not in ("BUY", "SELL"):
