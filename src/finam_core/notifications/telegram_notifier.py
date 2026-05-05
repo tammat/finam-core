@@ -132,25 +132,17 @@ class TelegramNotifier:
             return
 
         if not self.token or not self.chat_id:
-            print("TELEGRAM NOT CONFIGURED", flush=True)
             return
 
-        # DEBUG (один раз покажем конфиг)
-        if not hasattr(self, "_debug_printed"):
-            print(f"TELEGRAM CONFIG → enabled={self.enabled} token_set={bool(self.token)} chat_set={bool(self.chat_id)} proxy={self.proxy}", flush=True)
-            self._debug_printed = True
-
-        # анти-дубль + rate limit
-        if not self._should_send(text):
+        # Русский комментарий: если задан TG_PROXY, direct-send не пробуем, чтобы не шуметь ошибками.
+        if self.proxy:
+            try:
+                self._send_proxy(text)
+            except Exception as e:
+                LOG.error(f"TELEGRAM PROXY EXCEPTION: {e}")
             return
 
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text,
-        }
-
-        # очередь
-        self._queue.append(payload)
-
-        # отправка
-        self._flush_queue()
+        try:
+            self._send_direct(text)
+        except Exception as e:
+            LOG.error(f"TELEGRAM DIRECT EXCEPTION: {e}")
