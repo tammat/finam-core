@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
@@ -578,6 +579,62 @@ class PaperTradingPipeline:
             LOG.warning("PIPE_TELEGRAM_NOTIFY_FAILED error=%s", exc)
 
 
+
+    def _is_ng_symbol(self, symbol: str) -> bool:
+        """Русский комментарий: отдельный маршрут для газовых фьючерсов NG."""
+        return str(symbol or "").upper().startswith("NG")
+
+    def _ng_strategy_for_symbol(self, symbol: str) -> NgVolatilityBreakout:
+        """Русский комментарий: stateful NG-стратегия на каждый газовый контракт."""
+        strategies = getattr(self, "_ng_strategy_by_symbol", None)
+        if strategies is None:
+            strategies = {}
+            self._ng_strategy_by_symbol = strategies
+        if symbol not in strategies:
+            strategies[symbol] = NgVolatilityBreakout(symbol=symbol)
+        return strategies[symbol]
+
+    def _ng_bar_buffer_for_symbol(self, symbol: str) -> list[dict]:
+        """Русский комментарий: буфер synthetic bars для NG strategy."""
+        buffers = getattr(self, "_ng_bar_buffer_by_symbol", None)
+        if buffers is None:
+            buffers = {}
+            self._ng_bar_buffer_by_symbol = buffers
+        if symbol not in buffers:
+            buffers[symbol] = []
+        return buffers[symbol]
+
+    def _append_ng_bar(self, symbol: str, price: float, high=None, low=None) -> None:
+        """Русский комментарий: добавляет бар в NG-буфер."""
+        px = float(price)
+        buf = self._ng_bar_buffer_for_symbol(symbol)
+        buf.append({
+            "open": px,
+            "high": float(high if high is not None else px),
+            "low": float(low if low is not None else px),
+            "close": px,
+        })
+        if len(buf) > 500:
+            del buf[:-500]
+
+    def _build_ng_intent_if_any(self, symbol: str, price: float, high=None, low=None) -> dict | None:
+        """Русский комментарий: строит raw_intent для NG volatility breakout."""
+        self._append_ng_bar(symbol, price, high=high, low=low)
+        sig = self._ng_strategy_for_symbol(symbol).on_bars(self._ng_bar_buffer_for_symbol(symbol))
+        if sig is None:
+            return None
+        return {
+            "symbol": sig.symbol,
+            "side": sig.side,
+            "qty": sig.qty,
+            "price": sig.price,
+            "source": "ng_volatility_breakout",
+            "confidence": 1.0,
+            "reason": sig.reason,
+            "features": dict(sig.features or {}),
+        }
+
+
     def _on_quote(self, event: dict):
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
@@ -665,6 +722,25 @@ class PaperTradingPipeline:
         # === FIX CRITICAL (GLOBAL PRICE) ===
 
         curr_price = price
+
+        # =========================================================
+        # === NG STRATEGY ROUTE (gas-specific volatility breakout)
+        # =========================================================
+        if self._is_ng_symbol(sym):
+            raw_intent = self._build_ng_intent_if_any(
+                sym,
+                curr_price,
+                high=event.get("high"),
+                low=event.get("low"),
+            )
+            if raw_intent is None:
+                return
+            print(
+                f"PIPE_NG_SIGNAL side={raw_intent.get('side')} "
+                f"price={raw_intent.get('price')} reason={raw_intent.get('reason')}",
+                flush=True,
+            )
+
         # === SIMULATION MOVE (CRITICAL) ===
         if os.getenv("SIMULATE_MARKET", "0") == "1":
             import random
