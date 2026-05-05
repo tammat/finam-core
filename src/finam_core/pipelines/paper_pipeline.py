@@ -696,6 +696,12 @@ class PaperTradingPipeline:
         qty = self._position_qty_for_symbol(symbol)
         state = self._exit_state_for_symbol(symbol)
 
+        print(
+            f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
+            f"price={round(float(price), 6)} atr_in={atr}",
+            flush=True,
+        )
+
         if qty == 0:
             state["bars_held"] = 0
             state["prev_close"] = float(price)
@@ -705,6 +711,11 @@ class PaperTradingPipeline:
 
         avg_price = self._position_avg_price_for_symbol(symbol)
         if avg_price is None:
+            print(
+                f"PIPE_EXIT_ENGINE_NO_AVG symbol={symbol} qty={qty} "
+                f"price={round(float(price), 6)}",
+                flush=True,
+            )
             return None
 
         if float(state.get("last_qty") or 0.0) == 0.0:
