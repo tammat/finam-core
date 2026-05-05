@@ -10,7 +10,7 @@ import logging
 import os
 import time
 from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
-from finam_core.strategy.exit_engine import ExitEngine
+from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
@@ -196,6 +196,10 @@ class PaperTradingPipeline:
         self._last_quote_log_ts = 0.0
         self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
         self.trailing_exit = TrailingExitEngine()
+        # Русский комментарий: state machine не задерживает выход, а только подавляет дубли exit-заявок.
+        self.exit_state_machine = ExitStateMachine(
+            ttl_sec=float(os.getenv("EXIT_STATE_TTL_SEC", "30"))
+        )
         self._cooldown_until = {}
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
@@ -799,6 +803,24 @@ class PaperTradingPipeline:
                 flush=True,
             )
             return None
+
+        try:
+            self.exit_state_machine.on_position(symbol, float(qty))
+            allowed, sm_reason = self.exit_state_machine.allow_request(
+                symbol=symbol,
+                side=close_side,
+                qty=abs(float(qty)),
+                reason=str(decision.reason),
+            )
+            if not allowed:
+                print(
+                    f"PIPE_EXIT_ENGINE_DUPLICATE_BLOCK symbol={symbol} side={close_side} "
+                    f"qty={abs(float(qty))} reason={decision.reason} sm_reason={sm_reason}",
+                    flush=True,
+                )
+                return None
+        except Exception as exc:
+            print(f"PIPE_EXIT_ENGINE_SM_ERROR symbol={symbol} error={exc}", flush=True)
 
         print(
             f"PIPE_EXIT_ENGINE_SIGNAL symbol={symbol} close_side={close_side} qty={abs(qty)} "
