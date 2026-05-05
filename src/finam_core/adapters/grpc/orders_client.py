@@ -95,7 +95,7 @@ class FinamOrdersClient:
             quantity=decimal_pb2.Decimal(value=str(int(qty))),
             side=self._side_value(side),
             type=orders_service_pb2.ORDER_TYPE_MARKET,
-            client_order_id=f"finam_core_{symbol}_{side}_{int(qty)}",
+            client_order_id=f"fc{int(__import__('time').time() * 1000) % 100000000000000000}",
             comment="finam_core_real_execution",
         )
 
