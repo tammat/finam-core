@@ -987,122 +987,15 @@ class PaperTradingPipeline:
             pass
 
         # =========================================================
-        # === EXIT BLOCK (SL/TP / TRAILING)
+        # === LEGACY EXIT BLOCK DISABLED ===
         # =========================================================
-        try:
-            pos = self.pm.positions.get(sym)
-            qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
-            avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos else 0.0
-        except Exception:
-            qty_now = 0.0
-            avg_now = 0.0
+        # Русский комментарий: старый SL/TP exit отключён.
+        # Выход теперь строится через _build_exit_intent_if_any() выше и далее идёт
+        # через общий путь: SignalRouter -> Risk -> PaperExecution -> FILL -> PositionManager.
+        # Здесь нельзя делать return, иначе ExitEngine будет генерировать route без fill.
+        qty_now = 0.0
+        avg_now = 0.0
 
-        if qty_now != 0.0:
-            exit_decision = self.exit_engine.evaluate(sym, qty_now, avg_now, price)
-            if exit_decision.should_exit:
-                exit_intent = {
-                    "symbol": sym,
-                    "side": exit_decision.side,
-                    "qty": exit_decision.qty,
-                    "reason": exit_decision.reason,
-                }
-
-                if os.getenv("ENABLE_LEGACY_SLTP_EXIT", "0") != "1":
-                    print(f"PIPE_LEGACY_SLTP_DISABLED symbol={sym}", flush=True)
-                    return
-                print(f"PIPE_EXIT reason={exit_decision.reason}", flush=True)
-                self._notify_telegram_event(
-                    f"🚪 EXIT {sym}\n"
-                    f"reason={exit_decision.reason}\n"
-                    f"side={exit_decision.side} qty={exit_decision.qty} price={price}"
-                )
-                try:
-                    print(
-                        f"PIPE_EXIT_DETAIL symbol={sym} side={exit_decision.side} "
-                        f"qty={exit_decision.qty} price={price} "
-                        f"avg_price={avg_now}",
-                        flush=True,
-                    )
-                except Exception:
-                    pass
-
-                raw_fill = self.paper.execute(exit_intent, st)
-
-                # === CONVERT TO ExecutionFill (NO RAW PaperFill IN BUS) ===
-                raw_qty = float(getattr(raw_fill, "qty", exit_intent.get("qty", 0.0)) or 0.0)
-                side = "SELL" if raw_qty < 0 else "BUY"
-                exec_price = float(getattr(raw_fill, "price", st.get("last") or 0.0))
-
-                commission = 0.0
-                if hasattr(self.fee_tax, "commission"):
-                    commission = self.fee_tax.commission(
-                        symbol=exit_intent.get("symbol"),
-                        qty=abs(raw_qty),
-                        price=exec_price
-                    )
-
-                fill = ExecutionFill(
-                    symbol=exit_intent.get("symbol"),
-                    side=side,
-                    qty=abs(raw_qty),
-                    price=exec_price,
-                    commission=commission,
-                    fill_id=getattr(raw_fill, "fill_id", None),
-                )
-
-                self.bus.publish({"type": "FILL", "fill": fill})
-                try:
-                    pnl = 0.0
-                    if avg_now > 0:
-                        if fill.side == "SELL":
-                            pnl = (fill.price - avg_now) * fill.qty
-                        else:
-                            pnl = (avg_now - fill.price) * fill.qty
-
-                    stats = self._update_portfolio_stats(sym, pnl)
-                    cumulative_pnl = float(stats.get("realized_pnl_total", 0.0) or 0.0)
-                    max_drawdown = float(stats.get("max_drawdown", 0.0) or 0.0)
-
-                    print(
-                        f"PIPE_PNL symbol={sym} realized={round(pnl, 4)}",
-                        flush=True,
-                    )
-                    print(
-                        f"PIPE_PORTFOLIO_PNL realized_total={round(cumulative_pnl, 4)} "
-                        f"max_drawdown={round(max_drawdown, 4)}",
-                        flush=True,
-                    )
-                    self._notify_telegram_event(
-                        f"💰 PnL {sym}\n"
-                        f"realized={round(pnl, 4)}\n"
-                        f"portfolio={round(cumulative_pnl, 4)}\n"
-                        f"max_dd={round(max_drawdown, 4)}\n"
-                        f"reason={exit_decision.reason}"
-                    )
-
-                    self._log_portfolio_pnl_to_postgres(
-                        symbol=sym,
-                        realized_pnl=pnl,
-                        cumulative_pnl=cumulative_pnl,
-                        max_drawdown=max_drawdown,
-                        reason=str(exit_decision.reason),
-                        fill=fill,
-                        extra={
-                            "avg_price": avg_now,
-                            "exit_price": fill.price,
-                            "qty_before_exit": qty_now,
-                        },
-                    )
-                except Exception as exc:
-                    LOG.warning("PIPE_PNL_UPDATE_FAILED symbol=%s error=%s", sym, exc)
-                self.exit_engine.mark_exit(sym)
-                # === LOSS COOLDOWN (LEVEL 2) ===
-                try:
-                    if "stop_loss" in exit_decision.reason:
-                        self._cooldown_until[sym] = time.time() + 180  # 1 мин пауза
-                except Exception:
-                    pass
-                return
         # === PROFIT PROTECTION (BREAK-EVEN + TRAILING) ===
         try:
             if avg_now > 0:
