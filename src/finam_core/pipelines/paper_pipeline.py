@@ -662,28 +662,69 @@ class PaperTradingPipeline:
             }
         return states[symbol]
 
+
+    def _get_position_manager_for_exit(self):
+        """Русский комментарий: ищем PositionManager по всем используемым в проекте именам."""
+        for attr in ("position_manager", "pm", "_position_manager", "_pm"):
+            value = getattr(self, attr, None)
+            if value is not None and hasattr(value, "positions"):
+                return value
+
+        portfolio = getattr(self, "portfolio_manager", None)
+        if portfolio is not None:
+            value = getattr(portfolio, "position_manager", None)
+            if value is not None and hasattr(value, "positions"):
+                return value
+
+        return None
+
     def _position_qty_for_symbol(self, symbol: str) -> float:
         """Русский комментарий: безопасно получаем текущий paper qty по символу."""
-        pm = getattr(self, "position_manager", None)
+        pm = self._get_position_manager_for_exit()
         if pm is None:
+            print(f"PIPE_EXIT_ENGINE_NO_PM symbol={symbol}", flush=True)
             return 0.0
+
         positions = getattr(pm, "positions", {}) or {}
         pos = positions.get(symbol)
         if pos is None:
             return 0.0
-        return float(getattr(pos, "qty", getattr(pos, "quantity", 0.0)) or 0.0)
+
+        for field in ("qty", "quantity", "net_qty", "size", "position"):
+            value = getattr(pos, field, None)
+            if value is not None:
+                return float(value or 0.0)
+
+        print(
+            f"PIPE_EXIT_ENGINE_NO_QTY_FIELD symbol={symbol} "
+            f"pos_type={type(pos).__name__} fields={list(vars(pos).keys())}",
+            flush=True,
+        )
+        return 0.0
+
 
     def _position_avg_price_for_symbol(self, symbol: str) -> float | None:
         """Русский комментарий: безопасно получаем среднюю цену paper-позиции."""
-        pm = getattr(self, "position_manager", None)
+        pm = self._get_position_manager_for_exit()
         if pm is None:
             return None
+
         positions = getattr(pm, "positions", {}) or {}
         pos = positions.get(symbol)
         if pos is None:
             return None
-        value = getattr(pos, "avg_price", getattr(pos, "average_price", None))
-        return None if value is None else float(value)
+
+        for field in ("avg_price", "average_price", "entry_price", "price"):
+            value = getattr(pos, field, None)
+            if value is not None:
+                return float(value)
+
+        print(
+            f"PIPE_EXIT_ENGINE_NO_AVG_FIELD symbol={symbol} "
+            f"pos_type={type(pos).__name__} fields={list(vars(pos).keys())}",
+            flush=True,
+        )
+        return None
 
 
     def _exit_fallback_atr(self, symbol: str, price: float) -> float:
