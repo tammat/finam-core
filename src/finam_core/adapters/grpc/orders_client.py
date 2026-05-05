@@ -102,19 +102,9 @@ class FinamOrdersClient:
         price: float | None,
     ) -> FinamOrderResult:
         """Русский комментарий: реальная отправка market order через gRPC Orders API."""
-        request = self._build_market_order_request(symbol, side, qty)
+        order = self._build_market_order(symbol=symbol, side=side, qty=qty)
         stub = self._stub_for_orders()
-
-        method = None
-        for method_name in ("NewOrder", "PlaceOrder", "CreateOrder"):
-            if hasattr(stub, method_name):
-                method = getattr(stub, method_name)
-                break
-
-        if method is None:
-            raise RuntimeError("orders_place_method_not_found")
-
-        response = method(request, metadata=self._metadata())
+        response = stub.PlaceOrder(order, metadata=self._metadata())
 
         order_id = (
             getattr(response, "transaction_id", None)
