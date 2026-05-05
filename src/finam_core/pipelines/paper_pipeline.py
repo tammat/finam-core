@@ -220,6 +220,9 @@ class PaperTradingPipeline:
         self.symbol_drawdown_guard = SymbolDrawdownGuard()
         self.symbol_loss_streak_guard = SymbolLossStreakGuard()
         self.portfolio_guard = PortfolioGuard()
+
+        # Русский комментарий: после рестарта восстанавливаем PnL-состояние для kill-switch.
+        self._restore_portfolio_stats_from_postgres()
         # === REGIME CONFIG (единая точка управления) ===
         self.regime_enabled = os.getenv("REGIME_ENABLE", "1") == "1"
 
@@ -451,6 +454,45 @@ class PaperTradingPipeline:
         password = os.getenv("PGPASSWORD", "finam")
 
         return f"host={host} port={port} dbname={db} user={user} password={password}"
+
+
+    def _restore_portfolio_stats_from_postgres(self) -> None:
+        """Русский комментарий: восстанавливает cumulative PnL/max drawdown из PostgreSQL после рестарта."""
+        try:
+            import psycopg2
+
+            with psycopg2.connect(self._postgres_dsn_for_pnl()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT cumulative_pnl, max_drawdown
+                        FROM portfolio_pnl_events
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
+                    )
+                    row = cur.fetchone()
+
+            if not row:
+                return
+
+            cumulative_pnl = float(row[0] or 0.0)
+            max_drawdown = float(row[1] or 0.0)
+
+            state = self._portfolio_stats_state()
+            state["realized_pnl_total"] = cumulative_pnl
+            state["equity_peak"] = max(cumulative_pnl, 0.0)
+            state["max_drawdown"] = max_drawdown
+
+            print(
+                f"PIPE_PORTFOLIO_STATE_RESTORED cumulative_pnl={round(cumulative_pnl, 4)} "
+                f"max_drawdown={round(max_drawdown, 4)}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            LOG.warning("PIPE_PORTFOLIO_STATE_RESTORE_FAILED error=%s", exc)
+
 
     def _log_portfolio_pnl_to_postgres(
         self,
