@@ -685,6 +685,12 @@ class PaperTradingPipeline:
         value = getattr(pos, "avg_price", getattr(pos, "average_price", None))
         return None if value is None else float(value)
 
+
+    def _exit_fallback_atr(self, symbol: str, price: float) -> float:
+        """Русский комментарий: fallback ATR для live quote events без поля atr."""
+        pct = float(os.getenv("EXIT_FALLBACK_ATR_PCT", "0.003"))
+        return abs(float(price)) * pct
+
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         qty = self._position_qty_for_symbol(symbol)
@@ -713,8 +719,12 @@ class PaperTradingPipeline:
         effective_atr = float(atr if atr is not None else 0.0)
 
         if effective_atr <= 0:
-            state["prev_close"] = float(price)
-            return None
+            effective_atr = self._exit_fallback_atr(symbol, price)
+            print(
+                f"PIPE_EXIT_ENGINE_ATR_FALLBACK symbol={symbol} atr={round(effective_atr, 6)} "
+                f"price={round(float(price), 6)}",
+                flush=True,
+            )
 
         decision = self._exit_engine_for_symbol(symbol).evaluate(
             side=side,
