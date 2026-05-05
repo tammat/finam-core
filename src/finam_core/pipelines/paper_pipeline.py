@@ -753,6 +753,10 @@ class PaperTradingPipeline:
             state["prev_close"] = float(price)
             state["stop_price"] = None
             state["last_qty"] = 0.0
+            try:
+                self.exit_state_machine.on_position(symbol, 0.0)
+            except Exception:
+                pass
             return None
 
         avg_price = self._position_avg_price_for_symbol(symbol)
@@ -1011,6 +1015,18 @@ class PaperTradingPipeline:
                     f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
                     flush=True,
                 )
+
+                try:
+                    self.exit_state_machine.on_fill(str(intent.get("symbol") or ""))
+                    pos_after = self.pm.positions.get(str(intent.get("symbol") or ""))
+                    qty_after = float(getattr(pos_after, "qty", 0.0) or 0.0) if pos_after else 0.0
+                    self.exit_state_machine.on_position(str(intent.get("symbol") or ""), qty_after)
+                    print(
+                        f"PIPE_EXIT_ENGINE_SM_FILLED symbol={intent.get('symbol')} qty_after={qty_after}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(f"PIPE_EXIT_ENGINE_SM_FILL_ERROR symbol={intent.get('symbol')} error={exc}", flush=True)
 
                 return
             except Exception as exc:
