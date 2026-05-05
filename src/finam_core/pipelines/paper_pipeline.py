@@ -1041,6 +1041,9 @@ class PaperTradingPipeline:
                     "reason": exit_decision.reason,
                 }
 
+                if os.getenv("ENABLE_LEGACY_SLTP_EXIT", "0") != "1":
+                    print(f"PIPE_LEGACY_SLTP_DISABLED symbol={sym}", flush=True)
+                    return
                 print(f"PIPE_EXIT reason={exit_decision.reason}", flush=True)
                 self._notify_telegram_event(
                     f"🚪 EXIT {sym}\n"
@@ -2199,6 +2202,15 @@ class PaperTradingPipeline:
             )
         except Exception as e:
             LOG.debug("PM_CTX DIAG ERROR: %s", e)
+
+        fill_price = float(getattr(fill, "price", 0.0) or 0.0)
+        if fill_price <= 0:
+            print(
+                f"PIPE_EXEC_REJECT_INVALID_PRICE symbol={getattr(fill, 'symbol', None)} "
+                f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)} price={fill_price}",
+                flush=True,
+            )
+            return
 
         print(
             f"PIPE_FILLED paper {getattr(fill, 'symbol', None)} "
