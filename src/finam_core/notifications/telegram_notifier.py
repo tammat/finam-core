@@ -128,6 +128,9 @@ class TelegramNotifier:
     # =========================
 
     def send(self, text: str) -> None:
+        if text is None or not str(text).strip():
+            return
+
         if not self.enabled:
             return
 
