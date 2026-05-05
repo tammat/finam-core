@@ -14,15 +14,16 @@ price = 3.0
 for i in range(30):
     bars.append({
         "open": price,
-        "high": price + 0.02,
-        "low": price - 0.02,
+        "high": price + 0.05,
+        "low": price - 0.05,
         "close": price,
     })
 
+# Русский комментарий: обычный пробой без режима "нож".
 bars.append({
-    "open": 3.0,
+    "open": 3.04,
     "high": 3.12,
-    "low": 2.99,
+    "low": 3.06,
     "close": 3.12,
 })
 
