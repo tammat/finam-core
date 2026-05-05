@@ -934,6 +934,67 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+            # Русский комментарий: hard-close route для ExitEngine.
+            # Закрытие позиции не должно проходить через entry-фильтры MTF/trend/impulse/position guard.
+            try:
+                intent = dict(raw_intent)
+                if intent.get("price") is None:
+                    px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask") or price
+                    intent["price"] = float(px)
+
+                ctx = build_risk_context(intent, self.portfolio, st)
+                print(
+                    f"PIPE_EXIT_HARD_RISK_CTX symbol={ctx.symbol} qty={ctx.qty} price={ctx.price} "
+                    f"value={ctx.trade_value} exposure={ctx.total_exposure}",
+                    flush=True,
+                )
+
+                decision = self.risk.evaluate(signal=intent, context=ctx)
+                if not getattr(decision, "allowed", False):
+                    print(
+                        f"PIPE_EXIT_HARD_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
+                        f"value={ctx.trade_value} exposure={ctx.total_exposure}",
+                        flush=True,
+                    )
+                    return
+
+                print("PIPE_EXIT_HARD_RISK_OK", flush=True)
+
+                raw_fill = self.paper.execute(intent, st)
+                raw_qty = float(getattr(raw_fill, "qty", intent.get("qty", 0.0)) or 0.0)
+                fill_side = "SELL" if raw_qty < 0 else "BUY"
+                exec_price = float(getattr(raw_fill, "price", intent.get("price") or st.get("last") or price) or 0.0)
+
+                commission = 0.0
+                if hasattr(self.fee_tax, "commission"):
+                    commission = self.fee_tax.commission(
+                        symbol=intent.get("symbol"),
+                        qty=abs(raw_qty),
+                        price=exec_price,
+                    )
+
+                fill = ExecutionFill(
+                    symbol=intent.get("symbol"),
+                    side=fill_side,
+                    qty=abs(raw_qty),
+                    price=exec_price,
+                    commission=commission,
+                    fill_id=getattr(raw_fill, "fill_id", None),
+                )
+
+                self.bus.publish({"type": "FILL", "fill": fill})
+                print(
+                    f"PIPE_FILLED paper {getattr(fill, 'symbol', None)} "
+                    f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)} "
+                    f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
+                    flush=True,
+                )
+
+                return
+            except Exception as exc:
+                print(f"PIPE_EXIT_HARD_EXEC_ERROR {exc}", flush=True)
+                return
+
 
         # =========================================================
         # === NG STRATEGY ROUTE (gas-specific volatility breakout)
