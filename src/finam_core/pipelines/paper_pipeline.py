@@ -565,6 +565,19 @@ class PaperTradingPipeline:
             LOG.warning("PIPE_PORTFOLIO_PNL_LOG_FAILED symbol=%s error=%s", symbol, exc)
 
 
+
+    def _notify_telegram_event(self, text: str) -> None:
+        """Русский комментарий: безопасная отправка Telegram-уведомления без влияния на торговый цикл."""
+        try:
+            notifier = getattr(self, "notifier", None)
+            if notifier is None:
+                return
+            if hasattr(notifier, "send"):
+                notifier.send(text)
+        except Exception as exc:
+            LOG.warning("PIPE_TELEGRAM_NOTIFY_FAILED error=%s", exc)
+
+
     def _on_quote(self, event: dict):
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
@@ -610,7 +623,9 @@ class PaperTradingPipeline:
         kill_ok, kill_reason = self._portfolio_kill_switch_allows()
         if not kill_ok:
             if self._pipeline_log_throttle_allow("PIPE_PORTFOLIO_KILL_SWITCH_BLOCK", 30):
-                print(f"PIPE_PORTFOLIO_KILL_SWITCH_BLOCK {kill_reason}", flush=True)
+                msg = f"PIPE_PORTFOLIO_KILL_SWITCH_BLOCK {kill_reason}"
+                print(msg, flush=True)
+                self._notify_telegram_event(f"🛑 Portfolio kill-switch\n{kill_reason}")
             return
 
         # =========================================================
@@ -710,6 +725,11 @@ class PaperTradingPipeline:
                 }
 
                 print(f"PIPE_EXIT reason={exit_decision.reason}", flush=True)
+                self._notify_telegram_event(
+                    f"🚪 EXIT {sym}\n"
+                    f"reason={exit_decision.reason}\n"
+                    f"side={exit_decision.side} qty={exit_decision.qty} price={price}"
+                )
                 try:
                     print(
                         f"PIPE_EXIT_DETAIL symbol={sym} side={exit_decision.side} "
@@ -765,6 +785,13 @@ class PaperTradingPipeline:
                         f"PIPE_PORTFOLIO_PNL realized_total={round(cumulative_pnl, 4)} "
                         f"max_drawdown={round(max_drawdown, 4)}",
                         flush=True,
+                    )
+                    self._notify_telegram_event(
+                        f"💰 PnL {sym}\n"
+                        f"realized={round(pnl, 4)}\n"
+                        f"portfolio={round(cumulative_pnl, 4)}\n"
+                        f"max_dd={round(max_drawdown, 4)}\n"
+                        f"reason={exit_decision.reason}"
                     )
 
                     self._log_portfolio_pnl_to_postgres(
@@ -1861,6 +1888,12 @@ class PaperTradingPipeline:
             f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)} "
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
+        )
+        self._notify_telegram_event(
+            f"✅ FILL {getattr(fill, 'symbol', None)}\n"
+            f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)}\n"
+            f"price={getattr(fill, 'price', None)}\n"
+            f"id={getattr(fill, 'fill_id', None)}"
         )
         self._mark_anti_reentry_entry(
             str(getattr(fill, "symbol", None) or intent.get("symbol") or ""),
