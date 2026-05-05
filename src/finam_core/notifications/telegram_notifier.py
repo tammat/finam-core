@@ -45,7 +45,20 @@ class TelegramNotifier:
     # LOW LEVEL SEND
     # =========================
 
+    def _is_empty_text(self, text) -> bool:
+        """Русский комментарий: защита от пустых Telegram-сообщений на любом уровне отправки."""
+        return text is None or not str(text).strip()
+    def _is_empty_payload(self, payload: dict) -> bool:
+        """Русский комментарий: защита от пустого поля text в payload Telegram."""
+        if not isinstance(payload, dict):
+            return True
+        return self._is_empty_text(payload.get("text"))
+
+
     def _send_direct(self, payload: dict) -> bool:
+        if self._is_empty_payload(payload):
+            return True
+
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
 
         try:
@@ -60,6 +73,9 @@ class TelegramNotifier:
             return False
 
     def _send_proxy(self, payload: dict) -> bool:
+        if self._is_empty_payload(payload):
+            return True
+
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
 
         try:
@@ -127,8 +143,9 @@ class TelegramNotifier:
     # PUBLIC API
     # =========================
 
+    
     def send(self, text: str) -> None:
-        if text is None or not str(text).strip():
+        if self._is_empty_text(text):
             return
 
         if not self.enabled:
@@ -137,15 +154,25 @@ class TelegramNotifier:
         if not self.token or not self.chat_id:
             return
 
-        # Русский комментарий: если задан TG_PROXY, direct-send не пробуем, чтобы не шуметь ошибками.
-        if self.proxy:
-            try:
-                self._send_proxy(text)
-            except Exception as e:
-                LOG.error(f"TELEGRAM PROXY EXCEPTION: {e}")
+        if not self._should_send(text):
             return
 
-        try:
-            self._send_direct(text)
-        except Exception as e:
-            LOG.error(f"TELEGRAM DIRECT EXCEPTION: {e}")
+        payload = {
+            "chat_id": self.chat_id,
+            "text": str(text).strip(),
+        }
+
+        # Русский комментарий: если задан TG_PROXY, direct-send не пробуем
+        if self.proxy:
+            ok = self._send_proxy(payload)
+            if ok:
+                print("TELEGRAM SEND OK", flush=True)
+            else:
+                LOG.error("TELEGRAM DROP: message lost after proxy send")
+            return
+
+        ok = self._send_direct(payload)
+        if ok:
+            print("TELEGRAM SEND OK", flush=True)
+        else:
+            LOG.error("TELEGRAM DROP: message lost after direct send")
