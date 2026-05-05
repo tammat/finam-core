@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from finam_core.auth.token_manager import FinamTokenManager
 from typing import Any
 
 import grpc
@@ -33,6 +34,7 @@ class FinamOrdersClient:
     def __init__(self) -> None:
         self.account_id = os.getenv("FINAM_ACCOUNT_ID", "").strip()
         self.token = os.getenv("FINAM_TOKEN", "").strip()
+        self.token_manager = FinamTokenManager()
         self.endpoint = os.getenv("FINAM_GRPC_ENDPOINT", "api.finam.ru:443").strip()
         self._channel: Any | None = None
         self._stub: Any | None = None
@@ -40,6 +42,7 @@ class FinamOrdersClient:
     def _validate(self, symbol: str, side: str, qty: float) -> str | None:
         if not self.account_id:
             return "FINAM_ACCOUNT_ID_not_set"
+        self.token = self.token_manager.get_token()
         if not self.token:
             return "FINAM_TOKEN_not_set"
         if self.token.count(".") != 2:
