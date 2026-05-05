@@ -87,3 +87,76 @@ class ExitEngine:
             return ExitDecision(False, "hold_short", stop)
 
         return ExitDecision(False, "unknown_side", current_stop)
+
+# =========================================================
+# === EXIT STATE MACHINE / NO DUPLICATE EXIT REQUESTS
+# =========================================================
+
+from dataclasses import dataclass, field
+import time
+
+
+@dataclass
+class ExitOrderState:
+    """Русский комментарий: состояние exit-заявки по одному инструменту."""
+    symbol: str
+    position_qty: float = 0.0
+    requested_side: str | None = None
+    requested_qty: float = 0.0
+    reason: str | None = None
+    status: str = "IDLE"  # IDLE -> REQUESTED -> FILLED
+    requested_at: float = 0.0
+    ttl_sec: float = 30.0
+
+    def active(self, now: float | None = None) -> bool:
+        now = time.time() if now is None else now
+        return self.status == "REQUESTED" and (now - self.requested_at) <= self.ttl_sec
+
+
+@dataclass
+class ExitStateMachine:
+    """Русский комментарий: первый exit разрешается сразу, TTL гасит только дубли."""
+    ttl_sec: float = 30.0
+    states: dict[str, ExitOrderState] = field(default_factory=dict)
+
+    def state_for(self, symbol: str) -> ExitOrderState:
+        if symbol not in self.states:
+            self.states[symbol] = ExitOrderState(symbol=symbol, ttl_sec=self.ttl_sec)
+        return self.states[symbol]
+
+    def on_position(self, symbol: str, qty: float) -> None:
+        st = self.state_for(symbol)
+        qty = float(qty or 0.0)
+        if qty == 0.0 or abs(st.position_qty - qty) > 1e-9:
+            st.status = "IDLE"
+            st.requested_side = None
+            st.requested_qty = 0.0
+            st.reason = None
+            st.requested_at = 0.0
+        st.position_qty = qty
+
+    def allow_request(self, symbol: str, side: str, qty: float, reason: str) -> tuple[bool, str]:
+        st = self.state_for(symbol)
+        now = time.time()
+
+        if st.status == "REQUESTED" and not st.active(now):
+            st.status = "IDLE"
+
+        same = (
+            st.requested_side == side
+            and abs(float(st.requested_qty or 0.0) - float(qty or 0.0)) <= 1e-9
+            and st.reason == reason
+        )
+
+        if st.active(now) and same:
+            return False, "duplicate_exit_request_active"
+
+        st.status = "REQUESTED"
+        st.requested_side = side
+        st.requested_qty = float(qty or 0.0)
+        st.reason = reason
+        st.requested_at = now
+        return True, "exit_request_allowed"
+
+    def on_fill(self, symbol: str) -> None:
+        self.state_for(symbol).status = "FILLED"
