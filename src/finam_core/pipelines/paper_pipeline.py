@@ -712,6 +712,9 @@ class PaperTradingPipeline:
 
     def _local_position_qty_for_hard_gate(self, symbol: str) -> float:
         """Русский комментарий: безопасно получает локальное количество позиции для broker hard-gate."""
+        if os.getenv("BROKER_POSITION_HARD_GATE_USE_BROKER_AS_LOCAL", "0") == "1":
+            return float((getattr(self, "_broker_position_qty_by_symbol", {}) or {}).get(symbol, 0.0) or 0.0)
+
         try:
             qty = self._position_qty_for_symbol(symbol)
             return float(qty or 0.0)
@@ -1184,7 +1187,9 @@ class PaperTradingPipeline:
 
         qty = self._position_qty_for_symbol(symbol)
         broker_qty = float(getattr(self, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
-        if abs(broker_qty) > 1e-9:
+
+        # Русский комментарий: broker snapshot не должен автоматически превращаться в paper-позицию.
+        if os.getenv("ENABLE_BROKER_POSITION_APPLY_TO_PM", "0") == "1" and abs(broker_qty) > 1e-9:
             prev_broker_qty = float(
                 state.get("last_broker_qty_logged", 0.0) or 0.0
             )
@@ -1193,7 +1198,7 @@ class PaperTradingPipeline:
 
             if abs(prev_broker_qty - broker_qty) > 1e-9:
                 print(
-                    f"PIPE_BROKER_POSITION_APPLIED symbol={symbol} broker_qty={broker_qty}",
+                    f"PIPE_BROKER_POSITION_APPLIED symbol={symbol}",
                     flush=True,
                 )
                 state["last_broker_qty_logged"] = broker_qty
