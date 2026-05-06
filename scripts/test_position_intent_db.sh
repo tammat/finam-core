@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export DATABASE_URL="${DATABASE_URL:-dbname=finam user=alex host=localhost}"
+: "${DATABASE_URL:?DATABASE_URL is required}"
+export DATABASE_URL
 
 psql "$DATABASE_URL" -f scripts/create_position_intents.sql
 

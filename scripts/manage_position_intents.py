@@ -15,7 +15,10 @@ VALID = {"intraday", "swing", "long_term"}
 
 
 def conn():
-    return psycopg2.connect(os.getenv("DATABASE_URL", "dbname=finam user=alex host=localhost"))
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable is required")
+    return psycopg2.connect(database_url)
 
 
 def flags(horizon: str):
