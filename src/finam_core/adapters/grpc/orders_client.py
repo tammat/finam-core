@@ -228,6 +228,91 @@ class FinamOrdersClient:
             "retryable": False,
         }
 
+    def cancel_order(self, order_id: str) -> dict:
+        """Русский комментарий: отмена заявки; без подтверждения работает как dry-run."""
+        if not order_id:
+            return {"status": "REJECTED", "reason": "empty_order_id"}
+
+        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1" or os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+            return {"status": "DRY_RUN_CANCEL", "order_id": order_id, "reason": "real_order_confirm_disabled"}
+
+        try:
+            orders_pb2, _, _ = self._load_orders_grpc()
+            req = orders_pb2.CancelOrderRequest(
+                account_id=str(self.account_id),
+                order_id=str(order_id),
+            )
+            self._stub_for_orders().CancelOrder(
+                req,
+                metadata=self._metadata(),
+                timeout=float(os.getenv("FINAM_CANCEL_ORDER_TIMEOUT_SEC", "10")),
+            )
+            return {"status": "CANCELED", "order_id": order_id}
+        except Exception as exc:
+            reason, raw = self._normalize_broker_error(exc)
+            return {"status": "REJECTED", "order_id": order_id, "reason": reason, "raw": raw}
+
+    def place_stop_order(self, symbol: str, side: str, qty: float, stop_price: float) -> dict:
+        """Русский комментарий: постановка стоп-заявки; без подтверждения работает как dry-run."""
+        err = self._validate(symbol, side, qty)
+        if err:
+            return {"status": "REJECTED", "reason": err}
+
+        try:
+            stop_price = float(stop_price)
+        except Exception:
+            return {"status": "REJECTED", "reason": "invalid_stop_price"}
+
+        if stop_price <= 0:
+            return {"status": "REJECTED", "reason": "invalid_stop_price"}
+
+        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1" or os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+            return {
+                "status": "DRY_RUN_ACCEPTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "stop_price": stop_price,
+                "order_id": f"dry_stop_{symbol}_{side}_{qty}_{stop_price}",
+                "reason": "real_order_confirm_disabled",
+            }
+
+        try:
+            order = self._build_stop_order(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                stop_price=stop_price,
+                client_order_id=self._make_client_order_id(),
+            )
+            resp = self._stub_for_orders().PlaceOrder(
+                order,
+                metadata=self._metadata(),
+                timeout=float(os.getenv("FINAM_PLACE_STOP_TIMEOUT_SEC", "10")),
+            )
+            order_id = str(getattr(resp, "order_id", "") or getattr(resp, "transaction_id", "") or "")
+            return {
+                "status": "ACCEPTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "stop_price": stop_price,
+                "order_id": order_id,
+                "raw": {"response": str(resp)},
+            }
+        except Exception as exc:
+            reason, raw = self._normalize_broker_error(exc)
+            return {
+                "status": "REJECTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "stop_price": stop_price,
+                "reason": reason,
+                "raw": raw,
+            }
+
+
     def place_market_order(
         self,
         symbol: str,
