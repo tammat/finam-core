@@ -1914,12 +1914,12 @@ class PaperTradingPipeline:
 
             intent_allowed, intent_reason = self._position_intent_allows_order(sym, side, current_qty)
             if not intent_allowed:
-            print(
-            f"PIPE_POSITION_INTENT_ORDER_BLOCK symbol={sym} side={side} "
-            f"current_qty={current_qty} reason={intent_reason}",
-            flush=True,
-            )
-            return
+                print(
+                    f"PIPE_POSITION_INTENT_ORDER_BLOCK symbol={sym} side={side} "
+                    f"current_qty={current_qty} reason={intent_reason}",
+                    flush=True,
+                )
+                return
 
             # === PRIMARY TREND ALIGNMENT ===
             if (not is_exit_intent) and trend == "up" and side != "BUY":
