@@ -889,6 +889,8 @@ class PaperTradingPipeline:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         self._sync_broker_positions_readonly()
 
+        state = self._exit_state_for_symbol(symbol)
+
         qty = self._position_qty_for_symbol(symbol)
         broker_qty = float(getattr(self, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
         if abs(broker_qty) > 1e-9:
@@ -904,8 +906,6 @@ class PaperTradingPipeline:
                     flush=True,
                 )
                 state["last_broker_qty_logged"] = broker_qty
-
-        state = self._exit_state_for_symbol(symbol)
 
         should_log_exit_check = abs(float(qty or 0.0)) > 1e-9
         if not should_log_exit_check:
