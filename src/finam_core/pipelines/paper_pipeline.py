@@ -2597,6 +2597,10 @@ class PaperTradingPipeline:
         if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             return
+        if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
+            print("PIPE_PAPER_FILL_BLOCKED source=main_execution", flush=True)
+            return
+
         raw_fill = self.paper.execute(intent, st)
 
         # === NORMALIZE FILL (define raw_qty and side ONCE) ===
