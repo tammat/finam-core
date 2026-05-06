@@ -17,6 +17,7 @@ from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
+from finam_core.execution.trailing_order_manager import TrailingOrderManager
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
@@ -203,6 +204,12 @@ class PaperTradingPipeline:
         self._last_quote_log_ts = 0.0
         self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
         self.trailing_exit = TrailingExitEngine()
+        # Русский комментарий: dry-run менеджер trailing stop-заявок. В dry-run заявки брокеру не отправляются.
+        self.trailing_order_manager = TrailingOrderManager(
+            trail_abs=float(os.getenv("TRAILING_ORDER_TRAIL_ABS", "0.40")),
+            min_replace_step=float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")),
+        )
+        self._trailing_order_stop_by_symbol = {}
         # Русский комментарий: state machine не задерживает выход, а только подавляет дубли exit-заявок.
         self.exit_state_machine = ExitStateMachine(
             ttl_sec=float(os.getenv("EXIT_STATE_TTL_SEC", "30"))
@@ -838,6 +845,46 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _evaluate_trailing_order_manager(self, symbol: str, qty: float, price: float) -> None:
+        """Русский комментарий: dry-run оценка trailing stop-заявки без отправки брокеру."""
+        if os.getenv("ENABLE_TRAILING_ORDER_MANAGER", "0") != "1":
+            return
+
+        dry_run = os.getenv("TRAILING_ORDER_DRY_RUN", "1") == "1"
+        if not dry_run:
+            print(
+                f"PIPE_TRAILING_ORDER_SKIP symbol={symbol} reason=non_dry_run_not_implemented",
+                flush=True,
+            )
+            return
+
+        qty = float(qty or 0.0)
+        price = float(price)
+
+        if qty <= 0:
+            self._trailing_order_stop_by_symbol.pop(symbol, None)
+            return
+
+        current_stop = self._trailing_order_stop_by_symbol.get(symbol)
+        decision = self.trailing_order_manager.evaluate_long(
+            symbol=symbol,
+            qty=qty,
+            last_price=price,
+            current_stop=current_stop,
+        )
+
+        if decision.action in ("PLACE_STOP", "REPLACE_STOP"):
+            self._trailing_order_stop_by_symbol[symbol] = decision.stop_price
+
+        if decision.action != "HOLD":
+            print(
+                f"PIPE_TRAILING_ORDER_DECISION action={decision.action} "
+                f"symbol={decision.symbol} side={decision.side} qty={decision.qty} "
+                f"stop={decision.stop_price} reason={decision.reason} dry_run=1",
+                flush=True,
+            )
+
+
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         self._sync_broker_positions_readonly()
@@ -874,6 +921,8 @@ class PaperTradingPipeline:
                 f"price={round(float(price), 6)} atr_in={atr}",
                 flush=True,
             )
+
+        self._evaluate_trailing_order_manager(symbol, qty, price)
 
         if qty == 0:
             state["bars_held"] = 0
