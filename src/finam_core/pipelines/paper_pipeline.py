@@ -23,6 +23,7 @@ from finam_core.execution.open_orders_sync import OpenOrdersSync
 from finam_core.execution.broker_reconciliation import BrokerReconciliationEngine
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
+from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
@@ -193,6 +194,11 @@ class PaperTradingPipeline:
         self.execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
         self.orders_client = FinamOrdersClient()
         self.real_execution = RealExecutionEngine(orders_client=self.orders_client)
+        # Русский комментарий: менеджер безопасной замены защитных стоп-заявок.
+        self.cancel_replace_stop_manager = CancelReplaceStopManager(
+            orders_client=self.orders_client,
+            order_event_store=getattr(self.real_execution, "order_event_store", None),
+        )
         self.fee_tax = FeeTaxModel()
         self.strategy = strategy
         # Русский коммент: единый pre-risk фильтр сигналов. По умолчанию отключён.
@@ -1055,6 +1061,7 @@ class PaperTradingPipeline:
                 f"stop={decision.stop_price} reason={decision.reason} dry_run=1",
                 flush=True,
             )
+            self._handle_trailing_replace_stop_decision(decision)
 
 
     def _log_position_order_state_if_changed(self, symbol: str, qty: float) -> None:
@@ -1375,6 +1382,46 @@ class PaperTradingPipeline:
         except Exception as exc:
             print(f"PIPE_RESTART_RECOVERY_ERROR error={exc}", flush=True)
             self._restart_recovery_done = True
+
+
+    def _handle_trailing_replace_stop_decision(self, decision) -> None:
+        """Русский комментарий: исполняет trailing REPLACE_STOP через CancelReplaceStopManager."""
+        action = str(getattr(decision, "action", "") or "").upper()
+        if action != "REPLACE_STOP":
+            return
+
+        symbol = str(getattr(decision, "symbol", "") or "")
+        side = str(getattr(decision, "side", "") or "").upper()
+        qty = float(getattr(decision, "qty", 0.0) or 0.0)
+        stop_price = float(getattr(decision, "stop", getattr(decision, "stop_price", 0.0)) or 0.0)
+        old_order_id = str(getattr(decision, "order_id", getattr(decision, "old_order_id", "")) or "")
+
+        if not old_order_id:
+            orders = (getattr(self, "_broker_orders_by_symbol", {}) or {}).get(symbol, [])
+            for order in orders:
+                order_type = str(order.get("order_type") or order.get("type") or "").upper()
+                order_side = str(order.get("side") or "").upper()
+                if "STOP" in order_type and order_side == side:
+                    old_order_id = str(order.get("order_id") or "")
+                    break
+
+        if not old_order_id:
+            print(f"PIPE_TRAILING_REPLACE_STOP_BLOCK symbol={symbol} reason=missing_old_stop_order", flush=True)
+            return
+
+        result = self.cancel_replace_stop_manager.replace_stop(
+            symbol=symbol,
+            old_order_id=old_order_id,
+            side=side,
+            qty=qty,
+            stop_price=stop_price,
+        )
+
+        print(
+            f"PIPE_TRAILING_REPLACE_STOP_RESULT symbol={symbol} old_order_id={old_order_id} "
+            f"new_order_id={result.new_order_id} status={result.status} reason={result.reason}",
+            flush=True,
+        )
 
 
     def _on_quote(self, event: dict):
