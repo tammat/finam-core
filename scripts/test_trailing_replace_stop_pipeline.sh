@@ -153,7 +153,54 @@ assert p_stop_by_price.cancel_replace_stop_manager.calls == [
     ("BRM6@RTSX", "old_stop_by_trigger_price", "SELL", 1.0, 102.1)
 ], p_stop_by_price.cancel_replace_stop_manager.calls
 
+
+class DummyPipelineMultipleStops:
+    _handle_trailing_replace_stop_decision = PaperTradingPipeline._handle_trailing_replace_stop_decision
+
+    def __init__(self):
+        self.cancel_replace_stop_manager = DummyCancelReplaceManager()
+        self._broker_orders_by_symbol = {
+            "BRM6@RTSX": [
+                {
+                    "order_id": "older_stop_1",
+                    "symbol": "BRM6@RTSX",
+                    "side": "SELL",
+                    "status": "WATCHING",
+                    "order_type": "STOP",
+                    "qty": 1.0,
+                    "stop_price": 100.9,
+                },
+                {
+                    "order_id": "newer_stop_2",
+                    "symbol": "BRM6@RTSX",
+                    "side": "SELL",
+                    "status": "WATCHING",
+                    "order_type": "STOP",
+                    "qty": 1.0,
+                    "stop_price": 101.6,
+                },
+            ]
+        }
+
+
+p_multiple_stops = DummyPipelineMultipleStops()
+
+p_multiple_stops._handle_trailing_replace_stop_decision(
+    Decision(
+        action="REPLACE_STOP",
+        symbol="BRM6@RTSX",
+        side="SELL",
+        qty=1.0,
+        stop_price=102.2,
+    )
+)
+
+assert p_multiple_stops.cancel_replace_stop_manager.calls == [
+    ("BRM6@RTSX", "newer_stop_2", "SELL", 1.0, 102.2)
+], p_multiple_stops.cancel_replace_stop_manager.calls
+
 print("TRAILING_REPLACE_STOP_PIPELINE_OK")
 print("TRAILING_REPLACE_STOP_PIPELINE_NEGATIVE_OK")
 print("TRAILING_REPLACE_STOP_PIPELINE_STOP_PRICE_ONLY_OK")
+print("TRAILING_REPLACE_STOP_PIPELINE_MULTIPLE_STOPS_OK")
 PY
