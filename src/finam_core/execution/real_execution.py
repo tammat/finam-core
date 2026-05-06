@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any
+from finam_core.execution.order_state_machine import OrderState
 
 
 @dataclass
@@ -30,6 +31,16 @@ class RealExecutionEngine:
     def __init__(self, orders_client: Any) -> None:
         self.orders_client = orders_client
         self.mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
+        # Русский комментарий: локальный read-only реестр жизненного цикла заявок.
+        self.orders_by_id: dict[str, OrderState] = {}
+
+    def _register_order_state(self, symbol: str, side: str, qty: float, order_id: str | None = None) -> OrderState:
+        """Русский комментарий: создаёт локальное состояние заявки до отправки брокеру."""
+        oid = order_id or f"local_{symbol}_{side}_{len(self.orders_by_id) + 1}"
+        state = OrderState(order_id=oid, symbol=symbol, side=side, qty=float(qty))
+        self.orders_by_id[oid] = state
+        return state
+
 
     def execute(self, intent: dict | None = None, market_state: dict | None = None, **kwargs) -> RealOrderResult:
         """Русский комментарий: поддерживает основной intent-контракт и безопасный keyword-вызов для тестов."""
@@ -56,6 +67,9 @@ class RealExecutionEngine:
                 reason="invalid_order_intent",
             )
 
+        order_state = self._register_order_state(symbol=symbol, side=side, qty=qty)
+        order_state.on_submitted()
+
         if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1":
             return RealOrderResult(
                 symbol=symbol,
@@ -77,13 +91,14 @@ class RealExecutionEngine:
             )
 
         if self.mode == "real_dry_run":
+            order_state.on_accepted()
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 price=price,
                 status="DRY_RUN_ACCEPTED",
-                order_id=f"dry_{symbol}_{side}_{qty}",
+                order_id=order_state.order_id,
             )
 
         if self.mode != "real":
@@ -97,12 +112,14 @@ class RealExecutionEngine:
             )
 
         if self.orders_client is None:
+            order_state.on_rejected("orders_client_not_configured")
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 price=price,
                 status="REJECTED",
+                order_id=order_state.order_id,
                 reason="orders_client_not_configured",
             )
 
@@ -117,13 +134,26 @@ class RealExecutionEngine:
             return result
 
         if isinstance(result, dict):
+            status = str(result.get("status") or "UNKNOWN")
+            broker_order_id = result.get("order_id") or order_state.order_id
+
+            if broker_order_id != order_state.order_id:
+                self.orders_by_id.pop(order_state.order_id, None)
+                order_state.order_id = str(broker_order_id)
+                self.orders_by_id[order_state.order_id] = order_state
+
+            if status in ("ACCEPTED", "DRY_RUN_ACCEPTED"):
+                order_state.on_accepted()
+            elif status in ("REJECTED", "ERROR"):
+                order_state.on_rejected(str(result.get("reason") or status))
+
             return RealOrderResult(
                 symbol=str(result.get("symbol") or symbol),
                 side=str(result.get("side") or side),
                 qty=float(result.get("qty") or qty),
                 price=result.get("price", price),
-                status=str(result.get("status") or "UNKNOWN"),
-                order_id=result.get("order_id"),
+                status=status,
+                order_id=order_state.order_id,
                 reason=result.get("reason"),
                 raw=result,
             )
