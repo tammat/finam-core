@@ -1986,6 +1986,14 @@ class PaperTradingPipeline:
             trend = regime.trend
             side = intent.get("side")
 
+            # Русский комментарий: current_qty нужен для trade_role gate до основного execution-блока.
+            try:
+                current_qty
+            except UnboundLocalError:
+                current_qty = float(
+                    getattr(self, "_broker_position_qty_by_symbol", {}).get(sym, 0.0) or 0.0
+                )
+
             intent_allowed, intent_reason = self._position_intent_allows_order(sym, side, current_qty)
             if not intent_allowed:
                 print(
