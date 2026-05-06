@@ -2597,6 +2597,31 @@ class PaperTradingPipeline:
 
         return False, f"MAX_POSITION_LIMIT current={current_pos} requested={signed} new={new_pos} limit={limit}"
 
+    def _log_br_event(self, event_type: str, symbol: str, payload: dict) -> None:
+        """Русский комментарий: безопасно логирует BR regime/confirmation события."""
+        try:
+            data = dict(payload or {})
+            data["event_type"] = event_type
+            data["symbol"] = symbol
+            data["source"] = "br_regime_confirmation"
+
+            if (
+                hasattr(self, "pg_logger")
+                and self.pg_logger is not None
+                and hasattr(self.pg_logger, "log_risk_event")
+            ):
+                self.pg_logger.log_risk_event(
+                    symbol=symbol,
+                    event_type=event_type,
+                    payload=data,
+                )
+        except Exception as exc:
+            print(
+                f"PIPE_BR_EVENT_LOG_ERROR type={event_type} symbol={symbol} error={exc}",
+                flush=True,
+            )
+
+
     def _check_br_confirmation(self, symbol: str, side: str, price: float) -> bool:
         """Русский комментарий: подтверждение слабого BR breakout удержанием уровня."""
         pending = self._br_confirm_pending.get(symbol)
@@ -2613,6 +2638,11 @@ class PaperTradingPipeline:
                 f"PIPE_BR_CONFIRM_REJECT symbol={symbol} side={side} reason=side_changed",
                 flush=True,
             )
+            self._log_br_event(
+                "BR_CONFIRM_REJECT",
+                symbol,
+                {"side": side, "reason": "side_changed", "price": price, "level": level, "ticks": ticks},
+            )
             return False
 
         if side == "BUY":
@@ -2628,6 +2658,11 @@ class PaperTradingPipeline:
                 f"PIPE_BR_CONFIRM_REJECT symbol={symbol} side={side} price={price} level={level}",
                 flush=True,
             )
+            self._log_br_event(
+                "BR_CONFIRM_REJECT",
+                symbol,
+                {"side": side, "reason": "level_lost", "price": price, "level": level, "ticks": ticks},
+            )
             return False
 
         ticks += 1
@@ -2639,11 +2674,21 @@ class PaperTradingPipeline:
                 f"PIPE_BR_CONFIRM_OK symbol={symbol} side={side} ticks={ticks}",
                 flush=True,
             )
+            self._log_br_event(
+                "BR_CONFIRM_OK",
+                symbol,
+                {"side": side, "price": price, "level": level, "ticks": ticks},
+            )
             return True
 
         print(
             f"PIPE_BR_CONFIRM_WAIT symbol={symbol} side={side} ticks={ticks} level={level} price={price}",
             flush=True,
+        )
+        self._log_br_event(
+            "BR_CONFIRM_WAIT",
+            symbol,
+            {"side": side, "price": price, "level": level, "ticks": ticks},
         )
         return False
 
@@ -2688,6 +2733,18 @@ class PaperTradingPipeline:
             f"regime={decision.regime} reason={decision.reason} size_mult={decision.size_multiplier}",
             flush=True,
         )
+        self._log_br_event(
+            "BR_REGIME_DECISION",
+            str(getattr(br_signal, "symbol", "") or ""),
+            {
+                "side": str(getattr(br_signal, "side", "") or ""),
+                "allowed": bool(decision.allowed),
+                "regime": decision.regime,
+                "reason": decision.reason,
+                "size_multiplier": float(decision.size_multiplier),
+                "confirmation_required": bool(getattr(decision, "confirmation_required", False)),
+            },
+        )
         return decision
 
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
@@ -2720,6 +2777,11 @@ class PaperTradingPipeline:
                 print(
                     f"PIPE_BR_CONFIRM_PENDING symbol={symbol} side={side} level={price}",
                     flush=True,
+                )
+                self._log_br_event(
+                    "BR_CONFIRM_PENDING",
+                    symbol,
+                    {"side": side, "level": price, "ticks": 0},
                 )
                 return False, "BR_CONFIRM_PENDING"
 
