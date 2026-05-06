@@ -12,6 +12,7 @@ import time
 from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
 from finam_core.strategy.br_regime_layer import BRRegimeLayer
 from finam_core.strategy.br_volatility_intelligence import BRVolatilityIntelligence
+from finam_core.features.volume_features import BarVolumeFeatureEngine
 from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
@@ -224,6 +225,12 @@ class PaperTradingPipeline:
         self.br_regime_layer = BRRegimeLayer()
         # Русский комментарий: volatility-aware параметры для BR regime/confirmation.
         self.br_volatility_intelligence = BRVolatilityIntelligence()
+        # Русский комментарий: BAR VOLUME feature layer для подтверждения BR breakout/impulse.
+        self.br_volume_features = BarVolumeFeatureEngine(
+            lookback=int(os.getenv("BR_VOLUME_LOOKBACK", "20")),
+            confirm_ratio=float(os.getenv("BR_VOLUME_CONFIRM_RATIO", "1.5")),
+        )
+        self._br_volume_bars_by_symbol = {}
         # Русский комментарий: pending confirmation state для слабых BR breakout.
         self._br_confirm_pending = {}
         self._broker_position_qty_by_symbol = {}
@@ -2805,6 +2812,26 @@ class PaperTradingPipeline:
         return False
 
 
+    def _append_br_volume_bar(self, symbol: str, price: float, volume: float | None = None) -> list[dict]:
+        """Русский комментарий: хранит компактный BR volume buffer по символу."""
+        buffers = getattr(self, "_br_volume_bars_by_symbol", None)
+        if buffers is None:
+            buffers = {}
+            self._br_volume_bars_by_symbol = buffers
+
+        buf = buffers.setdefault(symbol, [])
+        buf.append({
+            "close": float(price),
+            "volume": float(volume or 0.0),
+        })
+
+        max_len = int(os.getenv("BR_VOLUME_BUFFER_MAX", "200"))
+        if len(buf) > max_len:
+            del buf[:-max_len]
+
+        return buf
+
+
     def _br_regime_allows_signal(self, br_signal):
         """Русский комментарий: адаптирует признаки BR-сигнала к BRRegimeLayer.
 
@@ -2827,6 +2854,26 @@ class PaperTradingPipeline:
         compression_ratio = _num("compression_ratio", 1.0)
         atr_short = _num("atr_short", atr)
         atr_long = _num("atr_long", _num("atr_slow", atr if atr > 0 else 0.0))
+
+        symbol = str(getattr(br_signal, "symbol", "") or "")
+        volume = _num("volume", _num("bar_volume", _num("qty", 0.0)))
+        volume_bars = self._append_br_volume_bar(symbol, price, volume)
+
+        volume_layer = getattr(self, "br_volume_features", None)
+        if volume_layer is None:
+            volume_layer = BarVolumeFeatureEngine(
+                lookback=int(os.getenv("BR_VOLUME_LOOKBACK", "20")),
+                confirm_ratio=float(os.getenv("BR_VOLUME_CONFIRM_RATIO", "1.5")),
+            )
+            self.br_volume_features = volume_layer
+
+        volume_features = volume_layer.evaluate(volume_bars)
+
+        features["volume_current"] = float(volume_features.current_volume)
+        features["volume_avg"] = float(volume_features.avg_volume)
+        features["rel_volume"] = float(volume_features.rel_volume)
+        features["volume_confirmed"] = bool(volume_features.volume_confirmed)
+        features["volume_reason"] = volume_features.reason
 
         vol_layer = getattr(self, "br_volatility_intelligence", None)
         if vol_layer is None:
@@ -2863,7 +2910,9 @@ class PaperTradingPipeline:
             f"side={getattr(br_signal, 'side', None)} allowed={decision.allowed} "
             f"regime={decision.regime} reason={decision.reason} size_mult={decision.size_multiplier} "
             f"confirm_ticks={getattr(decision, 'confirmation_ticks', 3)} "
-            f"breakout_k={getattr(decision, 'breakout_k', 1.0)}",
+            f"breakout_k={getattr(decision, 'breakout_k', 1.0)} "
+            f"rel_volume={features.get('rel_volume')} "
+            f"volume_confirmed={features.get('volume_confirmed')}",
             flush=True,
         )
         self._log_br_event(
@@ -2880,6 +2929,9 @@ class PaperTradingPipeline:
                 "breakout_k": float(getattr(decision, "breakout_k", 1.0)),
                 "volatility_regime": getattr(volatility_profile, "volatility_regime", None),
                 "volatility_reason": getattr(volatility_profile, "reason", None),
+                "rel_volume": float(features.get("rel_volume", 0.0) or 0.0),
+                "volume_confirmed": bool(features.get("volume_confirmed", False)),
+                "volume_reason": features.get("volume_reason"),
             },
         )
         return decision

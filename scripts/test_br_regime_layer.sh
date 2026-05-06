@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from finam_core.strategy.br_regime_layer import BRRegimeLayer
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
+from finam_core.features.volume_features import BarVolumeFeatureEngine
 
 
 r = BRRegimeLayer()
@@ -79,9 +80,16 @@ assert d.breakout_k == 1.2
 
 class DummyPipeline:
     br_regime_layer = BRRegimeLayer()
+    br_volume_features = BarVolumeFeatureEngine(lookback=5, confirm_ratio=1.5)
 
     def __init__(self):
         self.events = []
+        self._br_volume_bars_by_symbol = {}
+
+    def _append_br_volume_bar(self, symbol: str, price: float, volume=None):
+        buf = self._br_volume_bars_by_symbol.setdefault(symbol, [])
+        buf.append({"close": float(price), "volume": float(volume or 0.0)})
+        return buf
 
     def _log_br_event(self, event_type, symbol, payload):
         self.events.append((event_type, symbol, payload))
@@ -91,24 +99,26 @@ ok_signal = SimpleNamespace(
     symbol="BRM6@RTSX",
     side="BUY",
     price=110.0,
-    features={"atr_pct": 0.01, "slope_m5": 0.001, "slope_m15": 0.001, "compression_ratio": 0.9},
+    features={"atr_pct": 0.01, "slope_m5": 0.001, "slope_m15": 0.001, "compression_ratio": 0.9, "volume": 200.0},
 )
 pipe = DummyPipeline()
 ok_decision = PaperTradingPipeline._br_regime_allows_signal(pipe, ok_signal)
 assert ok_decision.allowed is True
 assert any(x[0] == "BR_REGIME_DECISION" for x in pipe.events), pipe.events
+assert any("rel_volume" in x[2] for x in pipe.events), pipe.events
 
 bad_signal = SimpleNamespace(
     symbol="BRM6@RTSX",
     side="SELL",
     price=110.0,
-    features={"atr_pct": 0.01, "slope_m5": 0.001, "slope_m15": 0.001, "compression_ratio": 0.9},
+    features={"atr_pct": 0.01, "slope_m5": 0.001, "slope_m15": 0.001, "compression_ratio": 0.9, "volume": 200.0},
 )
 pipe = DummyPipeline()
 bad_decision = PaperTradingPipeline._br_regime_allows_signal(pipe, bad_signal)
 assert bad_decision.allowed is False
 assert bad_decision.regime == "misaligned"
 assert any(x[0] == "BR_REGIME_DECISION" for x in pipe.events), pipe.events
+assert any("rel_volume" in x[2] for x in pipe.events), pipe.events
 
 print("BR_REGIME_LAYER_OK")
 PY
