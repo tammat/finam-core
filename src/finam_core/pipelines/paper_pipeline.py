@@ -1489,6 +1489,21 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+            # Русский комментарий: broker snapshot не должен закрываться через paper-fill.
+            if (
+                os.getenv("ENABLE_BROKER_POSITION_APPLY_TO_PM", "0") != "1"
+                and abs(float(getattr(self, "_broker_position_qty_by_symbol", {}).get(sym, 0.0) or 0.0)) > 1e-9
+            ):
+                skip_key = (sym, raw_intent.get("side"), raw_intent.get("reason"))
+                if getattr(self, "_last_exit_broker_snapshot_skip", None) != skip_key:
+                    print(
+                        f"PIPE_EXIT_ENGINE_BROKER_SNAPSHOT_SKIP symbol={sym} "
+                        f"side={raw_intent.get('side')} reason={raw_intent.get('reason')}",
+                        flush=True,
+                    )
+                    self._last_exit_broker_snapshot_skip = skip_key
+                return
+
             # Русский комментарий: hard-close route для ExitEngine.
             # Закрытие позиции не должно проходить через entry-фильтры MTF/trend/impulse/position guard.
             try:
