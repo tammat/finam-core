@@ -226,6 +226,9 @@ class PaperTradingPipeline:
         self.br_volatility_intelligence = BRVolatilityIntelligence()
         # Русский комментарий: pending confirmation state для слабых BR breakout.
         self._br_confirm_pending = {}
+        self._broker_position_qty_by_symbol = {}
+        self._broker_position_avg_by_symbol = {}
+        self._broker_position_sync_ts = 0.0
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
         self.br_breakout_enabled = (
             os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
@@ -584,6 +587,76 @@ class PaperTradingPipeline:
 
 
 
+    def _sync_broker_positions_readonly(self) -> None:
+        """Русский комментарий: read-only синхронизация позиций Finam для ExitEngine."""
+        if os.getenv("ENABLE_BROKER_POSITION_SYNC", "0") != "1":
+            return
+
+        now = time.time()
+        interval = float(os.getenv("BROKER_POSITION_SYNC_INTERVAL_SEC", "30"))
+        if now - float(getattr(self, "_broker_position_sync_ts", 0.0) or 0.0) < interval:
+            return
+
+        self._broker_position_sync_ts = now
+
+        try:
+            import grpc
+            from finam_core.auth.token_manager import FinamTokenManager
+            from finam_proto.grpc.tradeapi.v1.accounts import accounts_service_pb2, accounts_service_pb2_grpc
+
+            account_id = os.getenv("FINAM_ACCOUNT_ID", "").strip()
+            if not account_id:
+                print("PIPE_BROKER_POSITION_SYNC_SKIP reason=FINAM_ACCOUNT_ID_not_set", flush=True)
+                return
+
+            jwt = FinamTokenManager().get_token()
+            endpoint = os.getenv("FINAM_GRPC_ENDPOINT", "api.finam.ru:443").strip()
+
+            channel = grpc.secure_channel(endpoint, grpc.ssl_channel_credentials())
+            stub = accounts_service_pb2_grpc.AccountsServiceStub(channel)
+
+            resp = stub.GetAccount(
+                accounts_service_pb2.GetAccountRequest(account_id=account_id),
+                metadata=(("authorization", f"Bearer {jwt}"),),
+                timeout=5,
+            )
+
+            qty_by_symbol = {}
+            avg_by_symbol = {}
+
+            for pos in resp.positions:
+                symbol = str(getattr(pos, "symbol", "") or "")
+                if not symbol:
+                    continue
+
+                try:
+                    qty = float(getattr(getattr(pos, "quantity", None), "value", "0") or 0.0)
+                except Exception:
+                    qty = 0.0
+
+                try:
+                    avg = float(getattr(getattr(pos, "average_price", None), "value", "0") or 0.0)
+                except Exception:
+                    avg = 0.0
+
+                qty_by_symbol[symbol] = qty
+                if avg > 0:
+                    avg_by_symbol[symbol] = avg
+
+            self._broker_position_qty_by_symbol = qty_by_symbol
+            self._broker_position_avg_by_symbol = avg_by_symbol
+
+            print(
+                f"PIPE_BROKER_POSITION_SYNC_OK count={len(qty_by_symbol)} "
+                f"BRM6@RTSX={qty_by_symbol.get('BRM6@RTSX', 0.0)} "
+                f"BRM6_avg={avg_by_symbol.get('BRM6@RTSX', 0.0)}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}", flush=True)
+
+
     def _notify_telegram_event(self, text: str) -> None:
         """Русский комментарий: безопасная отправка Telegram-уведомления без влияния на торговый цикл."""
         try:
@@ -751,7 +824,17 @@ class PaperTradingPipeline:
 
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
+        self._sync_broker_positions_readonly()
+
         qty = self._position_qty_for_symbol(symbol)
+        broker_qty = float(getattr(self, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
+        if abs(broker_qty) > 1e-9:
+            qty = broker_qty
+            print(
+                f"PIPE_BROKER_POSITION_APPLIED symbol={symbol} broker_qty={broker_qty}",
+                flush=True,
+            )
+
         state = self._exit_state_for_symbol(symbol)
 
         print(
