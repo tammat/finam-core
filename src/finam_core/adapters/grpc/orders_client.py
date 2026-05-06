@@ -33,7 +33,12 @@ class FinamOrdersClient:
     """
 
     def __init__(self) -> None:
-        self.account_id = os.getenv("FINAM_ACCOUNT_ID", "").strip()
+        self.account_id = (
+            os.getenv("FINAM_ACCOUNT_ID")
+            or os.getenv("ACCOUNT_ID")
+            or os.getenv("FINAM_ACCOUNT")
+            or ""
+        ).strip()
         self.token = os.getenv("FINAM_TOKEN", "").strip()
         self.token_manager = FinamTokenManager()
         self.endpoint = os.getenv("FINAM_GRPC_ENDPOINT", "api.finam.ru:443").strip()
@@ -61,7 +66,10 @@ class FinamOrdersClient:
         return None
 
     def _metadata(self) -> list[tuple[str, str]]:
-        """Русский комментарий: metadata для gRPC-вызова Finam."""
+        """Русский комментарий: metadata всегда должна содержать JWT, а не пустой Bearer."""
+        token_error = self._ensure_token()
+        if token_error:
+            return [("authorization", "Bearer ")]
         return [("authorization", f"Bearer {self.token}")]
 
     def _load_orders_grpc(self):
@@ -294,9 +302,82 @@ class FinamOrdersClient:
             )
 
 
+    def _enum_name(self, enum_type, value) -> str:
+        """Русский комментарий: безопасно преобразует protobuf enum number в имя."""
+        try:
+            return enum_type.Name(int(value))
+        except Exception:
+            return str(value)
+
+
     def list_open_orders(self) -> list[dict]:
-        """Русский комментарий: read-only заглушка активных заявок до подключения реального Finam Orders API."""
-        return []
+        """Русский комментарий: read-only получение активных заявок брокера через Finam Orders GetOrders."""
+        try:
+            if not self.account_id:
+                print("FINAM_OPEN_ORDERS_NO_ACCOUNT_ID", flush=True)
+                return []
+
+            orders_pb2, _, side_pb2 = self._load_orders_grpc()
+            req = orders_pb2.OrdersRequest(account_id=str(self.account_id))
+            resp = self._stub_for_orders().GetOrders(
+                req,
+                metadata=self._metadata(),
+                timeout=float(os.getenv("FINAM_OPEN_ORDERS_TIMEOUT_SEC", "10")),
+            )
+
+            result = []
+            active_statuses = {"WATCHING", "ACTIVE", "WORKING", "ACCEPTED", "NEW", "PARTIAL_FILLED"}
+
+            for state in getattr(resp, "orders", []) or []:
+                order = getattr(state, "order", None)
+                symbol = str(getattr(order, "symbol", "") or "") if order is not None else ""
+
+                status = self._enum_name(
+                    orders_pb2.OrderStatus,
+                    getattr(state, "status", 0),
+                ).replace("ORDER_STATUS_", "")
+                side = self._enum_name(
+                    side_pb2.Side,
+                    getattr(order, "side", 0),
+                ).replace("SIDE_", "") if order is not None else ""
+                order_type = self._enum_name(
+                    orders_pb2.OrderType,
+                    getattr(order, "type", 0),
+                ).replace("ORDER_TYPE_", "") if order is not None else ""
+
+                quantity = getattr(order, "quantity", None) if order is not None else None
+                qty = float(getattr(quantity, "value", 0.0) or 0.0)
+
+                limit_price = getattr(order, "limit_price", None) if order is not None else None
+                stop_price = getattr(order, "stop_price", None) if order is not None else None
+
+                if status not in active_statuses:
+                    continue
+
+                if not symbol:
+                    continue
+
+                result.append({
+                    "order_id": str(getattr(state, "order_id", "") or ""),
+                    "exec_id": str(getattr(state, "exec_id", "") or ""),
+                    "symbol": symbol,
+                    "side": side,
+                    "status": status,
+                    "order_type": order_type,
+                    "qty": qty,
+                    "price": getattr(limit_price, "value", None),
+                    "stop_price": getattr(stop_price, "value", None),
+                    "raw": {"state_repr": str(state)},
+                })
+
+            if os.getenv("FINAM_OPEN_ORDERS_DEBUG", "0") == "1":
+                print(f"FINAM_OPEN_ORDERS_LOADED active_count={len(result)}", flush=True)
+            return result
+
+        except Exception as exc:
+            print(f"FINAM_OPEN_ORDERS_LIST_ERROR error={exc}", flush=True)
+            return []
+
 
     def get_open_orders(self) -> list[dict]:
         """Русский комментарий: совместимый alias для OpenOrdersSync."""
