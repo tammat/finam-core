@@ -16,9 +16,12 @@ import psycopg2
 class PositionIntentPolicy:
     symbol: str
     horizon: str
+    trade_role: str
     allow_intraday_exit: bool
     allow_trailing: bool
     allow_new_buy: bool
+    allow_reduce: bool
+    allow_increase: bool
     enabled: bool
 
 
@@ -54,9 +57,12 @@ class PositionIntentRepository:
         return PositionIntentPolicy(
             symbol=symbol,
             horizon="swing",
+            trade_role="watch_only",
             allow_intraday_exit=False,
             allow_trailing=False,
             allow_new_buy=False,
+            allow_reduce=False,
+            allow_increase=False,
             enabled=False,
         )
 
@@ -71,19 +77,32 @@ class PositionIntentRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT symbol, horizon, allow_intraday_exit, allow_trailing,
-                           allow_new_buy, enabled
+                    SELECT symbol, horizon, trade_role, allow_intraday_exit, allow_trailing,
+                           allow_new_buy, allow_reduce, allow_increase, enabled
                     FROM position_intents
                     WHERE enabled = true
                     """
                 )
-                for symbol, horizon, allow_exit, allow_trailing, allow_buy, enabled in cur.fetchall():
+                for (
+                    symbol,
+                    horizon,
+                    trade_role,
+                    allow_exit,
+                    allow_trailing,
+                    allow_buy,
+                    allow_reduce,
+                    allow_increase,
+                    enabled,
+                ) in cur.fetchall():
                     rows[str(symbol)] = PositionIntentPolicy(
                         symbol=str(symbol),
                         horizon=str(horizon),
+                        trade_role=str(trade_role),
                         allow_intraday_exit=bool(allow_exit),
                         allow_trailing=bool(allow_trailing),
                         allow_new_buy=bool(allow_buy),
+                        allow_reduce=bool(allow_reduce),
+                        allow_increase=bool(allow_increase),
                         enabled=bool(enabled),
                     )
 
