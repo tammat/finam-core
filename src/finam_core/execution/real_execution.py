@@ -31,7 +31,16 @@ class RealExecutionEngine:
         self.orders_client = orders_client
         self.mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
 
-    def execute(self, intent: dict, market_state: dict | None = None) -> RealOrderResult:
+    def execute(self, intent: dict | None = None, market_state: dict | None = None, **kwargs) -> RealOrderResult:
+        """Русский комментарий: поддерживает основной intent-контракт и безопасный keyword-вызов для тестов."""
+        if intent is None:
+            intent = {
+                "symbol": kwargs.get("symbol"),
+                "side": kwargs.get("side"),
+                "qty": kwargs.get("qty"),
+                "price": kwargs.get("price"),
+            }
+
         symbol = str(intent.get("symbol") or "")
         side = str(intent.get("side") or "")
         qty = float(intent.get("qty") or 0.0)
@@ -45,6 +54,26 @@ class RealExecutionEngine:
                 price=price,
                 status="REJECTED",
                 reason="invalid_order_intent",
+            )
+
+        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1":
+            return RealOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                reason="REAL_EXECUTION_ENABLED_not_enabled",
+            )
+
+        if os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+            return RealOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                reason="REAL_ORDER_CONFIRM_not_enabled",
             )
 
         if self.mode == "real_dry_run":
