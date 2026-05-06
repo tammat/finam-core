@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 from finam_core.execution.order_state_machine import OrderState
+from finam_core.storage.postgres_order_event_store import PostgresOrderEventStore
 
 
 @dataclass
@@ -33,6 +34,13 @@ class RealExecutionEngine:
         self.mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
         # Русский комментарий: локальный read-only реестр жизненного цикла заявок.
         self.orders_by_id: dict[str, OrderState] = {}
+        # Русский комментарий: опциональное PostgreSQL-хранилище событий заявок.
+        self.order_event_store = None
+        if os.getenv("ENABLE_ORDER_EVENT_STORE", "0") == "1":
+            try:
+                self.order_event_store = PostgresOrderEventStore()
+            except Exception:
+                self.order_event_store = None
 
     def _register_order_state(self, symbol: str, side: str, qty: float, order_id: str | None = None) -> OrderState:
         """Русский комментарий: создаёт локальное состояние заявки до отправки брокеру."""
@@ -40,6 +48,29 @@ class RealExecutionEngine:
         state = OrderState(order_id=oid, symbol=symbol, side=side, qty=float(qty))
         self.orders_by_id[oid] = state
         return state
+
+
+    def _log_order_state(self, order_state: OrderState, reason: str | None = None, raw_json: dict | None = None) -> None:
+        """Русский комментарий: безопасно пишет lifecycle заявки в PostgreSQL, не влияя на торговый цикл."""
+        if self.order_event_store is None:
+            return
+
+        try:
+            self.order_event_store.log_event(
+                order_id=order_state.order_id,
+                symbol=order_state.symbol,
+                side=order_state.side,
+                state=order_state.state,
+                qty=order_state.qty,
+                filled_qty=order_state.filled_qty,
+                remaining_qty=order_state.remaining_qty(),
+                fill_price=None,
+                avg_fill_price=order_state.avg_fill_price,
+                reason=reason or order_state.reason,
+                raw_json=raw_json or {},
+            )
+        except Exception as exc:
+            print(f"ORDER_EVENT_STORE_LOG_FAILED order_id={order_state.order_id} error={exc}", flush=True)
 
 
     def execute(self, intent: dict | None = None, market_state: dict | None = None, **kwargs) -> RealOrderResult:
@@ -69,8 +100,15 @@ class RealExecutionEngine:
 
         order_state = self._register_order_state(symbol=symbol, side=side, qty=qty)
         order_state.on_submitted()
+        self._log_order_state(order_state, raw_json={"event": "SUBMITTED"})
 
         if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1":
+            order_state.on_rejected("REAL_EXECUTION_ENABLED_not_enabled")
+            self._log_order_state(
+                order_state,
+                reason="REAL_EXECUTION_ENABLED_not_enabled",
+                raw_json={"event": "REJECTED"},
+            )
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
@@ -81,6 +119,12 @@ class RealExecutionEngine:
             )
 
         if os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+            order_state.on_rejected("REAL_ORDER_CONFIRM_not_enabled")
+            self._log_order_state(
+                order_state,
+                reason="REAL_ORDER_CONFIRM_not_enabled",
+                raw_json={"event": "REJECTED"},
+            )
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
@@ -92,6 +136,10 @@ class RealExecutionEngine:
 
         if self.mode == "real_dry_run":
             order_state.on_accepted()
+            self._log_order_state(
+                order_state,
+                raw_json={"event": "ACCEPTED", "mode": "real_dry_run"},
+            )
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
@@ -102,17 +150,25 @@ class RealExecutionEngine:
             )
 
         if self.mode != "real":
+            reason = f"unsupported_execution_mode={self.mode}"
+            order_state.on_rejected(reason)
+            self._log_order_state(order_state, reason=reason, raw_json={"event": "REJECTED"})
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 price=price,
                 status="REJECTED",
-                reason=f"unsupported_execution_mode={self.mode}",
+                reason=reason,
             )
 
         if self.orders_client is None:
             order_state.on_rejected("orders_client_not_configured")
+            self._log_order_state(
+                order_state,
+                reason="orders_client_not_configured",
+                raw_json={"event": "REJECTED"},
+            )
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
@@ -147,6 +203,12 @@ class RealExecutionEngine:
             elif status in ("REJECTED", "ERROR"):
                 order_state.on_rejected(str(result.get("reason") or status))
 
+            self._log_order_state(
+                order_state,
+                reason=result.get("reason"),
+                raw_json={"event": order_state.state, "broker_result": result},
+            )
+
             return RealOrderResult(
                 symbol=str(result.get("symbol") or symbol),
                 side=str(result.get("side") or side),
@@ -167,4 +229,35 @@ class RealExecutionEngine:
             order_id=getattr(result, "order_id", None),
             reason=getattr(result, "reason", None),
             raw={"result_type": type(result).__name__, "result_repr": repr(result)},
+        )
+
+    def on_fill(self, order_id: str, fill_qty: float, fill_price: float) -> RealOrderResult:
+        """Русский комментарий: применяет fill к локальному OrderState и пишет PARTIAL_FILLED/FILLED."""
+        order_state = self.orders_by_id.get(order_id)
+        if order_state is None:
+            return RealOrderResult(
+                symbol="",
+                side="",
+                qty=0.0,
+                price=fill_price,
+                status="REJECTED",
+                order_id=order_id,
+                reason="unknown_order_id",
+            )
+
+        order_state.on_partial_fill(fill_qty, fill_price)
+        self._log_order_state(
+            order_state,
+            raw_json={"event": order_state.state, "fill_qty": fill_qty, "fill_price": fill_price},
+        )
+
+        return RealOrderResult(
+            symbol=order_state.symbol,
+            side=order_state.side,
+            qty=order_state.qty,
+            price=fill_price,
+            status=order_state.state,
+            order_id=order_state.order_id,
+            reason=order_state.reason,
+            raw={"filled_qty": order_state.filled_qty, "remaining_qty": order_state.remaining_qty()},
         )
