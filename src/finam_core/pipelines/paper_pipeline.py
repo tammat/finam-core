@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
 from finam_core.execution.position_order_tracker import PositionOrderTracker
+from finam_core.execution.broker_reconciliation import BrokerReconciliationEngine
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.accounting.fees import FeeTaxModel
@@ -216,6 +217,11 @@ class PaperTradingPipeline:
         self.position_order_tracker = PositionOrderTracker()
         self._broker_orders_by_symbol = {}
         self._position_order_state_last_key = {}
+        # Русский комментарий: read-only сверка локальной позиции с брокером перед real orders.
+        self.broker_reconciliation = BrokerReconciliationEngine(
+            qty_tolerance=float(os.getenv("BROKER_RECONCILIATION_QTY_TOLERANCE", "1e-9"))
+        )
+        self._trading_halt_reason = None
         # Русский комментарий: DB-driven политика горизонта позиции.
         self.position_intent_repo = PositionIntentRepository(
             ttl_sec=float(os.getenv("POSITION_INTENT_CACHE_TTL_SEC", "60"))
@@ -960,6 +966,30 @@ class PaperTradingPipeline:
             return False, f"intent_blocks_intraday_exit:{policy.horizon}"
 
         return True, f"intent_allows_intraday_exit:{policy.horizon}"
+
+
+    def _reconciliation_allows_real_order(self, symbol: str, local_qty: float) -> tuple[bool, str]:
+        """Русский комментарий: hard-gate перед реальной заявкой — локальная позиция должна совпадать с брокером."""
+        if os.getenv("ENABLE_BROKER_RECONCILIATION_GATE", "0") != "1":
+            return True, "reconciliation_gate_disabled"
+
+        broker_qty = float(getattr(self, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
+        result = self.broker_reconciliation.check_position(symbol, local_qty, broker_qty)
+
+        if result.ok:
+            return True, result.reason
+
+        self._trading_halt_reason = (
+            f"broker_desync:{symbol}:local={result.local_qty}:broker={result.broker_qty}"
+        )
+
+        print(
+            f"PIPE_RECONCILIATION_MISMATCH symbol={symbol} "
+            f"local_qty={result.local_qty} broker_qty={result.broker_qty} "
+            f"halt_reason={self._trading_halt_reason}",
+            flush=True,
+        )
+        return False, self._trading_halt_reason
 
 
     def _position_intent_allows_order(self, symbol: str, side: str, current_qty: float) -> tuple[bool, str]:
@@ -1920,6 +1950,16 @@ class PaperTradingPipeline:
                     flush=True,
                 )
                 return
+
+            if os.getenv("EXECUTION_MODE", "paper").lower() == "real":
+                recon_allowed, recon_reason = self._reconciliation_allows_real_order(sym, current_qty)
+                if not recon_allowed:
+                    print(
+                        f"PIPE_RECONCILIATION_ORDER_BLOCK symbol={sym} side={side} "
+                        f"current_qty={current_qty} reason={recon_reason}",
+                        flush=True,
+                    )
+                    return
 
             # === PRIMARY TREND ALIGNMENT ===
             if (not is_exit_intent) and trend == "up" and side != "BUY":
