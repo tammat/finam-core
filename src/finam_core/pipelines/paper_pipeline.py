@@ -777,11 +777,15 @@ class PaperTradingPipeline:
         if not reason:
             return True, "broker_position_hard_gate_ok"
 
-        qty = float(current_qty or 0.0)
+        local_qty = float(current_qty or 0.0)
+        broker_qty = float((getattr(self, "_broker_position_qty_by_symbol", {}) or {}).get(symbol, 0.0) or 0.0)
         order_side = str(side or "").upper()
-        is_reduce = (qty > 0 and order_side == "SELL") or (qty < 0 and order_side == "BUY")
 
-        if is_reduce:
+        # Русский комментарий: при рассинхроне сокращение разрешается только если оно сокращает и broker, и local.
+        is_broker_reduce = (broker_qty > 0 and order_side == "SELL") or (broker_qty < 0 and order_side == "BUY")
+        is_local_reduce = (local_qty > 0 and order_side == "SELL") or (local_qty < 0 and order_side == "BUY")
+
+        if is_broker_reduce and is_local_reduce:
             return True, "broker_position_hard_gate_reduce_allowed"
 
         return False, reason
