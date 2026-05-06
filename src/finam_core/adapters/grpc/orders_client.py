@@ -228,6 +228,71 @@ class FinamOrdersClient:
             "retryable": False,
         }
 
+    def _normalize_order_stream_event(self, item, orders_pb2, side_pb2) -> dict:
+        """Русский комментарий: нормализует событие SubscribeOrders без зависимости от точного wrapper-типа."""
+        # Русский комментарий: item может быть либо самим OrderState, либо wrapper-ответом SubscribeOrdersResponse.
+        if hasattr(item, "status") and hasattr(item, "order_id"):
+            state = item
+        else:
+            state = getattr(item, "state", None) or getattr(item, "order_state", None) or item
+        order = getattr(state, "order", None)
+
+        symbol = str(getattr(order, "symbol", "") or "") if order is not None else ""
+        status = self._enum_name(orders_pb2.OrderStatus, getattr(state, "status", 0)).replace("ORDER_STATUS_", "")
+        side = self._enum_name(side_pb2.Side, getattr(order, "side", 0)).replace("SIDE_", "") if order is not None else ""
+        order_type = self._enum_name(orders_pb2.OrderType, getattr(order, "type", 0)).replace("ORDER_TYPE_", "") if order is not None else ""
+
+        quantity = getattr(order, "quantity", None) if order is not None else None
+        qty = float(getattr(quantity, "value", 0.0) or 0.0)
+
+        limit_price = getattr(order, "limit_price", None) if order is not None else None
+        stop_price = getattr(order, "stop_price", None) if order is not None else None
+
+        return {
+            "order_id": str(getattr(state, "order_id", "") or ""),
+            "exec_id": str(getattr(state, "exec_id", "") or ""),
+            "symbol": symbol,
+            "side": side,
+            "status": status,
+            "order_type": order_type,
+            "qty": qty,
+            "price": getattr(limit_price, "value", None),
+            "stop_price": getattr(stop_price, "value", None),
+            "raw": {"event_repr": str(item)},
+        }
+
+    def subscribe_orders(self, *, max_events: int | None = None) -> list[dict]:
+        """Русский комментарий: read-only SubscribeOrders. Возвращает нормализованные события заявок."""
+        events: list[dict] = []
+
+        try:
+            if not self.account_id:
+                print("FINAM_SUBSCRIBE_ORDERS_NO_ACCOUNT_ID", flush=True)
+                return events
+
+            orders_pb2, _, side_pb2 = self._load_orders_grpc()
+            req = orders_pb2.SubscribeOrdersRequest(account_id=str(self.account_id))
+
+            stream = self._stub_for_orders().SubscribeOrders(
+                req,
+                metadata=self._metadata(),
+                timeout=float(os.getenv("FINAM_SUBSCRIBE_ORDERS_TIMEOUT_SEC", "30")),
+            )
+
+            limit = int(max_events or int(os.getenv("FINAM_SUBSCRIBE_ORDERS_MAX_EVENTS", "1")))
+            for item in stream:
+                event = self._normalize_order_stream_event(item, orders_pb2, side_pb2)
+                events.append(event)
+                if len(events) >= limit:
+                    break
+
+            return events
+
+        except Exception as exc:
+            print(f"FINAM_SUBSCRIBE_ORDERS_ERROR error={exc}", flush=True)
+            return events
+
+
     def cancel_order(self, order_id: str) -> dict:
         """Русский комментарий: отмена заявки; без подтверждения работает как dry-run."""
         if not order_id:
