@@ -916,7 +916,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
-        session = self.session.get_regime()
+        session = self.session.get_regime(sym)
         # === FORCE OVERRIDE (DEV MODE) ===
         if os.getenv("SESSION_OVERRIDE", "0") == "1":
             print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
@@ -1537,7 +1537,7 @@ class PaperTradingPipeline:
         # === SESSION FILTER (ЕДИНЫЙ ИСТОЧНИК, POST-ROUTER)
         # =========================================================
         try:
-            session = self.session.get_regime()
+            session = self.session.get_regime(sym)
 
             if not session.get("allow_entries", False):
                 if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
