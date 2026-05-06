@@ -260,6 +260,9 @@ class PaperTradingPipeline:
         # Русский комментарий: pending confirmation state для слабых BR breakout.
         self._br_confirm_pending = {}
         self._broker_position_qty_by_symbol = {}
+        # Русский комментарий: hard-gate по рассинхрону брокерской и локальной позиции.
+        self._broker_position_halt_by_symbol = {}
+        self._broker_position_halt_last_key = None
         # Русский комментарий: read-only слой активных брокерских заявок.
         self.open_orders_sync = OpenOrdersSync()
         self._broker_orders_by_symbol = {}
@@ -682,6 +685,7 @@ class PaperTradingPipeline:
 
             self._broker_position_qty_by_symbol = qty_by_symbol
             self._broker_position_avg_by_symbol = avg_by_symbol
+            self._refresh_broker_position_hard_gate()
 
             snapshot_key = tuple(sorted(qty_by_symbol.items()))
             last_snapshot_key = getattr(self, "_broker_position_last_snapshot_key", None)
@@ -701,6 +705,83 @@ class PaperTradingPipeline:
 
         except Exception as exc:
             print(f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}", flush=True)
+
+
+    def _local_position_qty_for_hard_gate(self, symbol: str) -> float:
+        """Русский комментарий: безопасно получает локальное количество позиции для broker hard-gate."""
+        try:
+            qty = self._position_qty_for_symbol(symbol)
+            return float(qty or 0.0)
+        except Exception:
+            pass
+
+        try:
+            pm = self._get_position_manager_for_exit()
+            positions = getattr(pm, "positions", {}) or {}
+            pos = positions.get(symbol)
+            if pos is None:
+                return 0.0
+            for field in ("qty", "quantity", "position_qty", "size"):
+                value = getattr(pos, field, None)
+                if value is not None:
+                    return float(value or 0.0)
+        except Exception:
+            pass
+
+        return 0.0
+
+
+    def _refresh_broker_position_hard_gate(self) -> None:
+        """Русский комментарий: ставит/снимает HALT по символам при рассинхроне broker/local qty."""
+        if os.getenv("ENABLE_BROKER_POSITION_HARD_GATE", "0") != "1":
+            return
+
+        tolerance = float(os.getenv("BROKER_POSITION_HARD_GATE_QTY_TOLERANCE", "1e-9"))
+        broker_positions = getattr(self, "_broker_position_qty_by_symbol", {}) or {}
+        symbols = set(broker_positions.keys())
+
+        try:
+            pm = self._get_position_manager_for_exit()
+            symbols.update((getattr(pm, "positions", {}) or {}).keys())
+        except Exception:
+            pass
+
+        new_halts = {}
+        for symbol in sorted(symbols):
+            local_qty = self._local_position_qty_for_hard_gate(symbol)
+            broker_qty = float(broker_positions.get(symbol, 0.0) or 0.0)
+            if abs(local_qty - broker_qty) > tolerance:
+                new_halts[symbol] = f"broker_position_desync:{symbol}:local={local_qty}:broker={broker_qty}"
+
+        old_halts = getattr(self, "_broker_position_halt_by_symbol", {}) or {}
+        if new_halts != old_halts:
+            for symbol, reason in new_halts.items():
+                if old_halts.get(symbol) != reason:
+                    print(f"PIPE_BROKER_POSITION_HARD_GATE_ON symbol={symbol} reason={reason}", flush=True)
+
+            for symbol in sorted(set(old_halts.keys()) - set(new_halts.keys())):
+                print(f"PIPE_BROKER_POSITION_HARD_GATE_OFF symbol={symbol}", flush=True)
+
+            self._broker_position_halt_by_symbol = new_halts
+
+
+    def _broker_position_hard_gate_allows_order(self, symbol: str, side: str, current_qty: float) -> tuple[bool, str]:
+        """Русский комментарий: при HALT запрещает увеличение риска; сокращение позиции разрешает."""
+        if os.getenv("ENABLE_BROKER_POSITION_HARD_GATE", "0") != "1":
+            return True, "broker_position_hard_gate_disabled"
+
+        reason = (getattr(self, "_broker_position_halt_by_symbol", {}) or {}).get(symbol)
+        if not reason:
+            return True, "broker_position_hard_gate_ok"
+
+        qty = float(current_qty or 0.0)
+        order_side = str(side or "").upper()
+        is_reduce = (qty > 0 and order_side == "SELL") or (qty < 0 and order_side == "BUY")
+
+        if is_reduce:
+            return True, "broker_position_hard_gate_reduce_allowed"
+
+        return False, reason
 
 
     def _sync_broker_open_orders_if_needed(self) -> None:
@@ -2007,6 +2088,18 @@ class PaperTradingPipeline:
                     f"current_qty={current_qty} reason={intent_reason}",
                     flush=True,
                 )
+                return
+
+            hard_gate_allowed, hard_gate_reason = self._broker_position_hard_gate_allows_order(sym, side, current_qty)
+            if not hard_gate_allowed:
+                block_key = (sym, side, current_qty, hard_gate_reason)
+                if getattr(self, "_last_broker_position_hard_gate_order_block", None) != block_key:
+                    print(
+                        f"PIPE_BROKER_POSITION_HARD_GATE_ORDER_BLOCK symbol={sym} side={side} "
+                        f"current_qty={current_qty} reason={hard_gate_reason}",
+                        flush=True,
+                    )
+                    self._last_broker_position_hard_gate_order_block = block_key
                 return
 
             if os.getenv("EXECUTION_MODE", "paper").lower() == "real":
