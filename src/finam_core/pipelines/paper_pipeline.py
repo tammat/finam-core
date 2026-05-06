@@ -11,6 +11,7 @@ import os
 import time
 from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
 from finam_core.strategy.br_regime_layer import BRRegimeLayer
+from finam_core.strategy.br_volatility_intelligence import BRVolatilityIntelligence
 from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
@@ -221,6 +222,8 @@ class PaperTradingPipeline:
         self.regime_engine = RegimeEngine()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
+        # Русский комментарий: volatility-aware параметры для BR regime/confirmation.
+        self.br_volatility_intelligence = BRVolatilityIntelligence()
         # Русский комментарий: pending confirmation state для слабых BR breakout.
         self._br_confirm_pending = {}
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
@@ -2668,7 +2671,8 @@ class PaperTradingPipeline:
         ticks += 1
         pending["ticks"] = ticks
 
-        if ticks >= 3:
+        required_ticks = int(pending.get("required_ticks") or 3)
+        if ticks >= required_ticks:
             self._br_confirm_pending.pop(symbol, None)
             print(
                 f"PIPE_BR_CONFIRM_OK symbol={symbol} side={side} ticks={ticks}",
@@ -2713,6 +2717,21 @@ class PaperTradingPipeline:
         slope_m5 = _num("slope_m5", _num("m5_slope", 0.0))
         slope_m15 = _num("slope_m15", _num("m15_slope", slope_m5))
         compression_ratio = _num("compression_ratio", 1.0)
+        atr_short = _num("atr_short", atr)
+        atr_long = _num("atr_long", _num("atr_slow", atr if atr > 0 else 0.0))
+
+        vol_layer = getattr(self, "br_volatility_intelligence", None)
+        if vol_layer is None:
+            vol_layer = BRVolatilityIntelligence()
+            self.br_volatility_intelligence = vol_layer
+
+        volatility_profile = None
+        if price > 0 and atr_short > 0 and atr_long > 0:
+            volatility_profile = vol_layer.evaluate(
+                atr_short=atr_short,
+                atr_long=atr_long,
+                price=price,
+            )
 
         layer = getattr(self, "br_regime_layer", None)
         if layer is None:
@@ -2725,12 +2744,18 @@ class PaperTradingPipeline:
             slope_m15=slope_m15,
             compression_ratio=compression_ratio,
             signal_side=str(getattr(br_signal, "side", "") or ""),
+            price=price,
+            atr_short=atr_short,
+            atr_long=atr_long,
+            volatility_profile=volatility_profile,
         )
 
         print(
             f"PIPE_BR_REGIME_DECISION symbol={getattr(br_signal, 'symbol', None)} "
             f"side={getattr(br_signal, 'side', None)} allowed={decision.allowed} "
-            f"regime={decision.regime} reason={decision.reason} size_mult={decision.size_multiplier}",
+            f"regime={decision.regime} reason={decision.reason} size_mult={decision.size_multiplier} "
+            f"confirm_ticks={getattr(decision, 'confirmation_ticks', 3)} "
+            f"breakout_k={getattr(decision, 'breakout_k', 1.0)}",
             flush=True,
         )
         self._log_br_event(
@@ -2743,6 +2768,10 @@ class PaperTradingPipeline:
                 "reason": decision.reason,
                 "size_multiplier": float(decision.size_multiplier),
                 "confirmation_required": bool(getattr(decision, "confirmation_required", False)),
+                "confirmation_ticks": int(getattr(decision, "confirmation_ticks", 3)),
+                "breakout_k": float(getattr(decision, "breakout_k", 1.0)),
+                "volatility_regime": getattr(volatility_profile, "volatility_regime", None),
+                "volatility_reason": getattr(volatility_profile, "reason", None),
             },
         )
         return decision
@@ -2773,6 +2802,7 @@ class PaperTradingPipeline:
                     "side": side,
                     "level": price,
                     "ticks": 0,
+                    "required_ticks": int(getattr(br_regime, "confirmation_ticks", 3)),
                 }
                 print(
                     f"PIPE_BR_CONFIRM_PENDING symbol={symbol} side={side} level={price}",

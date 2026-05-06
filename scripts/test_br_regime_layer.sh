@@ -49,11 +49,32 @@ d = r.evaluate(
     slope_m15=0.001,
     compression_ratio=0.4,
     signal_side="BUY",
+    price=110.0,
+    atr_short=0.5,
+    atr_long=1.0,
 )
 assert d.allowed is True
 assert d.regime == "compression"
 assert d.confirmation_required is True
 assert d.size_multiplier == 0.5
+assert d.confirmation_ticks == 3
+assert d.breakout_k == 0.8
+
+d = r.evaluate(
+    atr_pct=0.01,
+    slope_m5=0.001,
+    slope_m15=0.001,
+    compression_ratio=1.5,
+    signal_side="BUY",
+    price=110.0,
+    atr_short=1.5,
+    atr_long=1.0,
+)
+assert d.allowed is True
+assert d.regime == "volatility_expansion_up"
+assert d.size_multiplier == 1.0
+assert d.confirmation_ticks == 2
+assert d.breakout_k == 1.2
 
 
 class DummyPipeline:
