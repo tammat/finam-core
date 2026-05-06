@@ -221,6 +221,8 @@ class PaperTradingPipeline:
         self.regime_engine = RegimeEngine()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
+        # Русский комментарий: pending confirmation state для слабых BR breakout.
+        self._br_confirm_pending = {}
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
         self.br_breakout_enabled = (
             os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
@@ -2595,6 +2597,57 @@ class PaperTradingPipeline:
 
         return False, f"MAX_POSITION_LIMIT current={current_pos} requested={signed} new={new_pos} limit={limit}"
 
+    def _check_br_confirmation(self, symbol: str, side: str, price: float) -> bool:
+        """Русский комментарий: подтверждение слабого BR breakout удержанием уровня."""
+        pending = self._br_confirm_pending.get(symbol)
+        if not pending:
+            return False
+
+        level = float(pending.get("level") or 0.0)
+        ticks = int(pending.get("ticks") or 0)
+        expected_side = str(pending.get("side") or "")
+
+        if expected_side and expected_side != side:
+            self._br_confirm_pending.pop(symbol, None)
+            print(
+                f"PIPE_BR_CONFIRM_REJECT symbol={symbol} side={side} reason=side_changed",
+                flush=True,
+            )
+            return False
+
+        if side == "BUY":
+            ok = price >= level
+        elif side == "SELL":
+            ok = price <= level
+        else:
+            ok = False
+
+        if not ok:
+            self._br_confirm_pending.pop(symbol, None)
+            print(
+                f"PIPE_BR_CONFIRM_REJECT symbol={symbol} side={side} price={price} level={level}",
+                flush=True,
+            )
+            return False
+
+        ticks += 1
+        pending["ticks"] = ticks
+
+        if ticks >= 3:
+            self._br_confirm_pending.pop(symbol, None)
+            print(
+                f"PIPE_BR_CONFIRM_OK symbol={symbol} side={side} ticks={ticks}",
+                flush=True,
+            )
+            return True
+
+        print(
+            f"PIPE_BR_CONFIRM_WAIT symbol={symbol} side={side} ticks={ticks} level={level} price={price}",
+            flush=True,
+        )
+        return False
+
+
     def _br_regime_allows_signal(self, br_signal):
         """Русский комментарий: адаптирует признаки BR-сигнала к BRRegimeLayer.
 
@@ -2651,6 +2704,28 @@ class PaperTradingPipeline:
 
         # Русский комментарий: дополнительный regime-фильтр для Brent перед PaperExecution.
         br_regime = self._br_regime_allows_signal(br_signal)
+
+        if getattr(br_regime, "confirmation_required", False):
+            symbol = str(getattr(br_signal, "symbol", "") or "")
+            side = str(getattr(br_signal, "side", "") or "")
+            price = float(getattr(br_signal, "price", 0.0) or 0.0)
+            pending = self._br_confirm_pending.get(symbol)
+
+            if pending is None:
+                self._br_confirm_pending[symbol] = {
+                    "side": side,
+                    "level": price,
+                    "ticks": 0,
+                }
+                print(
+                    f"PIPE_BR_CONFIRM_PENDING symbol={symbol} side={side} level={price}",
+                    flush=True,
+                )
+                return False, "BR_CONFIRM_PENDING"
+
+            if not self._check_br_confirmation(symbol, side, price):
+                return False, "BR_CONFIRM_WAIT"
+
         if not br_regime.allowed:
             print(
                 f"PIPE_BR_REGIME_BLOCK symbol={br_signal.symbol} side={br_signal.side} "
