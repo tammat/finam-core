@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
+from finam_core.execution.position_order_tracker import PositionOrderTracker
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
@@ -210,6 +211,10 @@ class PaperTradingPipeline:
             min_replace_step=float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")),
         )
         self._trailing_order_stop_by_symbol = {}
+        # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
+        self.position_order_tracker = PositionOrderTracker()
+        self._broker_orders_by_symbol = {}
+        self._position_order_state_last_key = {}
         # Русский комментарий: state machine не задерживает выход, а только подавляет дубли exit-заявок.
         self.exit_state_machine = ExitStateMachine(
             ttl_sec=float(os.getenv("EXIT_STATE_TTL_SEC", "30"))
@@ -889,6 +894,39 @@ class PaperTradingPipeline:
             )
 
 
+    def _log_position_order_state_if_changed(self, symbol: str, qty: float) -> None:
+        """Русский комментарий: логирует защищённость позиции заявками только при изменении состояния."""
+        if os.getenv("ENABLE_POSITION_ORDER_TRACKER", "0") != "1":
+            return
+
+        orders = list(getattr(self, "_broker_orders_by_symbol", {}).get(symbol, []) or [])
+        state = self.position_order_tracker.evaluate(symbol, qty, orders)
+
+        key = (
+            round(float(state.position_qty), 8),
+            round(float(state.stop_qty), 8),
+            round(float(state.take_qty), 8),
+            bool(state.protected),
+            round(float(state.protection_gap_qty), 8),
+        )
+
+        last_key = getattr(self, "_position_order_state_last_key", {}).get(symbol)
+        if last_key == key:
+            return
+
+        if not hasattr(self, "_position_order_state_last_key"):
+            self._position_order_state_last_key = {}
+
+        self._position_order_state_last_key[symbol] = key
+
+        print(
+            f"PIPE_POSITION_ORDER_STATE symbol={state.symbol} "
+            f"qty={state.position_qty} stop_qty={state.stop_qty} take_qty={state.take_qty} "
+            f"protected={state.protected} gap={state.protection_gap_qty}",
+            flush=True,
+        )
+
+
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         self._sync_broker_positions_readonly()
@@ -910,6 +948,8 @@ class PaperTradingPipeline:
                     flush=True,
                 )
                 state["last_broker_qty_logged"] = broker_qty
+
+        self._log_position_order_state_if_changed(symbol, qty)
 
         now_ts = time.time()
         has_position = abs(float(qty or 0.0)) > 1e-9
