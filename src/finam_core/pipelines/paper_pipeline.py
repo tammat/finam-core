@@ -632,7 +632,7 @@ class PaperTradingPipeline:
             resp = stub.GetAccount(
                 accounts_service_pb2.GetAccountRequest(account_id=account_id),
                 metadata=(("authorization", f"Bearer {jwt}"),),
-                timeout=5,
+                timeout=float(os.getenv("BROKER_POSITION_SYNC_TIMEOUT_SEC", "10")),
             )
 
             qty_by_symbol = {}
