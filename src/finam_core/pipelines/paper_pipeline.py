@@ -263,6 +263,7 @@ class PaperTradingPipeline:
         # Русский комментарий: hard-gate по рассинхрону брокерской и локальной позиции.
         self._broker_position_halt_by_symbol = {}
         self._broker_position_halt_last_key = None
+        self._broker_position_hard_gate_order_block_seen = set()
         # Русский комментарий: restart recovery выполняется один раз после запуска pipeline.
         self._restart_recovery_done = False
         # Русский комментарий: read-only слой активных брокерских заявок.
@@ -812,7 +813,14 @@ class PaperTradingPipeline:
             self._broker_orders_by_symbol = self.open_orders_sync.build_orders_by_symbol(raw_orders or [])
             self._broker_orders_sync_ts = now_ts
 
-            print("PIPE_BROKER_OPEN_ORDERS_SYNC_OK", flush=True)
+            snapshot_key = tuple(
+                sorted((symbol, len(items)) for symbol, items in self._broker_orders_by_symbol.items())
+            )
+            last_snapshot_key = getattr(self, "_broker_orders_last_snapshot_key", None)
+
+            if snapshot_key != last_snapshot_key:
+                print("PIPE_BROKER_OPEN_ORDERS_SYNC_OK", flush=True)
+                self._broker_orders_last_snapshot_key = snapshot_key
 
         except Exception as exc:
             print(f"PIPE_BROKER_OPEN_ORDERS_SYNC_ERROR error={exc}", flush=True)
@@ -2128,14 +2136,18 @@ class PaperTradingPipeline:
 
             hard_gate_allowed, hard_gate_reason = self._broker_position_hard_gate_allows_order(sym, side, current_qty)
             if not hard_gate_allowed:
-                block_key = (sym, side, current_qty, hard_gate_reason)
-                if getattr(self, "_last_broker_position_hard_gate_order_block", None) != block_key:
+                block_key = (sym, side, hard_gate_reason)
+                seen = getattr(self, "_broker_position_hard_gate_order_block_seen", set())
+
+                if block_key not in seen:
                     print(
                         f"PIPE_BROKER_POSITION_HARD_GATE_ORDER_BLOCK symbol={sym} side={side} "
-                        f"current_qty={current_qty} reason={hard_gate_reason}",
+                        f"reason={hard_gate_reason}",
                         flush=True,
                     )
-                    self._last_broker_position_hard_gate_order_block = block_key
+                    seen.add(block_key)
+                    self._broker_position_hard_gate_order_block_seen = seen
+
                 return
 
             if os.getenv("EXECUTION_MODE", "paper").lower() == "real":
