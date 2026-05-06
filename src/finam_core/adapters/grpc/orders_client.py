@@ -8,6 +8,7 @@ from finam_core.auth.token_manager import FinamTokenManager
 from typing import Any
 
 import grpc
+from grpc import RpcError
 from google.type import decimal_pb2
 
 
@@ -129,6 +130,47 @@ class FinamOrdersClient:
             raw={"response": str(response)},
         )
 
+    def _normalize_broker_error(self, exc: Exception) -> tuple[str, dict]:
+        """Русский комментарий: нормализует ошибки брокера в стабильные reason-коды."""
+        raw_text = str(exc)
+        grpc_code = None
+        grpc_details = None
+
+        if isinstance(exc, RpcError):
+            try:
+                grpc_code = str(exc.code())
+            except Exception:
+                grpc_code = None
+            try:
+                grpc_details = str(exc.details())
+            except Exception:
+                grpc_details = None
+
+        text = grpc_details or raw_text
+
+        if "[666]" in text or "uncovered position" in text.lower() or "непокрыт" in text.lower():
+            return "BROKER_UNCOVERED_POSITION_WARNING", {
+                "grpc_code": grpc_code,
+                "grpc_details": grpc_details,
+                "raw_error": raw_text,
+                "retryable": False,
+            }
+
+        if "No enough coverage" in text or "Недостаток обеспечения" in text:
+            return "BROKER_NOT_ENOUGH_COVERAGE", {
+                "grpc_code": grpc_code,
+                "grpc_details": grpc_details,
+                "raw_error": raw_text,
+                "retryable": False,
+            }
+
+        return str(exc), {
+            "grpc_code": grpc_code,
+            "grpc_details": grpc_details,
+            "raw_error": raw_text,
+            "retryable": False,
+        }
+
     def place_market_order(
         self,
         symbol: str,
@@ -170,19 +212,23 @@ class FinamOrdersClient:
                 price=price,
             )
         except Exception as exc:
-            return FinamOrderResult(
-                symbol=symbol,
-                side=side,
-                qty=qty,
-                price=price,
-                status="ERROR",
-                reason=str(exc),
-                raw={
+            reason, error_raw = self._normalize_broker_error(exc)
+            error_raw.update(
+                {
                     "account_id": self.account_id,
                     "endpoint": self.endpoint,
                     "symbol": symbol,
                     "side": side,
                     "qty": qty,
                     "price": price,
-                },
+                }
+            )
+            return FinamOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="ERROR",
+                reason=reason,
+                raw=error_raw,
             )
