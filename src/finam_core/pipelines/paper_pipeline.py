@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
 from finam_core.execution.position_order_tracker import PositionOrderTracker
+from finam_core.execution.open_orders_sync import OpenOrdersSync
 from finam_core.execution.broker_reconciliation import BrokerReconciliationEngine
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
@@ -257,6 +258,10 @@ class PaperTradingPipeline:
         # Русский комментарий: pending confirmation state для слабых BR breakout.
         self._br_confirm_pending = {}
         self._broker_position_qty_by_symbol = {}
+        # Русский комментарий: read-only слой активных брокерских заявок.
+        self.open_orders_sync = OpenOrdersSync()
+        self._broker_orders_by_symbol = {}
+        self._broker_orders_sync_ts = 0.0
         self._broker_position_avg_by_symbol = {}
         self._broker_position_sync_ts = 0.0
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
@@ -696,6 +701,42 @@ class PaperTradingPipeline:
             print(f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}", flush=True)
 
 
+    def _sync_broker_open_orders_if_needed(self) -> None:
+        """Русский комментарий: read-only синхронизация активных заявок брокера для PositionOrderTracker."""
+        if os.getenv("ENABLE_BROKER_OPEN_ORDERS_SYNC", "0") != "1":
+            return
+
+        interval_sec = float(os.getenv("BROKER_OPEN_ORDERS_SYNC_INTERVAL_SEC", "30"))
+        now_ts = time.time()
+        last_ts = float(getattr(self, "_broker_orders_sync_ts", 0.0) or 0.0)
+        if now_ts - last_ts < interval_sec:
+            return
+
+        try:
+            orders_client = getattr(self, "orders_client", None) or getattr(self, "finam_orders_client", None)
+            if orders_client is None:
+                return
+
+            if hasattr(orders_client, "list_open_orders"):
+                raw_orders = orders_client.list_open_orders()
+            elif hasattr(orders_client, "get_open_orders"):
+                raw_orders = orders_client.get_open_orders()
+            else:
+                return
+
+            self._broker_orders_by_symbol = self.open_orders_sync.build_orders_by_symbol(raw_orders or [])
+            self._broker_orders_sync_ts = now_ts
+
+            print(
+                f"PIPE_BROKER_OPEN_ORDERS_SYNC_OK symbols={len(self._broker_orders_by_symbol)} "
+                f"BRM6_orders={len(self._broker_orders_by_symbol.get('BRM6@RTSX', []))}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(f"PIPE_BROKER_OPEN_ORDERS_SYNC_ERROR error={exc}", flush=True)
+
+
     def _notify_telegram_event(self, text: str) -> None:
         """Русский комментарий: безопасная отправка Telegram-уведомления без влияния на торговый цикл."""
         try:
@@ -1034,6 +1075,7 @@ class PaperTradingPipeline:
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         self._sync_broker_positions_readonly()
+        self._sync_broker_open_orders_if_needed()
 
         state = self._exit_state_for_symbol(symbol)
 
