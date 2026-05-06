@@ -45,8 +45,10 @@ d = r.evaluate(
     compression_ratio=0.4,
     signal_side="BUY",
 )
-assert d.allowed is False
+assert d.allowed is True
 assert d.regime == "compression"
+assert d.confirmation_required is True
+assert d.size_multiplier == 0.5
 
 
 from types import SimpleNamespace
