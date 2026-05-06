@@ -1229,7 +1229,9 @@ class PaperTradingPipeline:
         last_log_ts = float(state.get(qty_key, 0.0) or 0.0)
         should_log_exit_check = now_ts - last_log_ts >= float(os.getenv(interval_key, default_interval))
 
-        if should_log_exit_check:
+        if should_log_exit_check and (
+            abs(float(qty or 0.0)) > 1e-9 or os.getenv("EXIT_ENGINE_DEBUG", "0") == "1"
+        ):
             state[qty_key] = now_ts
             print(
                 f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
@@ -1915,10 +1917,10 @@ class PaperTradingPipeline:
                 trend = regime.trend
 
                 if trend == "up" and not (price > m5):
-                    print("PIPE_MTF_WEAK_LONG", flush=True)
+                    self._log_dedup("PIPE_MTF_WEAK_LONG", "PIPE_MTF_WEAK_LONG")
 
                 if trend == "down" and not (price < m5):
-                    print("PIPE_MTF_WEAK_SHORT", flush=True)
+                    self._log_dedup("PIPE_MTF_WEAK_SHORT", "PIPE_MTF_WEAK_SHORT")
 
             # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
             if (not is_exit_intent) and regime.trend in ("up", "down"):
