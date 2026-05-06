@@ -817,6 +817,10 @@ class PaperTradingPipeline:
 
     def _position_avg_price_for_symbol(self, symbol: str) -> float | None:
         """Русский комментарий: безопасно получаем среднюю цену paper-позиции."""
+        broker_avg = float(getattr(self, "_broker_position_avg_by_symbol", {}).get(symbol, 0.0) or 0.0)
+        if broker_avg > 0:
+            return broker_avg
+
         pm = self._get_position_manager_for_exit()
         if pm is None:
             return None
@@ -907,15 +911,17 @@ class PaperTradingPipeline:
                 )
                 state["last_broker_qty_logged"] = broker_qty
 
-        should_log_exit_check = abs(float(qty or 0.0)) > 1e-9
-        if not should_log_exit_check:
-            last_zero_log_ts = float(state.get("last_zero_qty_log_ts", 0.0) or 0.0)
-            now_ts = time.time()
-            if now_ts - last_zero_log_ts >= float(os.getenv("EXIT_ZERO_QTY_LOG_INTERVAL_SEC", "60")):
-                should_log_exit_check = True
-                state["last_zero_qty_log_ts"] = now_ts
+        now_ts = time.time()
+        has_position = abs(float(qty or 0.0)) > 1e-9
+        qty_key = "last_nonzero_qty_log_ts" if has_position else "last_zero_qty_log_ts"
+        interval_key = "EXIT_NONZERO_QTY_LOG_INTERVAL_SEC" if has_position else "EXIT_ZERO_QTY_LOG_INTERVAL_SEC"
+        default_interval = "15" if has_position else "60"
+
+        last_log_ts = float(state.get(qty_key, 0.0) or 0.0)
+        should_log_exit_check = now_ts - last_log_ts >= float(os.getenv(interval_key, default_interval))
 
         if should_log_exit_check:
+            state[qty_key] = now_ts
             print(
                 f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
                 f"price={round(float(price), 6)} atr_in={atr}",
@@ -937,11 +943,17 @@ class PaperTradingPipeline:
 
         avg_price = self._position_avg_price_for_symbol(symbol)
         if avg_price is None:
-            print(
-                f"PIPE_EXIT_ENGINE_NO_AVG symbol={symbol} qty={qty} "
-                f"price={round(float(price), 6)}",
-                flush=True,
-            )
+            now_ts = time.time()
+            last_no_avg_ts = float(state.get("last_no_avg_log_ts", 0.0) or 0.0)
+
+            if now_ts - last_no_avg_ts >= float(os.getenv("EXIT_NO_AVG_LOG_INTERVAL_SEC", "300")):
+                state["last_no_avg_log_ts"] = now_ts
+                print(
+                    f"PIPE_EXIT_ENGINE_NO_AVG symbol={symbol} qty={qty} "
+                    f"price={round(float(price), 6)}",
+                    flush=True,
+                )
+
             return None
 
         if float(state.get("last_qty") or 0.0) == 0.0:
