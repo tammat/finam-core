@@ -43,17 +43,21 @@ class FinamOrdersClient:
     def _validate(self, symbol: str, side: str, qty: float) -> str | None:
         if not self.account_id:
             return "FINAM_ACCOUNT_ID_not_set"
-        self.token = self.token_manager.get_token()
-        if not self.token:
-            return "FINAM_TOKEN_not_set"
-        if self.token.count(".") != 2:
-            return "FINAM_TOKEN_not_jwt"
         if not symbol:
             return "symbol_not_set"
         if side not in ("BUY", "SELL"):
             return "invalid_side"
         if qty <= 0:
             return "invalid_qty"
+        return None
+
+    def _ensure_token(self) -> str | None:
+        """Русский комментарий: получает JWT только после прохождения safe-флагов real execution."""
+        self.token = self.token_manager.get_token()
+        if not self.token:
+            return "FINAM_TOKEN_not_set"
+        if self.token.count(".") != 2:
+            return "FINAM_TOKEN_not_jwt"
         return None
 
     def _metadata(self) -> list[tuple[str, str]]:
@@ -247,6 +251,17 @@ class FinamOrdersClient:
                 price=price,
                 status="REJECTED",
                 reason="REAL_ORDER_CONFIRM_not_enabled",
+            )
+
+        token_reason = self._ensure_token()
+        if token_reason:
+            return FinamOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                reason=token_reason,
             )
 
         try:
