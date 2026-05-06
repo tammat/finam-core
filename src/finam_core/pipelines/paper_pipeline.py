@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
 from finam_core.execution.position_order_tracker import PositionOrderTracker
+from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
@@ -215,6 +216,10 @@ class PaperTradingPipeline:
         self.position_order_tracker = PositionOrderTracker()
         self._broker_orders_by_symbol = {}
         self._position_order_state_last_key = {}
+        # Русский комментарий: DB-driven политика горизонта позиции.
+        self.position_intent_repo = PositionIntentRepository(
+            ttl_sec=float(os.getenv("POSITION_INTENT_CACHE_TTL_SEC", "60"))
+        )
         # Русский комментарий: state machine не задерживает выход, а только подавляет дубли exit-заявок.
         self.exit_state_machine = ExitStateMachine(
             ttl_sec=float(os.getenv("EXIT_STATE_TTL_SEC", "30"))
@@ -927,6 +932,21 @@ class PaperTradingPipeline:
         )
 
 
+    def _position_intent_allows_exit_engine(self, symbol: str) -> tuple[bool, str]:
+        """Русский комментарий: ExitEngine работает только для позиций с разрешённым intraday exit."""
+        if os.getenv("ENABLE_POSITION_INTENT_GATE", "0") != "1":
+            return True, "intent_gate_disabled"
+
+        policy = self.position_intent_repo.get(symbol)
+        if not policy.enabled:
+            return False, f"intent_disabled_or_unknown:{policy.horizon}"
+
+        if not policy.allow_intraday_exit:
+            return False, f"intent_blocks_intraday_exit:{policy.horizon}"
+
+        return True, f"intent_allows_intraday_exit:{policy.horizon}"
+
+
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         self._sync_broker_positions_readonly()
@@ -979,6 +999,18 @@ class PaperTradingPipeline:
                 self.exit_state_machine.on_position(symbol, 0.0)
             except Exception:
                 pass
+            return None
+
+        exit_allowed, exit_reason = self._position_intent_allows_exit_engine(symbol)
+        if not exit_allowed:
+            now_ts = time.time()
+            last_intent_block_ts = float(state.get("last_intent_block_log_ts", 0.0) or 0.0)
+            if now_ts - last_intent_block_ts >= float(os.getenv("POSITION_INTENT_BLOCK_LOG_INTERVAL_SEC", "300")):
+                state["last_intent_block_log_ts"] = now_ts
+                print(
+                    f"PIPE_POSITION_INTENT_EXIT_BLOCK symbol={symbol} qty={qty} reason={exit_reason}",
+                    flush=True,
+                )
             return None
 
         avg_price = self._position_avg_price_for_symbol(symbol)
