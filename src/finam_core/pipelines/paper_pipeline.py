@@ -729,11 +729,7 @@ class PaperTradingPipeline:
             self._broker_orders_by_symbol = self.open_orders_sync.build_orders_by_symbol(raw_orders or [])
             self._broker_orders_sync_ts = now_ts
 
-            print(
-                f"PIPE_BROKER_OPEN_ORDERS_SYNC_OK symbols={len(self._broker_orders_by_symbol)} "
-                f"BRM6_orders={len(self._broker_orders_by_symbol.get('BRM6@RTSX', []))}",
-                flush=True,
-            )
+            print("PIPE_BROKER_OPEN_ORDERS_SYNC_OK", flush=True)
 
         except Exception as exc:
             print(f"PIPE_BROKER_OPEN_ORDERS_SYNC_ERROR error={exc}", flush=True)
@@ -1026,12 +1022,22 @@ class PaperTradingPipeline:
             f"broker_desync:{symbol}:local={result.local_qty}:broker={result.broker_qty}"
         )
 
-        print(
-            f"PIPE_RECONCILIATION_MISMATCH symbol={symbol} "
-            f"local_qty={result.local_qty} broker_qty={result.broker_qty} "
-            f"halt_reason={self._trading_halt_reason}",
-            flush=True,
+        mismatch_key = (
+            symbol,
+            result.local_qty,
+            result.broker_qty,
+            self._trading_halt_reason,
         )
+        last_mismatch_key = getattr(self, "_last_reconciliation_mismatch_key", None)
+
+        if mismatch_key != last_mismatch_key:
+            print(
+                f"PIPE_RECONCILIATION_MISMATCH symbol={symbol} "
+                f"local_qty={result.local_qty} broker_qty={result.broker_qty} "
+                f"halt_reason={self._trading_halt_reason}",
+                flush=True,
+            )
+            self._last_reconciliation_mismatch_key = mismatch_key
         return False, self._trading_halt_reason
 
 
