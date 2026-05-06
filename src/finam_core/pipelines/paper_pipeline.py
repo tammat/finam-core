@@ -646,12 +646,21 @@ class PaperTradingPipeline:
             self._broker_position_qty_by_symbol = qty_by_symbol
             self._broker_position_avg_by_symbol = avg_by_symbol
 
-            print(
-                f"PIPE_BROKER_POSITION_SYNC_OK count={len(qty_by_symbol)} "
-                f"BRM6@RTSX={qty_by_symbol.get('BRM6@RTSX', 0.0)} "
-                f"BRM6_avg={avg_by_symbol.get('BRM6@RTSX', 0.0)}",
-                flush=True,
-            )
+            snapshot_key = tuple(sorted(qty_by_symbol.items()))
+            last_snapshot_key = getattr(self, "_broker_position_last_snapshot_key", None)
+            last_sync_log_ts = float(getattr(self, "_broker_position_last_sync_log_ts", 0.0) or 0.0)
+            heartbeat_sec = float(os.getenv("BROKER_POSITION_SYNC_LOG_HEARTBEAT_SEC", "300"))
+            now_log_ts = time.time()
+
+            if snapshot_key != last_snapshot_key or now_log_ts - last_sync_log_ts >= heartbeat_sec:
+                print(
+                    f"PIPE_BROKER_POSITION_SYNC_OK count={len(qty_by_symbol)} "
+                    f"BRM6@RTSX={qty_by_symbol.get('BRM6@RTSX', 0.0)} "
+                    f"BRM6_avg={avg_by_symbol.get('BRM6@RTSX', 0.0)}",
+                    flush=True,
+                )
+                self._broker_position_last_snapshot_key = snapshot_key
+                self._broker_position_last_sync_log_ts = now_log_ts
 
         except Exception as exc:
             print(f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}", flush=True)
