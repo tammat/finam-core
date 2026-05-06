@@ -23,6 +23,7 @@ from finam_core.execution.open_orders_sync import OpenOrdersSync
 from finam_core.execution.broker_reconciliation import BrokerReconciliationEngine
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
+from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
 from finam_core.notifications.telegram_notifier import TelegramNotifier
@@ -190,7 +191,8 @@ class PaperTradingPipeline:
         self.paper = paper
         # Русский комментарий: единый режим исполнения. real_dry_run не отправляет заявки брокеру.
         self.execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
-        self.real_execution = RealExecutionEngine(orders_client=None)
+        self.orders_client = FinamOrdersClient()
+        self.real_execution = RealExecutionEngine(orders_client=self.orders_client)
         self.fee_tax = FeeTaxModel()
         self.strategy = strategy
         # Русский коммент: единый pre-risk фильтр сигналов. По умолчанию отключён.

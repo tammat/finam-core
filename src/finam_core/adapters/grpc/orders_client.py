@@ -292,3 +292,12 @@ class FinamOrdersClient:
                 reason=reason,
                 raw=error_raw,
             )
+
+
+    def list_open_orders(self) -> list[dict]:
+        """Русский комментарий: read-only заглушка активных заявок до подключения реального Finam Orders API."""
+        return []
+
+    def get_open_orders(self) -> list[dict]:
+        """Русский комментарий: совместимый alias для OpenOrdersSync."""
+        return self.list_open_orders()
