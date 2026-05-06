@@ -87,6 +87,10 @@ class FinamOrdersClient:
                 return getattr(side_pb2, name)
         raise RuntimeError("orders_side_enum_not_found")
 
+    def _make_client_order_id(self) -> str:
+        """Русский комментарий: генерирует короткий client_order_id для Finam Orders API."""
+        return f"fc{int(__import__('time').time() * 1000) % 100000000000000000}"
+
     def _build_market_order(self, symbol: str, side: str, qty: float):
         """Русский комментарий: строит Order для OrdersService.PlaceOrder."""
         orders_service_pb2, _, _ = self._load_orders_grpc()
@@ -98,9 +102,42 @@ class FinamOrdersClient:
             type=orders_service_pb2.ORDER_TYPE_MARKET,
             time_in_force=orders_service_pb2.TIME_IN_FORCE_DAY,
             valid_before=orders_service_pb2.VALID_BEFORE_END_OF_DAY,
-            client_order_id=f"fc{int(__import__('time').time() * 1000) % 100000000000000000}",
+            client_order_id=self._make_client_order_id(),
             comment="finam_core_real_execution",
         )
+
+    def _build_stop_order(self, symbol: str, side: str, qty: float, stop_price: float, client_order_id: str | None = None):
+        """Русский комментарий: сборка STOP-заявки Finam без отправки брокеру."""
+        orders_service_pb2, _, side_pb2 = self._load_orders_grpc()
+
+        side_u = str(side or "").upper()
+        if side_u not in ("BUY", "SELL"):
+            raise ValueError(f"unsupported stop order side: {side}")
+
+        if float(qty or 0.0) <= 0:
+            raise ValueError("stop order qty must be positive")
+
+        if float(stop_price or 0.0) <= 0:
+            raise ValueError("stop_price must be positive")
+
+        order = orders_service_pb2.Order()
+        order.account_id = self.account_id
+        order.symbol = str(symbol)
+        order.quantity.value = str(float(qty)).rstrip("0").rstrip(".")
+        order.side = side_pb2.SIDE_BUY if side_u == "BUY" else side_pb2.SIDE_SELL
+        order.type = orders_service_pb2.ORDER_TYPE_STOP
+        order.stop_price.value = str(float(stop_price))
+        order.stop_condition = (
+            orders_service_pb2.STOP_CONDITION_LAST_DOWN
+            if side_u == "SELL"
+            else orders_service_pb2.STOP_CONDITION_LAST_UP
+        )
+        order.time_in_force = orders_service_pb2.TIME_IN_FORCE_DAY
+        order.valid_before = orders_service_pb2.VALID_BEFORE_END_OF_DAY
+        order.client_order_id = client_order_id or self._make_client_order_id()
+        order.comment = "finam_core_trailing_stop"
+        return order
+
 
     def _send_market_order_grpc(
         self,

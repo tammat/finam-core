@@ -28,3 +28,22 @@ assert res.reason in (
 
 print("FINAM_ORDERS_CLIENT_SAFE_OK")
 PY
+
+PYTHONPATH=src ${PYTHON_BIN:-python} - <<'PY'
+from finam_core.adapters.grpc.orders_client import FinamOrdersClient
+from finam_proto.grpc.tradeapi.v1.orders import orders_service_pb2
+from finam_proto.grpc.tradeapi.v1 import side_pb2
+
+c = FinamOrdersClient()
+order = c._build_stop_order("BRM6@RTSX", "SELL", 3, 110.20)
+
+assert order.symbol == "BRM6@RTSX", order
+assert order.side == side_pb2.SIDE_SELL, order
+assert order.type == orders_service_pb2.ORDER_TYPE_STOP, order
+assert order.stop_condition == orders_service_pb2.STOP_CONDITION_LAST_DOWN, order
+assert order.time_in_force == orders_service_pb2.TIME_IN_FORCE_DAY, order
+assert order.valid_before == orders_service_pb2.VALID_BEFORE_END_OF_DAY, order
+assert order.stop_price.value.startswith("110.2"), order
+
+print("FINAM_STOP_ORDER_BUILD_OK")
+PY
