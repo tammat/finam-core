@@ -1540,6 +1540,9 @@ class PaperTradingPipeline:
                     )
                     return
 
+                if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
+                    print("PIPE_PAPER_FILL_BLOCKED source=exit_engine", flush=True)
+                    return
                 raw_fill = self.paper.execute(intent, st)
                 raw_qty = float(getattr(raw_fill, "qty", intent.get("qty", 0.0)) or 0.0)
                 fill_side = "SELL" if raw_qty < 0 else "BUY"
@@ -3483,6 +3486,9 @@ class PaperTradingPipeline:
             paper_reason = "PAPER_ENGINE_NO_COMPATIBLE_METHOD"
 
             if hasattr(self.paper, "execute"):
+                if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
+                    print("PIPE_PAPER_FILL_BLOCKED source=br_paper_signal", flush=True)
+                    return False, "PAPER_FILLS_DISABLED"
                 fill = self.paper.execute(
                     order,
                     market_state={
