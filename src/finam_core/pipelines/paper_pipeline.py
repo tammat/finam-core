@@ -829,11 +829,18 @@ class PaperTradingPipeline:
         qty = self._position_qty_for_symbol(symbol)
         broker_qty = float(getattr(self, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
         if abs(broker_qty) > 1e-9:
-            qty = broker_qty
-            print(
-                f"PIPE_BROKER_POSITION_APPLIED symbol={symbol} broker_qty={broker_qty}",
-                flush=True,
+            prev_broker_qty = float(
+                state.get("last_broker_qty_logged", 0.0) or 0.0
             )
+
+            qty = broker_qty
+
+            if abs(prev_broker_qty - broker_qty) > 1e-9:
+                print(
+                    f"PIPE_BROKER_POSITION_APPLIED symbol={symbol} broker_qty={broker_qty}",
+                    flush=True,
+                )
+                state["last_broker_qty_logged"] = broker_qty
 
         state = self._exit_state_for_symbol(symbol)
 
