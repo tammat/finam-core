@@ -5,7 +5,7 @@ from __future__ import annotations
 class OpenOrdersSync:
     """Русский комментарий: read-only группировка активных брокерских заявок по инструменту."""
 
-    ACTIVE_STATUSES = {"ACTIVE", "WORKING", "ACCEPTED", "NEW", "PARTIAL_FILLED"}
+    ACTIVE_STATUSES = {"WATCHING", "ACTIVE", "WORKING", "ACCEPTED", "NEW", "PARTIAL_FILLED"}
 
     def normalize_order(self, order: dict) -> dict:
         return {
