@@ -1406,15 +1406,39 @@ class PaperTradingPipeline:
 
         if not old_order_id:
             orders = (getattr(self, "_broker_orders_by_symbol", {}) or {}).get(symbol, [])
+            active_statuses = {"WATCHING", "ACTIVE", "WORKING", "ACCEPTED", "NEW", "PARTIAL_FILLED"}
+
+            candidates = []
             for order in orders:
+                order_id = str(order.get("order_id") or "")
+                if not order_id:
+                    continue
+
                 order_type = str(order.get("order_type") or order.get("type") or "").upper()
                 order_side = str(order.get("side") or "").upper()
-                if "STOP" in order_type and order_side == side:
-                    old_order_id = str(order.get("order_id") or "")
-                    break
+                order_status = str(order.get("status") or "").upper()
+                stop_value = order.get("stop_price") or order.get("stop") or order.get("trigger_price")
+
+                # Русский комментарий: Finam может вернуть стоп как ORDER_TYPE_STOP,
+                # как WATCHING-заявку со stop_price или как условную заявку с trigger_price.
+                is_active = (not order_status) or order_status in active_statuses
+                is_same_side = order_side == side
+                is_stop_like = ("STOP" in order_type) or bool(stop_value)
+
+                if is_active and is_same_side and is_stop_like:
+                    candidates.append(order)
+
+            if candidates:
+                # Русский комментарий: если стопов несколько, берём последнюю/наиболее свежую заявку из snapshot.
+                old_order_id = str(candidates[-1].get("order_id") or "")
 
         if not old_order_id:
-            print(f"PIPE_TRAILING_REPLACE_STOP_BLOCK symbol={symbol} reason=missing_old_stop_order", flush=True)
+            orders_count = len((getattr(self, "_broker_orders_by_symbol", {}) or {}).get(symbol, []))
+            print(
+                f"PIPE_TRAILING_REPLACE_STOP_BLOCK symbol={symbol} "
+                f"reason=missing_old_stop_order broker_orders={orders_count}",
+                flush=True,
+            )
             return
 
         result = self.cancel_replace_stop_manager.replace_stop(
