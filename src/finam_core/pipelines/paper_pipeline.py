@@ -272,6 +272,8 @@ class PaperTradingPipeline:
         self._broker_position_hard_gate_order_block_seen = set()
         # Русский комментарий: restart recovery выполняется один раз после запуска pipeline.
         self._restart_recovery_done = False
+        # Русский комментарий: дедупликация повторяющихся operational-логов.
+        self._dedup_log_seen = {}
         # Русский комментарий: read-only слой активных брокерских заявок.
         self.open_orders_sync = OpenOrdersSync()
         self._broker_orders_by_symbol = {}
@@ -713,7 +715,10 @@ class PaperTradingPipeline:
                 self._broker_position_last_sync_log_ts = now_log_ts
 
         except Exception as exc:
-            print(f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}", flush=True)
+            self._log_dedup(
+                f"PIPE_BROKER_POSITION_SYNC_ERROR:{type(exc).__name__}",
+                f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}",
+            )
 
 
     def _local_position_qty_for_hard_gate(self, symbol: str) -> float:
@@ -836,7 +841,10 @@ class PaperTradingPipeline:
                 self._broker_orders_last_snapshot_key = snapshot_key
 
         except Exception as exc:
-            print(f"PIPE_BROKER_OPEN_ORDERS_SYNC_ERROR error={exc}", flush=True)
+            self._log_dedup(
+                f"PIPE_BROKER_OPEN_ORDERS_SYNC_ERROR:{type(exc).__name__}",
+                f"PIPE_BROKER_OPEN_ORDERS_SYNC_ERROR error={exc}",
+            )
 
 
     def _notify_telegram_event(self, text: str) -> None:
@@ -1424,6 +1432,21 @@ class PaperTradingPipeline:
         )
 
 
+    def _log_dedup(self, key: str, message: str, heartbeat_sec: float | None = None) -> None:
+        """Русский комментарий: печатает повторяющийся лог только по heartbeat."""
+        now_ts = time.time()
+        hb = float(heartbeat_sec if heartbeat_sec is not None else os.getenv("PIPE_DEDUP_LOG_HEARTBEAT_SEC", "300"))
+        state = getattr(self, "_dedup_log_seen", {}) or {}
+        last_ts = float(state.get(key, 0.0) or 0.0)
+
+        if last_ts and now_ts - last_ts < hb:
+            return
+
+        print(message, flush=True)
+        state[key] = now_ts
+        self._dedup_log_seen = state
+
+
     def _on_quote(self, event: dict):
         raw_intent = None
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
@@ -1588,7 +1611,7 @@ class PaperTradingPipeline:
                     return
 
                 if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
-                    print("PIPE_PAPER_FILL_BLOCKED source=exit_engine", flush=True)
+                    self._log_dedup("PIPE_PAPER_FILL_BLOCKED:exit_engine", "PIPE_PAPER_FILL_BLOCKED source=exit_engine")
                     return
                 raw_fill = self.paper.execute(intent, st)
                 raw_qty = float(getattr(raw_fill, "qty", intent.get("qty", 0.0)) or 0.0)
@@ -2598,7 +2621,7 @@ class PaperTradingPipeline:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             return
         if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
-            print("PIPE_PAPER_FILL_BLOCKED source=main_execution", flush=True)
+            self._log_dedup("PIPE_PAPER_FILL_BLOCKED:main_execution", "PIPE_PAPER_FILL_BLOCKED source=main_execution")
             return
 
         raw_fill = self.paper.execute(intent, st)
@@ -3538,7 +3561,7 @@ class PaperTradingPipeline:
 
             if hasattr(self.paper, "execute"):
                 if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
-                    print("PIPE_PAPER_FILL_BLOCKED source=br_paper_signal", flush=True)
+                    self._log_dedup("PIPE_PAPER_FILL_BLOCKED:br_paper_signal", "PIPE_PAPER_FILL_BLOCKED source=br_paper_signal")
                     return False, "PAPER_FILLS_DISABLED"
                 fill = self.paper.execute(
                     order,
