@@ -1080,6 +1080,7 @@ class PaperTradingPipeline:
 
 
     def _on_quote(self, event: dict):
+        raw_intent = None
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
         raw_sym = event.get("symbol")
@@ -1490,7 +1491,6 @@ class PaperTradingPipeline:
         # =========================================================
         # === STRATEGY SELECTION (FIXED REGIME V2)
         # =========================================================
-        raw_intent = None
 
         # ВАЖНО: используем РЕАЛЬНЫЙ regime (из regime_engine), а не session
         if PIPE_DEBUG:
