@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
+from finam_core.strategy.br_regime_layer import BRRegimeLayer
 from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
@@ -218,6 +219,8 @@ class PaperTradingPipeline:
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
         self.regime_engine = RegimeEngine()
+        # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
+        self.br_regime_layer = BRRegimeLayer()
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
         self.br_breakout_enabled = (
             os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
@@ -2592,6 +2595,48 @@ class PaperTradingPipeline:
 
         return False, f"MAX_POSITION_LIMIT current={current_pos} requested={signed} new={new_pos} limit={limit}"
 
+    def _br_regime_allows_signal(self, br_signal):
+        """Русский комментарий: адаптирует признаки BR-сигнала к BRRegimeLayer.
+
+        BRRegimeLayer не знает о pipeline и не отправляет заявки. Он только решает,
+        можно ли пропустить сигнал в PaperExecution.
+        """
+        features = getattr(br_signal, "features", None) or {}
+
+        def _num(name: str, default: float) -> float:
+            try:
+                return float(features.get(name, default))
+            except Exception:
+                return float(default)
+
+        price = float(getattr(br_signal, "price", 0.0) or 0.0)
+        atr = _num("atr", 0.0)
+        atr_pct = _num("atr_pct", abs(atr / price) if price else 0.0)
+        slope_m5 = _num("slope_m5", _num("m5_slope", 0.0))
+        slope_m15 = _num("slope_m15", _num("m15_slope", slope_m5))
+        compression_ratio = _num("compression_ratio", 1.0)
+
+        layer = getattr(self, "br_regime_layer", None)
+        if layer is None:
+            layer = BRRegimeLayer()
+            self.br_regime_layer = layer
+
+        decision = layer.evaluate(
+            atr_pct=atr_pct,
+            slope_m5=slope_m5,
+            slope_m15=slope_m15,
+            compression_ratio=compression_ratio,
+            signal_side=str(getattr(br_signal, "side", "") or ""),
+        )
+
+        print(
+            f"PIPE_BR_REGIME_DECISION symbol={getattr(br_signal, 'symbol', None)} "
+            f"side={getattr(br_signal, 'side', None)} allowed={decision.allowed} "
+            f"regime={decision.regime} reason={decision.reason} size_mult={decision.size_multiplier}",
+            flush=True,
+        )
+        return decision
+
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
         """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
         if os.getenv("EXECUTION_MODE", "paper").lower() != "paper":
@@ -2603,6 +2648,21 @@ class PaperTradingPipeline:
         regime_allowed, regime_reason = self._regime_policy_allows_br(br_signal)
         if not regime_allowed:
             return False, regime_reason
+
+        # Русский комментарий: дополнительный regime-фильтр для Brent перед PaperExecution.
+        br_regime = self._br_regime_allows_signal(br_signal)
+        if not br_regime.allowed:
+            print(
+                f"PIPE_BR_REGIME_BLOCK symbol={br_signal.symbol} side={br_signal.side} "
+                f"regime={br_regime.regime} reason={br_regime.reason}",
+                flush=True,
+            )
+            return False, f"BR_REGIME_BLOCK:{br_regime.reason}"
+
+        if br_regime.size_multiplier <= 0:
+            return False, "BR_REGIME_BLOCK:invalid_size_multiplier"
+
+        qty = float(qty) * float(br_regime.size_multiplier)
 
         drawdown_allowed, drawdown_reason = self._symbol_drawdown_allows_br(br_signal)
         if not drawdown_allowed:

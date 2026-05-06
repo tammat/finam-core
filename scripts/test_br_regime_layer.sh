@@ -48,5 +48,32 @@ d = r.evaluate(
 assert d.allowed is False
 assert d.regime == "compression"
 
+
+from types import SimpleNamespace
+from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
+from finam_core.strategy.br_regime_layer import BRRegimeLayer
+
+class DummyPipeline:
+    br_regime_layer = BRRegimeLayer()
+
+ok_signal = SimpleNamespace(
+    symbol="BRM6@RTSX",
+    side="BUY",
+    price=110.0,
+    features={"atr_pct": 0.01, "slope_m5": 0.001, "slope_m15": 0.001, "compression_ratio": 0.9},
+)
+ok_decision = PaperTradingPipeline._br_regime_allows_signal(DummyPipeline(), ok_signal)
+assert ok_decision.allowed is True, ok_decision
+
+bad_signal = SimpleNamespace(
+    symbol="BRM6@RTSX",
+    side="SELL",
+    price=110.0,
+    features={"atr_pct": 0.01, "slope_m5": 0.001, "slope_m15": 0.001, "compression_ratio": 0.9},
+)
+bad_decision = PaperTradingPipeline._br_regime_allows_signal(DummyPipeline(), bad_signal)
+assert bad_decision.allowed is False, bad_decision
+assert bad_decision.regime == "misaligned", bad_decision
+
 print("BR_REGIME_LAYER_OK")
 PY
