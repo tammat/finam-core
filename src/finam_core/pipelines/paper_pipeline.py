@@ -263,6 +263,8 @@ class PaperTradingPipeline:
         # Русский комментарий: hard-gate по рассинхрону брокерской и локальной позиции.
         self._broker_position_halt_by_symbol = {}
         self._broker_position_halt_last_key = None
+        # Русский комментарий: restart recovery выполняется один раз после запуска pipeline.
+        self._restart_recovery_done = False
         # Русский комментарий: read-only слой активных брокерских заявок.
         self.open_orders_sync = OpenOrdersSync()
         self._broker_orders_by_symbol = {}
@@ -1326,6 +1328,38 @@ class PaperTradingPipeline:
         }
 
 
+    def _run_restart_recovery_if_needed(self) -> None:
+        """Русский комментарий: read-only восстановление broker positions/open orders после перезапуска."""
+        if getattr(self, "_restart_recovery_done", False):
+            return
+
+        if os.getenv("ENABLE_RESTART_RECOVERY", "0") != "1":
+            self._restart_recovery_done = True
+            return
+
+        try:
+            print("PIPE_RESTART_RECOVERY_START", flush=True)
+
+            self._sync_broker_positions_readonly()
+            self._sync_broker_open_orders_if_needed()
+            self._refresh_broker_position_hard_gate()
+
+            broker_positions = getattr(self, "_broker_position_qty_by_symbol", {}) or {}
+            broker_orders = getattr(self, "_broker_orders_by_symbol", {}) or {}
+            halted = getattr(self, "_broker_position_halt_by_symbol", {}) or {}
+
+            print(
+                f"PIPE_RESTART_RECOVERY_DONE positions={len(broker_positions)} "
+                f"open_order_symbols={len(broker_orders)} halted_symbols={len(halted)}",
+                flush=True,
+            )
+            self._restart_recovery_done = True
+
+        except Exception as exc:
+            print(f"PIPE_RESTART_RECOVERY_ERROR error={exc}", flush=True)
+            self._restart_recovery_done = True
+
+
     def _on_quote(self, event: dict):
         raw_intent = None
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
@@ -1334,6 +1368,8 @@ class PaperTradingPipeline:
         sym = self._resolver.resolve(raw_sym)
         if not sym:
             return
+
+        self._run_restart_recovery_if_needed()
 
         # === STATE UPDATE ===
         st = self._mkt.get(sym, {})
