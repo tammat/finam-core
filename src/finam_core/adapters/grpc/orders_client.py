@@ -164,6 +164,14 @@ class FinamOrdersClient:
                 "retryable": False,
             }
 
+        if "Trading is not available at the moment" in text:
+            return "BROKER_TRADING_NOT_AVAILABLE", {
+                "grpc_code": grpc_code,
+                "grpc_details": grpc_details,
+                "raw_error": raw_text,
+                "retryable": False,
+            }
+
         return str(exc), {
             "grpc_code": grpc_code,
             "grpc_details": grpc_details,
