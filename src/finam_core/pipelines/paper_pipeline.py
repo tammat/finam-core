@@ -962,6 +962,45 @@ class PaperTradingPipeline:
         return True, f"intent_allows_intraday_exit:{policy.horizon}"
 
 
+    def _position_intent_allows_order(self, symbol: str, side: str, current_qty: float) -> tuple[bool, str]:
+        """Русский комментарий: запрещает добор/наращивание позиции по DB position_intents."""
+        if os.getenv("ENABLE_POSITION_INTENT_GATE", "0") != "1":
+            return True, "intent_gate_disabled"
+
+        policy = self.position_intent_repo.get(symbol)
+        side_u = str(side or "").upper()
+        qty = float(current_qty or 0.0)
+
+        # Русский комментарий: неизвестные/disabled позиции не разрешаем увеличивать.
+        if not policy.enabled:
+            return False, f"intent_disabled_or_unknown:{policy.horizon}:{policy.trade_role}"
+
+        # Русский комментарий: watch_only — робот не имеет права торговать инструментом.
+        if policy.trade_role == "watch_only":
+            return False, "intent_watch_only_blocks_all_orders"
+
+        # Русский комментарий: определяем, увеличивает ли заявка текущую позицию.
+        increases_long = qty > 0 and side_u == "BUY"
+        increases_short = qty < 0 and side_u == "SELL"
+        opens_new = abs(qty) <= 1e-9 and side_u in ("BUY", "SELL")
+        increases_position = increases_long or increases_short or opens_new
+
+        # Русский комментарий: reduce_only — разрешено только сокращение, но не открытие/добор.
+        if policy.trade_role == "reduce_only" and increases_position:
+            return False, "intent_reduce_only_blocks_increase"
+
+        if increases_position and not policy.allow_increase:
+            return False, f"intent_allow_increase_false:{policy.trade_role}"
+
+        # Русский комментарий: если заявка сокращает позицию, проверяем allow_reduce.
+        reduces_long = qty > 0 and side_u == "SELL"
+        reduces_short = qty < 0 and side_u == "BUY"
+        if (reduces_long or reduces_short) and not policy.allow_reduce:
+            return False, f"intent_allow_reduce_false:{policy.trade_role}"
+
+        return True, f"intent_order_allowed:{policy.horizon}:{policy.trade_role}"
+
+
     def _build_exit_intent_if_any(self, symbol: str, price: float, atr: float | None = None) -> dict | None:
         """Русский комментарий: строит raw_intent для закрытия позиции через общий execution path."""
         self._sync_broker_positions_readonly()
@@ -1872,6 +1911,15 @@ class PaperTradingPipeline:
         try:
             trend = regime.trend
             side = intent.get("side")
+
+        intent_allowed, intent_reason = self._position_intent_allows_order(sym, side, current_qty)
+        if not intent_allowed:
+            print(
+                f"PIPE_POSITION_INTENT_ORDER_BLOCK symbol={sym} side={side} "
+                f"current_qty={current_qty} reason={intent_reason}",
+                flush=True,
+            )
+            return
 
             # === PRIMARY TREND ALIGNMENT ===
             if (not is_exit_intent) and trend == "up" and side != "BUY":
