@@ -864,6 +864,21 @@ class PaperTradingPipeline:
         if os.getenv("ENABLE_TRAILING_ORDER_MANAGER", "0") != "1":
             return
 
+        if os.getenv("ENABLE_POSITION_INTENT_GATE", "0") == "1":
+            policy = self.position_intent_repo.get(symbol)
+            if not policy.enabled or not policy.allow_trailing:
+                state = self._exit_state_for_symbol(symbol)
+                now_ts = time.time()
+                last_ts = float(state.get("last_trailing_intent_block_log_ts", 0.0) or 0.0)
+                if now_ts - last_ts >= float(os.getenv("POSITION_INTENT_TRAILING_BLOCK_LOG_INTERVAL_SEC", "300")):
+                    state["last_trailing_intent_block_log_ts"] = now_ts
+                    print(
+                        f"PIPE_POSITION_INTENT_TRAILING_BLOCK symbol={symbol} "
+                        f"horizon={policy.horizon} enabled={policy.enabled} allow_trailing={policy.allow_trailing}",
+                        flush=True,
+                    )
+                return
+
         dry_run = os.getenv("TRAILING_ORDER_DRY_RUN", "1") == "1"
         if not dry_run:
             print(
