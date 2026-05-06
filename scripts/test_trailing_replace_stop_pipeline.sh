@@ -71,5 +71,42 @@ assert p.cancel_replace_stop_manager.calls == [
     ("BRM6@RTSX", "old_stop_1", "SELL", 1.0, 102.1)
 ], p.cancel_replace_stop_manager.calls
 
+
+
+class DummyPipelineNoStop:
+    _handle_trailing_replace_stop_decision = PaperTradingPipeline._handle_trailing_replace_stop_decision
+
+    def __init__(self):
+        self.cancel_replace_stop_manager = DummyCancelReplaceManager()
+        self._broker_orders_by_symbol = {
+            "BRM6@RTSX": [
+                {
+                    "order_id": "limit_1",
+                    "symbol": "BRM6@RTSX",
+                    "side": "SELL",
+                    "status": "WATCHING",
+                    "order_type": "LIMIT",
+                    "qty": 1.0,
+                    "price": 105.0,
+                }
+            ]
+        }
+
+
+p_no_stop = DummyPipelineNoStop()
+
+p_no_stop._handle_trailing_replace_stop_decision(
+    Decision(
+        action="REPLACE_STOP",
+        symbol="BRM6@RTSX",
+        side="SELL",
+        qty=1.0,
+        stop_price=102.1,
+    )
+)
+
+assert p_no_stop.cancel_replace_stop_manager.calls == [], p_no_stop.cancel_replace_stop_manager.calls
+
 print("TRAILING_REPLACE_STOP_PIPELINE_OK")
+print("TRAILING_REPLACE_STOP_PIPELINE_NEGATIVE_OK")
 PY
