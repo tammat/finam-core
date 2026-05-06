@@ -844,11 +844,20 @@ class PaperTradingPipeline:
 
         state = self._exit_state_for_symbol(symbol)
 
-        print(
-            f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
-            f"price={round(float(price), 6)} atr_in={atr}",
-            flush=True,
-        )
+        should_log_exit_check = abs(float(qty or 0.0)) > 1e-9
+        if not should_log_exit_check:
+            last_zero_log_ts = float(state.get("last_zero_qty_log_ts", 0.0) or 0.0)
+            now_ts = time.time()
+            if now_ts - last_zero_log_ts >= float(os.getenv("EXIT_ZERO_QTY_LOG_INTERVAL_SEC", "60")):
+                should_log_exit_check = True
+                state["last_zero_qty_log_ts"] = now_ts
+
+        if should_log_exit_check:
+            print(
+                f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
+                f"price={round(float(price), 6)} atr_in={atr}",
+                flush=True,
+            )
 
         if qty == 0:
             state["bars_held"] = 0
