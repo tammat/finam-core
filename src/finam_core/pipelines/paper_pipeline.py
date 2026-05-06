@@ -270,6 +270,8 @@ class PaperTradingPipeline:
         self._broker_position_halt_by_symbol = {}
         self._broker_position_halt_last_key = None
         self._broker_position_hard_gate_order_block_seen = set()
+        # Русский комментарий: защита от новых входов при broker position без stop/take.
+        self._broker_protection_missing_seen = set()
         # Русский комментарий: restart recovery выполняется один раз после запуска pipeline.
         self._restart_recovery_done = False
         # Русский комментарий: дедупликация повторяющихся operational-логов.
@@ -780,6 +782,46 @@ class PaperTradingPipeline:
                 print(f"PIPE_BROKER_POSITION_HARD_GATE_OFF symbol={symbol}", flush=True)
 
             self._broker_position_halt_by_symbol = new_halts
+
+
+    def _broker_protection_gate_allows_order(self, symbol: str, side: str, current_qty: float) -> tuple[bool, str]:
+        """Русский комментарий: запрещает новые входы, если брокерская позиция не защищена stop/take."""
+        if os.getenv("ENABLE_BROKER_PROTECTION_GATE", "0") != "1":
+            return True, "broker_protection_gate_disabled"
+
+        broker_qty = float((getattr(self, "_broker_position_qty_by_symbol", {}) or {}).get(symbol, 0.0) or 0.0)
+        if abs(broker_qty) <= 1e-9:
+            return True, "broker_protection_gate_no_broker_position"
+
+        order_side = str(side or "").upper()
+        is_reduce = (broker_qty > 0 and order_side == "SELL") or (broker_qty < 0 and order_side == "BUY")
+        if is_reduce:
+            return True, "broker_protection_gate_reduce_allowed"
+
+        orders = (getattr(self, "_broker_orders_by_symbol", {}) or {}).get(symbol, [])
+        active_statuses = {"WATCHING", "ACTIVE", "WORKING", "ACCEPTED", "NEW", "PARTIAL_FILLED"}
+        expected_protection_side = "SELL" if broker_qty > 0 else "BUY"
+
+        for order in orders:
+            order_status = str(order.get("status") or "").upper()
+            if order_status and order_status not in active_statuses:
+                continue
+
+            order_side = str(order.get("side") or "").upper()
+            if order_side != expected_protection_side:
+                continue
+
+            order_type = str(order.get("order_type") or order.get("type") or "").upper()
+            stop_value = order.get("stop_price") or order.get("stop") or order.get("trigger_price")
+            price_value = order.get("price") or order.get("limit_price") or order.get("take_price")
+
+            is_stop_like = ("STOP" in order_type) or bool(stop_value)
+            is_take_like = ("TAKE" in order_type) or bool(price_value)
+
+            if is_stop_like or is_take_like:
+                return True, "broker_protection_gate_protected"
+
+        return False, f"broker_position_unprotected:{symbol}:broker_qty={broker_qty}:orders={len(orders)}"
 
 
     def _broker_position_hard_gate_allows_order(self, symbol: str, side: str, current_qty: float) -> tuple[bool, str]:
@@ -2270,6 +2312,22 @@ class PaperTradingPipeline:
                     )
                     seen.add(block_key)
                     self._broker_position_hard_gate_order_block_seen = seen
+
+                return
+
+            protection_allowed, protection_reason = self._broker_protection_gate_allows_order(sym, side, current_qty)
+            if not protection_allowed:
+                block_key = (sym, side, protection_reason)
+                seen = getattr(self, "_broker_protection_missing_seen", set())
+
+                if block_key not in seen:
+                    print(
+                        f"PIPE_BROKER_PROTECTION_GATE_ORDER_BLOCK symbol={sym} side={side} "
+                        f"reason={protection_reason}",
+                        flush=True,
+                    )
+                    seen.add(block_key)
+                    self._broker_protection_missing_seen = seen
 
                 return
 
