@@ -24,6 +24,7 @@ from finam_core.execution.broker_reconciliation import BrokerReconciliationEngin
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopManager
+from finam_core.execution.execution_decision_layer import ExecutionDecisionLayer
 from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
@@ -264,6 +265,8 @@ class PaperTradingPipeline:
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
+        # Русский комментарий: ExecutionDecisionLayer выбирает MARKET/STOP/LIMIT/SKIP, но не отправляет заявки.
+        self.execution_decision_layer = ExecutionDecisionLayer()
         self.regime_engine = RegimeEngine()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
@@ -1632,6 +1635,45 @@ class PaperTradingPipeline:
         self._dedup_log_seen = state
 
 
+    def _apply_execution_decision_if_enabled(self, intent: dict, market_state: dict) -> dict | None:
+        """Русский комментарий: применяет ExecutionDecisionLayer перед исполнением заявки."""
+        if os.getenv("ENABLE_EXECUTION_DECISION_LAYER", "0") != "1":
+            return intent
+
+        layer = getattr(self, "execution_decision_layer", None)
+        if layer is None:
+            return intent
+
+        decision = layer.decide(intent, market_state)
+        print(
+            f"PIPE_EXECUTION_DECISION symbol={decision.symbol} side={decision.side} "
+            f"action={decision.action} order_type={decision.order_type} reason={decision.reason} "
+            f"stop_price={decision.stop_price} limit_price={decision.limit_price} confidence={decision.confidence}",
+            flush=True,
+        )
+
+        if decision.action == "SKIP":
+            return None
+
+        routed = dict(intent)
+        routed["execution_action"] = decision.action
+        routed["order_type"] = decision.order_type
+        routed["execution_reason"] = decision.reason
+        routed["confidence"] = max(
+            float(routed.get("confidence", 0.0) or 0.0),
+            float(decision.confidence or 0.0),
+        )
+
+        if decision.stop_price is not None:
+            routed["stop_price"] = decision.stop_price
+        if decision.limit_price is not None:
+            routed["limit_price"] = decision.limit_price
+        if decision.price is not None and routed.get("price") is None:
+            routed["price"] = decision.price
+
+        return routed
+
+
     def _on_quote(self, event: dict):
         raw_intent = None
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
@@ -1784,6 +1826,11 @@ class PaperTradingPipeline:
                     return
 
                 print("PIPE_EXIT_HARD_RISK_OK", flush=True)
+
+                intent = self._apply_execution_decision_if_enabled(intent, st)
+                if intent is None:
+                    print("PIPE_EXECUTION_DECISION_SKIP source=exit_engine", flush=True)
+                    return
 
                 if self.execution_mode in ("real_dry_run", "real"):
                     real_result = self.real_execution.execute(intent, st)
