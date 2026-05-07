@@ -1745,6 +1745,40 @@ class PaperTradingPipeline:
         return result
 
 
+    def _dispatch_live_route_if_enabled(self, intent: dict, market_state: dict):
+        """Русский комментарий: live-route через ExecutionDispatcher по отдельному флагу."""
+        if os.getenv("ENABLE_EXECUTION_DISPATCHER_LIVE_ROUTE", "0") != "1":
+            return None
+
+        symbol = str(intent.get("symbol") or market_state.get("symbol") or "")
+        qty = float(intent.get("qty") or 0.0)
+
+        allowlist_raw = os.getenv("EXECUTION_DISPATCHER_LIVE_SYMBOL_ALLOWLIST", "BRM6@RTSX")
+        allowlist = {item.strip() for item in allowlist_raw.split(",") if item.strip()}
+        if allowlist and symbol not in allowlist:
+            print(f"PIPE_EXECUTION_DISPATCH_LIVE_BLOCK symbol={symbol} reason=symbol_not_in_allowlist", flush=True)
+            return None
+
+        max_qty = float(os.getenv("EXECUTION_DISPATCHER_LIVE_MAX_QTY", "1"))
+        if abs(qty) > max_qty:
+            print(f"PIPE_EXECUTION_DISPATCH_LIVE_BLOCK symbol={symbol} reason=qty_exceeds_max:{qty}>{max_qty}", flush=True)
+            return None
+
+        result = self._dispatch_order_if_enabled(intent, market_state)
+        if result is None:
+            print("PIPE_EXECUTION_DISPATCH_LIVE_SKIP reason=dispatch_none", flush=True)
+            return None
+
+        print(
+            f"PIPE_EXECUTION_DISPATCH_LIVE_RESULT symbol={getattr(result, 'symbol', None)} "
+            f"side={getattr(result, 'side', None)} route={getattr(result, 'route', None)} "
+            f"status={getattr(result, 'status', None)} order_id={getattr(result, 'order_id', None)} "
+            f"reason={getattr(result, 'reason', None)}",
+            flush=True,
+        )
+        return result
+
+
     def _on_quote(self, event: dict):
         raw_intent = None
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
