@@ -4,6 +4,7 @@ set -euo pipefail
 export PYTHONPATH=src
 export EXECUTION_MODE=real
 export REAL_ORDER_CONFIRM=0
+export ENABLE_REAL_EXECUTION_SAFETY_GATE=0
 export FINAM_TOKEN=test.token.fake
 export FINAM_ACCOUNT_ID=test-account
 
