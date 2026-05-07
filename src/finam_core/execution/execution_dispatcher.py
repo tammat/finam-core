@@ -56,7 +56,7 @@ class ExecutionDispatcher:
         }
 
     def place_limit_order(self, *, symbol: str, side: str, qty: float, limit_price: float, **kwargs) -> dict:
-        """Русский комментарий: вспомогательный route для limit-заявок, без категории брокера."""
+        """Русский комментарий: вспомогательный route для limit-заявок без категории брокера."""
         mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
 
         if mode in {"real", "real_dry_run"}:

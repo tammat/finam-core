@@ -1935,11 +1935,11 @@ class PaperTradingPipeline:
                     return
 
                 if self.execution_mode in ("real_dry_run", "real"):
-                    real_result = self.real_execution.execute(intent, st)
+                    real_result = self.execution_dispatcher.execute(intent=intent, market_state=st)
                     print(
-                        f"PIPE_REAL_EXECUTION_RESULT mode={self.execution_mode} symbol={real_result.symbol} "
-                        f"side={real_result.side} qty={real_result.qty} price={real_result.price} "
-                        f"status={real_result.status} order_id={real_result.order_id} reason={real_result.reason}",
+                        f"PIPE_REAL_EXECUTION_RESULT mode={self.execution_mode} symbol={getattr(real_result, 'symbol', None)} "
+                        f"side={getattr(real_result, 'side', None)} qty={getattr(real_result, 'qty', None)} price={getattr(real_result, 'price', None)} "
+                        f"status={getattr(real_result, 'status', None)} order_id={getattr(real_result, 'order_id', None)} reason={getattr(real_result, 'reason', None)}",
                         flush=True,
                     )
                     return
@@ -2977,6 +2977,16 @@ class PaperTradingPipeline:
         if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             return
+        if self.execution_mode in ("real_dry_run", "real"):
+            real_result = self.execution_dispatcher.execute(intent=intent, market_state=st)
+            print(
+                f"PIPE_REAL_EXECUTION_RESULT mode={self.execution_mode} symbol={getattr(real_result, 'symbol', None)} "
+                f"side={getattr(real_result, 'side', None)} qty={getattr(real_result, 'qty', None)} price={getattr(real_result, 'price', None)} "
+                f"status={getattr(real_result, 'status', None)} order_id={getattr(real_result, 'order_id', None)} reason={getattr(real_result, 'reason', None)}",
+                flush=True,
+            )
+            return
+
         if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
             self._log_dedup("PIPE_PAPER_FILL_BLOCKED:main_execution", "PIPE_PAPER_FILL_BLOCKED source=main_execution")
             return
