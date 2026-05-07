@@ -98,6 +98,32 @@ class RealExecutionEngine:
                 reason="invalid_order_intent",
             )
 
+        # Русский комментарий: финальный предохранитель перед real/dry-run execution.
+        if os.getenv("ENABLE_REAL_EXECUTION_SAFETY_GATE", "0") == "1":
+            allowlist_raw = os.getenv("REAL_EXECUTION_SYMBOL_ALLOWLIST", "").strip()
+            allowlist = {item.strip() for item in allowlist_raw.split(",") if item.strip()}
+
+            if allowlist and symbol not in allowlist:
+                return RealOrderResult(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    price=price,
+                    status="REJECTED",
+                    reason=f"symbol_not_in_allowlist:{symbol}",
+                )
+
+            max_qty = float(os.getenv("REAL_EXECUTION_MAX_QTY", "1"))
+            if abs(qty) > max_qty:
+                return RealOrderResult(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    price=price,
+                    status="REJECTED",
+                    reason=f"qty_exceeds_max:{qty}>{max_qty}",
+                )
+
         order_state = self._register_order_state(symbol=symbol, side=side, qty=qty)
         order_state.on_submitted()
         self._log_order_state(order_state, raw_json={"event": "SUBMITTED"})
