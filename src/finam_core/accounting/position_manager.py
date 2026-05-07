@@ -170,6 +170,65 @@ class PositionManager:
                 self._seq = fill_seq
         #---------------------
 
+
+    def sync_authoritative_position(
+            self,
+            symbol: str,
+            qty: float,
+            avg_price: float | None = None,
+            source: str = "broker_reconciliation",
+            reason: str = "",
+    ):
+        """
+        Русский комментарий:
+        Служебная синхронизация позиции с авторитетным источником, обычно брокером.
+
+        Важно:
+        - НЕ создаёт fill;
+        - НЕ пишет WAL как сделку;
+        - НЕ меняет cash;
+        - НЕ меняет realized_pnl;
+        - используется только для устранения рассинхрона после проверки reconciliation.
+        """
+        symbol = str(symbol)
+        qty = float(qty or 0.0)
+
+        pos = self.positions[symbol]
+        pos.symbol = symbol
+
+        old_qty = float(getattr(pos, "qty", 0.0) or 0.0)
+        old_avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0)
+
+        pos.qty = qty
+
+        if avg_price is not None:
+            pos.avg_price = float(avg_price or 0.0)
+        elif qty == 0:
+            pos.avg_price = 0.0
+
+        self._recalculate_unrealized()
+
+        event = {
+            "event": "AUTHORITATIVE_POSITION_SYNC",
+            "symbol": symbol,
+            "old_qty": old_qty,
+            "new_qty": pos.qty,
+            "old_avg_price": old_avg_price,
+            "new_avg_price": pos.avg_price,
+            "source": source,
+            "reason": reason,
+        }
+
+        print(
+            "PM_AUTHORITATIVE_POSITION_SYNC "
+            f"symbol={symbol} old_qty={old_qty} new_qty={pos.qty} "
+            f"source={source} reason={reason}",
+            flush=True,
+        )
+
+        return event
+
+
     def update_market_price(self, symbol: str, price: float):
         pos = self.positions[symbol]
         pos.mark_price = price

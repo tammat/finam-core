@@ -1312,6 +1312,14 @@ class PaperTradingPipeline:
         )
 
         if repair_decision.status == "REPAIRED":
+            if hasattr(self.pm, "sync_authoritative_position"):
+                self.pm.sync_authoritative_position(
+                    symbol=symbol,
+                    qty=float(repair_decision.repaired_qty or 0.0),
+                    source="broker_reconciliation",
+                    reason=repair_decision.reason,
+                )
+
             print(
                 f"PIPE_PORTFOLIO_RECONCILIATION_REPAIRED symbol={symbol} "
                 f"local_qty={repair_decision.local_qty} broker_qty={repair_decision.broker_qty} "
