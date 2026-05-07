@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
 from finam_core.execution.position_order_tracker import PositionOrderTracker
+from finam_core.reconciliation.portfolio_reconciliation_repair import PortfolioReconciliationRepair
 from finam_core.execution.open_orders_sync import OpenOrdersSync
 from finam_core.execution.broker_reconciliation import BrokerReconciliationEngine
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
@@ -243,6 +244,10 @@ class PaperTradingPipeline:
         self._position_order_state_last_key = {}
         # Русский комментарий: read-only сверка локальной позиции с брокером перед real orders.
         self.broker_reconciliation = BrokerReconciliationEngine(
+            qty_tolerance=float(os.getenv("BROKER_RECONCILIATION_QTY_TOLERANCE", "1e-9"))
+        )
+        # Русский комментарий: authoritative repair layer. По умолчанию только halt, без автопочинки.
+        self.portfolio_reconciliation_repair = PortfolioReconciliationRepair(
             qty_tolerance=float(os.getenv("BROKER_RECONCILIATION_QTY_TOLERANCE", "1e-9"))
         )
         self._trading_halt_reason = None
