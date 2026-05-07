@@ -1320,6 +1320,20 @@ class PaperTradingPipeline:
                     reason=repair_decision.reason,
                 )
 
+            if hasattr(self.pg_logger, "log_execution_event"):
+                self.pg_logger.log_execution_event(
+                    event_type="PORTFOLIO_RECONCILIATION_REPAIR",
+                    symbol=symbol,
+                    qty=float(repair_decision.repaired_qty or 0.0),
+                    status=repair_decision.status,
+                    reason=repair_decision.reason,
+                    raw_json={
+                        "local_qty": repair_decision.local_qty,
+                        "broker_qty": repair_decision.broker_qty,
+                        "repaired_qty": repair_decision.repaired_qty,
+                    },
+                )
+
             print(
                 f"PIPE_PORTFOLIO_RECONCILIATION_REPAIRED symbol={symbol} "
                 f"local_qty={repair_decision.local_qty} broker_qty={repair_decision.broker_qty} "

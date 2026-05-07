@@ -8,6 +8,7 @@ from typing import Any
 from finam_core.execution.order_state_machine import OrderState
 from finam_core.execution.broker_capabilities_gate import BrokerCapabilities, BrokerCapabilitiesGate
 from finam_core.storage.postgres_order_event_store import PostgresOrderEventStore
+from finam_core.storage.postgres_logger import PostgresLogger
 
 
 
@@ -74,6 +75,8 @@ class RealExecutionEngine:
         self.orders_by_id: dict[str, OrderState] = {}
         # Русский комментарий: опциональное PostgreSQL-хранилище событий заявок.
         self.order_event_store = None
+        # Русский комментарий: execution journal не должен ломать торговый цикл.
+        self.execution_journal = PostgresLogger()
         if os.getenv("ENABLE_ORDER_EVENT_STORE", "0") == "1":
             try:
                 self.order_event_store = PostgresOrderEventStore()
@@ -111,6 +114,38 @@ class RealExecutionEngine:
             print(f"ORDER_EVENT_STORE_LOG_FAILED order_id={order_state.order_id} error={exc}", flush=True)
 
 
+
+    def _log_execution_event_safe(
+        self,
+        *,
+        event_type: str,
+        symbol: str | None = None,
+        side: str | None = None,
+        qty: float | None = None,
+        price: float | None = None,
+        status: str | None = None,
+        reason: str | None = None,
+        order_id: str | None = None,
+        raw_json: dict | None = None,
+    ) -> None:
+        """Русский комментарий: безопасный audit-log execution-событий."""
+        try:
+            if hasattr(self.execution_journal, "log_execution_event"):
+                self.execution_journal.log_execution_event(
+                    event_type=event_type,
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    price=price,
+                    status=status,
+                    reason=reason,
+                    order_id=order_id,
+                    raw_json=raw_json or {},
+                )
+        except Exception as exc:
+            print(f"EXECUTION_EVENT_LOG_FAILED event_type={event_type} error={exc}", flush=True)
+
+
     def execute(self, intent: dict | None = None, market_state: dict | None = None, **kwargs) -> RealOrderResult:
         """Русский комментарий: поддерживает основной intent-контракт и безопасный keyword-вызов для тестов."""
         if intent is None:
@@ -127,6 +162,16 @@ class RealExecutionEngine:
         price = intent.get("price")
 
         if not symbol or side not in ("BUY", "SELL") or qty <= 0:
+            self._log_execution_event_safe(
+                event_type="REAL_EXECUTION_REJECTED",
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                reason="invalid_order_intent",
+                raw_json={"intent": intent},
+            )
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
@@ -295,6 +340,18 @@ class RealExecutionEngine:
                 order_state,
                 reason=result.get("reason"),
                 raw_json={"event": order_state.state, "broker_result": result},
+            )
+
+            self._log_execution_event_safe(
+                event_type="REAL_EXECUTION_RESULT",
+                symbol=str(result.get("symbol") or symbol),
+                side=str(result.get("side") or side),
+                qty=float(result.get("qty") or qty),
+                price=result.get("price", price),
+                status=status,
+                reason=result.get("reason"),
+                order_id=order_state.order_id,
+                raw_json={"broker_result": result},
             )
 
             return RealOrderResult(

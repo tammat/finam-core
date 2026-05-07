@@ -12,6 +12,14 @@ from finam_core.execution.broker_reconciliation import BrokerReconciliationEngin
 from finam_core.reconciliation.portfolio_reconciliation_repair import PortfolioReconciliationRepair
 
 
+
+class FakeLogger:
+    def __init__(self):
+        self.events = []
+
+    def log_execution_event(self, **kwargs):
+        self.events.append(kwargs)
+
 class FakePM:
     def __init__(self):
         self.sync_called = False
@@ -28,6 +36,7 @@ pipe.broker_reconciliation = BrokerReconciliationEngine(qty_tolerance=1e-9)
 pipe.portfolio_reconciliation_repair = PortfolioReconciliationRepair(qty_tolerance=1e-9)
 pipe._broker_position_qty_by_symbol = {"SBER@MISX": 2.0}
 pipe.pm = FakePM()
+pipe.pg_logger = FakeLogger()
 pipe._trading_halt_reason = None
 
 os.environ["ALLOW_PORTFOLIO_REPAIR"] = "0"
