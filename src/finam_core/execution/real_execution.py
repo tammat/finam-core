@@ -249,6 +249,17 @@ class RealExecutionEngine:
                 order_state,
                 raw_json={"event": "ACCEPTED", "mode": "real_dry_run"},
             )
+            self._log_execution_event_safe(
+                event_type="REAL_EXECUTION_RESULT",
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="DRY_RUN_ACCEPTED",
+                reason="real_dry_run",
+                order_id=order_state.order_id,
+                raw_json={"mode": "real_dry_run", "intent": intent},
+            )
             return RealOrderResult(
                 symbol=symbol,
                 side=side,
@@ -256,6 +267,7 @@ class RealExecutionEngine:
                 price=price,
                 status="DRY_RUN_ACCEPTED",
                 order_id=order_state.order_id,
+                reason="real_dry_run",
             )
 
         if self.mode != "real":
