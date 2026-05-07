@@ -192,6 +192,51 @@ class PostgresLogger:
         except Exception as exc:
             LOG.warning("POSTGRES LOG SIGNAL FAILED: %s", exc)
 
+
+    def log_execution_event(
+        self,
+        *,
+        event_type: str,
+        symbol: str | None = None,
+        side: str | None = None,
+        qty: float | None = None,
+        price: float | None = None,
+        status: str | None = None,
+        reason: str | None = None,
+        order_id: str | None = None,
+        raw_json: dict | None = None,
+    ) -> None:
+        """Русский коммент: единый журнал execution-событий для real/dry-run/rejected/repair."""
+        if not self.enabled:
+            return
+
+        try:
+            payload_json = json.dumps(raw_json or {}, ensure_ascii=False, default=str)
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO execution_events
+                            (ts, event_type, symbol, side, qty, price, status, reason, order_id, raw_json)
+                        VALUES
+                            (now(), %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                        """,
+                        (
+                            str(event_type),
+                            symbol,
+                            side,
+                            float(qty) if qty is not None else None,
+                            float(price) if price is not None else None,
+                            status,
+                            reason,
+                            order_id,
+                            payload_json,
+                        ),
+                    )
+        except Exception as exc:
+            LOG.warning("POSTGRES LOG EXECUTION EVENT FAILED: %s", exc)
+
+
     def log_risk_event(self, symbol=None, event="risk_event", decision=None, payload=None) -> None:
         """Русский коммент: логирование решений RiskEngine/FilterEngine без остановки pipeline."""
         if not self.enabled:
