@@ -6,7 +6,43 @@ import os
 from dataclasses import dataclass
 from typing import Any
 from finam_core.execution.order_state_machine import OrderState
+from finam_core.execution.broker_capabilities_gate import BrokerCapabilities, BrokerCapabilitiesGate
 from finam_core.storage.postgres_order_event_store import PostgresOrderEventStore
+
+
+
+def build_capabilities_from_env() -> BrokerCapabilities:
+    """Русский комментарий: профиль ограничений брокера задаётся через BROKER_CATEGORY."""
+    category = os.getenv("BROKER_CATEGORY", "KNUR").strip().upper()
+
+    if category == "KNUR":
+        return BrokerCapabilities(
+            category="KNUR",
+            allow_api_orders=True,
+            allow_long=True,
+            allow_short=False,
+            allow_margin=False,
+            allow_futures=False,
+        )
+
+    if category in {"KSUR", "KPUR"}:
+        return BrokerCapabilities(
+            category=category,
+            allow_api_orders=True,
+            allow_long=True,
+            allow_short=True,
+            allow_margin=True,
+            allow_futures=True,
+        )
+
+    return BrokerCapabilities(
+        category=category,
+        allow_api_orders=False,
+        allow_long=False,
+        allow_short=False,
+        allow_margin=False,
+        allow_futures=False,
+    )
 
 
 @dataclass
@@ -29,8 +65,10 @@ class RealExecutionEngine:
     Только pipeline после RiskEngine.
     """
 
-    def __init__(self, orders_client: Any) -> None:
+    def __init__(self, orders_client: Any, capabilities_gate: Any = None) -> None:
         self.orders_client = orders_client
+        # Русский комментарий: финальная проверка категории клиента перед live-заявкой.
+        self.capabilities_gate = capabilities_gate or BrokerCapabilitiesGate(build_capabilities_from_env())
         self.mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
         # Русский комментарий: локальный read-only реестр жизненного цикла заявок.
         self.orders_by_id: dict[str, OrderState] = {}
@@ -203,6 +241,30 @@ class RealExecutionEngine:
                 status="REJECTED",
                 order_id=order_state.order_id,
                 reason="orders_client_not_configured",
+            )
+
+        instrument_type = str(intent.get("instrument_type") or intent.get("asset_class") or "STOCK").upper()
+        ok, gate_reason = self.capabilities_gate.validate_order(
+            instrument_type=instrument_type,
+            side=side,
+            qty=qty,
+        )
+        if not ok:
+            order_state.on_rejected(gate_reason)
+            self._log_order_state(
+                order_state,
+                reason=gate_reason,
+                raw_json={"event": "REJECTED", "gate": "BrokerCapabilitiesGate", "instrument_type": instrument_type},
+            )
+            return RealOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                order_id=order_state.order_id,
+                reason=gate_reason,
+                raw={"gate": "BrokerCapabilitiesGate", "instrument_type": instrument_type},
             )
 
         result = self.orders_client.place_market_order(
