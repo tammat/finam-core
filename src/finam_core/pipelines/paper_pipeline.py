@@ -25,6 +25,7 @@ from finam_core.portfolio.position_intent_repository import PositionIntentReposi
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopManager
 from finam_core.execution.execution_decision_layer import ExecutionDecisionLayer
+from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
@@ -267,6 +268,8 @@ class PaperTradingPipeline:
         self.signal_router = SignalRouter()
         # Русский комментарий: ExecutionDecisionLayer выбирает MARKET/STOP/LIMIT/SKIP, но не отправляет заявки.
         self.execution_decision_layer = ExecutionDecisionLayer()
+        # Русский комментарий: OrderRouter строит маршрут заявки после ExecutionDecisionLayer, не вмешиваясь в raw_fill path.
+        self.order_router = OrderRouter()
         self.regime_engine = RegimeEngine()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
@@ -1672,6 +1675,43 @@ class PaperTradingPipeline:
             routed["price"] = decision.price
 
         return routed
+
+
+    def _route_order_if_enabled(self, intent: dict, market_state: dict) -> dict | None:
+        """Русский комментарий: применяет ExecutionDecisionLayer и OrderRouter без прямого вызова raw_fill."""
+        routed_intent = self._apply_execution_decision_if_enabled(intent, market_state)
+        if routed_intent is None:
+            return None
+
+        if os.getenv("ENABLE_ORDER_ROUTER", "0") != "1":
+            return routed_intent
+
+        router = getattr(self, "order_router", None)
+        if router is None:
+            return routed_intent
+
+        route = router.route(routed_intent, market_state)
+        print(
+            f"PIPE_ORDER_ROUTER symbol={route.get('symbol')} side={route.get('side')} "
+            f"route={route.get('route')} order_type={route.get('order_type')} "
+            f"reason={route.get('reason')}",
+            flush=True,
+        )
+
+        if route.get("route") == "SKIP":
+            return None
+
+        result = dict(routed_intent)
+        result["order_route"] = route.get("route")
+        result["order_type"] = route.get("order_type", result.get("order_type"))
+        result["route_reason"] = route.get("reason")
+
+        if route.get("stop_price") is not None:
+            result["stop_price"] = route.get("stop_price")
+        if route.get("limit_price") is not None:
+            result["limit_price"] = route.get("limit_price")
+
+        return result
 
 
     def _on_quote(self, event: dict):
