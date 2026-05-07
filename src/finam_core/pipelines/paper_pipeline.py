@@ -225,6 +225,9 @@ class PaperTradingPipeline:
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
         self.position_order_tracker = PositionOrderTracker()
         self._broker_orders_by_symbol = {}
+        # Русский комментарий: SubscribeOrders read-only listener обновляет broker orders snapshot.
+        self._subscribe_orders_listener_started = False
+        self._subscribe_orders_last_error = None
         self._position_order_state_last_key = {}
         # Русский комментарий: read-only сверка локальной позиции с брокером перед real orders.
         self.broker_reconciliation = BrokerReconciliationEngine(
@@ -847,7 +850,68 @@ class PaperTradingPipeline:
         return False, reason
 
 
+    def _apply_broker_order_event_to_snapshot(self, event: dict) -> None:
+        """Русский комментарий: применяет событие SubscribeOrders к _broker_orders_by_symbol."""
+        symbol = str(event.get("symbol") or "")
+        order_id = str(event.get("order_id") or "")
+        if not symbol or not order_id:
+            return
+
+        snapshot = getattr(self, "_broker_orders_by_symbol", {}) or {}
+        orders = list(snapshot.get(symbol, []) or [])
+
+        status = str(event.get("status") or "").upper()
+        inactive_statuses = {"FILLED", "CANCELED", "CANCELLED", "REJECTED", "DISABLED", "EXPIRED", "SL_EXECUTED"}
+
+        if status in inactive_statuses:
+            orders = [o for o in orders if str(o.get("order_id") or "") != order_id]
+        else:
+            replaced = False
+            for idx, order in enumerate(orders):
+                if str(order.get("order_id") or "") == order_id:
+                    orders[idx] = event
+                    replaced = True
+                    break
+            if not replaced:
+                orders.append(event)
+
+        if orders:
+            snapshot[symbol] = orders
+        elif symbol in snapshot:
+            del snapshot[symbol]
+
+        self._broker_orders_by_symbol = snapshot
+
+
+    def _poll_subscribe_orders_once_if_enabled(self) -> None:
+        """Русский комментарий: безопасно читает ограниченное число событий SubscribeOrders."""
+        if os.getenv("ENABLE_SUBSCRIBE_ORDERS_LISTENER", "0") != "1":
+            return
+
+        orders_client = getattr(self, "orders_client", None) or getattr(self, "finam_orders_client", None)
+        if orders_client is None or not hasattr(orders_client, "subscribe_orders"):
+            return
+
+        try:
+            max_events = int(os.getenv("SUBSCRIBE_ORDERS_MAX_EVENTS_PER_POLL", "1"))
+            events = orders_client.subscribe_orders(max_events=max_events)
+
+            for event in events:
+                self._apply_broker_order_event_to_snapshot(event)
+
+            if events:
+                print(f"PIPE_SUBSCRIBE_ORDERS_APPLIED events={len(events)}", flush=True)
+
+        except Exception as exc:
+            key = f"PIPE_SUBSCRIBE_ORDERS_ERROR:{type(exc).__name__}"
+            if hasattr(self, "_log_dedup"):
+                self._log_dedup(key, f"PIPE_SUBSCRIBE_ORDERS_ERROR error={exc}")
+            else:
+                print(f"PIPE_SUBSCRIBE_ORDERS_ERROR error={exc}", flush=True)
+
+
     def _sync_broker_open_orders_if_needed(self) -> None:
+        self._poll_subscribe_orders_once_if_enabled()
         """Русский комментарий: read-only синхронизация активных заявок брокера для PositionOrderTracker."""
         if os.getenv("ENABLE_BROKER_OPEN_ORDERS_SYNC", "0") != "1":
             return
