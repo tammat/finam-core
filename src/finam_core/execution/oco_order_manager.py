@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from finam_core.execution.protection_level_calculator import ProtectionLevelCalculator
+
 
 @dataclass
 class OcoGroup:
@@ -48,6 +50,78 @@ class OcoOrderManager:
         self.order_event_store = order_event_store
         self._groups: dict[str, OcoGroup] = {}
         self._order_to_group: dict[str, str] = {}
+
+    def build_protection_by_order_id(
+        self,
+        *,
+        symbol: str,
+        first_order_id: str,
+        first_side: str,
+        first_entry_price: float,
+        second_order_id: str,
+        second_side: str,
+        second_entry_price: float,
+        atr: float,
+        equity: float,
+        risk_pct: float = 0.005,
+        stop_atr_mult: float = 2.0,
+        reward_risk: float = 2.0,
+        point_value: float = 1.0,
+        max_qty: int = 1,
+        tick_size: float = 0.01,
+    ) -> dict[str, dict[str, Any]]:
+        """Русский комментарий: строит SL/TP protection config для обеих OCO-заявок."""
+        calculator = ProtectionLevelCalculator()
+
+        first_levels = calculator.calculate(
+            symbol=symbol,
+            entry_side=str(first_side).upper(),
+            entry_price=float(first_entry_price),
+            atr=float(atr),
+            equity=float(equity),
+            risk_pct=float(risk_pct),
+            stop_atr_mult=float(stop_atr_mult),
+            reward_risk=float(reward_risk),
+            point_value=float(point_value),
+            max_qty=int(max_qty),
+            tick_size=float(tick_size),
+        )
+
+        second_levels = calculator.calculate(
+            symbol=symbol,
+            entry_side=str(second_side).upper(),
+            entry_price=float(second_entry_price),
+            atr=float(atr),
+            equity=float(equity),
+            risk_pct=float(risk_pct),
+            stop_atr_mult=float(stop_atr_mult),
+            reward_risk=float(reward_risk),
+            point_value=float(point_value),
+            max_qty=int(max_qty),
+            tick_size=float(tick_size),
+        )
+
+        return {
+            first_order_id: {
+                "exit_side": first_levels.exit_side,
+                "qty": first_levels.qty,
+                "stop_loss_price": first_levels.stop_loss_price,
+                "take_profit_price": first_levels.take_profit_price,
+                "risk_per_unit": first_levels.risk_per_unit,
+                "reward_per_unit": first_levels.reward_per_unit,
+                "rr": first_levels.rr,
+            },
+            second_order_id: {
+                "exit_side": second_levels.exit_side,
+                "qty": second_levels.qty,
+                "stop_loss_price": second_levels.stop_loss_price,
+                "take_profit_price": second_levels.take_profit_price,
+                "risk_per_unit": second_levels.risk_per_unit,
+                "reward_per_unit": second_levels.reward_per_unit,
+                "rr": second_levels.rr,
+            },
+        }
+
 
     def register_group(
         self,
