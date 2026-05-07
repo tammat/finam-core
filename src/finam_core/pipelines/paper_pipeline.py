@@ -234,6 +234,9 @@ class PaperTradingPipeline:
         # Русский комментарий: SubscribeOrders read-only listener обновляет broker orders snapshot.
         self._subscribe_orders_listener_started = False
         self._subscribe_orders_last_error = None
+        # Русский комментарий: throttle для SubscribeOrders, чтобы не открывать stream на каждый quote.
+        self._subscribe_orders_next_poll_ts = 0.0
+        self._subscribe_orders_empty_poll_count = 0
         self._position_order_state_last_key = {}
         # Русский комментарий: read-only сверка локальной позиции с брокером перед real orders.
         self.broker_reconciliation = BrokerReconciliationEngine(
@@ -915,6 +918,14 @@ class PaperTradingPipeline:
         """Русский комментарий: безопасно читает ограниченное число событий SubscribeOrders."""
         if os.getenv("ENABLE_SUBSCRIBE_ORDERS_LISTENER", "0") != "1":
             return
+
+        now_ts = time.time()
+        next_poll_ts = float(getattr(self, "_subscribe_orders_next_poll_ts", 0.0) or 0.0)
+        if next_poll_ts and now_ts < next_poll_ts:
+            return
+
+        poll_interval = float(os.getenv("SUBSCRIBE_ORDERS_POLL_INTERVAL_SEC", "15"))
+        self._subscribe_orders_next_poll_ts = now_ts + poll_interval
 
         orders_client = getattr(self, "orders_client", None) or getattr(self, "finam_orders_client", None)
         if orders_client is None or not hasattr(orders_client, "subscribe_orders"):
