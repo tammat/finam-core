@@ -1304,6 +1304,22 @@ class PaperTradingPipeline:
         if result.ok:
             return True, result.reason
 
+        repair_decision = self.portfolio_reconciliation_repair.evaluate(
+            symbol=symbol,
+            local_qty=result.local_qty,
+            broker_qty=result.broker_qty,
+            allow_repair=os.getenv("ALLOW_PORTFOLIO_REPAIR", "0") == "1",
+        )
+
+        if repair_decision.status == "REPAIRED":
+            print(
+                f"PIPE_PORTFOLIO_RECONCILIATION_REPAIRED symbol={symbol} "
+                f"local_qty={repair_decision.local_qty} broker_qty={repair_decision.broker_qty} "
+                f"repaired_qty={repair_decision.repaired_qty}",
+                flush=True,
+            )
+            return True, repair_decision.reason
+
         self._trading_halt_reason = (
             f"broker_desync:{symbol}:local={result.local_qty}:broker={result.broker_qty}"
         )
