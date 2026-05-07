@@ -58,6 +58,15 @@ def load_rows(database_url: str, timeframe: str, lookback_bars: int, table_name:
 
 
 
+
+def candidate_get(item, key: str, default=None):
+    """Русский комментарий: поддерживает dict и dataclass/object candidates."""
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+
 def save_scan_results(database_url: str, timeframe: str, result: dict) -> int:
     """Русский комментарий: сохраняет результаты VolatilityScanner в PostgreSQL."""
     rows = []
@@ -85,13 +94,13 @@ def save_scan_results(database_url: str, timeframe: str, result: dict) -> int:
                         timeframe,
                         bucket,
                         rank,
-                        str(item.get("symbol")),
-                        float(item.get("score", 0.0) or 0.0),
-                        float(item.get("atr_pct", 0.0) or 0.0),
-                        float(item.get("turnover", 0.0) or 0.0),
-                        float(item.get("volume", 0.0) or 0.0),
-                        float(item.get("avg_volume", 0.0) or 0.0),
-                        json.dumps(item, ensure_ascii=False, default=str),
+                        str(candidate_get(item, "symbol")),
+                        float(candidate_get(item, "score", 0.0) or 0.0),
+                        float(candidate_get(item, "atr_pct", 0.0) or 0.0),
+                        float(candidate_get(item, "turnover", 0.0) or 0.0),
+                        float(candidate_get(item, "volume", 0.0) or 0.0),
+                        float(candidate_get(item, "avg_volume", 0.0) or 0.0),
+                        json.dumps(item if isinstance(item, dict) else getattr(item, "__dict__", {"raw": str(item)}), ensure_ascii=False, default=str),
                     ),
                 )
 
