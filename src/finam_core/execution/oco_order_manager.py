@@ -5,6 +5,44 @@ from dataclasses import dataclass
 from typing import Any
 
 from finam_core.execution.protection_level_calculator import ProtectionLevelCalculator
+from finam_core.execution.broker_capabilities_gate import BrokerCapabilities, BrokerCapabilitiesGate
+
+
+
+def build_oco_capabilities_from_env() -> BrokerCapabilities:
+    """Русский комментарий: профиль брокерских ограничений для защитных OCO-заявок."""
+    import os
+
+    category = os.getenv("BROKER_CATEGORY", "KNUR").strip().upper()
+
+    if category == "KNUR":
+        return BrokerCapabilities(
+            category="KNUR",
+            allow_api_orders=True,
+            allow_long=True,
+            allow_short=False,
+            allow_margin=False,
+            allow_futures=False,
+        )
+
+    if category in {"KSUR", "KPUR"}:
+        return BrokerCapabilities(
+            category=category,
+            allow_api_orders=True,
+            allow_long=True,
+            allow_short=True,
+            allow_margin=True,
+            allow_futures=True,
+        )
+
+    return BrokerCapabilities(
+        category=category,
+        allow_api_orders=False,
+        allow_long=False,
+        allow_short=False,
+        allow_margin=False,
+        allow_futures=False,
+    )
 
 
 @dataclass
@@ -45,9 +83,11 @@ class OcoOrderManager:
     FILLED_STATUSES = {"FILLED", "EXECUTED", "SL_EXECUTED", "TP_EXECUTED"}
     INACTIVE_STATUSES = {"CANCELED", "CANCELLED", "REJECTED", "DISABLED", "EXPIRED"}
 
-    def __init__(self, orders_client: Any, order_event_store: Any | None = None) -> None:
+    def __init__(self, orders_client: Any, order_event_store: Any | None = None, capabilities_gate: Any | None = None) -> None:
         self.orders_client = orders_client
         self.order_event_store = order_event_store
+        # Русский комментарий: защита OCO-заявок перед прямым вызовом orders_client.
+        self.capabilities_gate = capabilities_gate or BrokerCapabilitiesGate(build_oco_capabilities_from_env())
         self._groups: dict[str, OcoGroup] = {}
         self._order_to_group: dict[str, str] = {}
 
@@ -165,6 +205,16 @@ class OcoOrderManager:
 
         if exit_side not in ("BUY", "SELL") or qty <= 0:
             return None, None, "invalid_protection_config"
+
+        instrument_type = str(protection.get("instrument_type") or protection.get("asset_class") or "STOCK").upper()
+        ok, gate_reason = self.capabilities_gate.validate_order(
+            instrument_type=instrument_type,
+            side=exit_side,
+            qty=qty,
+            order_purpose="EXIT",
+        )
+        if not ok:
+            return None, None, gate_reason
 
         stop_loss_order_id = None
         take_profit_order_id = None
