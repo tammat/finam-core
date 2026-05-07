@@ -67,7 +67,7 @@ class OrderRouter:
             }
 
         if action == "LIMIT":
-            limit_price = intent.get("limit_price")
+            limit_price = intent.get("limit_price") or intent.get("entry_price") or intent.get("price")
             if limit_price is None:
                 return {
                     "route": "SKIP",
@@ -85,7 +85,10 @@ class OrderRouter:
                 "side": side,
                 "qty": qty,
                 "limit_price": float(limit_price),
-                "reason": intent.get("execution_reason") or "limit_order_route",
+                "stop_loss": intent.get("stop_loss"),
+                "take_profit": intent.get("take_profit"),
+                "entry_price": intent.get("entry_price"),
+                "reason": intent.get("execution_reason") or intent.get("entry_reason") or "limit_order_route",
             }
 
         return {

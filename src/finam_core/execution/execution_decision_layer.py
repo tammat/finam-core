@@ -99,7 +99,24 @@ class ExecutionDecisionLayer:
                 confidence=0.75,
             )
 
-        limit_price = self._num(intent.get("limit_price"), 0.0)
+        entry_type = str(intent.get("entry_type") or "").upper()
+        entry_price = self._num(intent.get("entry_price"), 0.0)
+        limit_price = self._num(intent.get("limit_price"), entry_price)
+
+        if entry_type == "LIMIT":
+            lp = limit_price if limit_price > 0 else price
+            return ExecutionDecision(
+                action="LIMIT",
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                order_type="LIMIT",
+                reason=str(intent.get("entry_reason") or "entry_point_selector_limit"),
+                price=price,
+                limit_price=lp,
+                confidence=0.80,
+            )
+
         if limit_price > 0 or "mean_reversion" in signal_type or "pullback" in signal_type:
             lp = limit_price if limit_price > 0 else price
             return ExecutionDecision(
