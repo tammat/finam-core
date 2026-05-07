@@ -15,6 +15,11 @@ class OcoGroup:
     triggered_order_id: str | None = None
     canceled_order_id: str | None = None
     reason: str | None = None
+    stop_loss_order_id: str | None = None
+    take_profit_order_id: str | None = None
+    protection_by_order_id: dict[str, dict[str, Any]] | None = None
+    stop_loss_order_id: str | None = None
+    take_profit_order_id: str | None = None
 
 
 @dataclass
@@ -24,6 +29,8 @@ class OcoHandleResult:
     triggered_order_id: str | None = None
     canceled_order_id: str | None = None
     reason: str | None = None
+    stop_loss_order_id: str | None = None
+    take_profit_order_id: str | None = None
 
 
 class OcoOrderManager:
@@ -49,6 +56,7 @@ class OcoOrderManager:
         symbol: str,
         first_order_id: str,
         second_order_id: str,
+        protection_by_order_id: dict[str, dict[str, Any]] | None = None,
     ) -> OcoGroup:
         if not group_id or not symbol or not first_order_id or not second_order_id:
             raise ValueError("invalid_oco_group")
@@ -60,6 +68,7 @@ class OcoOrderManager:
             symbol=symbol,
             first_order_id=first_order_id,
             second_order_id=second_order_id,
+            protection_by_order_id=protection_by_order_id or {},
         )
         self._groups[group_id] = group
         self._order_to_group[first_order_id] = group_id
@@ -68,6 +77,55 @@ class OcoOrderManager:
 
     def get_group(self, group_id: str) -> OcoGroup | None:
         return self._groups.get(group_id)
+
+    def _place_protection_orders(self, group: OcoGroup, triggered_order_id: str) -> tuple[str | None, str | None, str | None]:
+        """Русский комментарий: после исполнения OCO ставит stop-loss и take-profit."""
+        protection = (group.protection_by_order_id or {}).get(triggered_order_id) or {}
+        if not protection:
+            return None, None, "protection_not_configured"
+
+        exit_side = str(protection.get("exit_side") or "").upper()
+        qty = float(protection.get("qty") or 0.0)
+        stop_loss_price = float(protection.get("stop_loss_price") or 0.0)
+        take_profit_price = float(protection.get("take_profit_price") or 0.0)
+
+        if exit_side not in ("BUY", "SELL") or qty <= 0:
+            return None, None, "invalid_protection_config"
+
+        stop_loss_order_id = None
+        take_profit_order_id = None
+
+        if stop_loss_price > 0:
+            stop_result = self.orders_client.place_stop_order(
+                symbol=group.symbol,
+                side=exit_side,
+                qty=qty,
+                stop_price=stop_loss_price,
+            )
+            stop_loss_order_id = stop_result.get("order_id") if isinstance(stop_result, dict) else getattr(stop_result, "order_id", None)
+
+        if take_profit_price > 0:
+            if hasattr(self.orders_client, "place_take_profit_order"):
+                take_result = self.orders_client.place_take_profit_order(
+                    symbol=group.symbol,
+                    side=exit_side,
+                    qty=qty,
+                    take_price=take_profit_price,
+                )
+            elif hasattr(self.orders_client, "place_limit_order"):
+                take_result = self.orders_client.place_limit_order(
+                    symbol=group.symbol,
+                    side=exit_side,
+                    qty=qty,
+                    limit_price=take_profit_price,
+                )
+            else:
+                take_result = {"status": "SKIPPED", "reason": "take_profit_method_not_available"}
+
+            take_profit_order_id = take_result.get("order_id") if isinstance(take_result, dict) else getattr(take_result, "order_id", None)
+
+        return stop_loss_order_id, take_profit_order_id, None
+
 
     def handle_order_event(self, event: dict) -> OcoHandleResult | None:
         """Русский комментарий: обрабатывает событие заявки из SubscribeOrders/GetOrders."""
@@ -119,9 +177,13 @@ class OcoOrderManager:
         group.triggered_order_id = order_id
         group.canceled_order_id = other_order_id
 
+        stop_loss_order_id, take_profit_order_id, protection_reason = self._place_protection_orders(group, order_id)
+        group.stop_loss_order_id = stop_loss_order_id
+        group.take_profit_order_id = take_profit_order_id
+
         if cancel_status in {"CANCELED", "CANCELLED", "ACCEPTED", "OK", "DRY_RUN_CANCEL"}:
             group.status = "TRIGGERED"
-            group.reason = "other_order_cancelled"
+            group.reason = protection_reason or "other_order_cancelled_and_protection_placed"
         else:
             group.status = "CANCEL_FAILED"
             group.reason = f"cancel_failed:{cancel_status}"
@@ -132,4 +194,6 @@ class OcoOrderManager:
             triggered_order_id=group.triggered_order_id,
             canceled_order_id=group.canceled_order_id,
             reason=group.reason,
+            stop_loss_order_id=group.stop_loss_order_id,
+            take_profit_order_id=group.take_profit_order_id,
         )
