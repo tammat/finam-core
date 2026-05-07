@@ -24,6 +24,7 @@ from finam_core.execution.broker_reconciliation import BrokerReconciliationEngin
 from finam_core.portfolio.position_intent_repository import PositionIntentRepository
 from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopManager
+from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
 from finam_core.risk.trailing_exit import TrailingExitEngine
@@ -196,6 +197,11 @@ class PaperTradingPipeline:
         self.real_execution = RealExecutionEngine(orders_client=self.orders_client)
         # Русский комментарий: менеджер безопасной замены защитных стоп-заявок.
         self.cancel_replace_stop_manager = CancelReplaceStopManager(
+            orders_client=self.orders_client,
+            order_event_store=getattr(self.real_execution, "order_event_store", None),
+        )
+        # Русский комментарий: OCO manager связывает пары условных заявок и ставит SL/TP после исполнения одной из них.
+        self.oco_order_manager = OcoOrderManager(
             orders_client=self.orders_client,
             order_event_store=getattr(self.real_execution, "order_event_store", None),
         )
@@ -883,6 +889,28 @@ class PaperTradingPipeline:
         self._broker_orders_by_symbol = snapshot
 
 
+    def _handle_oco_order_event_if_enabled(self, event: dict) -> None:
+        """Русский комментарий: передаёт SubscribeOrders/GetOrders event в OcoOrderManager."""
+        if os.getenv("ENABLE_OCO_ORDER_MANAGER", "0") != "1":
+            return
+
+        manager = getattr(self, "oco_order_manager", None)
+        if manager is None:
+            return
+
+        result = manager.handle_order_event(event)
+        if result is None:
+            return
+
+        print(
+            f"PIPE_OCO_EVENT_RESULT group_id={result.group_id} status={result.status} "
+            f"triggered_order_id={result.triggered_order_id} canceled_order_id={result.canceled_order_id} "
+            f"stop_loss_order_id={result.stop_loss_order_id} take_profit_order_id={result.take_profit_order_id} "
+            f"reason={result.reason}",
+            flush=True,
+        )
+
+
     def _poll_subscribe_orders_once_if_enabled(self) -> None:
         """Русский комментарий: безопасно читает ограниченное число событий SubscribeOrders."""
         if os.getenv("ENABLE_SUBSCRIBE_ORDERS_LISTENER", "0") != "1":
@@ -898,6 +926,7 @@ class PaperTradingPipeline:
 
             for event in events:
                 self._apply_broker_order_event_to_snapshot(event)
+                self._handle_oco_order_event_if_enabled(event)
 
             if events:
                 print(f"PIPE_SUBSCRIBE_ORDERS_APPLIED events={len(events)}", flush=True)
