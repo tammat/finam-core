@@ -929,7 +929,15 @@ class PaperTradingPipeline:
                 self._handle_oco_order_event_if_enabled(event)
 
             if events:
-                print(f"PIPE_SUBSCRIBE_ORDERS_APPLIED events={len(events)}", flush=True)
+                msg = f"PIPE_SUBSCRIBE_ORDERS_APPLIED events={len(events)}"
+                if hasattr(self, "_log_dedup"):
+                    self._log_dedup(
+                        "PIPE_SUBSCRIBE_ORDERS_APPLIED",
+                        msg,
+                        heartbeat_sec=float(os.getenv("SUBSCRIBE_ORDERS_APPLIED_HEARTBEAT_SEC", "300")),
+                    )
+                else:
+                    print(msg, flush=True)
 
         except Exception as exc:
             key = f"PIPE_SUBSCRIBE_ORDERS_ERROR:{type(exc).__name__}"
