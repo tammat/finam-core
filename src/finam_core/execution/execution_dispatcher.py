@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from finam_core.storage.postgres_logger import PostgresLogger
 
 
 class ExecutionDispatcher:
@@ -28,6 +29,40 @@ class ExecutionDispatcher:
         self.real_execution_engine = real_execution_engine
         self.paper_executor = paper_executor
         self.logger = logger
+        # Русский комментарий: журнал execution-событий не должен ломать route.
+        self.execution_journal = logger if logger is not None else PostgresLogger()
+
+
+    def _log_execution_event_safe(
+        self,
+        *,
+        event_type: str,
+        symbol: str | None = None,
+        side: str | None = None,
+        qty: float | None = None,
+        price: float | None = None,
+        status: str | None = None,
+        reason: str | None = None,
+        order_id: str | None = None,
+        raw_json: dict | None = None,
+    ) -> None:
+        """Русский комментарий: безопасный журнал dispatcher execution events."""
+        try:
+            if hasattr(self.execution_journal, "log_execution_event"):
+                self.execution_journal.log_execution_event(
+                    event_type=event_type,
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    price=price,
+                    status=status,
+                    reason=reason,
+                    order_id=order_id,
+                    raw_json=raw_json or {},
+                )
+        except Exception as exc:
+            print(f"DISPATCHER_EXECUTION_EVENT_LOG_FAILED event_type={event_type} error={exc}", flush=True)
+
 
     def execute(self, intent: dict, market_state: dict | None = None) -> Any:
         """Русский комментарий: основной route для pipeline."""
@@ -70,12 +105,30 @@ class ExecutionDispatcher:
                     "limit_price": float(limit_price),
                 }
 
-            return self.orders_client.place_limit_order(
+            result = self.orders_client.place_limit_order(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 limit_price=limit_price,
             )
+
+            status = result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+            reason = result.get("reason") if isinstance(result, dict) else getattr(result, "reason", None)
+            order_id = result.get("order_id") if isinstance(result, dict) else getattr(result, "order_id", None)
+
+            self._log_execution_event_safe(
+                event_type="LIMIT_ORDER_RESULT",
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=limit_price,
+                status=status,
+                reason=reason,
+                order_id=order_id,
+                raw_json={"result": result},
+            )
+
+            return result
 
         return {
             "status": "PAPER_LIMIT_SKIPPED",
