@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import argparse
+import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -56,6 +57,48 @@ def load_rows(database_url: str, timeframe: str, lookback_bars: int, table_name:
             return [dict(row) for row in cur.fetchall()]
 
 
+
+def save_scan_results(database_url: str, timeframe: str, result: dict) -> int:
+    """Русский комментарий: сохраняет результаты VolatilityScanner в PostgreSQL."""
+    rows = []
+    for bucket in ("intraday", "swing"):
+        for idx, item in enumerate(result.get(bucket, []) or [], start=1):
+            rows.append((bucket, idx, item))
+
+    if not rows:
+        return 0
+
+    sql = """
+    INSERT INTO volatility_scan_results (
+        timeframe, bucket, rank, symbol, score, atr_pct,
+        turnover, volume, avg_volume, raw_json
+    )
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+    """
+
+    with psycopg2.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            for bucket, rank, item in rows:
+                cur.execute(
+                    sql,
+                    (
+                        timeframe,
+                        bucket,
+                        rank,
+                        str(item.get("symbol")),
+                        float(item.get("score", 0.0) or 0.0),
+                        float(item.get("atr_pct", 0.0) or 0.0),
+                        float(item.get("turnover", 0.0) or 0.0),
+                        float(item.get("volume", 0.0) or 0.0),
+                        float(item.get("avg_volume", 0.0) or 0.0),
+                        json.dumps(item, ensure_ascii=False, default=str),
+                    ),
+                )
+
+    return len(rows)
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeframe", default="M5")
@@ -82,6 +125,8 @@ def main() -> int:
     for item in result["swing"]:
         print(item)
 
+    saved = save_scan_results(database_url, args.timeframe, result)
+    print(f"VOLATILITY_SCAN_SAVED rows={saved}")
     print("VOLATILITY_SCAN_REAL_DATA_OK")
     return 0
 
