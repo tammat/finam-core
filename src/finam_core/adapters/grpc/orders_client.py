@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from finam_core.auth.token_manager import FinamTokenManager
 from typing import Any
@@ -33,6 +34,8 @@ class FinamOrdersClient:
     """
 
     def __init__(self) -> None:
+        self._subscribe_orders_last_error_log_ts = 0.0
+        self._subscribe_orders_cooldown_until_ts = 0.0
         self.account_id = (
             os.getenv("FINAM_ACCOUNT_ID")
             or os.getenv("ACCOUNT_ID")
@@ -265,6 +268,11 @@ class FinamOrdersClient:
         """Русский комментарий: read-only SubscribeOrders. Возвращает нормализованные события заявок."""
         events: list[dict] = []
 
+        now_ts = time.time()
+        cooldown_until = float(getattr(self, "_subscribe_orders_cooldown_until_ts", 0.0) or 0.0)
+        if cooldown_until and now_ts < cooldown_until:
+            return events
+
         try:
             if not self.account_id:
                 print("FINAM_SUBSCRIBE_ORDERS_NO_ACCOUNT_ID", flush=True)
@@ -289,7 +297,16 @@ class FinamOrdersClient:
             return events
 
         except Exception as exc:
-            print(f"FINAM_SUBSCRIBE_ORDERS_ERROR error={exc}", flush=True)
+            now_ts = time.time()
+            heartbeat = float(os.getenv("SUBSCRIBE_ORDERS_ERROR_HEARTBEAT_SEC", "300"))
+            cooldown = float(os.getenv("SUBSCRIBE_ORDERS_ERROR_COOLDOWN_SEC", "60"))
+            last_ts = float(getattr(self, "_subscribe_orders_last_error_log_ts", 0.0) or 0.0)
+
+            if not last_ts or now_ts - last_ts >= heartbeat:
+                print(f"FINAM_SUBSCRIBE_ORDERS_ERROR error={exc}", flush=True)
+                self._subscribe_orders_last_error_log_ts = now_ts
+
+            self._subscribe_orders_cooldown_until_ts = now_ts + cooldown
             return events
 
 
