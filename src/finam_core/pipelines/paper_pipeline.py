@@ -904,10 +904,15 @@ class PaperTradingPipeline:
 
         except Exception as exc:
             key = f"PIPE_SUBSCRIBE_ORDERS_ERROR:{type(exc).__name__}"
+            msg = f"PIPE_SUBSCRIBE_ORDERS_ERROR error={exc}"
             if hasattr(self, "_log_dedup"):
-                self._log_dedup(key, f"PIPE_SUBSCRIBE_ORDERS_ERROR error={exc}")
+                self._log_dedup(
+                    key,
+                    msg,
+                    heartbeat_sec=float(os.getenv("SUBSCRIBE_ORDERS_ERROR_HEARTBEAT_SEC", "300")),
+                )
             else:
-                print(f"PIPE_SUBSCRIBE_ORDERS_ERROR error={exc}", flush=True)
+                print(msg, flush=True)
 
 
     def _sync_broker_open_orders_if_needed(self) -> None:
@@ -2356,11 +2361,18 @@ class PaperTradingPipeline:
 
             intent_allowed, intent_reason = self._position_intent_allows_order(sym, side, current_qty)
             if not intent_allowed:
-                print(
+                msg = (
                     f"PIPE_POSITION_INTENT_ORDER_BLOCK symbol={sym} side={side} "
-                    f"current_qty={current_qty} reason={intent_reason}",
-                    flush=True,
+                    f"current_qty={current_qty} reason={intent_reason}"
                 )
+                if hasattr(self, "_log_dedup"):
+                    self._log_dedup(
+                        f"PIPE_POSITION_INTENT_ORDER_BLOCK:{sym}:{side}:{intent_reason}",
+                        msg,
+                        heartbeat_sec=float(os.getenv("POSITION_INTENT_BLOCK_HEARTBEAT_SEC", "300")),
+                    )
+                else:
+                    print(msg, flush=True)
                 return
 
             hard_gate_allowed, hard_gate_reason = self._broker_position_hard_gate_allows_order(sym, side, current_qty)
