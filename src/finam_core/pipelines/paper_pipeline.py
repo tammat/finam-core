@@ -28,6 +28,7 @@ from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopMa
 from finam_core.execution.execution_decision_layer import ExecutionDecisionLayer
 from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
+from finam_core.execution.entry_point_selector import EntryPointSelector
 from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
@@ -272,6 +273,12 @@ class PaperTradingPipeline:
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.signal_router = SignalRouter()
+        # Русский комментарий: EntryPointSelector рассчитывает entry/stop/take до выбора типа заявки.
+        self.entry_point_selector = EntryPointSelector(
+            tick_size=float(os.getenv("ENTRY_TICK_SIZE", "0.01")),
+            stop_atr_mult=float(os.getenv("ENTRY_STOP_ATR_MULT", "1.5")),
+            take_atr_mult=float(os.getenv("ENTRY_TAKE_ATR_MULT", "2.0")),
+        )
         # Русский комментарий: ExecutionDecisionLayer выбирает MARKET/STOP/LIMIT/SKIP, но не отправляет заявки.
         self.execution_decision_layer = ExecutionDecisionLayer()
         # Русский комментарий: OrderRouter строит маршрут заявки после ExecutionDecisionLayer, не вмешиваясь в raw_fill path.
@@ -1971,6 +1978,16 @@ class PaperTradingPipeline:
                     return
 
                 print("PIPE_EXIT_HARD_RISK_OK", flush=True)
+
+                if hasattr(self, "entry_point_selector") and not is_exit_intent:
+                    intent = self.entry_point_selector.enrich_intent(intent, st) or intent
+                    print(
+                        f"PIPE_ENTRY_POINT_SELECTED symbol={intent.get('symbol')} side={intent.get('side')} "
+                        f"entry_type={intent.get('entry_type')} price={intent.get('price')} "
+                        f"stop_loss={intent.get('stop_loss')} take_profit={intent.get('take_profit')} "
+                        f"reason={intent.get('entry_reason')}",
+                        flush=True,
+                    )
 
                 intent = self._apply_execution_decision_if_enabled(intent, st)
                 if intent is None:
