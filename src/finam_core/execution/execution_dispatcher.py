@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-ExecutionDispatcher — единая точка маршрутизации заявок.
+ExecutionDispatcher — единая точка маршрутизации исполнения.
 
 Русский комментарий:
-- paper execution остаётся дефолтом;
-- live execution разрешается только через EXECUTION_MODE=real;
-- реальная отправка дополнительно защищена внутри FinamOrdersClient флагами:
-  REAL_EXECUTION_ENABLED=1 и REAL_ORDER_CONFIRM=1.
+- paper остаётся режимом по умолчанию;
+- real / real_dry_run идут только через RealExecutionEngine;
+- прямой вызов orders_client из pipeline запрещён;
+- категорию брокера здесь не используем.
 """
 
 from __future__ import annotations
@@ -16,45 +16,71 @@ from typing import Any
 
 
 class ExecutionDispatcher:
-    def __init__(self, paper_executor: Any, live_executor: Any, capabilities_gate: Any, logger: Any = None) -> None:
+    def __init__(
+        self,
+        orders_client: Any | None = None,
+        real_execution_engine: Any | None = None,
+        paper_executor: Any | None = None,
+        logger: Any | None = None,
+        **kwargs,
+    ) -> None:
+        self.orders_client = orders_client
+        self.real_execution_engine = real_execution_engine
         self.paper_executor = paper_executor
-        self.live_executor = live_executor
-        self.capabilities_gate = capabilities_gate
         self.logger = logger
 
-    def place_limit_order(self, *, symbol: str, side: str, qty: float, limit_price: float, instrument_type: str = "STOCK") -> dict:
-        ok, reason = self.capabilities_gate.validate_order(
-            instrument_type=instrument_type,
-            side=side,
-            qty=qty,
-        )
+    def execute(self, intent: dict, market_state: dict | None = None) -> Any:
+        """Русский комментарий: основной route для pipeline."""
+        mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
 
-        if not ok:
-            result = {
-                "status": "REJECTED",
-                "symbol": symbol,
-                "side": side,
-                "qty": float(qty),
-                "limit_price": float(limit_price),
-                "reason": reason,
-            }
-            if self.logger and hasattr(self.logger, "log_rejected_order"):
-                self.logger.log_rejected_order(result)
-            return result
+        if mode in {"real", "real_dry_run"}:
+            if self.real_execution_engine is None:
+                return {
+                    "status": "REJECTED",
+                    "reason": "real_execution_engine_not_configured",
+                    "intent": intent,
+                }
 
-        mode = os.getenv("EXECUTION_MODE", "paper").lower()
+            return self.real_execution_engine.execute(
+                intent=intent,
+                market_state=market_state or {},
+            )
 
-        if mode == "real":
-            return self.live_executor.place_limit_order(
+        if self.paper_executor is not None:
+            return self.paper_executor.execute(intent, market_state or {})
+
+        return {
+            "status": "SKIPPED",
+            "reason": "paper_executor_not_configured",
+            "intent": intent,
+        }
+
+    def place_limit_order(self, *, symbol: str, side: str, qty: float, limit_price: float, **kwargs) -> dict:
+        """Русский комментарий: вспомогательный route для limit-заявок, без категории брокера."""
+        mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
+
+        if mode in {"real", "real_dry_run"}:
+            if self.orders_client is None or not hasattr(self.orders_client, "place_limit_order"):
+                return {
+                    "status": "REJECTED",
+                    "reason": "orders_client_place_limit_order_not_configured",
+                    "symbol": symbol,
+                    "side": side,
+                    "qty": float(qty),
+                    "limit_price": float(limit_price),
+                }
+
+            return self.orders_client.place_limit_order(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 limit_price=limit_price,
             )
 
-        return self.paper_executor.place_limit_order(
-            symbol=symbol,
-            side=side,
-            qty=qty,
-            limit_price=limit_price,
-        )
+        return {
+            "status": "PAPER_LIMIT_SKIPPED",
+            "symbol": symbol,
+            "side": side,
+            "qty": float(qty),
+            "limit_price": float(limit_price),
+        }
