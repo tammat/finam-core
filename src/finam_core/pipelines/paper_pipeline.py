@@ -26,6 +26,7 @@ from finam_core.execution.real_execution import RealExecutionEngine
 from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopManager
 from finam_core.execution.execution_decision_layer import ExecutionDecisionLayer
 from finam_core.execution.order_router import OrderRouter
+from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 from finam_core.accounting.fees import FeeTaxModel
@@ -270,6 +271,11 @@ class PaperTradingPipeline:
         self.execution_decision_layer = ExecutionDecisionLayer()
         # Русский комментарий: OrderRouter строит маршрут заявки после ExecutionDecisionLayer, не вмешиваясь в raw_fill path.
         self.order_router = OrderRouter()
+        # Русский комментарий: ExecutionDispatcher исполняет маршрут STOP/LIMIT/MARKET, выбранный OrderRouter.
+        self.execution_dispatcher = ExecutionDispatcher(
+            orders_client=self.orders_client,
+            real_execution_engine=self.real_execution,
+        )
         self.regime_engine = RegimeEngine()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
@@ -1711,6 +1717,31 @@ class PaperTradingPipeline:
         if route.get("limit_price") is not None:
             result["limit_price"] = route.get("limit_price")
 
+        return result
+
+
+    def _dispatch_order_if_enabled(self, intent: dict, market_state: dict):
+        """Русский комментарий: применяет OrderRouter и передаёт маршрут в ExecutionDispatcher."""
+        routed = self._route_order_if_enabled(intent, market_state)
+        if routed is None:
+            print("PIPE_EXECUTION_DISPATCH_SKIP reason=route_none", flush=True)
+            return None
+
+        if os.getenv("ENABLE_EXECUTION_DISPATCHER", "0") != "1":
+            return routed
+
+        dispatcher = getattr(self, "execution_dispatcher", None)
+        if dispatcher is None:
+            return routed
+
+        result = dispatcher.dispatch(routed, market_state)
+        print(
+            f"PIPE_EXECUTION_DISPATCH_RESULT symbol={getattr(result, 'symbol', None)} "
+            f"side={getattr(result, 'side', None)} route={getattr(result, 'route', None)} "
+            f"status={getattr(result, 'status', None)} order_id={getattr(result, 'order_id', None)} "
+            f"reason={getattr(result, 'reason', None)}",
+            flush=True,
+        )
         return result
 
 
