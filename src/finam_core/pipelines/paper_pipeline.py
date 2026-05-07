@@ -1730,6 +1730,41 @@ class PaperTradingPipeline:
         return routed
 
 
+
+    def _execute_routed_order_if_needed(self, intent: dict, market_state: dict) -> bool:
+        """Русский комментарий: исполняет маршруты OrderRouter, которые не должны уходить в raw_fill/market path."""
+        route = str(intent.get("order_route") or "").upper()
+
+        if route == "LIMIT_ORDER":
+            dispatcher = getattr(self, "execution_dispatcher", None)
+            if dispatcher is None:
+                print("PIPE_EXECUTION_DISPATCH_LIMIT_SKIP reason=dispatcher_not_configured", flush=True)
+                return True
+
+            result = dispatcher.place_limit_order(
+                symbol=str(intent.get("symbol")),
+                side=str(intent.get("side")).upper(),
+                qty=float(intent.get("qty") or 0.0),
+                limit_price=float(intent.get("limit_price") or intent.get("entry_price") or intent.get("price")),
+            )
+
+            print(
+                f"PIPE_EXECUTION_DISPATCH_LIMIT symbol={intent.get('symbol')} side={intent.get('side')} "
+                f"qty={intent.get('qty')} limit_price={intent.get('limit_price') or intent.get('entry_price') or intent.get('price')} "
+                f"status={result.get('status') if isinstance(result, dict) else getattr(result, 'status', None)} "
+                f"reason={result.get('reason') if isinstance(result, dict) else getattr(result, 'reason', None)}",
+                flush=True,
+            )
+            return True
+
+        if route == "STOP_ORDER":
+            print("PIPE_EXECUTION_DISPATCH_STOP_SKIP reason=stop_route_not_enabled_yet", flush=True)
+            return True
+
+        return False
+
+
+
     def _route_order_if_enabled(self, intent: dict, market_state: dict) -> dict | None:
         """Русский комментарий: применяет ExecutionDecisionLayer и OrderRouter без прямого вызова raw_fill."""
         routed_intent = self._apply_execution_decision_if_enabled(intent, market_state)
@@ -3037,6 +3072,9 @@ class PaperTradingPipeline:
         if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             return
+        if self._execute_routed_order_if_needed(intent, st):
+            return
+
         if self.execution_mode in ("real_dry_run", "real"):
             real_result = self.execution_dispatcher.execute(intent=intent, market_state=st)
             print(
