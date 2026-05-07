@@ -121,6 +121,23 @@ class FinamOrdersClient:
             comment="finam_core_real_execution",
         )
 
+    def _build_limit_order(self, symbol: str, side: str, qty: float, limit_price: float):
+        """Русский комментарий: строит LIMIT Order для OrdersService.PlaceOrder."""
+        orders_service_pb2, _, _ = self._load_orders_grpc()
+        return orders_service_pb2.Order(
+            account_id=self.account_id,
+            symbol=symbol,
+            quantity=decimal_pb2.Decimal(value=str(int(qty))),
+            side=self._side_value(side),
+            type=orders_service_pb2.ORDER_TYPE_LIMIT,
+            limit_price=decimal_pb2.Decimal(value=str(float(limit_price))),
+            time_in_force=orders_service_pb2.TIME_IN_FORCE_DAY,
+            valid_before=orders_service_pb2.VALID_BEFORE_END_OF_DAY,
+            client_order_id=self._make_client_order_id(),
+            comment="finam_core_limit_order",
+        )
+
+
     def _build_stop_order(self, symbol: str, side: str, qty: float, stop_price: float, client_order_id: str | None = None):
         """Русский комментарий: сборка STOP-заявки Finam без отправки брокеру."""
         orders_service_pb2, _, side_pb2 = self._load_orders_grpc()
@@ -218,6 +235,14 @@ class FinamOrdersClient:
 
         if "Trading is not available at the moment" in text:
             return "BROKER_TRADING_NOT_AVAILABLE", {
+                "grpc_code": grpc_code,
+                "grpc_details": grpc_details,
+                "raw_error": raw_text,
+                "retryable": False,
+            }
+
+        if "Market orders are not permitted" in text or "рыночн" in text.lower():
+            return "BROKER_MARKET_ORDERS_NOT_PERMITTED", {
                 "grpc_code": grpc_code,
                 "grpc_details": grpc_details,
                 "raw_error": raw_text,
@@ -390,6 +415,66 @@ class FinamOrdersClient:
                 "side": side,
                 "qty": float(qty),
                 "stop_price": stop_price,
+                "reason": reason,
+                "raw": raw,
+            }
+
+
+    def place_limit_order(self, symbol: str, side: str, qty: float, limit_price: float) -> dict:
+        """Русский комментарий: постановка лимитной заявки; без подтверждения работает как dry-run."""
+        err = self._validate(symbol, side, qty)
+        if err:
+            return {"status": "REJECTED", "reason": err}
+
+        try:
+            limit_price = float(limit_price)
+        except Exception:
+            return {"status": "REJECTED", "reason": "invalid_limit_price"}
+
+        if limit_price <= 0:
+            return {"status": "REJECTED", "reason": "invalid_limit_price"}
+
+        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1" or os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+            return {
+                "status": "DRY_RUN_ACCEPTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "limit_price": limit_price,
+                "order_id": f"dry_limit_{symbol}_{side}_{qty}_{limit_price}",
+                "reason": "real_order_confirm_disabled",
+            }
+
+        try:
+            order = self._build_limit_order(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                limit_price=limit_price,
+            )
+            resp = self._stub_for_orders().PlaceOrder(
+                order,
+                metadata=self._metadata(),
+                timeout=float(os.getenv("FINAM_PLACE_LIMIT_TIMEOUT_SEC", "10")),
+            )
+            order_id = str(getattr(resp, "order_id", "") or getattr(resp, "transaction_id", "") or "")
+            return {
+                "status": "ACCEPTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "limit_price": limit_price,
+                "order_id": order_id,
+                "raw": {"response": str(resp)},
+            }
+        except Exception as exc:
+            reason, raw = self._normalize_broker_error(exc)
+            return {
+                "status": "REJECTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "limit_price": limit_price,
                 "reason": reason,
                 "raw": raw,
             }
