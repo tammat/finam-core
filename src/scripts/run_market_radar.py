@@ -8,7 +8,7 @@ import psycopg2
 from finam_core.data.moex_client import MoexClient
 from finam_core.data.market_radar import MarketRadar
 from finam_core.storage.dynamic_watchlist_repository import DynamicWatchlistRepository
-from finam_core.notifications.telegram_notifier import TelegramNotifier
+from finam_core.notifications.notification_router import NotificationRouter
 from finam_core.data.radar_persistence_repository import RadarPersistenceRepository
 
 
@@ -94,7 +94,7 @@ def send_top5_telegram(rows: list[dict]) -> None:
             f"Δscore={float(r.get('score_delta') or 0):.2f}"
         )
 
-    TelegramNotifier().send("\n".join(lines))
+    NotificationRouter().send(trigger="market_radar", text="\n".join(lines))
     print("WATCHLIST_TELEGRAM_SENT")
 
 

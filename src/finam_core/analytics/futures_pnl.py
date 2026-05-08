@@ -20,7 +20,9 @@ class FuturesPnlCalculator:
         ticks = price_delta / spec.min_price_step
         return round(ticks * spec.step_value * float(qty), 4)
 
-    def risk_money(self, *, symbol: str, entry: float, stop: float, qty: float) -> float:
+    def risk_money(self, *, symbol: str, entry: float, stop: float, qty: float, side: str | None = None) -> float:
+        # Русский комментарий: side оставлен для совместимости с TradeOutcomeReporter;
+        # денежный риск до стопа считается через абсолютное расстояние entry-stop.
         spec = self.registry.get(symbol)
         ticks = abs(float(entry) - float(stop)) / spec.min_price_step
         return round(ticks * spec.step_value * float(qty), 4)

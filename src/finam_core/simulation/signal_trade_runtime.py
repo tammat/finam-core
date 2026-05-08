@@ -6,6 +6,7 @@ from typing import Any
 
 from finam_core.simulation.signal_paper_trade_tracker import SignalPaperTradeTracker
 from finam_core.analytics.trade_outcome_reporter import TradeOutcomeReporter
+from finam_core.notifications.notification_router import NotificationRouter
 from finam_core.storage.virtual_signal_trade_repository import VirtualSignalTradeRepository
 
 
@@ -24,6 +25,7 @@ class SignalTradeRuntime:
     def __init__(self, signal_notifier: Any, outcome_notifier: Any | None = None) -> None:
         self.signal_notifier = signal_notifier
         self.outcome_notifier = outcome_notifier or signal_notifier
+        self.notification_router = NotificationRouter()
         self.tracker = SignalPaperTradeTracker()
         self.reporter = TradeOutcomeReporter(self.outcome_notifier)
         # Русский комментарий: PostgreSQL-хранилище открытых виртуальных сделок для ручного закрытия.
@@ -116,7 +118,21 @@ class SignalTradeRuntime:
                 reason=f"virtual_trade_closed:{trade.close_reason}",
             )
 
-            sent = self.reporter.send_outcome(outcome)
+            sent = self.notification_router.send(
+                trigger="trade_outcome",
+                text=(
+                    "📊 ИТОГ СДЕЛКИ\n\n"
+                    f"Инструмент: {outcome.symbol}\n"
+                    f"Сторона: {outcome.side}\n"
+                    f"Вход: {outcome.entry_price:.4f}\n"
+                    f"Выход: {outcome.exit_price:.4f}\n"
+                    f"P&L: {outcome.pnl:.4f}\n"
+                    f"P&L %: {outcome.pnl_pct:.2f}%\n"
+                    f"Факт R: {outcome.r_multiple:.2f}R\n"
+                    f"Результат: {outcome.result}\n"
+                    f"Причина: {outcome.reason}"
+                ),
+            )
 
             results.append(
                 {
@@ -154,11 +170,4 @@ class SignalTradeRuntime:
         """Русский комментарий: отправляет итог дня в Telegram."""
         text = self.build_daily_summary_text()
 
-        if hasattr(self.outcome_notifier, "send_text"):
-            return bool(self.outcome_notifier.send_text(text))
-
-        if hasattr(self.outcome_notifier, "send"):
-            self.outcome_notifier.send(text)
-            return True
-
-        return False
+        return bool(self.notification_router.send(trigger="pnl_report", text=text))
