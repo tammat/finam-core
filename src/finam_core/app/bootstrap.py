@@ -37,10 +37,7 @@ async def bootstrap():
         event_bus
     )
 
-    if hasattr(gateway.marketdata, "subscribe_bars"):
-        await feed.start(Settings.SYMBOL)
-    else:
-        print("LIVE_FEED_DISABLED: marketdata has no subscribe_bars; using EventBus market stream")
+    await feed.start(Settings.SYMBOL)
 
 
     # -----------------------------

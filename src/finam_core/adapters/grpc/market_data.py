@@ -347,3 +347,43 @@ class FinamMarketDataClient:
                     self.event_bus.publish(event)
                 except Exception as e:
                     LOG.exception("MarketData publish failed: %s", e)
+
+# ---------------------------------------------------------------------
+# Backward-compatible bars stream for legacy LiveMarketFeed
+# ---------------------------------------------------------------------
+from dataclasses import dataclass
+
+
+@dataclass
+class MarketBar:
+    symbol: str
+    close: float
+    timestamp: float
+
+
+def _subscribe_bars_compat(self, symbol: str, timeframe: int = 1):
+    """
+    Legacy-compatible adapter:
+    LiveMarketFeed expects: for bar in client.subscribe_bars(symbol, 1)
+    Internally we reuse quotes state populated by subscribe_quotes().
+    """
+    self.start([symbol])
+
+    last_price = None
+
+    while not self._stop.is_set():
+        state = self.state.get(symbol) or {}
+        price = state.get("price") or state.get("last") or state.get("close")
+
+        if price is not None and price != last_price:
+            last_price = price
+            yield MarketBar(
+                symbol=symbol,
+                close=float(price),
+                timestamp=float(state.get("timestamp") or time.time()),
+            )
+
+        time.sleep(float(os.getenv("MD_BAR_POLL_SEC", "0.5")))
+
+
+FinamMarketDataClient.subscribe_bars = _subscribe_bars_compat
