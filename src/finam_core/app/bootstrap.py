@@ -75,5 +75,6 @@ async def bootstrap():
         risk_engine=risk_engine,
         execution=execution
     )
+    pipeline.fill_event_router = fill_event_router
 
     return pipeline, event_bus, gateway, feed

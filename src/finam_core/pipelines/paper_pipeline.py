@@ -242,6 +242,7 @@ class PaperTradingPipeline:
         # Русский комментарий: throttle для SubscribeOrders, чтобы не открывать stream на каждый quote.
         self._subscribe_orders_next_poll_ts = 0.0
         self._subscribe_orders_empty_poll_count = 0
+        self.fill_event_router = None
         self._position_order_state_last_key = {}
         # Русский комментарий: read-only сверка локальной позиции с брокером перед real orders.
         self.broker_reconciliation = BrokerReconciliationEngine(
@@ -938,6 +939,21 @@ class PaperTradingPipeline:
         )
 
 
+    def _handle_trade_management_fill_event_if_enabled(self, event: dict) -> None:
+        """Русский комментарий: передаёт FILLED события в TradeManagementService."""
+        router = getattr(self, "fill_event_router", None)
+        if router is None:
+            return
+
+        status = str(event.get("status") or "").upper()
+        if status not in ("FILLED", "EXECUTED", "ORDER_STATUS_FILLED", "ORDER_STATUS_EXECUTED"):
+            return
+
+        try:
+            router.on_fill(event)
+        except Exception as e:
+            self._subscribe_orders_last_error = e
+
     def _poll_subscribe_orders_once_if_enabled(self) -> None:
         """Русский комментарий: безопасно читает ограниченное число событий SubscribeOrders."""
         if os.getenv("ENABLE_SUBSCRIBE_ORDERS_LISTENER", "0") != "1":
@@ -962,6 +978,7 @@ class PaperTradingPipeline:
             for event in events:
                 self._apply_broker_order_event_to_snapshot(event)
                 self._handle_oco_order_event_if_enabled(event)
+                self._handle_trade_management_fill_event_if_enabled(event)
 
             if events:
                 now_log_ts = time.time()
