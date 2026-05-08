@@ -35,6 +35,51 @@ class TradeSignalNotifier:
             os.getenv("TRADE_TG_PROXY", "").strip()
         )
 
+
+    def send_text(self, text: str) -> bool:
+        """Русский комментарий: отправляет произвольный текст через отдельного торгового Telegram-бота."""
+        if not self.enabled:
+            return False
+
+        if not self.token or not self.chat_id:
+            return False
+
+        if not str(text or "").strip():
+            return False
+
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+
+        payload = {
+            "chat_id": self.chat_id,
+            "text": str(text).strip(),
+        }
+
+        try:
+            kwargs = {
+                "json": payload,
+                "timeout": 10,
+            }
+
+            if self.proxy:
+                kwargs["proxies"] = {
+                    "http": self.proxy,
+                    "https": self.proxy,
+                }
+
+            r = requests.post(url, **kwargs)
+
+            if r.status_code == 200:
+                print("TRADE_SIGNAL_TEXT_SENT", flush=True)
+                return True
+
+            LOG.error(f"TRADE_SIGNAL_TEXT_FAILED {r.status_code} {r.text}")
+            return False
+
+        except Exception as e:
+            LOG.error(f"TRADE_SIGNAL_TEXT_EXCEPTION {e}")
+            return False
+
+
     def send_signal(
         self,
         symbol: str,
