@@ -27,7 +27,7 @@ async def bootstrap():
     # -----------------------------
     # Gateway
     # -----------------------------
-    gateway = FinamGateway()
+    gateway = FinamGateway(event_bus=event_bus)
 
     # -----------------------------
     # Market data feed
@@ -37,12 +37,16 @@ async def bootstrap():
         event_bus
     )
 
-    await feed.start(Settings.SYMBOL)
+    if hasattr(gateway.marketdata, "subscribe_bars"):
+        await feed.start(Settings.SYMBOL)
+    else:
+        print("LIVE_FEED_DISABLED: marketdata has no subscribe_bars; using EventBus market stream")
+
 
     # -----------------------------
     # Portfolio
     # -----------------------------
-    portfolio = PortfolioManager()
+    portfolio = PortfolioManager(initial_cash=float(getattr(Settings, 'INITIAL_CASH', 1000000)))
 
     # -----------------------------
     # Risk engine
@@ -56,13 +60,20 @@ async def bootstrap():
     # -----------------------------
     # Execution
     # -----------------------------
-    execution = FinamExecutionEngine(gateway)
+    if str(getattr(Settings, "EXECUTION_ENABLED", "0")) == "1":
+        execution = FinamExecutionEngine(
+            token=getattr(gateway.token_manager, "token", None) or getattr(Settings, "FINAM_TOKEN", ""),
+            account_id=getattr(Settings, "FINAM_ACCOUNT_ID", ""),
+        )
+    else:
+        execution = None
+        print("EXECUTION_DISABLED: real execution engine not initialized")
+
 
     # -----------------------------
     # Trading pipeline
     # -----------------------------
     pipeline = TradingPipeline(
-        event_bus=event_bus,
         portfolio=portfolio,
         risk_engine=risk_engine,
         execution=execution

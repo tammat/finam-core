@@ -1,12 +1,17 @@
 # config/settings.py
 
 import os  # стандартная библиотека для работы с переменными окружения
-from finam_core.dotenv import load_dotenv  # загрузка переменных из файла .env
+from dotenv import load_dotenv  # загрузка переменных из файла .env
 
 load_dotenv()  # инициализация загрузки .env при старте приложения
 
 
 class Settings:
+    EXECUTION_ENABLED = os.getenv("EXECUTION_ENABLED", "0")
+    FINAM_TOKEN = os.getenv("FINAM_TOKEN", os.getenv("FINAM_SECRET", ""))
+    FINAM_ACCOUNT_ID = os.getenv("FINAM_ACCOUNT_ID", "")
+    SYMBOL = os.getenv("SYMBOL", "SBER@MISX")
+    SYMBOLS = [x.strip() for x in os.getenv("SYMBOLS", SYMBOL).split(",") if x.strip()]
     """
     Централизованная конфигурация торгового ядра и RiskStack v2.
     Все параметры читаются из .env, но имеют безопасные значения по умолчанию.

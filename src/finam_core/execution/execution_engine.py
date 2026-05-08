@@ -130,3 +130,9 @@ class ExecutionEngine(PaperExecutionEngine):
         # Fallback: paper execution (requires market_state for price; PaperEngine now tolerates missing).
         pf = self.execute({"symbol": symbol, "side": side, "qty": qty}, market_state or {})
         return _build_fill_event(pf, side=side, account_id=account_id)
+
+# Backward-compatible alias for legacy imports
+try:
+    BaseExecutionEngine
+except NameError:
+    BaseExecutionEngine = ExecutionEngine
