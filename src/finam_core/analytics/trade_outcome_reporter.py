@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from finam_core.analytics.futures_pnl import FuturesPnlCalculator
+
 
 @dataclass(frozen=True)
 class TradeOutcome:
@@ -50,18 +52,33 @@ class TradeOutcomeReporter:
         stop_loss = float(stop_loss)
         take_profit = float(take_profit)
 
+        futures_calc = FuturesPnlCalculator()
+        pnl = futures_calc.pnl(
+            symbol=symbol,
+            side=side,
+            entry=entry_price,
+            exit=exit_price,
+            qty=qty,
+        )
+
+        risk_money = futures_calc.risk_money(
+            symbol=symbol,
+            side=side,
+            entry=entry_price,
+            stop=stop_loss,
+            qty=qty,
+        )
+
         if side == "BUY":
-            pnl = (exit_price - entry_price) * qty
-            risk_per_unit = abs(entry_price - stop_loss)
             reward_per_unit = abs(take_profit - entry_price)
+            risk_per_unit = abs(entry_price - stop_loss)
         else:
-            pnl = (entry_price - exit_price) * qty
-            risk_per_unit = abs(stop_loss - entry_price)
             reward_per_unit = abs(entry_price - take_profit)
+            risk_per_unit = abs(stop_loss - entry_price)
 
         pnl_pct = (pnl / (entry_price * qty) * 100.0) if entry_price > 0 and qty > 0 else 0.0
         rr_planned = reward_per_unit / risk_per_unit if risk_per_unit > 0 else 0.0
-        r_multiple = (pnl / (risk_per_unit * qty)) if risk_per_unit > 0 and qty > 0 else 0.0
+        r_multiple = (pnl / risk_money) if risk_money > 0 else 0.0
 
         if pnl > 0:
             result = "PROFIT"
