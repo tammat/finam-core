@@ -20,6 +20,13 @@ class FakeNotifier:
 
 runtime = SignalTradeRuntime(FakeNotifier())
 
+class FakeRouter:
+    def send(self, *, trigger, text):
+        texts.append(text)
+        return True
+
+runtime.notification_router = FakeRouter()
+
 opened = runtime.register_signal(
     symbol="BRN6@RTSX",
     side="BUY",
