@@ -7,65 +7,67 @@ import psycopg2
 
 from finam_core.data.moex_client import MoexClient
 from finam_core.data.market_radar import MarketRadar
+from finam_core.storage.dynamic_watchlist_repository import DynamicWatchlistRepository
+from finam_core.notifications.telegram_notifier import TelegramNotifier
+from finam_core.data.radar_persistence_repository import RadarPersistenceRepository
 
 
 def print_bucket(title: str, rows) -> None:
     print(title)
-
     for i, c in enumerate(rows, start=1):
         print(
-            f"{i:02d}. "
-            f"{c.symbol:12s} "
-            f"{c.name:24s} "
-            f"chg={c.change_pct:7.2f}% "
-            f"rs={c.relative_strength:7.2f}% "
-            f"value={c.value_today:,.0f} "
-            f"trades={c.num_trades} "
-            f"score={c.score:.4f} "
-            f"status={c.status}"
+            f"{i:02d}. {c.symbol:12s} {c.name:24s} "
+            f"chg={c.change_pct:7.2f}% rs={c.relative_strength:7.2f}% "
+            f"value={c.value_today:,.0f} trades={c.num_trades} "
+            f"score={c.score:.4f} status={c.status}"
         )
 
 
-def save_to_postgres(rows) -> int:
-    """Русский комментарий: сохраняет результат радара в PostgreSQL."""
+def candidate_to_dict(c) -> dict:
+    return {
+        "symbol": c.symbol,
+        "name": c.name,
+        "direction": c.direction,
+        "change_pct": c.change_pct,
+        "relative_strength": c.relative_strength,
+        "value_today": c.value_today,
+        "volume_today": c.volume_today,
+        "num_trades": c.num_trades,
+        "score": c.score,
+        "status": c.status,
+        "portfolio_status": "UNKNOWN",
+        "portfolio_action": "WATCH_FOR_ENTRY",
+    }
+
+
+def save_radar_results(rows: list[dict]) -> int:
     if not rows:
         return 0
 
-    dsn = os.getenv("DATABASE_URL")
-    if not dsn:
-        dsn = "dbname=finam user=finam password=finam host=localhost"
+    dsn = os.getenv("DATABASE_URL", "dbname=finam user=finam password=finam host=localhost")
 
     sql = """
     INSERT INTO market_radar_results (
-        symbol,
-        name,
-        direction,
-        change_pct,
-        relative_strength,
-        value_today,
-        volume_today,
-        num_trades,
-        score,
-        status,
-        source
+        symbol, name, direction, change_pct, relative_strength,
+        value_today, volume_today, num_trades, score, status, source
     )
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'moex_iss')
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'moex_iss')
     """
 
     payload = [
         (
-            c.symbol,
-            c.name,
-            c.direction,
-            c.change_pct,
-            c.relative_strength,
-            c.value_today,
-            c.volume_today,
-            c.num_trades,
-            c.score,
-            c.status,
+            r["symbol"],
+            r["name"],
+            r["direction"],
+            r["change_pct"],
+            r["relative_strength"],
+            r["value_today"],
+            r["volume_today"],
+            r["num_trades"],
+            r["score"],
+            r["status"],
         )
-        for c in rows
+        for r in rows
     ]
 
     with psycopg2.connect(dsn) as conn:
@@ -75,16 +77,34 @@ def save_to_postgres(rows) -> int:
     return len(payload)
 
 
+def send_top5_telegram(rows: list[dict]) -> None:
+    top = rows[:5]
+    if not top:
+        print("WATCHLIST_TELEGRAM_SKIP reason=empty")
+        return
+
+    lines = ["📡 Market Radar TOP-5"]
+    for i, r in enumerate(top, start=1):
+        lines.append(
+            f"{i}. {r['symbol']} {r.get('name') or ''}\n"
+            f"   {r.get('direction')} | score={float(r.get('score') or 0):.2f} | "
+            f"RS={float(r.get('relative_strength') or 0):.2f}%"
+        )
+
+    TelegramNotifier().send("\n".join(lines))
+    print("WATCHLIST_TELEGRAM_SENT")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--top-n", type=int, default=10)
     parser.add_argument("--min-value", type=float, default=50_000_000)
     parser.add_argument("--no-db", action="store_true")
+    parser.add_argument("--send-telegram", action="store_true")
     args = parser.parse_args()
 
     client = MoexClient()
     imoex_change = client.get_imoex_change_pct()
-
     print(f"IMOEX_CHANGE={imoex_change:.2f}%")
 
     radar = MarketRadar(
@@ -97,13 +117,8 @@ def main() -> int:
     all_losers = []
     all_anomalies = []
 
-    for board, data in client.get_today_spot_universe().items():
-        result = radar.build(
-            data,
-            top_n=100,
-            imoex_change_pct=imoex_change,
-        )
-
+    for _, data in client.get_today_spot_universe().items():
+        result = radar.build(data, top_n=100, imoex_change_pct=imoex_change)
         all_gainers.extend(result["gainers"])
         all_losers.extend(result["losers"])
         all_anomalies.extend(result["anomalies"])
@@ -114,20 +129,31 @@ def main() -> int:
 
     print()
     print_bucket("=== CLEAN GAINERS ===", gainers)
-
     print()
     print_bucket("=== CLEAN LOSERS ===", losers)
-
     print()
     print_bucket("=== ANOMALIES ===", anomalies)
 
-    rows_to_save = gainers + losers + anomalies
+    clean_rows = [candidate_to_dict(c) for c in gainers + losers]
+    all_rows = clean_rows + [candidate_to_dict(c) for c in anomalies]
+
+    persistence = RadarPersistenceRepository().load_persistence(hours=4)
+    for row in clean_rows:
+        pstate = persistence.get(row["symbol"], {})
+        row["appearances"] = pstate.get("appearances", 0)
+        row["score_delta"] = pstate.get("score_delta", 0.0)
+        row["persistence_state"] = pstate.get("persistence_state", "ONE_SHOT")
 
     if args.no_db:
         print("MARKET_RADAR_DB_SAVE_SKIPPED")
     else:
-        saved = save_to_postgres(rows_to_save)
+        saved = save_radar_results(all_rows)
+        watchlist_saved = DynamicWatchlistRepository().replace_watchlist(clean_rows[: args.top_n])
         print(f"MARKET_RADAR_DB_SAVED rows={saved}")
+        print(f"DYNAMIC_WATCHLIST_UPDATED rows={watchlist_saved}")
+
+    if args.send_telegram:
+        send_top5_telegram(clean_rows)
 
     print("MARKET_RADAR_CLEAN_OK")
     return 0
