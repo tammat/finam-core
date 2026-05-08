@@ -16,6 +16,8 @@ from finam_core.accounting.portfolio_manager import PortfolioManager
 
 from finam_core.config.settings import Settings
 from finam_core.execution.managed_position_service import ManagedPositionService
+from finam_core.execution.trade_management_service import TradeManagementService
+from finam_core.execution.fill_event_router import FillEventRouter
 from finam_core.portfolio.real_position_to_managed_sync import RealPositionToManagedSync
 
 
@@ -39,7 +41,12 @@ async def bootstrap():
         event_bus
     )
 
-    await feed.start(Settings.SYMBOL)
+    try:
+        await feed.start(Settings.SYMBOL)
+        print("LIVE_FEED_STARTED", flush=True)
+    except Exception as e:
+        print(f"LIVE_FEED_START_FAILED error={e}", flush=True)
+
 
 
     # -----------------------------
@@ -79,6 +86,18 @@ async def bootstrap():
     print(f"REAL_POSITIONS_SYNCED_TO_MANAGED count={synced_positions}", flush=True)
 
     # -----------------------------
+    # Trade management
+    # -----------------------------
+    trade_management = TradeManagementService()
+    fill_event_router = FillEventRouter(trade_management)
+
+    # -----------------------------
+    # Trade management
+    # -----------------------------
+    trade_management = TradeManagementService()
+    fill_event_router = FillEventRouter(trade_management)
+
+    # -----------------------------
     # Trading pipeline
     # -----------------------------
     pipeline = TradingPipeline(
@@ -89,5 +108,7 @@ async def bootstrap():
     pipeline.fill_event_router = fill_event_router
 
     pipeline.managed_positions = managed_positions
+
+    print("BOOTSTRAP_COMPLETE", flush=True)
 
     return pipeline, event_bus, gateway, feed
