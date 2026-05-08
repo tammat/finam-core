@@ -15,6 +15,8 @@ from finam_core.execution.finam_execution_engine import FinamExecutionEngine
 from finam_core.accounting.portfolio_manager import PortfolioManager
 
 from finam_core.config.settings import Settings
+from finam_core.execution.managed_position_service import ManagedPositionService
+from finam_core.portfolio.real_position_to_managed_sync import RealPositionToManagedSync
 
 
 async def bootstrap():
@@ -68,6 +70,15 @@ async def bootstrap():
 
 
     # -----------------------------
+    # Managed positions
+    # -----------------------------
+    managed_positions = ManagedPositionService()
+    restored_positions = managed_positions.restore_from_repository()
+    print(f"MANAGED_POSITIONS_RESTORED count={restored_positions}", flush=True)
+    synced_positions = RealPositionToManagedSync(managed=managed_positions).sync()
+    print(f"REAL_POSITIONS_SYNCED_TO_MANAGED count={synced_positions}", flush=True)
+
+    # -----------------------------
     # Trading pipeline
     # -----------------------------
     pipeline = TradingPipeline(
@@ -76,5 +87,7 @@ async def bootstrap():
         execution=execution
     )
     pipeline.fill_event_router = fill_event_router
+
+    pipeline.managed_positions = managed_positions
 
     return pipeline, event_bus, gateway, feed
