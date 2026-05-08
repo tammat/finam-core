@@ -18,7 +18,33 @@ class RealPositionSnapshotRepository:
     def _connect(self):
         return psycopg2.connect(self.database_url)
 
+    def ensure_schema(self) -> None:
+        sql = """
+        CREATE TABLE IF NOT EXISTS real_position_snapshots (
+            id BIGSERIAL PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            qty DOUBLE PRECISION NOT NULL,
+            avg_price DOUBLE PRECISION,
+            market_price DOUBLE PRECISION,
+            unrealized_pnl DOUBLE PRECISION,
+            raw_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+            ts TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_real_position_snapshots_symbol
+            ON real_position_snapshots(symbol);
+
+        CREATE INDEX IF NOT EXISTS idx_real_position_snapshots_ts
+            ON real_position_snapshots(ts DESC);
+        """
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+
     def save_positions(self, positions: list[dict]) -> int:
+        self.ensure_schema()
+
         if not positions:
             return 0
 
