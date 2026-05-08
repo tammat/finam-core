@@ -8,32 +8,58 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 import time
 import grpc
-from finam_core.dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        return False
 from google.type import interval_pb2
 from google.protobuf.timestamp_pb2 import Timestamp
 from google.protobuf import timestamp_pb2
 #from datetime import datetime, time as dt_time
 # --- gRPC stubs ---
-# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.accounts import (
-    accounts_service_pb2,
-    accounts_service_pb2_grpc,
-)
-# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.orders import (
-    orders_service_pb2,
-    orders_service_pb2_grpc,
-)
-# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.marketdata import (
-    marketdata_service_pb2_grpc,
-)
-# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.auth import (
-    auth_service_pb2,
-    auth_service_pb2_grpc,
-)
-# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1.orders import orders_service_pb2
-# DISABLED_LEGACY_IMPORT: from finam_bot.grpc_api.grpc.tradeapi.v1 import side_pb2
+try:
+    from finam_proto.grpc.tradeapi.v1.accounts import (
+        accounts_service_pb2,
+        accounts_service_pb2_grpc,
+    )
+    from finam_proto.grpc.tradeapi.v1.orders import (
+        orders_service_pb2,
+        orders_service_pb2_grpc,
+    )
+    from finam_proto.grpc.tradeapi.v1.marketdata import (
+        marketdata_service_pb2,
+        marketdata_service_pb2_grpc,
+    )
+    from finam_proto.grpc.tradeapi.v1.auth import (
+        auth_service_pb2,
+        auth_service_pb2_grpc,
+    )
+    from finam_proto.grpc.tradeapi.v1 import side_pb2
+except ImportError:
+    from finam_core.infra.finam.proto.grpc.tradeapi.v1.accounts import (
+        accounts_service_pb2,
+        accounts_service_pb2_grpc,
+    )
+    from finam_core.infra.finam.proto.grpc.tradeapi.v1.orders import (
+        orders_service_pb2,
+        orders_service_pb2_grpc,
+    )
+    from finam_core.infra.finam.proto.grpc.tradeapi.v1.marketdata import (
+        marketdata_service_pb2,
+        marketdata_service_pb2_grpc,
+    )
+    from finam_core.infra.finam.proto.grpc.tradeapi.v1.auth import (
+        auth_service_pb2,
+        auth_service_pb2_grpc,
+    )
+    from finam_core.infra.finam.proto.grpc.tradeapi.v1 import side_pb2
 from google.type import decimal_pb2
 from datetime import datetime
-import pytz
+try:
+    import pytz
+except ImportError:
+    pytz = None
 
 
 
@@ -56,6 +82,10 @@ _load_env_once()
 # CLIENT
 # -------------------------------------------------
 # DISABLED_LEGACY_IMPORT: from finam_bot.clients.base import BaseTradingClient
+
+class BaseTradingClient:
+    """Русский комментарий: fallback base class после отключения legacy import."""
+    pass
 
 class FinamClient(BaseTradingClient):
     def __init__(self):
