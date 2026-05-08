@@ -88,7 +88,10 @@ def send_top5_telegram(rows: list[dict]) -> None:
         lines.append(
             f"{i}. {r['symbol']} {r.get('name') or ''}\n"
             f"   {r.get('direction')} | score={float(r.get('score') or 0):.2f} | "
-            f"RS={float(r.get('relative_strength') or 0):.2f}%"
+            f"RS={float(r.get('relative_strength') or 0):.2f}%\n"
+            f"   state={r.get('persistence_state', 'UNKNOWN')} | "
+            f"seen={r.get('appearances', 0)} | "
+            f"Δscore={float(r.get('score_delta') or 0):.2f}"
         )
 
     TelegramNotifier().send("\n".join(lines))
@@ -101,6 +104,7 @@ def main() -> int:
     parser.add_argument("--min-value", type=float, default=50_000_000)
     parser.add_argument("--no-db", action="store_true")
     parser.add_argument("--send-telegram", action="store_true")
+    parser.add_argument("--telegram-top5", action="store_true")
     args = parser.parse_args()
 
     client = MoexClient()
@@ -152,7 +156,7 @@ def main() -> int:
         print(f"MARKET_RADAR_DB_SAVED rows={saved}")
         print(f"DYNAMIC_WATCHLIST_UPDATED rows={watchlist_saved}")
 
-    if args.send_telegram:
+    if args.send_telegram or args.telegram_top5:
         send_top5_telegram(clean_rows)
 
     print("MARKET_RADAR_CLEAN_OK")
