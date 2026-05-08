@@ -6,6 +6,7 @@ from typing import Any
 
 from finam_core.simulation.signal_paper_trade_tracker import SignalPaperTradeTracker
 from finam_core.analytics.trade_outcome_reporter import TradeOutcomeReporter
+from finam_core.storage.virtual_signal_trade_repository import VirtualSignalTradeRepository
 
 
 class SignalTradeRuntime:
@@ -25,6 +26,8 @@ class SignalTradeRuntime:
         self.outcome_notifier = outcome_notifier or signal_notifier
         self.tracker = SignalPaperTradeTracker()
         self.reporter = TradeOutcomeReporter(self.outcome_notifier)
+        # Русский комментарий: PostgreSQL-хранилище открытых виртуальных сделок для ручного закрытия.
+        self.trade_repo = VirtualSignalTradeRepository()
 
     def register_signal(
         self,
@@ -65,9 +68,34 @@ class SignalTradeRuntime:
             qty=float(qty),
         )
 
+        repo_trade_id = None
+        try:
+            repo_trade_id = self.trade_repo.open_trade(
+                symbol=symbol,
+                side=side,
+                qty=float(qty),
+                entry_price=float(entry),
+                stop_loss=float(stop_loss),
+                take_profit=float(take_profit),
+                raw_json={
+                    "confidence": confidence,
+                    "regime": regime,
+                    "reason": reason,
+                    "telegram_sent": sent,
+                },
+            )
+            print(
+                f"VIRTUAL_SIGNAL_TRADE_OPENED id={repo_trade_id} symbol={symbol} side={side} "
+                f"entry={entry} stop={stop_loss} take={take_profit}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"VIRTUAL_SIGNAL_TRADE_REPO_OPEN_FAILED symbol={symbol} error={exc}", flush=True)
+
         return {
             "status": "OPENED",
             "telegram_sent": sent,
+            "repo_trade_id": repo_trade_id,
             "trade": asdict(trade),
         }
 
