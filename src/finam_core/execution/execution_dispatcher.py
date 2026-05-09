@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from typing import Any
 from finam_core.storage.postgres_logger import PostgresLogger
+from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
 
 
 class ExecutionDispatcher:
@@ -31,6 +32,15 @@ class ExecutionDispatcher:
         self.logger = logger
         # Русский комментарий: журнал execution-событий не должен ломать route.
         self.execution_journal = logger if logger is not None else PostgresLogger()
+        # Русский комментарий: OMS guard создаётся лениво, чтобы PAPER mode не зависел от БД.
+        self._oms_dispatch_guard = None
+
+
+    def _get_oms_dispatch_guard(self) -> OmsDispatchGuard:
+        """Русский комментарий: лениво создаёт OMS guard для real/real_dry_run исполнения."""
+        if self._oms_dispatch_guard is None:
+            self._oms_dispatch_guard = OmsDispatchGuard()
+        return self._oms_dispatch_guard
 
 
     def _log_execution_event_safe(
@@ -76,10 +86,56 @@ class ExecutionDispatcher:
                     "intent": intent,
                 }
 
-            return self.real_execution_engine.execute(
+            oms_guard = self._get_oms_dispatch_guard()
+            oms_decision = oms_guard.prepare(intent)
+
+            if not oms_decision.allowed:
+                print(
+                    f"OMS_ORDER_DUPLICATE_BLOCK client_order_id={oms_decision.client_order_id} "
+                    f"symbol={intent.get('symbol')} side={intent.get('side')} reason={oms_decision.reason}",
+                    flush=True,
+                )
+                return {
+                    "status": "REJECTED",
+                    "reason": oms_decision.reason,
+                    "client_order_id": oms_decision.client_order_id,
+                    "intent": intent,
+                }
+
+            print(
+                f"OMS_ORDER_JOURNAL_CREATED client_order_id={oms_decision.client_order_id} "
+                f"symbol={intent.get('symbol')} side={intent.get('side')}",
+                flush=True,
+            )
+
+            result = self.real_execution_engine.execute(
                 intent=intent,
                 market_state=market_state or {},
             )
+
+            broker_order_id = None
+            result_status = None
+
+            if isinstance(result, dict):
+                broker_order_id = result.get("order_id") or result.get("broker_order_id")
+                result_status = result.get("status")
+            else:
+                broker_order_id = getattr(result, "order_id", None) or getattr(result, "broker_order_id", None)
+                result_status = getattr(result, "status", None)
+
+            if str(result_status or "").upper() in {"REJECTED", "ERROR", "FAILED"}:
+                oms_guard.journal.update_status(
+                    client_order_id=oms_decision.client_order_id,
+                    status="REJECTED",
+                    broker_order_id=str(broker_order_id) if broker_order_id else None,
+                )
+            else:
+                oms_guard.mark_sent(
+                    client_order_id=oms_decision.client_order_id,
+                    broker_order_id=str(broker_order_id) if broker_order_id else None,
+                )
+
+            return result
 
         if self.paper_executor is not None:
             return self.paper_executor.execute(intent, market_state or {})
