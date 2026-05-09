@@ -9,6 +9,8 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
+from finam_core.oms.order_state_machine import OrderStateMachine
+
 
 @dataclass(frozen=True)
 class OmsOrderRecord:
@@ -28,6 +30,8 @@ class OmsOrderJournal:
         self.database_url = database_url or os.getenv("DATABASE_URL")
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is required for OmsOrderJournal")
+        # Русский комментарий: FSM защищает OMS от невозможных переходов статусов.
+        self.state_machine = OrderStateMachine()
 
     def _connect(self):
         return psycopg2.connect(self.database_url)
@@ -135,7 +139,30 @@ class OmsOrderJournal:
         self.ensure_schema()
 
         with self._connect() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT status
+                    FROM oms_order_journal
+                    WHERE client_order_id = %s
+                    FOR UPDATE
+                    """,
+                    (client_order_id,),
+                )
+                row = cur.fetchone()
+
+                if not row:
+                    raise RuntimeError(f"OMS order not found: {client_order_id}")
+
+                current_status = str(row["status"])
+                transition = self.state_machine.validate_transition(current_status, status)
+
+                if not transition.allowed:
+                    raise RuntimeError(
+                        f"OMS invalid status transition: {transition.reason} "
+                        f"client_order_id={client_order_id}"
+                    )
+
                 cur.execute(
                     """
                     UPDATE oms_order_journal
@@ -144,8 +171,8 @@ class OmsOrderJournal:
                         updated_at = now()
                     WHERE client_order_id = %s
                     """,
-                    (status, broker_order_id, client_order_id),
+                    (transition.new_status.value, broker_order_id, client_order_id),
                 )
 
                 if cur.rowcount != 1:
-                    raise RuntimeError(f"OMS order not found: {client_order_id}")
+                    raise RuntimeError(f"OMS order not found during update: {client_order_id}")

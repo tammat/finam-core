@@ -17,11 +17,11 @@ client_order_id = journal.build_client_order_id(
     side="BUY",
     qty=1.0,
     price=100.0,
-    strategy="test",
+    strategy="fsm_test",
     ts_bucket=str(time.time_ns()),
 )
 
-created1, rec1 = journal.create_if_absent(
+created, rec = journal.create_if_absent(
     client_order_id=client_order_id,
     symbol="NGH6@RTSX",
     side="BUY",
@@ -29,31 +29,37 @@ created1, rec1 = journal.create_if_absent(
     price=100.0,
     order_type="LIMIT",
     status="CREATED",
-    source="test",
-    payload={"test": True},
+    source="fsm_test",
+    payload={"fsm_test": True},
 )
 
-created2, rec2 = journal.create_if_absent(
-    client_order_id=client_order_id,
-    symbol="NGH6@RTSX",
-    side="BUY",
-    qty=1.0,
-    price=100.0,
-    order_type="LIMIT",
-    status="CREATED",
-    source="test",
-    payload={"test": True},
-)
-
-assert created1 is True, created1
-assert created2 is False, created2
-assert rec1.client_order_id == rec2.client_order_id
+assert created is True, rec
 
 journal.update_status(
     client_order_id=client_order_id,
     status="SENT",
-    broker_order_id="broker_test_001",
+    broker_order_id="broker_fsm_001",
 )
 
-print("OMS_ORDER_JOURNAL_OK", client_order_id)
+journal.update_status(
+    client_order_id=client_order_id,
+    status="ACCEPTED",
+)
+
+journal.update_status(
+    client_order_id=client_order_id,
+    status="FILLED",
+)
+
+try:
+    journal.update_status(
+        client_order_id=client_order_id,
+        status="CANCELLED",
+    )
+except RuntimeError as exc:
+    assert "invalid_transition:FILLED->CANCELLED" in str(exc), exc
+else:
+    raise AssertionError("Expected invalid FSM transition was not blocked")
+
+print("OMS_ORDER_JOURNAL_FSM_OK", client_order_id)
 PY
