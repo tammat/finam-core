@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from finam_core.oms.broker_status_mapper import BrokerStatusMapper
 
 
 
@@ -42,6 +43,23 @@ ACTIVE_STATUSES = {
     "ORDER_STATUS_WATCHING",
     "ORDER_STATUS_PENDING_NEW",
 }
+
+_BROKER_STATUS_MAPPER = BrokerStatusMapper()
+
+
+def map_broker_order_status(order) -> str:
+    """Русский комментарий: нормализует broker status в OMS status для reconciliation."""
+    if isinstance(order, dict):
+        mapping = _BROKER_STATUS_MAPPER.map_order(order)
+    else:
+        raw_status = None
+        for attr in ("status", "orderStatus", "state", "order_state"):
+            if hasattr(order, attr):
+                raw_status = getattr(order, attr)
+                break
+        mapping = _BROKER_STATUS_MAPPER.map_status(raw_status)
+    return mapping.oms_status.value
+
 
 
 @dataclass(frozen=True)
