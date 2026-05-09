@@ -15,7 +15,7 @@ class FeeResult:
 
 
 class FeeCalculator:
-    """Русский комментарий: считает оценочные комиссии по профилю тарифа."""
+    """Русский комментарий: считает оценочные комиссии сделки."""
 
     def __init__(self, repository: FeeProfileRepository | None = None) -> None:
         self.repository = repository or FeeProfileRepository()
@@ -32,22 +32,22 @@ class FeeCalculator:
         profile = self.repository.get_profile(asset_class=asset_class, symbol=symbol) or {}
 
         turnover = abs(float(qty) * float(price))
+        qty_abs = abs(float(qty))
 
         broker_fee = (
-            abs(float(qty)) * float(profile.get("broker_fee_per_contract") or 0.0)
+            qty_abs * float(profile.get("broker_fee_per_contract") or 0.0)
             + turnover * float(profile.get("broker_fee_pct") or 0.0)
         )
 
         exchange_fee = (
-            abs(float(qty)) * float(profile.get("exchange_fee_per_contract") or 0.0)
+            qty_abs * float(profile.get("exchange_fee_per_contract") or 0.0)
             + turnover * float(profile.get("exchange_fee_pct") or 0.0)
         )
 
-        clearing_fee = abs(float(qty)) * float(profile.get("clearing_fee_per_contract") or 0.0)
+        clearing_fee = qty_abs * float(profile.get("clearing_fee_per_contract") or 0.0)
 
-        min_fee = float(profile.get("min_fee") or 0.0)
         total = broker_fee + exchange_fee + clearing_fee
-
+        min_fee = float(profile.get("min_fee") or 0.0)
         if min_fee > 0:
             total = max(total, min_fee)
 

@@ -17,6 +17,7 @@ class FakeRepo:
                 "exchange_fee_pct": 0.0,
                 "min_fee": 0.0,
             }
+
         return {
             "broker_fee_per_contract": 0.0,
             "exchange_fee_per_contract": 0.0,
@@ -29,13 +30,16 @@ class FakeRepo:
 calc = FeeCalculator(FakeRepo())
 
 f = calc.calculate(symbol="BRM6@RTSX", asset_class="FUTURES", qty=2, price=80, side="BUY")
-assert f.broker_fee == 2.0
-assert f.exchange_fee == 1.0
-assert f.clearing_fee == 0.5
-assert f.total_fee == 3.5
+assert f.broker_fee == 2.0, f
+assert f.exchange_fee == 1.0, f
+assert f.clearing_fee == 0.5, f
+assert f.total_fee == 3.5, f
 
 s = calc.calculate(symbol="SBER@MISX", asset_class="STOCK", qty=10, price=300, side="BUY")
 assert s.total_fee == 1.8, s
+
+small = calc.calculate(symbol="SBER@MISX", asset_class="STOCK", qty=1, price=10, side="BUY")
+assert small.total_fee == 1.0, small
 
 print("FEE_CALCULATOR_OK")
 PY

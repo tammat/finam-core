@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
 import json
+import os
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 
 class FeeProfileRepository:
-    """Русский комментарий: хранит тарифы брокера/биржи/клиринга."""
+    """Русский комментарий: PostgreSQL-хранилище тарифных профилей."""
 
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url or os.getenv(
@@ -36,6 +37,7 @@ class FeeProfileRepository:
         """
 
         payload = dict(profile)
+        payload["asset_class"] = str(payload["asset_class"]).upper()
         payload.setdefault("symbol_prefix", None)
         payload.setdefault("broker_fee_per_contract", 0.0)
         payload.setdefault("exchange_fee_per_contract", 0.0)
@@ -69,6 +71,6 @@ class FeeProfileRepository:
 
         with self._connect() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, (asset_class.upper(), base))
+                cur.execute(sql, (str(asset_class).upper(), base))
                 row = cur.fetchone()
                 return dict(row) if row else None
