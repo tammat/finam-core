@@ -1863,7 +1863,11 @@ class PaperTradingPipeline:
         session = self.session.get_regime(sym)
         # === FORCE OVERRIDE (DEV MODE) ===
         if os.getenv("SESSION_OVERRIDE", "0") == "1":
-            print("PIPE_SESSION_OVERRIDE_ACTIVE", flush=True)
+            self._log_dedup(
+                "PIPE_SESSION_OVERRIDE_ACTIVE",
+                "PIPE_SESSION_OVERRIDE_ACTIVE",
+                heartbeat_sec=float(os.getenv("SESSION_OVERRIDE_LOG_SEC", "30")),
+            )
             session = {
                 "phase": "override",
                 "allow_entries": True,
@@ -2008,13 +2012,6 @@ class PaperTradingPipeline:
                 )
 
                 self.bus.publish({"type": "FILL", "fill": fill})
-                print(
-                    f"PIPE_FILLED paper {getattr(fill, 'symbol', None)} "
-                    f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)} "
-                    f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
-                    flush=True,
-                )
-
                 try:
                     self.exit_state_machine.on_fill(str(intent.get("symbol") or ""))
                     pos_after = self.pm.positions.get(str(intent.get("symbol") or ""))
