@@ -61,126 +61,26 @@ CLUSTERS = {
 LOG = logging.getLogger(__name__)
 
 # PIPELINE DEBUG FLAG
-PIPE_DEBUG = os.getenv("PIPE_DEBUG", "0") == "1"
 
 
-def _safe_float(x, default=0.0) -> float:
+def _safe_float(value, default: float = 0.0) -> float:
+    """Русский комментарий: безопасное преобразование market data значений в float."""
     try:
-        if x is None:
-            return default
-        return float(x)
+        if value is None:
+            return float(default)
+        return float(value)
     except Exception:
-        return default
+        return float(default)
 
+def _coerce_mtf_ts(ts):
+    """Русский комментарий: SimFeed может отдавать timestamp как float; MTF ждёт datetime с tzinfo."""
+    from datetime import datetime, timezone
 
-def _get_price_from_state(st: dict, side: str) -> float | None:
-    """Русский коммент: берём last, иначе ask/bid по направлению."""
-    last = st.get("last")
-    bid = st.get("bid")
-    ask = st.get("ask")
-
-    px = last
-    if px is None:
-        px = ask if side.upper() == "BUY" else bid
-    try:
-        return float(px) if px is not None else None
-    except Exception:
-        return None
-
-
-def build_risk_context(intent: dict, portfolio, market_state: dict):
-    """
-    Русский коммент: минимальный контекст для risk-правил.
-    Важно: starting_capital/equity/total_exposure/current_symbol_exposure/trade_value.
-    """
-    sym = intent.get("symbol")
-    side = str(intent.get("side", "BUY")).upper()
-    qty = _safe_float(intent.get("qty", intent.get("quantity", 0)) or 0.0, default=0.0)
-
-    px = _get_price_from_state(market_state, side) or 0.0
-    trade_value = abs(qty) * px
-
-    # equity / starting_capital
-    equity = getattr(portfolio, "equity", None)
-    equity = equity() if callable(equity) else equity
-    if equity is None:
-        equity = getattr(portfolio, "total_equity", None)
-        equity = equity() if callable(equity) else equity
-    equity = float(equity or 0.0)
-
-    starting_capital = getattr(portfolio, "starting_cash", None)
-    if starting_capital is None:
-        starting_capital = getattr(portfolio, "initial_cash", None)
-    if starting_capital is None:
-        starting_capital = getattr(portfolio, "starting_capital", None)
-    starting_capital = starting_capital() if callable(starting_capital) else starting_capital
-    starting_capital = float(starting_capital or equity or 0.0)
-
-    # exposures (best effort)
-    total_exposure = getattr(portfolio, "total_exposure", None)
-    if total_exposure is None:
-        total_exposure = getattr(portfolio, "gross_exposure", None)
-    total_exposure = float(total_exposure or 0.0)
-
-    pm = getattr(portfolio, "position_manager", None)
-    pos_qty = 0.0
-    if pm is not None:
-        try:
-            pos = pm.positions.get(sym)
-            pos_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
-        except Exception:
-            pos_qty = 0.0
-
-    current_symbol_exposure = abs(pos_qty) * px
-
-    daily_realized_pnl = getattr(portfolio, "daily_realized_pnl", None)
-    if daily_realized_pnl is None:
-        daily_realized_pnl = getattr(pm, "daily_realized_pnl", 0.0) if pm is not None else 0.0
-
-    portfolio_heat = getattr(portfolio, "portfolio_heat", 0.0) or 0.0
-
-    return SimpleNamespace(
-        symbol=sym,
-        side=side,
-        qty=float(qty),
-        price=float(px),
-        trade_value=float(trade_value),
-
-        # === CORE RISK FIELDS ===
-        portfolio_value=float(equity),
-        realized_pnl=float(getattr(portfolio, "realized_pnl", 0.0) or 0.0),
-        daily_realized_pnl=float(daily_realized_pnl or 0.0),
-        max_drawdown=0.0,
-
-        # === EXPOSURE ===
-        total_exposure=float(total_exposure),
-        current_symbol_exposure=float(current_symbol_exposure),
-        portfolio_heat=float(portfolio_heat or 0.0),
-
-        # === CAPITAL ===
-        equity=float(equity),
-        starting_capital=float(starting_capital),
-        starting_cash=float(starting_capital),
-
-        # === CONTEXT ===
-        intent=intent,
-        market_state=market_state,
-        portfolio=portfolio,
-    )
-
-
-def _decision_allowed(decision) -> bool:
-    """Русский коммент: нормализуем разные типы RiskDecision."""
-    if isinstance(decision, bool):
-        return decision
-    if decision is None:
-        # === FIX: если risk ничего не вернул — считаем OK (no blocking)
-        return True
-    for flag in ("allowed", "is_allowed", "ok", "approved", "pass_"):
-        if hasattr(decision, flag):
-            return bool(getattr(decision, flag))
-    return bool(decision)
-
+    if isinstance(ts, (int, float)):
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc)
+    if getattr(ts, "tzinfo", None) is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts
 
 class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
@@ -367,7 +267,7 @@ class PaperTradingPipeline:
                 symbol=symbol,
                 price=float(price),
                 volume=float(volume or 0.0),
-                ts=ts,
+                ts=_coerce_mtf_ts(ts),
             )
 
             for bar in closed_bars:
