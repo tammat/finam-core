@@ -25,8 +25,10 @@ outcome = reporter.analyze(
     reason="цель достигнута",
 )
 
-assert outcome.result == "PROFIT", outcome
-assert outcome.pnl == 2.0, outcome
+assert outcome.result == "PROFIT"
+assert "fees=1.75" in outcome.reason
+assert "net_pnl=1998.25" in outcome.reason, outcome
+assert outcome.pnl == 2000.0, outcome
 assert outcome.rr_planned == 2.0, outcome
 assert outcome.r_multiple == 2.0, outcome
 

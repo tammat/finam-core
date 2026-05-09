@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from finam_core.analytics.futures_pnl import FuturesPnlCalculator
+from finam_core.analytics.fee_calculator import FeeCalculator
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,18 @@ class TradeOutcomeReporter:
             result = "LOSS"
         else:
             result = "BREAKEVEN"
+
+        asset_class = "FUTURES" if str(symbol).upper().split("@", 1)[0].startswith(("BR", "NG", "SI", "RI", "MX")) else "STOCK"
+        fees = FeeCalculator().calculate(
+            symbol=symbol,
+            asset_class=asset_class,
+            qty=qty,
+            price=exit_price,
+            side=side,
+        )
+        net_pnl = round(pnl - fees.total_fee, 4)
+        result = "PROFIT" if net_pnl > 0 else "LOSS" if net_pnl < 0 else "FLAT"
+        reason = f"{reason}; gross_pnl={pnl}; fees={fees.total_fee}; net_pnl={net_pnl}"
 
         return TradeOutcome(
             symbol=symbol,
