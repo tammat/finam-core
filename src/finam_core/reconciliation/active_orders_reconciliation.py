@@ -3,6 +3,35 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+
+def _execution_mode(position) -> str:
+    """Русский комментарий: режим позиции нужен, чтобы не требовать broker orders для manual/paper/virtual."""
+    if isinstance(position, dict):
+        raw = (
+            position.get("execution_mode")
+            or position.get("mode")
+            or position.get("source")
+            or position.get("position_mode")
+            or ""
+        )
+    else:
+        raw = (
+            getattr(position, "execution_mode", None)
+            or getattr(position, "mode", None)
+            or getattr(position, "source", None)
+            or getattr(position, "position_mode", None)
+            or ""
+        )
+
+    mode = str(raw or "").strip().lower()
+    return mode or "unknown"
+
+
+def _requires_broker_orders(position) -> bool:
+    """Русский комментарий: broker stop/take orders обязательны только для real managed positions."""
+    return _execution_mode(position) == "real"
+
+
 ACTIVE_STATUSES = {
     "NEW",
     "WORKING",
