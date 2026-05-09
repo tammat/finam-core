@@ -6,6 +6,7 @@ from __future__ import annotations
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
+from finam_core.risk.context_builders import build_risk_context
 import json
 import logging
 import os
@@ -60,8 +61,30 @@ CLUSTERS = {
 
 LOG = logging.getLogger(__name__)
 
+# Русский комментарий: глобальный debug-флаг pipeline.
+PIPE_DEBUG = os.getenv("PIPE_DEBUG", "0") == "1"
+
+
 # PIPELINE DEBUG FLAG
 
+
+
+def _decision_allowed(decision) -> bool:
+    """Русский комментарий: единая проверка allowed для разных форматов RiskDecision."""
+    if decision is None:
+        return False
+    if isinstance(decision, dict):
+        return bool(decision.get("allowed", False))
+    return bool(getattr(decision, "allowed", False))
+
+
+def _decision_reason(decision) -> str:
+    """Русский комментарий: безопасно извлекает reason из RiskDecision."""
+    if decision is None:
+        return "none"
+    if isinstance(decision, dict):
+        return str(decision.get("reason") or "unknown")
+    return str(getattr(decision, "reason", None) or "unknown")
 
 def _safe_float(value, default: float = 0.0) -> float:
     """Русский комментарий: безопасное преобразование market data значений в float."""
@@ -1781,6 +1804,8 @@ class PaperTradingPipeline:
 
     def _on_quote(self, event: dict):
         raw_intent = None
+        is_exit_intent = False
+        is_force_intent = False
         self._resolver = getattr(self, "_resolver", InstrumentResolver())
 
         raw_sym = event.get("symbol")
@@ -2009,9 +2034,44 @@ class PaperTradingPipeline:
 
 
         # =========================================================
+        # === FORCE TEST SIGNAL (E2E PIPELINE SMOKE)
+        # =========================================================
+        force_signal_mode = os.getenv("FORCE_ONCE_BUY", "0") == "1"
+        if force_signal_mode:
+            try:
+                if not getattr(self, "_force_signal_sent", False):
+                    force_price = (
+                        st.get("last")
+                        or st.get("price")
+                        or st.get("bid")
+                        or st.get("ask")
+                        or price
+                    )
+
+                    raw_intent = {
+                        "symbol": sym,
+                        "side": "BUY",
+                        "qty": 1.0,
+                        "price": float(force_price),
+                        "strategy": "force_once_buy",
+                        "features": {
+                            "forced": True,
+                        },
+                    }
+
+                    self._force_signal_sent = True
+
+                    print(
+                        f"PIPE_FORCE_SIGNAL symbol={sym} price={force_price}",
+                        flush=True,
+                    )
+            except Exception as e:
+                print(f"PIPE_FORCE_SIGNAL_ERROR {e}", flush=True)
+
+        # =========================================================
         # === NG STRATEGY ROUTE (gas-specific volatility breakout)
         # =========================================================
-        if self._is_ng_symbol(sym):
+        if raw_intent is None and self._is_ng_symbol(sym):
             raw_intent = self._build_ng_intent_if_any(
                 sym,
                 curr_price,
@@ -2186,23 +2246,25 @@ class PaperTradingPipeline:
             self._regime_last_log_ts = now_ts
 
         is_exit_intent = isinstance(raw_intent, dict) and raw_intent.get("intent_type") == "EXIT"
+        is_force_intent = isinstance(raw_intent, dict) and raw_intent.get("strategy") == "force_once_buy"
+        is_force_intent = isinstance(raw_intent, dict) and raw_intent.get("strategy") == "force_once_buy"
 
         # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
         try:
             atr_pct = abs(regime.atr / price) if price else 0
 
             # === 1. Слабая волатильность → нет сделки
-            if (not is_exit_intent) and atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
+            if (not is_exit_intent) and (not is_force_intent) and atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
                 print("PIPE_VOL_LOW_BLOCK", flush=True)
                 return
 
             # === 2. Слишком высокая вола → шум
-            if (not is_exit_intent) and atr_pct > 0.03:
+            if (not is_exit_intent) and (not is_force_intent) and atr_pct > 0.03:
                 print("PIPE_VOL_HIGH_BLOCK", flush=True)
                 return
 
             # === 3. СЛАБЫЙ ТРЕНД (главный фикс)
-            if (not is_exit_intent) and regime.trend in ("up", "down"):
+            if (not is_exit_intent) and (not is_force_intent) and regime.trend in ("up", "down"):
                 trend_strength = abs(st.get("ema_fast", price) - st.get("ema_slow", price)) / price
 
                 if trend_strength < float(os.getenv("TREND_STRENGTH_MIN","0.0003")) and regime.volatility != "high":  # ключевой параметр
@@ -2217,7 +2279,7 @@ class PaperTradingPipeline:
         try:
             if atr is not None and price is not None:
                 atr_pct = abs(atr / price)
-                if atr_pct > 0.1:  # >10% — мусорный сигнал
+                if (not is_force_intent) and atr_pct > 0.1:  # >10% — мусорный сигнал
                     print("PIPE_NOISE_BLOCK high_atr", flush=True)
                     return
         except Exception:
@@ -2244,7 +2306,7 @@ class PaperTradingPipeline:
                     self._log_dedup("PIPE_MTF_WEAK_SHORT", "PIPE_MTF_WEAK_SHORT")
 
             # === TREND MODE (BREAKOUT ONLY, STRATEGY DISABLED) ===
-            if (not is_exit_intent) and regime.trend in ("up", "down"):
+            if (not is_exit_intent) and (not is_force_intent) and regime.trend in ("up", "down"):
                 if PIPE_DEBUG:
                     print("DEBUG breakout mode (strategy disabled)", flush=True)
                 raw_intent = None  # force fallback breakout logic
@@ -2254,7 +2316,8 @@ class PaperTradingPipeline:
                 if PIPE_DEBUG:
                     print("DEBUG using mean_reversion", flush=True)
 
-                raw_intent = self.mean_reversion.on_quote(st)
+                if not is_force_intent:
+                    raw_intent = self.mean_reversion.on_quote(st)
                 if PIPE_DEBUG:
                     print("DEBUG MR result:", raw_intent, flush=True)
 
@@ -2277,7 +2340,8 @@ class PaperTradingPipeline:
         history = st.setdefault("price_history", [])
         if len(history) < 2:
             history.append(curr_price)
-            return
+            if not (isinstance(raw_intent, dict) and raw_intent.get('strategy') == 'force_once_buy'):
+                return
 
         local_high = max(history[-10:])
         local_low = min(history[-10:])
@@ -2296,7 +2360,7 @@ class PaperTradingPipeline:
         st.setdefault("last_breakout_ts", 0.0)
 
         # === DETECT BREAKOUT (не входим сразу) ===
-        if curr_price > local_high - atr * 0.5:
+        if (not is_force_intent) and curr_price > local_high - atr * 0.5:
             now_breakout_ts = time.time()
             breakout_level = self._breakout_bucketed_level(sym, local_high)
             breakout_key = f"BUY:{breakout_level}"
@@ -2319,7 +2383,7 @@ class PaperTradingPipeline:
                 st["last_breakout_ts"] = now_breakout_ts
                 print(f"PIPE_BREAKOUT_DETECTED BUY level={local_high}", flush=True)
 
-        elif curr_price < local_low + atr * 0.5:
+        elif (not is_force_intent) and curr_price < local_low + atr * 0.5:
             now_breakout_ts = time.time()
             breakout_level = self._breakout_bucketed_level(sym, local_low)
             breakout_key = f"SELL:{breakout_level}"
@@ -2403,14 +2467,15 @@ class PaperTradingPipeline:
             st["pending_breakout"] = None
 
         else:
-            return
+            if not (isinstance(raw_intent, dict) and raw_intent.get('strategy') == 'force_once_buy'):
+                return
 
         # === ROLLBACK PROTECTION (анти-плохой вход) ===
         try:
             last_price = st.get("last")
             prev_price = st.get("prev_price")
 
-            if last_price and prev_price and raw_intent:
+            if last_price and prev_price and raw_intent and not (isinstance(raw_intent, dict) and raw_intent.get('strategy') == 'force_once_buy'):
                 move = abs(last_price - prev_price)
 
                 # 1. слишком маленькое движение → шум
@@ -2469,7 +2534,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === REGIME FILTER
         # =========================================================
-        if not regime.is_tradeable():
+        if (not is_force_intent) and not regime.is_tradeable():
             print(
                 f"PIPE_REGIME_BLOCK trend={regime.trend} vol={regime.volatility}",
                 flush=True,
@@ -2492,7 +2557,11 @@ class PaperTradingPipeline:
 
             if not session.get("allow_entries", False):
                 if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
-                    print("PIPE_SESSION_BYPASS_AFTER_ROUTER", flush=True)
+                    self._log_dedup(
+                        "PIPE_SESSION_BYPASS_AFTER_ROUTER",
+                        "PIPE_SESSION_BYPASS_AFTER_ROUTER",
+                        heartbeat_sec=float(os.getenv("SESSION_OVERRIDE_LOG_SEC", "30")),
+                    )
                 else:
                     print(f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}", flush=True)
                     return
@@ -2632,7 +2701,7 @@ class PaperTradingPipeline:
                 print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
                 return
             # === EXTRA IMPULSE FILTER ===
-            if (not is_exit_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
+            if (not is_exit_intent) and (not is_force_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
                 print("PIPE_NO_IMPULSE_BLOCK", flush=True)
                 return
             if (not is_exit_intent) and trend == "down" and side != "SELL":
