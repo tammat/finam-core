@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from finam_core.oms.broker_status_mapper import BrokerStatusMapper
+from finam_core.oms.order_journal import OmsOrderJournal
 
 
 
@@ -71,9 +72,71 @@ class ActiveOrderIssue:
 
 
 class ActiveOrdersReconciliation:
-    def __init__(self, orders_client, managed_service):
+    def __init__(self, orders_client, managed_service, oms_journal=None):
         self.orders_client = orders_client
         self.managed = managed_service
+        # Русский комментарий: OMS journal опционален, чтобы reconciliation мог работать warning-only.
+        self.oms_journal = oms_journal
+
+
+    def sync_oms_statuses_from_broker_orders(self, orders: list[dict]) -> list[ActiveOrderIssue]:
+        """Русский комментарий: синхронизирует OMS journal по broker active orders через FSM."""
+        issues: list[ActiveOrderIssue] = []
+        issues.extend(self.sync_oms_statuses_from_broker_orders(orders))
+
+        journal = self.oms_journal
+        if journal is None:
+            try:
+                journal = OmsOrderJournal()
+            except Exception as exc:
+                issues.append(ActiveOrderIssue(
+                    symbol="UNKNOWN",
+                    kind="oms_journal_unavailable",
+                    order_id=None,
+                    message=f"OMS journal unavailable: {exc}",
+                ))
+                return issues
+
+        for order in orders or []:
+            client_order_id = (
+                order.get("client_order_id")
+                or order.get("clientOrderId")
+                or order.get("client_id")
+                or order.get("clientId")
+            )
+            order_id = (
+                order.get("order_id")
+                or order.get("orderId")
+                or order.get("broker_order_id")
+                or order.get("brokerOrderId")
+            )
+            symbol = str(order.get("symbol") or order.get("ticker") or "UNKNOWN")
+
+            if not client_order_id:
+                issues.append(ActiveOrderIssue(
+                    symbol=symbol,
+                    kind="broker_order_missing_client_order_id",
+                    order_id=str(order_id) if order_id else None,
+                    message="broker order cannot be synced to OMS without client_order_id",
+                ))
+                continue
+
+            try:
+                mapping = journal.update_status_from_broker_order(order)
+                print(
+                    f"ACTIVE_ORDER_OMS_SYNC_OK client_order_id={client_order_id} "
+                    f"order_id={order_id} symbol={symbol} oms_status={mapping.oms_status.value}",
+                    flush=True,
+                )
+            except Exception as exc:
+                issues.append(ActiveOrderIssue(
+                    symbol=symbol,
+                    kind="oms_status_sync_failed",
+                    order_id=str(order_id) if order_id else None,
+                    message=f"failed to sync broker order to OMS: {exc}",
+                ))
+
+        return issues
 
     def check(self) -> list[ActiveOrderIssue]:
         orders = self._get_active_orders()
