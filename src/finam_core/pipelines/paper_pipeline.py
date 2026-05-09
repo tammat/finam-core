@@ -5,6 +5,7 @@
 from __future__ import annotations
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
+from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 import json
 import logging
 import os
@@ -2936,6 +2937,73 @@ class PaperTradingPipeline:
 
 
             print("PIPE_RISK_OK", flush=True)
+
+            # =========================================================
+            # === CENTRALIZED PORTFOLIO RISK GATE
+            # =========================================================
+            try:
+                gate = getattr(self, "portfolio_risk_gate", None)
+                if gate is None:
+                    gate = PortfolioRiskGate()
+                    self.portfolio_risk_gate = gate
+
+                pm_ctx = self.pm.get_context()
+
+                equity = float(getattr(pm_ctx, "portfolio_value", 0.0) or 0.0)
+                total_exposure = float(getattr(pm_ctx, "total_exposure", 0.0) or 0.0)
+                symbol_exposure = float(
+                    getattr(pm_ctx, "current_symbol_exposure", 0.0) or 0.0
+                )
+                used_margin = float(getattr(pm_ctx, "used_margin", 0.0) or 0.0)
+                daily_pnl = float(getattr(pm_ctx, "daily_realized_pnl", 0.0) or 0.0)
+
+                peak = getattr(self, "_equity_peak", None)
+                if peak is None:
+                    peak = equity
+                    self._equity_peak = equity
+                if equity > peak:
+                    peak = equity
+                    self._equity_peak = equity
+
+                decision = gate.evaluate(
+                    equity=equity,
+                    total_exposure=total_exposure,
+                    symbol_exposure=symbol_exposure,
+                    used_margin=used_margin,
+                    daily_pnl=daily_pnl,
+                    peak_equity=peak,
+                    current_equity=equity,
+                    max_portfolio_heat=float(os.getenv("MAX_PORTFOLIO_HEAT", "0.30")),
+                    max_symbol_heat=float(os.getenv("MAX_SYMBOL_HEAT", "0.10")),
+                    max_margin_utilization=float(os.getenv("MAX_MARGIN_UTILIZATION", "0.65")),
+                    max_daily_loss_pct=float(os.getenv("MAX_DAILY_LOSS_PCT", "0.02")),
+                    max_drawdown_pct=float(os.getenv("MAX_DRAWDOWN_PCT", "0.03")),
+                )
+
+                if not decision.allowed:
+                    print(
+                        f"PIPE_PORTFOLIO_RISK_BLOCK "
+                        f"reason={decision.reason} "
+                        f"heat={decision.portfolio_heat} "
+                        f"symbol_heat={decision.symbol_heat} "
+                        f"margin={decision.margin_utilization} "
+                        f"daily_loss={decision.daily_loss_pct} "
+                        f"drawdown={decision.drawdown_pct}",
+                        flush=True,
+                    )
+                    self._kill_switch_active = True
+                    return
+
+                print(
+                    f"PIPE_PORTFOLIO_RISK_OK "
+                    f"heat={decision.portfolio_heat} "
+                    f"symbol_heat={decision.symbol_heat} "
+                    f"margin={decision.margin_utilization}",
+                    flush=True,
+                )
+
+            except Exception as e:
+                print(f"PIPE_PORTFOLIO_RISK_ERROR {e}", flush=True)
 
             symbol_for_anti = str(intent.get("symbol") or "")
             side_for_anti = str(intent.get("side") or "")
