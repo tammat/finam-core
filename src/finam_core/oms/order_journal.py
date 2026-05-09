@@ -10,6 +10,7 @@ import psycopg2
 import psycopg2.extras
 
 from finam_core.oms.order_state_machine import OrderStateMachine
+from finam_core.oms.broker_status_mapper import BrokerStatusMapper, BrokerStatusMapping
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,8 @@ class OmsOrderJournal:
             raise RuntimeError("DATABASE_URL is required for OmsOrderJournal")
         # Русский комментарий: FSM защищает OMS от невозможных переходов статусов.
         self.state_machine = OrderStateMachine()
+        # Русский комментарий: mapper нормализует broker statuses в OMS statuses.
+        self.broker_status_mapper = BrokerStatusMapper()
 
     def _connect(self):
         return psycopg2.connect(self.database_url)
@@ -176,3 +179,32 @@ class OmsOrderJournal:
 
                 if cur.rowcount != 1:
                     raise RuntimeError(f"OMS order not found during update: {client_order_id}")
+
+    def update_status_from_broker_order(self, broker_order: dict[str, Any]) -> BrokerStatusMapping:
+        """Русский комментарий: обновляет OMS status по broker order через BrokerStatusMapper + FSM."""
+        client_order_id = (
+            broker_order.get("client_order_id")
+            or broker_order.get("clientOrderId")
+            or broker_order.get("client_id")
+            or broker_order.get("clientId")
+        )
+        if not client_order_id:
+            raise RuntimeError("Broker order does not contain client_order_id")
+
+        broker_order_id = (
+            broker_order.get("order_id")
+            or broker_order.get("orderId")
+            or broker_order.get("broker_order_id")
+            or broker_order.get("brokerOrderId")
+        )
+
+        mapping = self.broker_status_mapper.map_order(broker_order)
+
+        self.update_status(
+            client_order_id=str(client_order_id),
+            status=mapping.oms_status.value,
+            broker_order_id=str(broker_order_id) if broker_order_id else None,
+        )
+
+        return mapping
+
