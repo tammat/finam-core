@@ -125,11 +125,13 @@ class PortfolioMtmService:
     def save_snapshot(self, s: PortfolioMtmSnapshot) -> None:
         sql = """
         INSERT INTO portfolio_snapshots (
-            ts, equity, used_margin, free_margin, margin_utilization_pct,
+            ts, equity, cash, realized_pnl, unrealized_pnl, total_exposure,
+            used_margin, free_margin, margin_utilization_pct,
             raw_json
         )
         VALUES (
-            now(), %s, %s, %s, %s,
+            now(), %s, 0, 0, %s, 0,
+            %s, %s, %s,
             jsonb_build_object(
                 'base_equity', %s,
                 'live_equity', %s,
@@ -142,6 +144,7 @@ class PortfolioMtmService:
             with conn.cursor() as cur:
                 cur.execute(sql, (
                     s.live_equity,
+                    s.unrealized_pnl,
                     s.used_margin,
                     s.free_margin,
                     s.margin_utilization_pct,

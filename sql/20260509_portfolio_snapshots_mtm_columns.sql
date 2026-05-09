@@ -1,0 +1,20 @@
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS realized_pnl DOUBLE PRECISION DEFAULT 0;
+
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS unrealized_pnl DOUBLE PRECISION DEFAULT 0;
+
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS total_exposure DOUBLE PRECISION DEFAULT 0;
+
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS used_margin DOUBLE PRECISION DEFAULT 0;
+
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS free_margin DOUBLE PRECISION DEFAULT 0;
+
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS margin_utilization_pct DOUBLE PRECISION DEFAULT 0;
+
+ALTER TABLE portfolio_snapshots
+ADD COLUMN IF NOT EXISTS raw_json JSONB NOT NULL DEFAULT '{}'::jsonb;
