@@ -1633,6 +1633,10 @@ class PaperTradingPipeline:
 
 
     def _apply_execution_decision_if_enabled(self, intent: dict, market_state: dict) -> dict | None:
+        # Русский комментарий: exit-intent должен закрывать позицию напрямую,
+        # без entry-point optimizer/retest/limit-логики для входов.
+        if isinstance(intent, dict) and intent.get("intent_type") == "EXIT":
+            return intent
         """Русский комментарий: применяет ExecutionDecisionLayer перед исполнением заявки."""
         if os.getenv("ENABLE_EXECUTION_DECISION_LAYER", "0") != "1":
             return intent
@@ -1961,7 +1965,7 @@ class PaperTradingPipeline:
 
                 print("PIPE_EXIT_HARD_RISK_OK", flush=True)
 
-                if hasattr(self, "entry_point_selector") and not is_exit_intent:
+                if hasattr(self, "entry_point_selector") and not is_exit_intent and not (isinstance(intent, dict) and intent.get("intent_type") == "EXIT"):
                     intent = self.entry_point_selector.enrich_intent(intent, st) or intent
                     print(
                         f"PIPE_ENTRY_POINT_SELECTED symbol={intent.get('symbol')} side={intent.get('side')} "
