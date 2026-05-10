@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Finam Core Recovery Orchestrator Healthcheck every minute
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=10
+Unit=finam-recovery-health.service
+
+[Install]
+WantedBy=timers.target

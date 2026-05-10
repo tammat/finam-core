@@ -1,0 +1,12 @@
+[Unit]
+Description=Finam Core Recovery Orchestrator Healthcheck
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/opt/finam-core/scripts/check_recovery_orchestrator.sh
