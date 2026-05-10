@@ -44,20 +44,30 @@ class ProjectionEngine:
         "BROKER_ORDER_SYNC_OK",
     }
 
-    def build(self, events: list[StoredEvent]) -> ProjectionState:
-        state = ProjectionState()
+    def empty_state(self) -> ProjectionState:
+        """Русский комментарий: создаёт пустое materialized projection state."""
+        return ProjectionState()
 
-        for event in events:
-            payload = event.payload or {}
-            state.events_processed += 1
+    def apply_event(self, state: ProjectionState, event: StoredEvent) -> ProjectionState:
+        """Русский комментарий: применяет одно событие к существующему projection state."""
+        payload = event.payload or {}
+        state.events_processed += 1
 
-            if event.event_type in self.ORDER_STATUS_EVENTS:
-                self._apply_order_event(state, event, payload)
+        if event.event_type in self.ORDER_STATUS_EVENTS:
+            self._apply_order_event(state, event, payload)
 
-            if event.event_type in self.FILL_EVENTS:
-                self._apply_fill_event(state, payload)
+        if event.event_type in self.FILL_EVENTS:
+            self._apply_fill_event(state, payload)
 
         self._recalculate_exposure(state)
+        return state
+
+    def build(self, events: list[StoredEvent]) -> ProjectionState:
+        state = self.empty_state()
+
+        for event in events:
+            self.apply_event(state, event)
+
         return state
 
     def _apply_order_event(self, state: ProjectionState, event: StoredEvent, payload: dict[str, Any]) -> None:
