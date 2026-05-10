@@ -1,8 +1,8 @@
 {
-  "title": "Finam Core Production",
+  "title": "Finam Core — Производственный мониторинг",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "panels": [
     {
@@ -10,48 +10,58 @@
       "type": "stat",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
       "datasource": "FinamPostgres",
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT projection_lag FROM v_production_health"
-        }
-      ]
+      "targets": [{ "format": "table", "rawSql": "SELECT projection_lag FROM v_production_health" }]
     },
     {
-      "title": "DLQ нерешённые",
+      "title": "DLQ: нерешённые ошибки",
       "type": "stat",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
       "datasource": "FinamPostgres",
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT dlq_unresolved FROM v_production_health"
-        }
-      ]
+      "targets": [{ "format": "table", "rawSql": "SELECT dlq_unresolved FROM v_production_health" }]
     },
     {
       "title": "Заявки",
       "type": "stat",
       "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
       "datasource": "FinamPostgres",
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT orders_count FROM v_production_health"
-        }
-      ]
+      "targets": [{ "format": "table", "rawSql": "SELECT orders_count FROM v_production_health" }]
     },
     {
       "title": "Позиции",
       "type": "stat",
       "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
       "datasource": "FinamPostgres",
-      "targets": [
-        {
-          "format": "table",
-          "rawSql": "SELECT positions_count FROM v_production_health"
-        }
-      ]
+      "targets": [{ "format": "table", "rawSql": "SELECT positions_count FROM v_production_health" }]
+    },
+    {
+      "title": "Позиции по инструментам",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": "FinamPostgres",
+      "targets": [{
+        "format": "table",
+        "rawSql": "SELECT symbol AS \"Инструмент\", qty AS \"Количество\", avg_price AS \"Средняя цена\", realized_pnl AS \"Реализованный PnL\", updated_at AS \"Обновлено\" FROM v_positions_dashboard"
+      }]
+    },
+    {
+      "title": "Последние заявки",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": "FinamPostgres",
+      "targets": [{
+        "format": "table",
+        "rawSql": "SELECT order_id AS \"ID заявки\", symbol AS \"Инструмент\", side AS \"Сторона\", status AS \"Статус\", reason AS \"Причина\", updated_at AS \"Обновлено\" FROM v_orders_dashboard LIMIT 20"
+      }]
+    },
+    {
+      "title": "DLQ — последние события",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "datasource": "FinamPostgres",
+      "targets": [{
+        "format": "table",
+        "rawSql": "SELECT id AS \"ID\", event_type AS \"Тип события\", worker_name AS \"Worker\", error_type AS \"Ошибка\", error_message AS \"Описание\", resolved AS \"Решено\", created_at AS \"Создано\" FROM v_dlq_dashboard LIMIT 20"
+      }]
     }
   ]
 }
