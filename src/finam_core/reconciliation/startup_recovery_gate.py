@@ -7,7 +7,7 @@ from finam_core.reconciliation.active_orders_reconciliation import ActiveOrdersR
 from finam_core.recovery.position_recovery_service import PositionRecoveryService
 from finam_core.events.event_audit import append_event_safe
 from finam_core.events.event_store_reader import EventStoreReader
-from finam_core.recovery.portfolio_rebuilder import PortfolioRebuilder
+from finam_core.recovery.snapshot_aware_portfolio_rebuilder import SnapshotAwarePortfolioRebuilder
 from finam_core.recovery.position_rebuild_comparator import PositionRebuildComparator
 from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 
@@ -110,7 +110,7 @@ class StartupRecoveryGate:
 
         if self.rebuild_aggregate_type and self.rebuild_aggregate_id and self.positions_client is not None:
             comparator = PositionRebuildComparator(
-                portfolio_rebuilder=PortfolioRebuilder(reader=EventStoreReader()),
+                portfolio_rebuilder=SnapshotAwarePortfolioRebuilder(reader=EventStoreReader()),
                 positions_client=self.positions_client,
                 managed_service=self.managed_service,
                 kill_switch=PersistentKillSwitch(),
@@ -132,7 +132,7 @@ class StartupRecoveryGate:
 
         if self.rebuild_aggregate_type and self.rebuild_aggregate_id and self.positions_client is not None:
             comparator = PositionRebuildComparator(
-                portfolio_rebuilder=PortfolioRebuilder(reader=EventStoreReader()),
+                portfolio_rebuilder=SnapshotAwarePortfolioRebuilder(reader=EventStoreReader()),
                 positions_client=self.positions_client,
                 managed_service=self.managed_service,
                 kill_switch=PersistentKillSwitch(),

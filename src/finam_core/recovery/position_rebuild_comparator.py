@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from finam_core.recovery.portfolio_rebuilder import PortfolioRebuilder
+from finam_core.recovery.snapshot_aware_portfolio_rebuilder import SnapshotAwarePortfolioRebuilder
 from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 
 
@@ -29,14 +29,15 @@ class PositionRebuildComparator:
     def __init__(
         self,
         *,
-        portfolio_rebuilder: PortfolioRebuilder,
+        portfolio_rebuilder: SnapshotAwarePortfolioRebuilder | None = None,
         positions_client: Any,
         managed_service: Any,
         kill_switch: PersistentKillSwitch | None = None,
         qty_tolerance: float = 0.000001,
         activate_kill_switch_on_mismatch: bool = True,
     ) -> None:
-        self.portfolio_rebuilder = portfolio_rebuilder
+        # Русский комментарий: по умолчанию используем snapshot-aware rebuild, чтобы startup не делал полный replay.
+        self.portfolio_rebuilder = portfolio_rebuilder or SnapshotAwarePortfolioRebuilder()
         self.positions_client = positions_client
         self.managed_service = managed_service
         self.kill_switch = kill_switch
@@ -90,10 +91,17 @@ class PositionRebuildComparator:
         aggregate_type: str,
         aggregate_id: str,
     ) -> PositionRebuildCompareResult:
-        rebuild = self.portfolio_rebuilder.rebuild_aggregate(
-            aggregate_type=aggregate_type,
-            aggregate_id=aggregate_id,
-        )
+        # Русский комментарий: поддерживаем и старый PortfolioRebuilder, и новый SnapshotAwarePortfolioRebuilder.
+        if hasattr(self.portfolio_rebuilder, "rebuild_aggregate"):
+            rebuild = self.portfolio_rebuilder.rebuild_aggregate(
+                aggregate_type=aggregate_type,
+                aggregate_id=aggregate_id,
+            )
+        else:
+            rebuild = self.portfolio_rebuilder.rebuild(
+                aggregate_type=aggregate_type,
+                aggregate_id=aggregate_id,
+            )
 
         rebuilt_positions = {
             symbol: float(pos.qty)
