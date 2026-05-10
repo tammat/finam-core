@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from finam_core.events.event_store import StoredEvent
+from finam_core.events.dead_letter_service import DeadLetterService
 
 
 @dataclass
@@ -34,6 +35,18 @@ class ProjectionState:
 class ProjectionEngine:
     """Русский комментарий: read-side materialized projections поверх EventStore."""
 
+    def __init__(
+        self,
+        *,
+        dead_letters: DeadLetterService | None = None,
+        worker_name: str = "projection_engine",
+        strict: bool = True,
+    ) -> None:
+        # Русский комментарий: strict=True сохраняет прежнее поведение для unit tests и ручной отладки.
+        self.dead_letters = dead_letters
+        self.worker_name = worker_name
+        self.strict = bool(strict)
+
     FILL_EVENTS = {"FILL", "ORDER_FILLED", "PIPE_FILLED", "PAPER_FILL", "BROKER_FILL"}
 
     ORDER_STATUS_EVENTS = {
@@ -49,18 +62,38 @@ class ProjectionEngine:
         return ProjectionState()
 
     def apply_event(self, state: ProjectionState, event: StoredEvent) -> ProjectionState:
-        """Русский комментарий: применяет одно событие к существующему projection state."""
-        payload = event.payload or {}
-        state.events_processed += 1
+        """Русский комментарий: применяет одно событие к projection state; broken events пишет в DLQ."""
+        try:
+            payload = event.payload or {}
+            state.events_processed += 1
 
-        if event.event_type in self.ORDER_STATUS_EVENTS:
-            self._apply_order_event(state, event, payload)
+            if event.event_type in self.ORDER_STATUS_EVENTS:
+                self._apply_order_event(state, event, payload)
 
-        if event.event_type in self.FILL_EVENTS:
-            self._apply_fill_event(state, payload)
+            if event.event_type in self.FILL_EVENTS:
+                self._apply_fill_event(state, payload)
 
-        self._recalculate_exposure(state)
-        return state
+            self._recalculate_exposure(state)
+            return state
+
+        except Exception as exc:
+            if self.dead_letters is not None:
+                self.dead_letters.record_event_failure(
+                    event=event,
+                    error=exc,
+                    worker_name=self.worker_name,
+                )
+
+            if self.strict:
+                raise
+
+            print(
+                f"PROJECTION_ENGINE_EVENT_SKIPPED_TO_DLQ "
+                f"event_id={event.event_id} event_type={event.event_type} error={exc}",
+                flush=True,
+            )
+            return state
+
 
     def build(self, events: list[StoredEvent]) -> ProjectionState:
         state = self.empty_state()

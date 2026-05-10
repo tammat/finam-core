@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from finam_core.events.event_store import StoredEvent
+from finam_core.events.dead_letter_service import DeadLetterService
 from finam_core.projections.projection_engine import ProjectionEngine
 from finam_core.projections.projection_store import ProjectionStore
 
@@ -27,9 +28,20 @@ class RealtimeProjectionSubscriber:
         *,
         engine: ProjectionEngine | None = None,
         store: ProjectionStore | None = None,
+        dead_letters: DeadLetterService | None = None,
     ) -> None:
-        self.engine = engine or ProjectionEngine()
+        self.dead_letters = dead_letters or DeadLetterService()
+        self.engine = engine or ProjectionEngine(
+            dead_letters=self.dead_letters,
+            worker_name="realtime_projection_subscriber",
+            strict=False,
+        )
         self.store = store or ProjectionStore()
+
+        if isinstance(self.engine, ProjectionEngine):
+            self.engine.dead_letters = self.dead_letters
+            self.engine.worker_name = "realtime_projection_subscriber"
+            self.engine.strict = False
 
         # Русский комментарий:
         # in-memory state между событиями.
