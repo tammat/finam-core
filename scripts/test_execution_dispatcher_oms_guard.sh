@@ -36,8 +36,13 @@ intent = {
     "ts": str(time.time_ns()),
 }
 
-r1 = dispatcher.execute(dict(intent), {})
-r2 = dispatcher.execute(dict(intent), {})
+market_state = {
+    "portfolio_equity": 200000.0,
+    "used_margin": 50000.0,
+}
+
+r1 = dispatcher.execute(dict(intent), market_state)
+r2 = dispatcher.execute(dict(intent), market_state)
 
 assert r1["status"] == "SENT", r1
 assert r2["status"] == "REJECTED", r2

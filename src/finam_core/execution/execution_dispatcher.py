@@ -16,6 +16,7 @@ from typing import Any
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
 from finam_core.futures.futures_access_gate import FuturesAccessGate
+from finam_core.futures.futures_margin_guard import FuturesMarginGuard
 
 
 class ExecutionDispatcher:
@@ -37,6 +38,8 @@ class ExecutionDispatcher:
         self._oms_dispatch_guard = None
         # Русский комментарий: futures gate создаётся лениво и блокирует real futures до разрешения.
         self._futures_access_gate = None
+        # Русский комментарий: futures margin guard создаётся лениво перед real futures execution.
+        self._futures_margin_guard = None
 
 
     def _get_oms_dispatch_guard(self) -> OmsDispatchGuard:
@@ -51,6 +54,13 @@ class ExecutionDispatcher:
         if self._futures_access_gate is None:
             self._futures_access_gate = FuturesAccessGate()
         return self._futures_access_gate
+
+
+    def _get_futures_margin_guard(self) -> FuturesMarginGuard:
+        """Русский комментарий: лениво создаёт futures margin guard."""
+        if self._futures_margin_guard is None:
+            self._futures_margin_guard = FuturesMarginGuard()
+        return self._futures_margin_guard
 
 
     def _log_execution_event_safe(
@@ -112,6 +122,41 @@ class ExecutionDispatcher:
                     "status": "REJECTED",
                     "reason": futures_decision.reason,
                     "symbol": intent.get("symbol"),
+                    "intent": intent,
+                }
+
+            margin_guard = self._get_futures_margin_guard()
+            margin_decision = margin_guard.check(
+                symbol=str(intent.get("symbol") or ""),
+                qty=float(intent.get("qty") or 0.0),
+                equity=float(
+                    intent.get("portfolio_equity")
+                    or intent.get("equity")
+                    or (market_state or {}).get("portfolio_equity")
+                    or (market_state or {}).get("equity")
+                    or os.getenv("PORTFOLIO_EQUITY", "0")
+                ),
+                used_margin_before=float(
+                    intent.get("used_margin")
+                    or (market_state or {}).get("used_margin")
+                    or os.getenv("USED_MARGIN", "0")
+                ),
+            )
+
+            if not margin_decision.allowed:
+                print(
+                    f"FUTURES_MARGIN_BLOCK symbol={intent.get('symbol')} "
+                    f"qty={intent.get('qty')} reason={margin_decision.reason} "
+                    f"required_margin={margin_decision.required_margin} "
+                    f"util_after={margin_decision.margin_utilization_after:.4f}",
+                    flush=True,
+                )
+                return {
+                    "status": "REJECTED",
+                    "reason": margin_decision.reason,
+                    "symbol": intent.get("symbol"),
+                    "required_margin": margin_decision.required_margin,
+                    "margin_utilization_after": margin_decision.margin_utilization_after,
                     "intent": intent,
                 }
 
