@@ -6,6 +6,8 @@ export DATABASE_URL="${DATABASE_URL:-postgresql://finam:finam@localhost:5432/fin
 export EXECUTION_MODE=real_dry_run
 
 python - <<'PY'
+import time
+
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 
 
@@ -31,7 +33,7 @@ intent = {
     "qty": 1.0,
     "price": 100.0,
     "strategy": "dispatcher_oms_test",
-    "ts": "20260509T1300",
+    "ts": str(time.time_ns()),
 }
 
 r1 = dispatcher.execute(dict(intent), {})

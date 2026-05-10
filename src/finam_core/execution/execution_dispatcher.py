@@ -15,6 +15,7 @@ import os
 from typing import Any
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
+from finam_core.futures.futures_access_gate import FuturesAccessGate
 
 
 class ExecutionDispatcher:
@@ -34,6 +35,8 @@ class ExecutionDispatcher:
         self.execution_journal = logger if logger is not None else PostgresLogger()
         # Русский комментарий: OMS guard создаётся лениво, чтобы PAPER mode не зависел от БД.
         self._oms_dispatch_guard = None
+        # Русский комментарий: futures gate создаётся лениво и блокирует real futures до разрешения.
+        self._futures_access_gate = None
 
 
     def _get_oms_dispatch_guard(self) -> OmsDispatchGuard:
@@ -41,6 +44,13 @@ class ExecutionDispatcher:
         if self._oms_dispatch_guard is None:
             self._oms_dispatch_guard = OmsDispatchGuard()
         return self._oms_dispatch_guard
+
+
+    def _get_futures_access_gate(self) -> FuturesAccessGate:
+        """Русский комментарий: лениво создаёт gate доступа к real futures."""
+        if self._futures_access_gate is None:
+            self._futures_access_gate = FuturesAccessGate()
+        return self._futures_access_gate
 
 
     def _log_execution_event_safe(
@@ -83,6 +93,25 @@ class ExecutionDispatcher:
                 return {
                     "status": "REJECTED",
                     "reason": "real_execution_engine_not_configured",
+                    "intent": intent,
+                }
+
+            futures_gate = self._get_futures_access_gate()
+            futures_decision = futures_gate.check(
+                symbol=str(intent.get("symbol") or ""),
+                execution_mode=mode,
+            )
+
+            if not futures_decision.allowed:
+                print(
+                    f"FUTURES_ACCESS_BLOCK symbol={intent.get('symbol')} "
+                    f"mode={mode} reason={futures_decision.reason}",
+                    flush=True,
+                )
+                return {
+                    "status": "REJECTED",
+                    "reason": futures_decision.reason,
+                    "symbol": intent.get("symbol"),
                     "intent": intent,
                 }
 
