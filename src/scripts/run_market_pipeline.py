@@ -110,6 +110,7 @@ from finam_core.strategy.vwap_bands_mr import VWAPBandsMRStrategy
 from finam_core.strategy.vwap_bands_mr import VWAPBandsMRStrategy
 from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 from finam_core.accounting.portfolio_bootstrap import load_portfolio_snapshot, bootstrap_position_manager
+from finam_core.recovery.recovery_orchestrator import RecoveryOrchestrator
 
 try:
     from finam_core.strategy.filters.regime_filters import FilterEngine
@@ -336,6 +337,21 @@ def main() -> None:
                 f"PIPE_PROJECTION_BRIDGE_FAILED error={exc}",
                 flush=True,
             )
+
+    # Русский комментарий: финальный recovery gate до запуска MarketData.
+    if os.getenv("ENABLE_RECOVERY_ORCHESTRATOR", "1") == "1":
+        recovery_result = RecoveryOrchestrator().run_checks()
+        if not recovery_result.ok:
+            print(
+                f"PIPE_RECOVERY_ORCHESTRATOR_BLOCK reason={recovery_result.reason}",
+                flush=True,
+            )
+            raise SystemExit(2)
+
+        print(
+            f"PIPE_RECOVERY_ORCHESTRATOR_OK reason={recovery_result.reason}",
+            flush=True,
+        )
 
     print("Starting MD...", flush=True)
     # Русский коммент: MarketDataClient у нас нормализован под heartbeat_sec, но оставим fallback
