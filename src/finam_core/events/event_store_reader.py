@@ -39,6 +39,8 @@ class EventStoreReader:
                 cur.execute(
                     """
                     SELECT
+                        id AS db_id,
+                        id AS db_id,
                         event_id,
                         event_type,
                         aggregate_type,
@@ -68,6 +70,8 @@ class EventStoreReader:
                 cur.execute(
                     """
                     SELECT
+                        id AS db_id,
+                        id AS db_id,
                         event_id,
                         event_type,
                         aggregate_type,
@@ -98,6 +102,8 @@ class EventStoreReader:
                 cur.execute(
                     """
                     SELECT
+                        id AS db_id,
+                        id AS db_id,
                         event_id,
                         event_type,
                         aggregate_type,
@@ -139,6 +145,8 @@ class EventStoreReader:
                     cur.execute(
                         """
                         SELECT
+                            id AS db_id,
+                            id AS db_id,
                             event_id,
                             event_type,
                             aggregate_type,

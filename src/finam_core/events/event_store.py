@@ -12,12 +12,13 @@ import psycopg2.extras
 
 @dataclass(frozen=True)
 class StoredEvent:
-    event_id: str
-    event_type: str
-    aggregate_type: str
-    aggregate_id: str | None
-    source: str
-    payload: dict[str, Any]
+    db_id: int | None = None
+    event_id: str = ""
+    event_type: str = ""
+    aggregate_type: str = "system"
+    aggregate_id: str | None = None
+    source: str = "system"
+    payload: dict[str, Any] | None = None
 
 
 class EventStore:
@@ -112,7 +113,7 @@ class EventStore:
                     )
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (event_id) DO NOTHING
-                    RETURNING event_id, event_type, aggregate_type, aggregate_id, source, payload
+                    RETURNING id AS db_id, event_id, event_type, aggregate_type, aggregate_id, source, payload
                     """,
                     (
                         event_id,
@@ -132,7 +133,7 @@ class EventStore:
 
                 cur.execute(
                     """
-                    SELECT event_id, event_type, aggregate_type, aggregate_id, source, payload
+                    SELECT id AS db_id, event_id, event_type, aggregate_type, aggregate_id, source, payload
                     FROM event_store
                     WHERE event_id = %s
                     """,
@@ -157,7 +158,7 @@ class EventStore:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
                     """
-                    SELECT event_id, event_type, aggregate_type, aggregate_id, source, payload
+                    SELECT id AS db_id, event_id, event_type, aggregate_type, aggregate_id, source, payload
                     FROM event_store
                     WHERE aggregate_type = %s AND aggregate_id = %s
                     ORDER BY id ASC
