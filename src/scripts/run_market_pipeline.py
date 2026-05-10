@@ -98,6 +98,7 @@ from finam_core.adapters.grpc.market_data import FinamMarketDataClient
 from finam_core.execution.paper_engine import PaperExecutionEngine
 from finam_core.accounting.position_manager import PositionManager
 from finam_core.accounting.portfolio_manager import PortfolioManager
+from finam_core.events.event_store_factory import EventStoreFactory
 from finam_core.events.event_projection_bridge import EventProjectionBridge
 from finam_core.projections.realtime_projection_subscriber import RealtimeProjectionSubscriber
 from finam_core.risk.risk_engine import RiskEngine
@@ -310,6 +311,13 @@ def main() -> None:
             flush=True,
         )
 
+
+    # Русский комментарий: регистрируем shared EventBus для всех EventStoreFactory.create().
+    try:
+        EventStoreFactory.configure(event_bus=bus)
+        print("PIPE_EVENT_STORE_FACTORY_BUS_OK", flush=True)
+    except Exception as exc:
+        print(f"PIPE_EVENT_STORE_FACTORY_BUS_FAILED error={exc}", flush=True)
 
     # Русский комментарий: realtime projections подключаются к EventBus безопасно.
     if os.getenv("ENABLE_REALTIME_PROJECTIONS", "1") == "1":

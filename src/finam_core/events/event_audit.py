@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from finam_core.events.event_store import EventStore
+from finam_core.events.event_store_factory import EventStoreFactory
 
 
 def append_event_safe(
@@ -15,7 +15,7 @@ def append_event_safe(
 ) -> None:
     """Русский комментарий: безопасная запись audit event; не ломает основной поток."""
     try:
-        EventStore().append(
+        EventStoreFactory.create().append(
             event_type=event_type,
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
