@@ -40,6 +40,7 @@ class _SafeStdout:
 sys.stdout = _SafeStdout(sys.stdout)
 
 from dotenv import load_dotenv
+from finam_core.reconciliation.startup_recovery_gate import StartupRecoveryGate
 load_dotenv()
 
 def parse_args():
@@ -277,6 +278,35 @@ def main() -> None:
 
     pipeline = PaperTradingPipeline(bus, portfolio, pm, risk, paper, strategy, filter_engine=filter_engine)
     pipeline.attach()
+
+
+    # Русский комментарий: StartupRecoveryGate выполняется до запуска market data.
+    if os.getenv("ENABLE_STARTUP_RECOVERY_GATE", "1") == "1":
+        startup_gate = StartupRecoveryGate(
+            orders_client=orders_client if "orders_client" in locals() else None,
+            managed_service=managed_positions if "managed_positions" in locals() else None,
+            positions_client=positions_client if "positions_client" in locals() else None,
+            oms_journal=oms_journal if "oms_journal" in locals() else None,
+            rebuild_aggregate_type=os.getenv("STARTUP_REBUILD_AGGREGATE_TYPE", "portfolio"),
+            rebuild_aggregate_id=os.getenv("STARTUP_REBUILD_AGGREGATE_ID"),
+        )
+
+        startup_decision = startup_gate.check()
+
+        if not startup_decision.allowed:
+            print(
+                "STARTUP_RECOVERY_GATE_BLOCK "
+                f"reason={startup_decision.reason} "
+                f"issues={startup_decision.issues}",
+                flush=True,
+            )
+            raise SystemExit(2)
+
+        print(
+            "STARTUP_RECOVERY_GATE_OK "
+            f"reason={startup_decision.reason}",
+            flush=True,
+        )
 
     print("Starting MD...", flush=True)
     # Русский коммент: MarketDataClient у нас нормализован под heartbeat_sec, но оставим fallback
