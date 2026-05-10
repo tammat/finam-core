@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from finam_core.reconciliation.active_orders_reconciliation import ActiveOrdersReconciliation
+from finam_core.recovery.position_recovery_service import PositionRecoveryService
 
 
 @dataclass(frozen=True)
@@ -83,20 +84,17 @@ class StartupRecoveryGate:
         for issue in active_order_issues:
             issues.append(f"{issue.kind}:{issue.symbol}:{issue.message}")
 
-        broker_positions = self._load_broker_positions()
-        local_positions = self._load_local_managed_positions()
+        if self.positions_client is not None:
+            position_recovery = PositionRecoveryService(
+                positions_client=self.positions_client,
+                managed_service=self.managed_service,
+                qty_tolerance=self.qty_tolerance,
+            )
+            position_decision = position_recovery.check()
 
-        for symbol, broker_qty in broker_positions.items():
-            local_qty = local_positions.get(symbol, 0.0)
-            if abs(float(broker_qty) - float(local_qty)) > self.qty_tolerance:
+            for issue in position_decision.issues:
                 issues.append(
-                    f"broker_local_qty_mismatch:{symbol}:broker={broker_qty}:local={local_qty}"
-                )
-
-        for symbol, local_qty in local_positions.items():
-            if symbol not in broker_positions and abs(float(local_qty)) > self.qty_tolerance:
-                issues.append(
-                    f"local_position_missing_at_broker:{symbol}:local={local_qty}"
+                    f"{issue.kind}:{issue.symbol}:broker={issue.broker_qty}:local={issue.local_qty}:{issue.message}"
                 )
 
         if issues:
