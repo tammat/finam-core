@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from finam_core.reconciliation.startup_recovery_gate import StartupRecoveryGate
+from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 
 
 @dataclass(frozen=True)
@@ -12,21 +14,38 @@ class RecoveryCheckResult:
 
 
 class RecoveryOrchestrator:
-    """Русский комментарий: центральный recovery coordinator перед запуском pipeline."""
+    """Русский комментарий: recovery coordinator с persistent freeze через kill switch."""
 
-    def __init__(self, startup_gate: StartupRecoveryGate | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        startup_gate: Any | None = None,
+        kill_switch: Any | None = None,
+        freeze_on_failure: bool = True,
+    ) -> None:
         self.startup_gate = startup_gate or StartupRecoveryGate()
+        self.kill_switch = kill_switch or PersistentKillSwitch()
+        self.freeze_on_failure = bool(freeze_on_failure)
 
     def run_checks(self) -> RecoveryCheckResult:
         decision = self.startup_gate.check()
 
-        allowed = getattr(decision, "allowed", False)
-        reason = getattr(decision, "reason", "unknown")
+        allowed = bool(getattr(decision, "allowed", False))
+        reason = str(getattr(decision, "reason", "unknown"))
 
         if not allowed:
+            freeze_reason = f"recovery_orchestrator_failed:{reason}"
+
+            if self.freeze_on_failure:
+                self.kill_switch.activate(
+                    scope="GLOBAL",
+                    reason=freeze_reason,
+                    source="recovery_orchestrator",
+                )
+
             return RecoveryCheckResult(
                 ok=False,
-                reason=f"startup_gate_failed:{reason}",
+                reason=freeze_reason,
             )
 
         return RecoveryCheckResult(

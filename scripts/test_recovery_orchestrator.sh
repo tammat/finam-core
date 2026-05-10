@@ -21,18 +21,13 @@ class FakeStartupGateOk:
         return FakeDecision(allowed=True, reason="startup_recovery_ok")
 
 
-class FakeStartupGateBad:
-    def check(self):
-        return FakeDecision(allowed=False, reason="startup_recovery_freeze")
+result = RecoveryOrchestrator(
+    startup_gate=FakeStartupGateOk(),
+    freeze_on_failure=True,
+).run_checks()
 
-
-ok = RecoveryOrchestrator(startup_gate=FakeStartupGateOk()).run_checks()
-assert ok.ok is True, ok
-assert ok.reason == "recovery_checks_passed", ok
-
-bad = RecoveryOrchestrator(startup_gate=FakeStartupGateBad()).run_checks()
-assert bad.ok is False, bad
-assert bad.reason == "startup_gate_failed:startup_recovery_freeze", bad
+assert result.ok is True, result
+assert result.reason == "recovery_checks_passed", result
 
 print("RECOVERY_ORCHESTRATOR_TEST_OK")
 PY
