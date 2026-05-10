@@ -18,6 +18,7 @@ from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
 from finam_core.futures.futures_access_gate import FuturesAccessGate
 from finam_core.futures.futures_margin_guard import FuturesMarginGuard
 from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
+from finam_core.events.event_store import EventStore
 
 
 class ExecutionDispatcher:
@@ -43,6 +44,8 @@ class ExecutionDispatcher:
         self._futures_margin_guard = None
         # Русский комментарий: persistent kill switch блокирует real execution до любых broker/OMS действий.
         self._persistent_kill_switch = None
+        # Русский комментарий: EventStore создаётся лениво и не должен ломать execution route.
+        self._event_store = None
 
 
     def _get_oms_dispatch_guard(self) -> OmsDispatchGuard:
@@ -71,6 +74,36 @@ class ExecutionDispatcher:
         if self._persistent_kill_switch is None:
             self._persistent_kill_switch = PersistentKillSwitch()
         return self._persistent_kill_switch
+
+
+    def _get_event_store(self) -> EventStore:
+        """Русский комментарий: лениво создаёт EventStore."""
+        if self._event_store is None:
+            self._event_store = EventStore()
+        return self._event_store
+
+
+    def _append_event_safe(
+        self,
+        *,
+        event_type: str,
+        aggregate_type: str = "execution",
+        aggregate_id: str | None = None,
+        source: str = "execution_dispatcher",
+        payload: dict | None = None,
+    ) -> None:
+        """Русский комментарий: audit event не должен ломать торговый route."""
+        try:
+            store = self._get_event_store()
+            store.append(
+                event_type=event_type,
+                aggregate_type=aggregate_type,
+                aggregate_id=aggregate_id,
+                source=source,
+                payload=payload or {},
+            )
+        except Exception as exc:
+            print(f"EVENT_STORE_APPEND_FAILED event_type={event_type} error={exc}", flush=True)
 
 
     def _log_execution_event_safe(
@@ -127,6 +160,17 @@ class ExecutionDispatcher:
                     f"scope={state.scope} reason={state.reason}",
                     flush=True,
                 )
+                self._append_event_safe(
+                    event_type="EXECUTION_REJECTED",
+                    aggregate_type="order",
+                    aggregate_id=str(intent.get("client_order_id") or intent.get("symbol") or ""),
+                    payload={
+                        "reason": "persistent_kill_switch_active",
+                        "kill_switch_reason": state.reason,
+                        "symbol": intent.get("symbol"),
+                        "intent": dict(intent),
+                    },
+                )
                 return {
                     "status": "REJECTED",
                     "reason": "persistent_kill_switch_active",
@@ -146,6 +190,17 @@ class ExecutionDispatcher:
                     f"FUTURES_ACCESS_BLOCK symbol={intent.get('symbol')} "
                     f"mode={mode} reason={futures_decision.reason}",
                     flush=True,
+                )
+                self._append_event_safe(
+                    event_type="FUTURES_ACCESS_BLOCKED",
+                    aggregate_type="order",
+                    aggregate_id=str(intent.get("client_order_id") or intent.get("symbol") or ""),
+                    payload={
+                        "reason": futures_decision.reason,
+                        "symbol": intent.get("symbol"),
+                        "mode": mode,
+                        "intent": dict(intent),
+                    },
                 )
                 return {
                     "status": "REJECTED",
@@ -180,6 +235,19 @@ class ExecutionDispatcher:
                     f"util_after={margin_decision.margin_utilization_after:.4f}",
                     flush=True,
                 )
+                self._append_event_safe(
+                    event_type="FUTURES_MARGIN_BLOCKED",
+                    aggregate_type="order",
+                    aggregate_id=str(intent.get("client_order_id") or intent.get("symbol") or ""),
+                    payload={
+                        "reason": margin_decision.reason,
+                        "symbol": intent.get("symbol"),
+                        "qty": intent.get("qty"),
+                        "required_margin": margin_decision.required_margin,
+                        "margin_utilization_after": margin_decision.margin_utilization_after,
+                        "intent": dict(intent),
+                    },
+                )
                 return {
                     "status": "REJECTED",
                     "reason": margin_decision.reason,
@@ -198,6 +266,17 @@ class ExecutionDispatcher:
                     f"symbol={intent.get('symbol')} side={intent.get('side')} reason={oms_decision.reason}",
                     flush=True,
                 )
+                self._append_event_safe(
+                    event_type="ORDER_DUPLICATE_BLOCKED",
+                    aggregate_type="order",
+                    aggregate_id=oms_decision.client_order_id,
+                    payload={
+                        "reason": oms_decision.reason,
+                        "symbol": intent.get("symbol"),
+                        "side": intent.get("side"),
+                        "intent": dict(intent),
+                    },
+                )
                 return {
                     "status": "REJECTED",
                     "reason": oms_decision.reason,
@@ -209,6 +288,18 @@ class ExecutionDispatcher:
                 f"OMS_ORDER_JOURNAL_CREATED client_order_id={oms_decision.client_order_id} "
                 f"symbol={intent.get('symbol')} side={intent.get('side')}",
                 flush=True,
+            )
+            self._append_event_safe(
+                event_type="ORDER_CREATED",
+                aggregate_type="order",
+                aggregate_id=oms_decision.client_order_id,
+                payload={
+                    "symbol": intent.get("symbol"),
+                    "side": intent.get("side"),
+                    "qty": intent.get("qty"),
+                    "price": intent.get("price"),
+                    "intent": dict(intent),
+                },
             )
 
             result = self.real_execution_engine.execute(
@@ -237,6 +328,19 @@ class ExecutionDispatcher:
                     client_order_id=oms_decision.client_order_id,
                     broker_order_id=str(broker_order_id) if broker_order_id else None,
                 )
+
+            self._append_event_safe(
+                event_type="ORDER_DISPATCH_RESULT",
+                aggregate_type="order",
+                aggregate_id=oms_decision.client_order_id,
+                payload={
+                    "symbol": intent.get("symbol"),
+                    "side": intent.get("side"),
+                    "broker_order_id": broker_order_id,
+                    "status": result_status,
+                    "result": result if isinstance(result, dict) else str(result),
+                },
+            )
 
             return result
 
