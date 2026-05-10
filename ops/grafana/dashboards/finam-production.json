@@ -1,0 +1,57 @@
+{
+  "title": "Finam Core Production",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "title": "Задержка projections",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT projection_lag FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "DLQ нерешённые",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT dlq_unresolved FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "Заявки",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT orders_count FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "Позиции",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT positions_count FROM v_production_health"
+        }
+      ]
+    }
+  ]
+}
