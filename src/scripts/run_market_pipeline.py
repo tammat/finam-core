@@ -98,6 +98,8 @@ from finam_core.adapters.grpc.market_data import FinamMarketDataClient
 from finam_core.execution.paper_engine import PaperExecutionEngine
 from finam_core.accounting.position_manager import PositionManager
 from finam_core.accounting.portfolio_manager import PortfolioManager
+from finam_core.events.event_projection_bridge import EventProjectionBridge
+from finam_core.projections.realtime_projection_subscriber import RealtimeProjectionSubscriber
 from finam_core.risk.risk_engine import RiskEngine
 from finam_core.strategy.once_buy import OnceBuyStrategy
 from finam_core.strategy.simple_reactive import SimpleReactiveStrategy
@@ -307,6 +309,25 @@ def main() -> None:
             f"reason={startup_decision.reason}",
             flush=True,
         )
+
+
+    # Русский комментарий: realtime projections подключаются к EventBus безопасно.
+    if os.getenv("ENABLE_REALTIME_PROJECTIONS", "1") == "1":
+        try:
+            projection_bridge = EventProjectionBridge(
+                event_bus=bus,
+                subscriber=RealtimeProjectionSubscriber(),
+            )
+            projection_bridge_result = projection_bridge.attach()
+            print(
+                f"PIPE_PROJECTION_BRIDGE_OK mode={projection_bridge_result.mode}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                f"PIPE_PROJECTION_BRIDGE_FAILED error={exc}",
+                flush=True,
+            )
 
     print("Starting MD...", flush=True)
     # Русский коммент: MarketDataClient у нас нормализован под heartbeat_sec, но оставим fallback
