@@ -13,6 +13,30 @@ class RecoveryCheckResult:
     reason: str
 
 
+class _EmptyRepository:
+    """Русский комментарий: пустой repository для healthcheck без поднятого pipeline state."""
+
+    def list_all(self):
+        return []
+
+
+class _EmptyManagedService:
+    """Русский комментарий: managed_service-заглушка для safe startup healthcheck."""
+
+    def __init__(self) -> None:
+        self.repository = _EmptyRepository()
+
+
+class _EmptyOrdersClient:
+    """Русский комментарий: orders_client-заглушка без активных заявок."""
+
+    def get_orders(self):
+        return []
+
+    def list_orders(self):
+        return []
+
+
 class RecoveryOrchestrator:
     """Русский комментарий: recovery coordinator с persistent freeze через kill switch."""
 
@@ -23,7 +47,13 @@ class RecoveryOrchestrator:
         kill_switch: Any | None = None,
         freeze_on_failure: bool = True,
     ) -> None:
-        self.startup_gate = startup_gate or StartupRecoveryGate()
+        # Русский комментарий: healthcheck может запускаться без broker clients и без pipeline state.
+        # Поэтому используем пустые безопасные зависимости вместо None.
+        self.startup_gate = startup_gate or StartupRecoveryGate(
+            orders_client=_EmptyOrdersClient(),
+            managed_service=_EmptyManagedService(),
+            positions_client=None,
+        )
         self.kill_switch = kill_switch or PersistentKillSwitch()
         self.freeze_on_failure = bool(freeze_on_failure)
 
