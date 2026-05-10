@@ -1,0 +1,12 @@
+[Unit]
+Description=Finam Core DLQ Auto Replay Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/opt/finam-core/.venv/bin/python -m finam_core.events.dead_letter_auto_replay_worker

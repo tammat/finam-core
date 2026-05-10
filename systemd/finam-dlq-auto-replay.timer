@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Finam Core DLQ Auto Replay Worker every 5 minutes
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=300
+AccuracySec=30
+Unit=finam-dlq-auto-replay.service
+
+[Install]
+WantedBy=timers.target
