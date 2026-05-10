@@ -1,0 +1,17 @@
+[Unit]
+Description=Finam Core Projection Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/opt/finam-core/.venv/bin/python -m finam_core.projections.projection_worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

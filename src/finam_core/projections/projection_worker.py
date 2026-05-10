@@ -92,3 +92,13 @@ class ProjectionWorker:
         while True:
             self.tick()
             time.sleep(self.interval_sec)
+
+
+def main() -> None:
+    """Русский комментарий: entrypoint для systemd/python -m."""
+    worker = ProjectionWorker()
+    worker.run_forever()
+
+
+if __name__ == "__main__":
+    main()
