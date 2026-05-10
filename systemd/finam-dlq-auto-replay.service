@@ -9,4 +9,4 @@ User=alex
 WorkingDirectory=/opt/finam-core
 Environment=PYTHONPATH=src
 EnvironmentFile=-/opt/finam-core/.env
-ExecStart=/opt/finam-core/.venv/bin/python -m finam_core.events.dead_letter_auto_replay_worker
+ExecStart=/opt/finam-core/.venv/bin/python -c "from finam_core.events.dead_letter_auto_replay_worker import DeadLetterAutoReplayWorker; DeadLetterAutoReplayWorker().tick()"
