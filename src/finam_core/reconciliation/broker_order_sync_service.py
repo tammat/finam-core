@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from finam_core.oms.order_journal import OmsOrderJournal
+from finam_core.events.event_audit import append_event_safe
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,18 @@ class BrokerOrderSyncService:
                     f"order_id={order_id} symbol={symbol} oms_status={mapping.oms_status.value}",
                     flush=True,
                 )
+                append_event_safe(
+                    event_type="BROKER_ORDER_SYNC_OK",
+                    aggregate_type="order",
+                    aggregate_id=str(client_order_id),
+                    source="broker_order_sync_service",
+                    payload={
+                        "client_order_id": str(client_order_id),
+                        "order_id": str(order_id) if order_id else None,
+                        "symbol": symbol,
+                        "oms_status": mapping.oms_status.value,
+                    },
+                )
             except Exception as exc:
                 issues.append(
                     BrokerOrderSyncIssue(
@@ -92,6 +105,18 @@ class BrokerOrderSyncService:
                         kind="oms_update_failed",
                         message=str(exc),
                     )
+                )
+                append_event_safe(
+                    event_type="BROKER_ORDER_SYNC_FAILED",
+                    aggregate_type="order",
+                    aggregate_id=str(client_order_id),
+                    source="broker_order_sync_service",
+                    payload={
+                        "client_order_id": str(client_order_id),
+                        "order_id": str(order_id) if order_id else None,
+                        "symbol": symbol,
+                        "error": str(exc),
+                    },
                 )
 
         return BrokerOrderSyncResult(

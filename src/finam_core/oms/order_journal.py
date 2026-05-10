@@ -9,6 +9,8 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
+from finam_core.events.event_audit import append_event_safe
+
 from finam_core.oms.order_state_machine import OrderStateMachine
 from finam_core.oms.broker_status_mapper import BrokerStatusMapper, BrokerStatusMapping
 
@@ -116,7 +118,23 @@ class OmsOrderJournal:
                 row = cur.fetchone()
 
                 if row:
-                    return True, OmsOrderRecord(**dict(row))
+                    record = OmsOrderRecord(**dict(row))
+                    append_event_safe(
+                        event_type="OMS_ORDER_CREATED",
+                        aggregate_type="order",
+                        aggregate_id=record.client_order_id,
+                        source=source,
+                        payload={
+                            "client_order_id": record.client_order_id,
+                            "symbol": record.symbol,
+                            "side": record.side,
+                            "qty": record.qty,
+                            "price": record.price,
+                            "order_type": record.order_type,
+                            "status": record.status,
+                        },
+                    )
+                    return True, record
 
                 cur.execute(
                     """
@@ -130,7 +148,20 @@ class OmsOrderJournal:
                 if not existing:
                     raise RuntimeError("OMS idempotency conflict but existing row not found")
 
-                return False, OmsOrderRecord(**dict(existing))
+                record = OmsOrderRecord(**dict(existing))
+                append_event_safe(
+                    event_type="OMS_ORDER_DUPLICATE",
+                    aggregate_type="order",
+                    aggregate_id=record.client_order_id,
+                    source=source,
+                    payload={
+                        "client_order_id": record.client_order_id,
+                        "symbol": record.symbol,
+                        "side": record.side,
+                        "status": record.status,
+                    },
+                )
+                return False, record
 
     def update_status(
         self,
@@ -179,6 +210,19 @@ class OmsOrderJournal:
 
                 if cur.rowcount != 1:
                     raise RuntimeError(f"OMS order not found during update: {client_order_id}")
+
+                append_event_safe(
+                    event_type="OMS_ORDER_STATUS_UPDATED",
+                    aggregate_type="order",
+                    aggregate_id=client_order_id,
+                    source="oms_order_journal",
+                    payload={
+                        "client_order_id": client_order_id,
+                        "old_status": transition.old_status.value,
+                        "new_status": transition.new_status.value,
+                        "broker_order_id": broker_order_id,
+                    },
+                )
 
     def update_status_from_broker_order(self, broker_order: dict[str, Any]) -> BrokerStatusMapping:
         """Русский комментарий: обновляет OMS status по broker order через BrokerStatusMapper + FSM."""

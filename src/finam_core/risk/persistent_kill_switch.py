@@ -7,6 +7,8 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
+from finam_core.events.event_audit import append_event_safe
+
 
 @dataclass(frozen=True)
 class KillSwitchState:
@@ -69,7 +71,20 @@ class PersistentKillSwitch:
                 )
                 row = cur.fetchone()
 
-        return KillSwitchState(**dict(row))
+        state = KillSwitchState(**dict(row))
+        append_event_safe(
+            event_type="KILL_SWITCH_ACTIVATED" if state.active else "KILL_SWITCH_DEACTIVATED",
+            aggregate_type="kill_switch",
+            aggregate_id=f"{state.scope}:{state.symbol or 'GLOBAL'}",
+            source=source,
+            payload={
+                "scope": state.scope,
+                "symbol": state.symbol,
+                "reason": state.reason,
+                "active": state.active,
+            },
+        )
+        return state
 
     def deactivate(
         self,
@@ -104,7 +119,20 @@ class PersistentKillSwitch:
                 )
                 row = cur.fetchone()
 
-        return KillSwitchState(**dict(row))
+        state = KillSwitchState(**dict(row))
+        append_event_safe(
+            event_type="KILL_SWITCH_ACTIVATED" if state.active else "KILL_SWITCH_DEACTIVATED",
+            aggregate_type="kill_switch",
+            aggregate_id=f"{state.scope}:{state.symbol or 'GLOBAL'}",
+            source=source,
+            payload={
+                "scope": state.scope,
+                "symbol": state.symbol,
+                "reason": state.reason,
+                "active": state.active,
+            },
+        )
+        return state
 
     def get_state(self, *, scope: str = "GLOBAL", symbol: str | None = None) -> KillSwitchState:
         self.ensure_schema()

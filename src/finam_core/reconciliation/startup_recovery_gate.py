@@ -5,6 +5,7 @@ from typing import Any
 
 from finam_core.reconciliation.active_orders_reconciliation import ActiveOrdersReconciliation
 from finam_core.recovery.position_recovery_service import PositionRecoveryService
+from finam_core.events.event_audit import append_event_safe
 
 
 @dataclass(frozen=True)
@@ -98,12 +99,26 @@ class StartupRecoveryGate:
                 )
 
         if issues:
+            append_event_safe(
+                event_type="STARTUP_RECOVERY_FREEZE",
+                aggregate_type="recovery",
+                aggregate_id="startup",
+                source="startup_recovery_gate",
+                payload={"issues": issues},
+            )
             return StartupRecoveryDecision(
                 allowed=False,
                 reason="startup_recovery_freeze",
                 issues=issues,
             )
 
+        append_event_safe(
+            event_type="STARTUP_RECOVERY_OK",
+            aggregate_type="recovery",
+            aggregate_id="startup",
+            source="startup_recovery_gate",
+            payload={"issues": []},
+        )
         return StartupRecoveryDecision(
             allowed=True,
             reason="startup_recovery_ok",
