@@ -23,8 +23,10 @@ class StoredEvent:
 class EventStore:
     """Русский комментарий: append-only PostgreSQL event store для audit/replay/recovery."""
 
-    def __init__(self, database_url: str | None = None) -> None:
+    def __init__(self, database_url: str | None = None, event_bus: Any | None = None) -> None:
         self.database_url = database_url or os.getenv("DATABASE_URL")
+        # Русский комментарий: event_bus опционален, чтобы EventStore оставался совместимым со старым кодом.
+        self.event_bus = event_bus
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is required for EventStore")
 
@@ -38,6 +40,24 @@ class EventStore:
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql)
+
+    def _publish_event_safe(self, event: StoredEvent) -> None:
+        """Русский комментарий: публикация StoredEvent в EventBus не должна ломать append."""
+        if self.event_bus is None:
+            return
+
+        try:
+            if hasattr(self.event_bus, "publish"):
+                try:
+                    self.event_bus.publish("EVENT_STORE_APPENDED", event)
+                except TypeError:
+                    self.event_bus.publish(event)
+        except Exception as exc:
+            print(
+                f"EVENT_STORE_BUS_PUBLISH_FAILED event_id={event.event_id} error={exc}",
+                flush=True,
+            )
+
 
     @staticmethod
     def build_event_id(
@@ -106,7 +126,9 @@ class EventStore:
                 row = cur.fetchone()
 
                 if row:
-                    return True, StoredEvent(**dict(row))
+                    event = StoredEvent(**dict(row))
+                    self._publish_event_safe(event)
+                    return True, event
 
                 cur.execute(
                     """
