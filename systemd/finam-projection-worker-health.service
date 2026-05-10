@@ -1,0 +1,11 @@
+[Unit]
+Description=Finam Core Projection Worker Healthcheck
+After=network-online.target postgresql.service finam-projection-worker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=DATABASE_URL=postgresql://finam:finam@localhost:5432/finam_core
+ExecStart=/opt/finam-core/scripts/check_projection_worker_health.sh

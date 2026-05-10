@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Finam Core Projection Worker Healthcheck every minute
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+AccuracySec=10
+Unit=finam-projection-worker-health.service
+
+[Install]
+WantedBy=timers.target
