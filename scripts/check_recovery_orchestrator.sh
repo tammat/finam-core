@@ -4,7 +4,7 @@ set -euo pipefail
 export PYTHONPATH="${PYTHONPATH:-src}"
 export DATABASE_URL="${DATABASE_URL:-postgresql://finam:finam@localhost:5432/finam_core}"
 
-python - <<'PY'
+"${PYTHON_BIN:-/opt/finam-core/.venv/bin/python}" - <<'PY'
 import sys
 
 from finam_core.recovery.recovery_orchestrator import (
