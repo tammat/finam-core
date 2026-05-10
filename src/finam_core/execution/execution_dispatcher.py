@@ -17,6 +17,7 @@ from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
 from finam_core.futures.futures_access_gate import FuturesAccessGate
 from finam_core.futures.futures_margin_guard import FuturesMarginGuard
+from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 
 
 class ExecutionDispatcher:
@@ -40,6 +41,8 @@ class ExecutionDispatcher:
         self._futures_access_gate = None
         # Русский комментарий: futures margin guard создаётся лениво перед real futures execution.
         self._futures_margin_guard = None
+        # Русский комментарий: persistent kill switch блокирует real execution до любых broker/OMS действий.
+        self._persistent_kill_switch = None
 
 
     def _get_oms_dispatch_guard(self) -> OmsDispatchGuard:
@@ -61,6 +64,13 @@ class ExecutionDispatcher:
         if self._futures_margin_guard is None:
             self._futures_margin_guard = FuturesMarginGuard()
         return self._futures_margin_guard
+
+
+    def _get_persistent_kill_switch(self) -> PersistentKillSwitch:
+        """Русский комментарий: лениво создаёт persistent kill switch."""
+        if self._persistent_kill_switch is None:
+            self._persistent_kill_switch = PersistentKillSwitch()
+        return self._persistent_kill_switch
 
 
     def _log_execution_event_safe(
@@ -103,6 +113,25 @@ class ExecutionDispatcher:
                 return {
                     "status": "REJECTED",
                     "reason": "real_execution_engine_not_configured",
+                    "intent": intent,
+                }
+
+            kill_switch = self._get_persistent_kill_switch()
+            if kill_switch.is_active(symbol=str(intent.get("symbol") or "")):
+                state = kill_switch.get_state(scope="GLOBAL")
+                if not state.active:
+                    state = kill_switch.get_state(scope="SYMBOL", symbol=str(intent.get("symbol") or ""))
+
+                print(
+                    f"PERSISTENT_KILL_SWITCH_BLOCK symbol={intent.get('symbol')} "
+                    f"scope={state.scope} reason={state.reason}",
+                    flush=True,
+                )
+                return {
+                    "status": "REJECTED",
+                    "reason": "persistent_kill_switch_active",
+                    "kill_switch_reason": state.reason,
+                    "symbol": intent.get("symbol"),
                     "intent": intent,
                 }
 
