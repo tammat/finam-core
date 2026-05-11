@@ -5,6 +5,7 @@ After=network-online.target postgresql.service
 
 [Service]
 Type=oneshot
+TimeoutStartSec=30
 User=finam
 Group=finam
 WorkingDirectory=/opt/finam-core
