@@ -144,6 +144,11 @@ class ActiveOrdersReconciliation:
 
         issues: list[ActiveOrderIssue] = []
 
+        # Русский комментарий: в PAPER/systemd режиме ManagedPositionService может быть не подключён.
+        # StartupRecoveryGate не должен валить сервис из-за отсутствия optional managed repository.
+        if self.managed is None or getattr(self.managed, "repository", None) is None:
+            return []
+
         for pos in self.managed.repository.list_all():
             expected_ids = [
                 ("stop_order_id", pos.stop_order_id),
