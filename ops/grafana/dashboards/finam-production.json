@@ -2,7 +2,7 @@
   "title": "Finam Core — Производственный мониторинг",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 5,
   "refresh": "10s",
   "panels": [
     {
@@ -74,6 +74,36 @@
       ]
     },
     {
+      "title": "Текущий график P&L",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT \"Время\" AS time, \"Реализованный PnL\" FROM v_pnl_dashboard_ru",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "title": "Визуализация портфеля",
       "type": "piechart",
       "gridPos": {
@@ -86,7 +116,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT \"Название\", \"Оценка позиции\" FROM v_portfolio_visualization_ru"
+          "rawSql": "SELECT \"Название\", \"Оценка\" FROM v_real_portfolio_positions_ru"
         }
       ]
     },
@@ -103,7 +133,7 @@
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT * FROM v_positions_dashboard_ru LIMIT 30"
+          "rawSql": "SELECT * FROM v_real_portfolio_positions_ru LIMIT 30"
         }
       ]
     },
@@ -141,5 +171,11 @@
         }
       ]
     }
+  ],
+  "style": "dark",
+  "tags": [
+    "finam-core",
+    "production",
+    "русский"
   ]
 }
