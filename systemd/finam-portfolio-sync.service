@@ -1,0 +1,13 @@
+[Unit]
+Description=Finam Core Real Portfolio Sync
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+Environment=PYTHON_BIN=/opt/finam-core/.venv/bin/python
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/opt/finam-core/scripts/sync_real_portfolio_from_finam.sh
