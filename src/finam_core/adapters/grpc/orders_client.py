@@ -657,13 +657,27 @@ class FinamOrdersClient:
             )
 
         if os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+            ack = OrderAck(
+                accepted=True,
+                symbol=symbol,
+                side=side,
+                qty=float(qty),
+                order_id=f"dry_market_{symbol}_{side}_{qty}",
+                status="DRY_RUN_ACCEPTED",
+                reason="real_order_confirm_disabled",
+                raw={"dry_run": True, "place_order_sent": False},
+            )
+            self.order_ack_logger.log(ack, source="market_order_dry_run")
+
             return FinamOrderResult(
                 symbol=symbol,
                 side=side,
                 qty=qty,
                 price=price,
-                status="REJECTED",
-                reason="REAL_ORDER_CONFIRM_not_enabled",
+                status=ack.status,
+                order_id=ack.order_id,
+                reason=ack.reason,
+                raw={"ack": ack.__dict__},
             )
 
         token_reason = self._ensure_token()
