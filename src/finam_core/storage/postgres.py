@@ -145,16 +145,21 @@ class PostgresStorage:
 
     def log_trade(self, trade):
         with self.conn.cursor() as cur:
+            # Русский комментарий: запись paper-сделки должна соответствовать текущей схеме trades и содержать trade_source.
             cur.execute(
                 """
-                INSERT INTO trades (symbol, side, quantity, price, ts)
-                VALUES (%s, %s, %s, %s, NOW())
+                INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, '{}'::jsonb, NOW(), %s)
                 """,
                 (
                     _normalize(trade.symbol),
                     _normalize(trade.side),
                     _normalize(trade.quantity),
                     _normalize(trade.price),
+                    0.0,
+                    None,
+                    "postgres_storage",
+                    "paper",
                 ),
             )
         self.conn.commit()

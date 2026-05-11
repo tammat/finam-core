@@ -124,21 +124,22 @@ class CountingLogger:
 
         with psycopg2.connect(dsn()) as conn:
             with conn.cursor() as cur:
+                # Русский комментарий: replay/paper сделки явно маркируются trade_source='paper'.
                 cur.execute(
                     """
-                    INSERT INTO trades (trade_id, account_id, symbol, side, qty, price, commission, ts, raw_json)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, now(), %s::jsonb)
-                    ON CONFLICT (trade_id) DO NOTHING
+                    INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, now(), %s)
                     """,
                     (
-                        trade_id,
-                        account_id,
                         symbol,
                         side,
                         qty,
                         price,
                         commission,
+                        trade_id,
+                        "replay_br_pipeline",
                         json.dumps(raw_json, ensure_ascii=False, default=str),
+                        "paper",
                     ),
                 )
 
