@@ -45,6 +45,11 @@ class RegimeEngine:
     def __init__(self, window: int = 20):
         self.window = window
         self.prices: list[float] = []
+        # Русский комментарий: гистерезис режима — новый режим должен подтвердиться несколько тиков подряд.
+        self.confirm_ticks = int(os.getenv("REGIME_CONFIRM_TICKS", "3"))
+        self._confirmed_regime_key = None
+        self._candidate_regime_key = None
+        self._candidate_regime_count = 0
         # Русский комментарий: анти-спам для regime logs в systemd journal.
         self._last_regime_engine_log_ts = 0.0
         self._last_regime_engine_log_key = None
@@ -93,6 +98,26 @@ class RegimeEngine:
         # более мягкий режим (для теста)
         # мягкий режим: разрешаем почти всё, кроме совсем мёртвого рынка
         tradable = not (trend == "flat" and vol == "low")
+
+        raw_regime_key = (regime_type, trend, vol, tradable)
+        if self._confirmed_regime_key is None:
+            self._confirmed_regime_key = raw_regime_key
+        elif raw_regime_key != self._confirmed_regime_key:
+            if raw_regime_key == self._candidate_regime_key:
+                self._candidate_regime_count += 1
+            else:
+                self._candidate_regime_key = raw_regime_key
+                self._candidate_regime_count = 1
+
+            if self._candidate_regime_count >= self.confirm_ticks:
+                self._confirmed_regime_key = raw_regime_key
+                self._candidate_regime_key = None
+                self._candidate_regime_count = 0
+        else:
+            self._candidate_regime_key = None
+            self._candidate_regime_count = 0
+
+        regime_type, trend, vol, tradable = self._confirmed_regime_key
         # Русский комментарий: жёсткий rate-limit regime logs — без печати на каждое изменение режима.
         now_ts = time.time()
         log_every_sec = float(os.getenv("REGIME_ENGINE_LOG_EVERY_SEC", "60"))
