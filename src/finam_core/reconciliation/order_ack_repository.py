@@ -25,6 +25,8 @@ class OrderAckRepository:
                     """
                     SELECT symbol, side, qty, order_id, status, reason, raw
                     FROM order_acks
+                    WHERE source <> 'market_order_dry_run'
+                      AND COALESCE(raw->>'dry_run', 'false') <> 'true'
                     ORDER BY ts DESC
                     LIMIT %s
                     """,
