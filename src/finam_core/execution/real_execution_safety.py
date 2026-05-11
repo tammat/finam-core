@@ -26,6 +26,12 @@ class RealExecutionSafetyLayer:
         self.execution_enabled = os.getenv("EXECUTION_ENABLED", "0") == "1"
         self.real_trading_enabled = os.getenv("REAL_TRADING_ENABLED", "0") == "1"
         self.real_stocks_only = os.getenv("REAL_STOCKS_ONLY", "1") == "1"
+        self.allowed_symbols_raw = os.getenv("REAL_ALLOWED_SYMBOLS", "").strip()
+        self.allowed_symbols = {
+            s.strip().upper()
+            for s in self.allowed_symbols_raw.split(",")
+            if s.strip()
+        }
         self.max_qty = float(os.getenv("REAL_MAX_QTY", "1"))
         self.duplicate_ttl_sec = float(os.getenv("REAL_DUPLICATE_TTL_SEC", "30"))
         self.position_mismatch_check_enabled = os.getenv("POSITION_MISMATCH_HARD_BLOCK", "1") == "1"
@@ -73,6 +79,9 @@ class RealExecutionSafetyLayer:
                 return RealExecutionSafetyDecision(False, "REAL_FUTURES_BLOCKED")
             if not symbol_value.endswith("@MISX"):
                 return RealExecutionSafetyDecision(False, "REAL_NON_MISX_BLOCKED")
+
+        if self.allowed_symbols and symbol_value not in self.allowed_symbols:
+            return RealExecutionSafetyDecision(False, "REAL_SYMBOL_NOT_ALLOWED")
 
         if self.position_mismatch_check_enabled:
             if broker_position_qty is not None and local_position_qty is not None:
