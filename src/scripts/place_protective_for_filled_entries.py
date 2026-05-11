@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import psycopg2
 from dotenv import load_dotenv
 
+from finam_core.execution.protective_duplicate_gate import ProtectiveDuplicateGate
+
 load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
 
 
@@ -126,6 +128,11 @@ def main() -> int:
                 stop_pct=stop_pct,
             )
 
+        duplicate_decision = ProtectiveDuplicateGate().check(
+            entry_order_id=entry.entry_order_id,
+            protective_type="stop",
+        )
+
         print(
             "PROTECTIVE_PLACEMENT_CANDIDATE "
             f"symbol={entry.symbol} "
@@ -134,7 +141,9 @@ def main() -> int:
             f"entry_order_id={entry.entry_order_id} "
             f"last_price={last_price} "
             f"stop_pct={stop_pct} "
-            f"dry_run_stop_price={stop_price}"
+            f"dry_run_stop_price={stop_price} "
+            f"duplicate_allowed={duplicate_decision.allowed} "
+            f"duplicate_reason={duplicate_decision.reason}"
         )
 
     return 0

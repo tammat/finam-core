@@ -51,6 +51,38 @@ class ProtectiveOrderLinkRepository:
             print(f"PROTECTIVE_ORDER_LINK_SAVE_FAILED error={exc}", flush=True)
             return None
 
+    def has_existing_protective_order(
+        self,
+        *,
+        entry_order_id: str,
+        protective_type: str,
+    ) -> bool:
+        """Русский комментарий: duplicate-prevention для stop/take по entry_order_id."""
+        if not self.enabled or not self.database_url or not entry_order_id:
+            return False
+
+        field_name = "stop_order_id" if protective_type == "stop" else "take_order_id" if protective_type == "take" else ""
+        if not field_name:
+            return False
+
+        try:
+            with psycopg2.connect(self.database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        SELECT 1
+                        FROM protective_order_links
+                        WHERE entry_order_id = %s
+                          AND COALESCE({field_name}, '') <> ''
+                        LIMIT 1
+                        """,
+                        (entry_order_id,),
+                    )
+                    return cur.fetchone() is not None
+        except Exception as exc:
+            print(f"PROTECTIVE_ORDER_DUPLICATE_CHECK_FAILED error={exc}", flush=True)
+            return False
+
     def attach_protective_order(
         self,
         *,
