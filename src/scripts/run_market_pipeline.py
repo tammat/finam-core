@@ -42,7 +42,8 @@ sys.stdout = _SafeStdout(sys.stdout)
 
 from dotenv import load_dotenv
 from finam_core.reconciliation.startup_recovery_gate import StartupRecoveryGate
-load_dotenv()
+# Русский комментарий: systemd использует deploy/env/.env; корневой .env может быть закрыт правами.
+load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
 
 def parse_args():
     import argparse
