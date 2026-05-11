@@ -45,3 +45,26 @@ PersistentKillSwitch
 -> OmsDispatchGuard
 -> RealExecutionEngine
 ```
+
+## Safe cleanup of test projections
+
+Русский комментарий:
+Скрипт используется только для безопасной очистки тестовых projection-таблиц и DLQ.
+
+Разрешённые таблицы:
+
+- position_projection
+- order_projection
+- event_dead_letters
+
+Run:
+
+    CONFIRM_CLEAR_TEST_PROJECTIONS=1 bash scripts/clear_test_projections_safe.sh
+
+Validation:
+
+    bash scripts/test_safe_cleanup_docs.sh
+
+Expected result:
+
+    CLEARED_TEST_PROJECTIONS_OK
