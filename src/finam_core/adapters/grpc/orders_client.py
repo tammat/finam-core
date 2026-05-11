@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from finam_core.auth.token_manager import FinamTokenManager
 from finam_core.execution.real_execution_safety import RealExecutionSafetyLayer
+from finam_core.execution.order_ack import OrderAck
 from typing import Any
 
 import grpc
@@ -201,6 +202,29 @@ class FinamOrdersClient:
             )
             raise RuntimeError(f"REAL_EXECUTION_SAFETY_BLOCK:{safety_decision.reason}")
 
+    def _build_order_ack(self, *, response, symbol: str, side: str, qty: float, fallback_status: str = "ACCEPTED") -> OrderAck:
+        """Русский комментарий: нормализует broker response после PlaceOrder в единый ACK."""
+        order_id = (
+            getattr(response, "transaction_id", None)
+            or getattr(response, "order_id", None)
+            or getattr(response, "id", None)
+        )
+        status_raw = getattr(response, "status", None)
+        status = str(status_raw) if status_raw is not None else fallback_status
+        accepted = bool(order_id) or status.upper() in ("ACCEPTED", "PLACED", "NEW", "ORDER_STATUS_NEW")
+        reason = None if accepted else "PLACE_ORDER_NO_ACK"
+
+        return OrderAck(
+            accepted=accepted,
+            symbol=str(symbol),
+            side=str(side),
+            qty=float(qty),
+            order_id=str(order_id) if order_id is not None else None,
+            status=status,
+            reason=reason,
+            raw={"response": str(response)},
+        )
+
     def _send_market_order_grpc(
         self,
         symbol: str,
@@ -214,10 +238,12 @@ class FinamOrdersClient:
         stub = self._stub_for_orders()
         response = stub.PlaceOrder(order, metadata=self._metadata())
 
-        order_id = (
-            getattr(response, "transaction_id", None)
-            or getattr(response, "order_id", None)
-            or getattr(response, "id", None)
+        ack = self._build_order_ack(
+            response=response,
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            fallback_status="PLACED",
         )
 
         return FinamOrderResult(
@@ -225,9 +251,10 @@ class FinamOrdersClient:
             side=side,
             qty=qty,
             price=price,
-            status="PLACED",
-            order_id=str(order_id) if order_id is not None else None,
-            raw={"response": str(response)},
+            status=ack.status,
+            order_id=ack.order_id,
+            reason=ack.reason,
+            raw={"ack": ack.__dict__},
         )
 
     def _normalize_broker_error(self, exc: Exception) -> tuple[str, dict]:
@@ -429,15 +456,22 @@ class FinamOrdersClient:
                 metadata=self._metadata(),
                 timeout=float(os.getenv("FINAM_PLACE_STOP_TIMEOUT_SEC", "10")),
             )
-            order_id = str(getattr(resp, "order_id", "") or getattr(resp, "transaction_id", "") or "")
+            ack = self._build_order_ack(
+                response=resp,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                fallback_status="ACCEPTED",
+            )
             return {
-                "status": "ACCEPTED",
+                "status": ack.status,
                 "symbol": symbol,
                 "side": side,
                 "qty": float(qty),
                 "stop_price": stop_price,
-                "order_id": order_id,
-                "raw": {"response": str(resp)},
+                "order_id": ack.order_id,
+                "reason": ack.reason,
+                "raw": {"ack": ack.__dict__},
             }
         except Exception as exc:
             reason, raw = self._normalize_broker_error(exc)
@@ -490,15 +524,22 @@ class FinamOrdersClient:
                 metadata=self._metadata(),
                 timeout=float(os.getenv("FINAM_PLACE_LIMIT_TIMEOUT_SEC", "10")),
             )
-            order_id = str(getattr(resp, "order_id", "") or getattr(resp, "transaction_id", "") or "")
+            ack = self._build_order_ack(
+                response=resp,
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                fallback_status="ACCEPTED",
+            )
             return {
-                "status": "ACCEPTED",
+                "status": ack.status,
                 "symbol": symbol,
                 "side": side,
                 "qty": float(qty),
                 "limit_price": limit_price,
-                "order_id": order_id,
-                "raw": {"response": str(resp)},
+                "order_id": ack.order_id,
+                "reason": ack.reason,
+                "raw": {"ack": ack.__dict__},
             }
         except Exception as exc:
             reason, raw = self._normalize_broker_error(exc)
