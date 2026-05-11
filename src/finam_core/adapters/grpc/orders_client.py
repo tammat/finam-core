@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from finam_core.auth.token_manager import FinamTokenManager
 from finam_core.execution.real_execution_safety import RealExecutionSafetyLayer
 from finam_core.execution.order_ack import OrderAck
+from finam_core.execution.order_ack_logger import OrderAckLogger
 from typing import Any
 
 import grpc
@@ -49,6 +50,7 @@ class FinamOrdersClient:
         self.endpoint = os.getenv("FINAM_GRPC_ENDPOINT", "api.finam.ru:443").strip()
         self._channel: Any | None = None
         self._stub: Any | None = None
+        self.order_ack_logger = OrderAckLogger()
 
     def _validate(self, symbol: str, side: str, qty: float) -> str | None:
         if not self.account_id:
@@ -245,6 +247,7 @@ class FinamOrdersClient:
             qty=qty,
             fallback_status="PLACED",
         )
+        self.order_ack_logger.log(ack, source="market_order")
 
         return FinamOrderResult(
             symbol=symbol,
@@ -463,6 +466,7 @@ class FinamOrdersClient:
                 qty=qty,
                 fallback_status="ACCEPTED",
             )
+            self.order_ack_logger.log(ack, source="stop_order")
             return {
                 "status": ack.status,
                 "symbol": symbol,
@@ -531,6 +535,7 @@ class FinamOrdersClient:
                 qty=qty,
                 fallback_status="ACCEPTED",
             )
+            self.order_ack_logger.log(ack, source="limit_order")
             return {
                 "status": ack.status,
                 "symbol": symbol,
