@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import os
+import time
+
 class RegimeDecision:
     """
     Результат оценки режима рынка
@@ -42,6 +45,9 @@ class RegimeEngine:
     def __init__(self, window: int = 20):
         self.window = window
         self.prices: list[float] = []
+        # Русский комментарий: анти-спам для regime logs в systemd journal.
+        self._last_regime_engine_log_ts = 0.0
+        self._last_regime_engine_log_key = None
 
     def evaluate(self, price: float, features: dict) -> RegimeDecision:
         """
@@ -87,9 +93,19 @@ class RegimeEngine:
         # более мягкий режим (для теста)
         # мягкий режим: разрешаем почти всё, кроме совсем мёртвого рынка
         tradable = not (trend == "flat" and vol == "low")
-        print(
-            f"REGIME type={regime_type} trend={trend} vol={vol} atr={atr:.4f} tradable={tradable}"
-        )
+        # Русский комментарий: печатаем regime только при изменении режима или не чаще заданного интервала.
+        now_ts = time.time()
+        log_every_sec = float(os.getenv("REGIME_ENGINE_LOG_EVERY_SEC", "60"))
+        log_key = (regime_type, trend, vol, tradable)
+        if log_key != self._last_regime_engine_log_key or (
+            now_ts - float(self._last_regime_engine_log_ts or 0.0)
+        ) >= log_every_sec:
+            self._last_regime_engine_log_ts = now_ts
+            self._last_regime_engine_log_key = log_key
+            print(
+                f"REGIME type={regime_type} trend={trend} vol={vol} atr={atr:.4f} tradable={tradable}",
+                flush=True,
+            )
         decision = RegimeDecision(
             trend=trend,
             vol=vol,
