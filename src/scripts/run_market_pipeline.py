@@ -296,23 +296,43 @@ def main() -> None:
             rebuild_aggregate_id=os.getenv("STARTUP_REBUILD_AGGREGATE_ID"),
         )
 
+    # Русский комментарий: real stock safety gate запрещает real futures при REAL_STOCKS_ONLY=1.
+    execution_mode = os.getenv("EXECUTION_MODE", "paper")
+    if execution_mode.strip().lower() in ("real", "live"):
+        real_stock_gate = RealStockSafetyGate()
+        symbols_to_check = []
+        if getattr(args, "symbols", None):
+            symbols_to_check.extend(str(args.symbols).split(","))
+        elif getattr(args, "symbol", None):
+            symbols_to_check.append(str(args.symbol))
+
+        for safety_symbol in symbols_to_check:
+            decision = real_stock_gate.check(safety_symbol, execution_mode=execution_mode)
+            if not decision.allowed:
+                print(
+                    f"REAL_STOCK_SAFETY_GATE_BLOCK symbol={safety_symbol} reason={decision.reason}",
+                    flush=True,
+                )
+                raise SystemExit(3)
+
+        print("REAL_STOCK_SAFETY_GATE_OK", flush=True)
+
     startup_decision = startup_gate.check()
 
     if not startup_decision.allowed:
         print(
-                "STARTUP_RECOVERY_GATE_BLOCK "
-                f"reason={startup_decision.reason} "
-                f"issues={startup_decision.issues}",
-                flush=True,
-            )
-        raise SystemExit(2)
-
-        print(
-            "STARTUP_RECOVERY_GATE_OK "
-            f"reason={startup_decision.reason}",
+            "STARTUP_RECOVERY_GATE_BLOCK "
+            f"reason={startup_decision.reason} "
+            f"issues={startup_decision.issues}",
             flush=True,
         )
+        raise SystemExit(2)
 
+    print(
+        "STARTUP_RECOVERY_GATE_OK "
+        f"reason={startup_decision.reason}",
+        flush=True,
+    )
 
     # Русский комментарий: регистрируем shared EventBus для всех EventStoreFactory.create().
     try:
