@@ -1,0 +1,13 @@
+[Unit]
+Description=Finam Core Order ACK Reconciliation
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=finam
+Group=finam
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/deploy/env/.env
+Environment=PYTHONPATH=src
+ExecStart=/opt/finam-core/venv/bin/python -u src/scripts/reconcile_order_acks.py
