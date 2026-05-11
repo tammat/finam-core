@@ -105,6 +105,50 @@ def _coerce_mtf_ts(ts):
         return ts.replace(tzinfo=timezone.utc)
     return ts
 
+class RealPositionQtyProvider:
+    """Русский комментарий: provider broker/local qty для финального hard block перед real PlaceOrder."""
+
+    def __init__(self, pipeline) -> None:
+        self.pipeline = pipeline
+
+    def get_position_qty_pair(self, symbol: str) -> dict:
+        broker_qty = self._broker_qty(symbol)
+        local_qty = self._local_qty(symbol)
+        return {"broker_qty": broker_qty, "local_qty": local_qty}
+
+    def _broker_qty(self, symbol: str) -> float:
+        for attr_name in ("broker_positions", "_broker_positions", "finam_positions", "_finam_positions"):
+            positions = getattr(self.pipeline, attr_name, None)
+            if isinstance(positions, dict) and symbol in positions:
+                value = positions[symbol]
+                if isinstance(value, dict):
+                    return float(value.get("qty", value.get("quantity", 0.0)) or 0.0)
+                return float(getattr(value, "qty", getattr(value, "quantity", value)) or 0.0)
+        return 0.0
+
+    def _local_qty(self, symbol: str) -> float:
+        for attr_name in ("position_manager", "positions", "portfolio", "portfolio_manager"):
+            obj = getattr(self.pipeline, attr_name, None)
+            if obj is None:
+                continue
+
+            for method_name in ("get_position_qty", "qty", "quantity", "get_qty"):
+                method = getattr(obj, method_name, None)
+                if callable(method):
+                    try:
+                        return float(method(symbol) or 0.0)
+                    except Exception:
+                        continue
+
+            if isinstance(obj, dict) and symbol in obj:
+                value = obj[symbol]
+                if isinstance(value, dict):
+                    return float(value.get("qty", value.get("quantity", 0.0)) or 0.0)
+                return float(getattr(value, "qty", getattr(value, "quantity", value)) or 0.0)
+
+        return 0.0
+
+
 class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
 
@@ -122,7 +166,7 @@ class PaperTradingPipeline:
         self.paper = paper
         # Русский комментарий: единый режим исполнения. real_dry_run не отправляет заявки брокеру.
         self.execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
-        self.orders_client = FinamOrdersClient()
+        self.orders_client = FinamOrdersClient(position_qty_provider=RealPositionQtyProvider(self))
         self.real_execution = RealExecutionEngine(orders_client=self.orders_client)
         # Русский комментарий: менеджер безопасной замены защитных стоп-заявок.
         self.cancel_replace_stop_manager = CancelReplaceStopManager(
