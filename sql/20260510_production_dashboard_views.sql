@@ -68,3 +68,54 @@ SELECT
     created_at
 FROM event_dead_letters
 ORDER BY id DESC;
+
+CREATE OR REPLACE VIEW v_positions_dashboard_ru AS
+SELECT
+    p.symbol,
+    COALESCE(i.display_name, p.symbol) AS "Название",
+    p.symbol AS "Тикер",
+    COALESCE(i.asset_class, 'unknown') AS "Класс",
+    COALESCE(i.source, 'unknown') AS "Источник",
+    (p.state->>'qty')::numeric AS "Количество",
+    (p.state->>'avg_price')::numeric AS "Средняя цена",
+    (p.state->>'realized_pnl')::numeric AS "Реализованный PnL",
+    p.updated_at AS "Обновлено"
+FROM position_projection p
+LEFT JOIN instrument_reference i ON i.symbol = p.symbol
+ORDER BY "Название";
+
+CREATE OR REPLACE VIEW v_orders_dashboard_ru AS
+SELECT
+    o.order_id AS "ID заявки",
+    COALESCE(i.display_name, o.state->>'symbol') AS "Название",
+    o.state->>'symbol' AS "Тикер",
+    CASE o.state->>'side'
+        WHEN 'BUY' THEN 'Покупка'
+        WHEN 'SELL' THEN 'Продажа'
+        ELSE COALESCE(o.state->>'side', '')
+    END AS "Сторона",
+    CASE o.state->>'status'
+        WHEN 'CREATED' THEN 'Создана'
+        WHEN 'SENT' THEN 'Отправлена'
+        WHEN 'FILLED' THEN 'Исполнена'
+        WHEN 'REJECTED' THEN 'Отклонена'
+        WHEN 'CANCELLED' THEN 'Отменена'
+        ELSE COALESCE(o.state->>'status', '')
+    END AS "Статус",
+    COALESCE(o.state->>'reason', '') AS "Причина",
+    o.updated_at AS "Обновлено"
+FROM order_projection o
+LEFT JOIN instrument_reference i ON i.symbol = o.state->>'symbol'
+ORDER BY o.updated_at DESC;
+
+CREATE OR REPLACE VIEW v_portfolio_visualization_ru AS
+SELECT
+    COALESCE(i.display_name, p.symbol) AS "Название",
+    p.symbol AS "Тикер",
+    ABS((p.state->>'qty')::numeric) AS "Количество",
+    ABS((p.state->>'qty')::numeric * (p.state->>'avg_price')::numeric) AS "Оценка позиции",
+    (p.state->>'realized_pnl')::numeric AS "Реализованный PnL"
+FROM position_projection p
+LEFT JOIN instrument_reference i ON i.symbol = p.symbol
+WHERE ABS((p.state->>'qty')::numeric) > 0
+ORDER BY "Оценка позиции" DESC;
