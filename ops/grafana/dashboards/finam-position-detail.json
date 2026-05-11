@@ -1,0 +1,63 @@
+{
+  "uid": "finam-position-detail",
+  "title": "Finam_core — Позиция",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "10s",
+  "style": "dark",
+  "tags": ["finam-core", "позиция", "iphone", "русский"],
+  "templating": {
+    "list": [
+      {
+        "name": "symbol",
+        "label": "Инструмент",
+        "type": "query",
+        "datasource": "FinamPostgres",
+        "query": "SELECT DISTINCT \"Тикер\" FROM v_today_trades_ru ORDER BY \"Тикер\"",
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "График цены по сделкам",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT \"Время\" AS time, \"Цена\" FROM v_position_chart_ru WHERE \"Тикер\" = '$symbol' ORDER BY \"Время\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "P&L накопленный по позиции",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 7 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT \"Время\" AS time, \"P&L накопленный\" FROM v_position_chart_ru WHERE \"Тикер\" = '$symbol' ORDER BY \"Время\"",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "История входов / выходов за день",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 15, "w": 24, "h": 10 },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT \"Время\", \"Название\", \"Операция\", \"Количество\", \"Цена\", \"Средняя цена входа\", \"P&L сделки\", \"P&L накопленный\" FROM v_today_trades_ru WHERE \"Тикер\" = '$symbol' ORDER BY \"Время\" DESC",
+          "refId": "C"
+        }
+      ]
+    }
+  ]
+}

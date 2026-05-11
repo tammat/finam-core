@@ -2237,10 +2237,15 @@ class PaperTradingPipeline:
             or (prev_vol != vol_val)
             or (now_ts - self._regime_last_log_ts > 10)
         ):
-            print(
-                f"REGIME trend={trend_val} vol={vol_val} atr={round(atr_val, 5)}",
-                flush=True,
-            )
+            # Русский комментарий: анти-спам для regime-логов в systemd.
+            now_ts = time.time()
+            log_every_sec = float(os.getenv("PIPE_REGIME_LOG_EVERY_SEC", "60"))
+            if (now_ts - float(getattr(self, "_last_regime_log_ts", 0.0) or 0.0)) >= log_every_sec:
+                self._last_regime_log_ts = now_ts
+                print(
+                    f"REGIME trend={trend_val} vol={vol_val} atr={round(atr_val, 5)}",
+                    flush=True,
+                )
 
             st["_last_logged_trend"] = trend_val
             st["_last_logged_vol"] = vol_val
@@ -2256,7 +2261,12 @@ class PaperTradingPipeline:
 
             # === 1. Слабая волатильность → нет сделки
             if (not is_exit_intent) and (not is_force_intent) and atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
-                print("PIPE_VOL_LOW_BLOCK", flush=True)
+                # Русский комментарий: анти-спам для повторяющихся low-volatility блокировок.
+                now_ts = time.time()
+                log_every_sec = float(os.getenv("PIPE_VOL_LOW_BLOCK_LOG_EVERY_SEC", "60"))
+                if (now_ts - float(getattr(self, "_last_vol_low_block_log_ts", 0.0) or 0.0)) >= log_every_sec:
+                    self._last_vol_low_block_log_ts = now_ts
+                    print("PIPE_VOL_LOW_BLOCK", flush=True)
                 return
 
             # === 2. Слишком высокая вола → шум

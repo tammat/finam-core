@@ -143,12 +143,15 @@ class FinamRealPortfolioSync:
                         continue
 
                     qty = self._num(row.get("qty") or row.get("quantity") or row.get("balance") or row.get("lots") or 0)
-                    avg_price = self._num(row.get("avg_price") or row.get("averagePrice") or row.get("avgPrice") or 0)
-                    current_price = self._num(row.get("current_price") or row.get("lastPrice") or row.get("price") or 0)
+                    avg_price = self._num(row.get("avg_price") or row.get("average_price") or row.get("averagePrice") or row.get("avgPrice") or 0)
+                    current_price = self._num(row.get("current_price") or row.get("currentPrice") or row.get("lastPrice") or row.get("price") or 0)
                     market_value = self._num(row.get("market_value") or row.get("marketValue") or row.get("value") or 0)
-                    pnl = self._num(row.get("pnl") or row.get("profit") or row.get("profitLoss") or 0)
-                    pnl_day = self._num(row.get("pnl_day") or row.get("dayPnl") or row.get("dailyPnl") or 0)
+                    pnl = self._num(row.get("pnl") or row.get("unrealized_pnl") or row.get("profit") or row.get("profitLoss") or 0)
+                    pnl_day = self._num(row.get("pnl_day") or row.get("daily_pnl") or row.get("dayPnl") or row.get("dailyPnl") or 0)
                     currency = str(row.get("currency") or "RUB")
+
+                    if market_value == 0 and current_price != 0 and qty != 0:
+                        market_value = abs(qty * current_price)
 
                     cur.execute(
                         """

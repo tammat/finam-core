@@ -1,0 +1,181 @@
+{
+  "title": "Finam Core — Производственный мониторинг",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 4,
+  "refresh": "10s",
+  "panels": [
+    {
+      "title": "Задержка projections",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT projection_lag FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "DLQ: нерешённые ошибки",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT dlq_unresolved FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "Заявки",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT orders_count FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "Позиции",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT positions_count FROM v_production_health"
+        }
+      ]
+    },
+    {
+      "title": "Текущий график P&L",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT \"Время\" AS time, \"Реализованный PnL\" FROM v_pnl_dashboard_ru",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Визуализация портфеля",
+      "type": "piechart",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT \"Название\", \"Оценка позиции\" FROM v_portfolio_visualization_ru"
+        }
+      ]
+    },
+    {
+      "title": "Позиции: названия инструментов",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT * FROM v_positions_dashboard_ru LIMIT 30"
+        }
+      ]
+    },
+    {
+      "title": "Последние заявки: статусы на русском",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT * FROM v_orders_dashboard_ru LIMIT 30"
+        }
+      ]
+    },
+    {
+      "title": "DLQ — последние события",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": "FinamPostgres",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT id AS \"ID\", event_type AS \"Тип события\", worker_name AS \"Worker\", error_type AS \"Ошибка\", error_message AS \"Описание\", resolved AS \"Решено\", created_at AS \"Создано\" FROM v_dlq_dashboard LIMIT 20"
+        }
+      ]
+    }
+  ],
+  "style": "dark",
+  "tags": [
+    "finam-core",
+    "production",
+    "русский"
+  ]
+}
