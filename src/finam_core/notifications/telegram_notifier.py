@@ -20,8 +20,9 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # === LOAD ENV (гарантировано работает везде) ===
-env_path = Path(__file__).resolve().parents[3] / ".env"
-load_dotenv(dotenv_path=env_path)
+# Русский комментарий: systemd env хранится в deploy/env/.env; корневой .env может быть закрыт правами.
+env_path = os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env")
+load_dotenv(dotenv_path=env_path, override=False)
 
 LOG = logging.getLogger(__name__)
 
