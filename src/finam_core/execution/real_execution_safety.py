@@ -12,6 +12,8 @@ import os
 import time
 from dataclasses import dataclass
 
+from finam_core.reconciliation.position_mismatch_gate import PositionMismatchGate
+
 
 @dataclass(frozen=True)
 class RealExecutionSafetyDecision:
@@ -26,6 +28,7 @@ class RealExecutionSafetyLayer:
         self.real_stocks_only = os.getenv("REAL_STOCKS_ONLY", "1") == "1"
         self.max_qty = float(os.getenv("REAL_MAX_QTY", "1"))
         self.duplicate_ttl_sec = float(os.getenv("REAL_DUPLICATE_TTL_SEC", "30"))
+        self.position_mismatch_check_enabled = os.getenv("POSITION_MISMATCH_HARD_BLOCK", "1") == "1"
         self._last_order_key: tuple[str, str] | None = None
         self._last_order_ts = 0.0
 
@@ -61,6 +64,19 @@ class RealExecutionSafetyLayer:
                 return RealExecutionSafetyDecision(False, "REAL_FUTURES_BLOCKED")
             if not symbol_value.endswith("@MISX"):
                 return RealExecutionSafetyDecision(False, "REAL_NON_MISX_BLOCKED")
+
+        if self.position_mismatch_check_enabled:
+            symbol_key = symbol_value.replace("@", "_").replace(".", "_").replace("-", "_").replace("/", "_")
+            broker_raw = os.getenv(f"BROKER_POSITION_QTY_{symbol_key}")
+            local_raw = os.getenv(f"LOCAL_POSITION_QTY_{symbol_key}")
+            if broker_raw is not None and local_raw is not None:
+                position_decision = PositionMismatchGate().check(
+                    symbol=symbol_value,
+                    broker_qty=float(broker_raw or 0.0),
+                    local_qty=float(local_raw or 0.0),
+                )
+                if not position_decision.allowed:
+                    return RealExecutionSafetyDecision(False, "POSITION_MISMATCH_BLOCK")
 
         now = time.time()
         order_key = (symbol_value, side_value)
