@@ -9,6 +9,8 @@ from finam_core.auth.token_manager import FinamTokenManager
 from finam_core.execution.real_execution_safety import RealExecutionSafetyLayer
 from finam_core.execution.order_ack import OrderAck
 from finam_core.execution.order_ack_logger import OrderAckLogger
+from finam_core.execution.protective_order_link import ProtectiveOrderLink
+from finam_core.execution.protective_order_link_repository import ProtectiveOrderLinkRepository
 from typing import Any
 
 import grpc
@@ -51,6 +53,7 @@ class FinamOrdersClient:
         self._channel: Any | None = None
         self._stub: Any | None = None
         self.order_ack_logger = OrderAckLogger()
+        self.protective_link_repository = ProtectiveOrderLinkRepository()
 
     def _validate(self, symbol: str, side: str, qty: float) -> str | None:
         if not self.account_id:
@@ -255,6 +258,20 @@ class FinamOrdersClient:
             fallback_status="PLACED",
         )
         self.order_ack_logger.log(ack, source="market_order")
+        if ack.accepted and ack.order_id:
+            self.protective_link_repository.save(
+                ProtectiveOrderLink(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    entry_order_id=ack.order_id,
+                    stop_order_id=None,
+                    take_order_id=None,
+                    status="OPEN",
+                    source="market_order_ack",
+                    raw={"ack": ack.__dict__},
+                )
+            )
 
         return FinamOrderResult(
             symbol=symbol,
