@@ -6,6 +6,7 @@ import os
 import time
 from dataclasses import dataclass
 from finam_core.auth.token_manager import FinamTokenManager
+from finam_core.execution.real_execution_safety import RealExecutionSafetyLayer
 from typing import Any
 
 import grpc
@@ -171,6 +172,35 @@ class FinamOrdersClient:
         return order
 
 
+    def _assert_real_execution_safety(self, order) -> None:
+        """Русский комментарий: финальный предохранитель непосредственно перед real PlaceOrder."""
+        symbol = str(getattr(order, "symbol", "") or "")
+        side_raw = getattr(order, "side", "")
+        side = str(side_raw)
+
+        if isinstance(side_raw, int):
+            side = "BUY" if side_raw == 1 else "SELL" if side_raw == 2 else str(side_raw)
+
+        qty_obj = getattr(order, "quantity", None)
+        qty = 0.0
+        try:
+            qty = float(getattr(qty_obj, "value", qty_obj) or 0.0)
+        except Exception:
+            qty = 0.0
+
+        safety_decision = RealExecutionSafetyLayer().check(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            execution_mode="real",
+        )
+        if not safety_decision.allowed:
+            print(
+                f"REAL_EXECUTION_SAFETY_BLOCK symbol={symbol} side={side} qty={qty} reason={safety_decision.reason}",
+                flush=True,
+            )
+            raise RuntimeError(f"REAL_EXECUTION_SAFETY_BLOCK:{safety_decision.reason}")
+
     def _send_market_order_grpc(
         self,
         symbol: str,
@@ -180,6 +210,7 @@ class FinamOrdersClient:
     ) -> FinamOrderResult:
         """Русский комментарий: реальная отправка market order через gRPC Orders API."""
         order = self._build_market_order(symbol=symbol, side=side, qty=qty)
+        self._assert_real_execution_safety(order)
         stub = self._stub_for_orders()
         response = stub.PlaceOrder(order, metadata=self._metadata())
 
@@ -392,6 +423,7 @@ class FinamOrdersClient:
                 stop_price=stop_price,
                 client_order_id=self._make_client_order_id(),
             )
+            self._assert_real_execution_safety(order)
             resp = self._stub_for_orders().PlaceOrder(
                 order,
                 metadata=self._metadata(),
@@ -452,6 +484,7 @@ class FinamOrdersClient:
                 qty=qty,
                 limit_price=limit_price,
             )
+            self._assert_real_execution_safety(order)
             resp = self._stub_for_orders().PlaceOrder(
                 order,
                 metadata=self._metadata(),
