@@ -98,6 +98,13 @@ class FinamOrdersClient:
         self._stub = orders_service_pb2_grpc.OrdersServiceStub(self._channel)
         return self._stub
 
+    def get_orders(self) -> list:
+        """Русский комментарий: получает текущие заявки брокера через OrdersService.GetOrders."""
+        orders_service_pb2, _, _ = self._load_orders_grpc()
+        request = orders_service_pb2.OrdersRequest(account_id=self.account_id)
+        response = self._stub_for_orders().GetOrders(request, metadata=self._metadata())
+        return list(getattr(response, "orders", []) or [])
+
     def _side_value(self, side: str):
         """Русский комментарий: подбирает enum Side по фактическим именам в proto."""
         _, _, side_pb2 = self._load_orders_grpc()
