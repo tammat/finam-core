@@ -1270,7 +1270,7 @@ class PaperTradingPipeline:
 
             if hasattr(self.pg_logger, "log_execution_event"):
                 self.pg_logger.log_execution_event(
-                    event_type="PORTFOLIO_RECONCILIATION_REPAIR",
+                    event="PORTFOLIO_RECONCILIATION_REPAIR",
                     symbol=symbol,
                     qty=float(repair_decision.repaired_qty or 0.0),
                     status=repair_decision.status,
@@ -3498,7 +3498,7 @@ class PaperTradingPipeline:
             if hasattr(self.pg_logger, "log_risk_event"):
                 self.pg_logger.log_risk_event(
                     symbol=br_signal.symbol,
-                    event_type="BR_PAPER_SIGNAL_RISK_ACCEPTED" if accepted else "BR_PAPER_SIGNAL_RISK_REJECTED",
+                    event="BR_PAPER_SIGNAL_RISK_ACCEPTED" if accepted else "BR_PAPER_SIGNAL_RISK_REJECTED",
                     severity="info" if accepted else "warning",
                     payload=payload,
                 )
@@ -3789,7 +3789,7 @@ class PaperTradingPipeline:
             ):
                 self.pg_logger.log_risk_event(
                     symbol=symbol,
-                    event_type=event_type,
+                    event=event_type,
                     payload=data,
                 )
         except Exception as exc:
