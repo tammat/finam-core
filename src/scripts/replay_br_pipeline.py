@@ -188,9 +188,11 @@ class CountingPaperExecution:
 
 
 def dsn() -> str:
+    """Русский комментарий: replay обязан писать в ту же БД, что и production/Grafana."""
     return (
-        f"postgresql://{os.getenv('DB_USER', 'finam')}:{os.getenv('DB_PASSWORD', 'finam')}"
-        f"@{os.getenv('DB_HOST', '127.0.0.1')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME', 'finam')}"
+        os.getenv("DATABASE_URL")
+        or os.getenv("POSTGRES_DSN")
+        or "postgresql://finam:finam@127.0.0.1:5432/finam_core"
     )
 
 

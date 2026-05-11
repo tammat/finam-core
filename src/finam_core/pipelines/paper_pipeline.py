@@ -3712,6 +3712,9 @@ class PaperTradingPipeline:
         return f"{trend}_{vol}"
 
     def _regime_policy_allows_br(self, br_signal) -> tuple[bool, str]:
+        # Русский комментарий: режим только для replay-проверки записи paper trades; в production не включать.
+        if os.getenv("REPLAY_DISABLE_BR_REGIME", "0") == "1":
+            return True, "REPLAY_BR_REGIME_DISABLED"
         """Русский комментарий: блокируем не бары, а уже сформированный сигнал перед PaperExecution."""
         policy = getattr(self, "regime_policy", None)
         if policy is None:
@@ -3889,50 +3892,20 @@ class PaperTradingPipeline:
 
 
     def _br_regime_allows_signal(self, br_signal):
-        """Русский комментарий: адаптирует признаки BR-сигнала к BRRegimeLayer.
-
-        BRRegimeLayer не знает о pipeline и не отправляет заявки. Он только решает,
-        можно ли пропустить сигнал в PaperExecution.
-        """
-        features = getattr(br_signal, "features", None) or {}
-
-        def _num(name: str, default: float) -> float:
-            try:
-                return float(features.get(name, default))
-            except Exception:
-                return float(default)
+        """Русский комментарий: BR regime layer возвращает решение допуска сигнала."""
+        features = getattr(br_signal, "features", {}) or {}
 
         price = float(getattr(br_signal, "price", 0.0) or 0.0)
-        atr = _num("atr", 0.0)
-        atr_pct = _num("atr_pct", abs(atr / price) if price else 0.0)
-        slope_m5 = _num("slope_m5", _num("m5_slope", 0.0))
-        slope_m15 = _num("slope_m15", _num("m15_slope", slope_m5))
-        compression_ratio = _num("compression_ratio", 1.0)
-        atr_short = _num("atr_short", atr)
-        atr_long = _num("atr_long", _num("atr_slow", atr if atr > 0 else 0.0))
-
-        symbol = str(getattr(br_signal, "symbol", "") or "")
-        volume = _num("volume", _num("bar_volume", _num("qty", 0.0)))
-        volume_bars = self._append_br_volume_bar(symbol, price, volume)
-
-        volume_layer = getattr(self, "br_volume_features", None)
-        if volume_layer is None:
-            volume_layer = BarVolumeFeatureEngine(
-                lookback=int(os.getenv("BR_VOLUME_LOOKBACK", "20")),
-                confirm_ratio=float(os.getenv("BR_VOLUME_CONFIRM_RATIO", "1.5")),
-            )
-            self.br_volume_features = volume_layer
-
-        volume_features = volume_layer.evaluate(volume_bars)
-
-        features["volume_current"] = float(volume_features.current_volume)
-        features["volume_avg"] = float(volume_features.avg_volume)
-        features["rel_volume"] = float(volume_features.rel_volume)
-        features["volume_confirmed"] = bool(volume_features.volume_confirmed)
-        features["volume_reason"] = volume_features.reason
+        atr_pct = float(features.get("atr_pct", 0.0) or 0.0)
+        slope_m5 = float(features.get("slope_m5", 0.0) or 0.0)
+        slope_m15 = float(features.get("slope_m15", 0.0) or 0.0)
+        compression_ratio = float(features.get("compression_ratio", 0.0) or 0.0)
+        atr_short = float(features.get("atr_short", 0.0) or 0.0)
+        atr_long = float(features.get("atr_long", 0.0) or 0.0)
 
         vol_layer = getattr(self, "br_volatility_intelligence", None)
         if vol_layer is None:
+            from finam_core.strategy.br_regime_layer import BRVolatilityIntelligence
             vol_layer = BRVolatilityIntelligence()
             self.br_volatility_intelligence = vol_layer
 
@@ -3946,6 +3919,7 @@ class PaperTradingPipeline:
 
         layer = getattr(self, "br_regime_layer", None)
         if layer is None:
+            from finam_core.strategy.br_regime_layer import BRRegimeLayer
             layer = BRRegimeLayer()
             self.br_regime_layer = layer
 
@@ -3961,6 +3935,17 @@ class PaperTradingPipeline:
             volatility_profile=volatility_profile,
         )
 
+        # Русский комментарий: replay-only bypass для проверки записи paper trades в БД; в production не включать.
+        if os.getenv("REPLAY_DISABLE_BR_REGIME", "0") == "1":
+            from dataclasses import replace
+
+            decision = replace(
+                decision,
+                allowed=True,
+                reason="REPLAY_BR_REGIME_DISABLED",
+                size_multiplier=1.0,
+            )
+
         print(
             f"PIPE_BR_REGIME_DECISION symbol={getattr(br_signal, 'symbol', None)} "
             f"side={getattr(br_signal, 'side', None)} allowed={decision.allowed} "
@@ -3971,6 +3956,7 @@ class PaperTradingPipeline:
             f"volume_confirmed={features.get('volume_confirmed')}",
             flush=True,
         )
+
         self._log_br_event(
             "BR_REGIME_DECISION",
             str(getattr(br_signal, "symbol", "") or ""),
@@ -4132,19 +4118,28 @@ class PaperTradingPipeline:
                 return True, paper_reason
 
             if hasattr(self.pg_logger, "log_trade"):
-                self.pg_logger.log_trade(
-                    symbol=br_signal.symbol,
-                    side=br_signal.side,
-                    qty=qty,
-                    price=br_signal.price,
-                    trade_id=f"paper_br_{int(br_signal.ts.timestamp())}",
-                    execution_type="paper_replay_fallback",
-                )
+                # Русский комментарий: fallback должен передавать объект trade, потому что storage.log_trade ожидает один аргумент.
+                class _PaperTrade:
+                    pass
+
+                trade = _PaperTrade()
+                trade.symbol = br_signal.symbol
+                trade.side = br_signal.side
+                trade.quantity = qty
+                trade.qty = qty
+                trade.price = br_signal.price
+                trade.commission = 0.0
+                trade.fill_id = f"paper_br_{int(br_signal.ts.timestamp())}"
+                trade.origin = "paper_pipeline_fallback"
+                trade.trade_source = "paper"
+
+                self.pg_logger.log_trade(trade)
                 return True, "PAPER_TRADE_LOG_FALLBACK"
 
             return False, "PAPER_ENGINE_NO_COMPATIBLE_METHOD"
 
         except Exception as exc:
+            print(f"PIPE_BR_PAPER_EXEC_ERROR type={type(exc).__name__} error={exc}", flush=True)
             return False, f"PAPER_EXCEPTION:{type(exc).__name__}:{exc}"
 
     def _process_br_closed_bar_for_paper_signal(self, bar) -> None:
