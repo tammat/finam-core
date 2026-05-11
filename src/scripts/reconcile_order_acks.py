@@ -14,6 +14,7 @@ from finam_core.reconciliation.broker_order_reconciliation import (
     BrokerOrderState,
 )
 from finam_core.reconciliation.order_ack_repository import OrderAckRepository
+from finam_core.reconciliation.order_reconciliation_logger import OrderReconciliationLogger
 
 # Русский комментарий: используем тот же env-файл, что и systemd service.
 load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
@@ -69,8 +70,16 @@ def main() -> int:
     for ack in acks:
         issues.extend(service.check_ack(ack))
 
+    run_id = OrderReconciliationLogger().log_run(
+        acks_count=len(acks),
+        broker_orders_count=len(broker_orders),
+        issues=issues,
+        raw={"limit": limit},
+    )
+
     print("ORDER_ACK_RECONCILIATION")
     print(f"acks={len(acks)} broker_orders={len(broker_orders)} issues={len(issues)}")
+    print(f"run_id={run_id}")
 
     for issue in issues:
         print(
