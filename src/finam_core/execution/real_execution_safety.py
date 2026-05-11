@@ -32,7 +32,16 @@ class RealExecutionSafetyLayer:
         self._last_order_key: tuple[str, str] | None = None
         self._last_order_ts = 0.0
 
-    def check(self, symbol: str, side: str, qty: float, execution_mode: str | None = None) -> RealExecutionSafetyDecision:
+    def check(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        execution_mode: str | None = None,
+        *,
+        broker_position_qty: float | None = None,
+        local_position_qty: float | None = None,
+    ) -> RealExecutionSafetyDecision:
         mode = (execution_mode or os.getenv("EXECUTION_MODE", "paper")).strip().lower()
         symbol_value = (symbol or "").strip().upper()
         side_value = (side or "").strip().upper()
@@ -66,14 +75,11 @@ class RealExecutionSafetyLayer:
                 return RealExecutionSafetyDecision(False, "REAL_NON_MISX_BLOCKED")
 
         if self.position_mismatch_check_enabled:
-            symbol_key = symbol_value.replace("@", "_").replace(".", "_").replace("-", "_").replace("/", "_")
-            broker_raw = os.getenv(f"BROKER_POSITION_QTY_{symbol_key}")
-            local_raw = os.getenv(f"LOCAL_POSITION_QTY_{symbol_key}")
-            if broker_raw is not None and local_raw is not None:
+            if broker_position_qty is not None and local_position_qty is not None:
                 position_decision = PositionMismatchGate().check(
                     symbol=symbol_value,
-                    broker_qty=float(broker_raw or 0.0),
-                    local_qty=float(local_raw or 0.0),
+                    broker_qty=float(broker_position_qty or 0.0),
+                    local_qty=float(local_position_qty or 0.0),
                 )
                 if not position_decision.allowed:
                     return RealExecutionSafetyDecision(False, "POSITION_MISMATCH_BLOCK")

@@ -38,7 +38,7 @@ class FinamOrdersClient:
     Вызов только через RealExecutionEngine после RiskEngine.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, position_qty_provider=None) -> None:
         self._subscribe_orders_last_error_log_ts = 0.0
         self._subscribe_orders_cooldown_until_ts = 0.0
         self.account_id = (
@@ -54,6 +54,7 @@ class FinamOrdersClient:
         self._stub: Any | None = None
         self.order_ack_logger = OrderAckLogger()
         self.protective_link_repository = ProtectiveOrderLinkRepository()
+        self.position_qty_provider = position_qty_provider
 
     def _validate(self, symbol: str, side: str, qty: float) -> str | None:
         if not self.account_id:
@@ -185,6 +186,35 @@ class FinamOrdersClient:
         return order
 
 
+    def set_position_qty_provider(self, position_qty_provider) -> None:
+        """Русский комментарий: подключает источник broker/local позиции из Portfolio/PositionManager."""
+        self.position_qty_provider = position_qty_provider
+
+    def _resolve_position_qty_pair(self, symbol: str) -> tuple[float | None, float | None]:
+        """Русский комментарий: получает broker/local qty перед real PlaceOrder без env-подмены."""
+        provider = getattr(self, "position_qty_provider", None)
+        if provider is None:
+            return None, None
+
+        try:
+            if hasattr(provider, "get_position_qty_pair"):
+                pair = provider.get_position_qty_pair(symbol)
+            elif callable(provider):
+                pair = provider(symbol)
+            else:
+                return None, None
+
+            if isinstance(pair, dict):
+                broker_qty = pair.get("broker_qty")
+                local_qty = pair.get("local_qty")
+            else:
+                broker_qty, local_qty = pair
+
+            return float(broker_qty), float(local_qty)
+        except Exception as exc:
+            print(f"POSITION_QTY_PROVIDER_FAILED symbol={symbol} error={exc}", flush=True)
+            return None, None
+
     def _assert_real_execution_safety(self, order) -> None:
         """Русский комментарий: финальный предохранитель непосредственно перед real PlaceOrder."""
         symbol = str(getattr(order, "symbol", "") or "")
@@ -201,11 +231,15 @@ class FinamOrdersClient:
         except Exception:
             qty = 0.0
 
+        broker_position_qty, local_position_qty = self._resolve_position_qty_pair(symbol)
+
         safety_decision = RealExecutionSafetyLayer().check(
             symbol=symbol,
             side=side,
             qty=qty,
             execution_mode="real",
+            broker_position_qty=broker_position_qty,
+            local_position_qty=local_position_qty,
         )
         if not safety_decision.allowed:
             print(
