@@ -368,7 +368,7 @@ def main() -> None:
                 f"PIPE_RECOVERY_ORCHESTRATOR_BLOCK reason={recovery_result.reason}",
                 flush=True,
             )
-        raise SystemExit(2)
+            raise SystemExit(2)
 
         print(
             f"PIPE_RECOVERY_ORCHESTRATOR_OK reason={recovery_result.reason}",
