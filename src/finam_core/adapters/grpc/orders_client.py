@@ -491,6 +491,14 @@ class FinamOrdersClient:
                 fallback_status="ACCEPTED",
             )
             self.order_ack_logger.log(ack, source="stop_order")
+            if ack.accepted and ack.order_id:
+                self.protective_link_repository.attach_protective_order(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    order_id=ack.order_id,
+                    protective_type="stop",
+                )
             return {
                 "status": ack.status,
                 "symbol": symbol,
@@ -560,6 +568,14 @@ class FinamOrdersClient:
                 fallback_status="ACCEPTED",
             )
             self.order_ack_logger.log(ack, source="limit_order")
+            if ack.accepted and ack.order_id:
+                self.protective_link_repository.attach_protective_order(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    order_id=ack.order_id,
+                    protective_type="take",
+                )
             return {
                 "status": ack.status,
                 "symbol": symbol,

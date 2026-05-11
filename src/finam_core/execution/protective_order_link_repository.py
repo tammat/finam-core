@@ -51,6 +51,62 @@ class ProtectiveOrderLinkRepository:
             print(f"PROTECTIVE_ORDER_LINK_SAVE_FAILED error={exc}", flush=True)
             return None
 
+    def attach_protective_order(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        qty: float,
+        order_id: str,
+        protective_type: str,
+    ) -> int | None:
+        """Русский комментарий: привязывает stop/take ACK к последней открытой entry-связке."""
+        if not self.enabled or not self.database_url or not order_id:
+            return None
+
+        field_name = "stop_order_id" if protective_type == "stop" else "take_order_id" if protective_type == "take" else ""
+        if not field_name:
+            return None
+
+        try:
+            with psycopg2.connect(self.database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        UPDATE protective_order_links
+                        SET {field_name} = %s,
+                            raw = COALESCE(raw, '{{}}'::jsonb) || %s::jsonb
+                        WHERE id = (
+                            SELECT id
+                            FROM protective_order_links
+                            WHERE symbol = %s
+                              AND side = %s
+                              AND status = 'OPEN'
+                            ORDER BY ts DESC
+                            LIMIT 1
+                        )
+                        RETURNING id
+                        """,
+                        (
+                            order_id,
+                            json.dumps(
+                                {
+                                    "attached_protective_type": protective_type,
+                                    "attached_order_id": order_id,
+                                    "attached_qty": float(qty or 0.0),
+                                },
+                                ensure_ascii=False,
+                            ),
+                            symbol,
+                            side,
+                        ),
+                    )
+                    row = cur.fetchone()
+                    return int(row[0]) if row else None
+        except Exception as exc:
+            print(f"PROTECTIVE_ORDER_LINK_ATTACH_FAILED error={exc}", flush=True)
+            return None
+
     def list_open_unprotected(self, *, limit: int = 100) -> list[ProtectiveOrderLink]:
         """Русский комментарий: ищем открытые entry без stop/take для Grafana/recovery."""
         if not self.enabled or not self.database_url:
