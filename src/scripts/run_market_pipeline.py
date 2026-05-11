@@ -11,6 +11,7 @@ QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.ap
 from __future__ import annotations
 
 import os
+from finam_core.risk.real_stock_safety_gate import RealStockSafetyGate
 import time
 import argparse
 import signal
@@ -295,16 +296,16 @@ def main() -> None:
             rebuild_aggregate_id=os.getenv("STARTUP_REBUILD_AGGREGATE_ID"),
         )
 
-        startup_decision = startup_gate.check()
+    startup_decision = startup_gate.check()
 
-        if not startup_decision.allowed:
-            print(
+    if not startup_decision.allowed:
+        print(
                 "STARTUP_RECOVERY_GATE_BLOCK "
                 f"reason={startup_decision.reason} "
                 f"issues={startup_decision.issues}",
                 flush=True,
             )
-            raise SystemExit(2)
+        raise SystemExit(2)
 
         print(
             "STARTUP_RECOVERY_GATE_OK "
@@ -346,7 +347,7 @@ def main() -> None:
                 f"PIPE_RECOVERY_ORCHESTRATOR_BLOCK reason={recovery_result.reason}",
                 flush=True,
             )
-            raise SystemExit(2)
+        raise SystemExit(2)
 
         print(
             f"PIPE_RECOVERY_ORCHESTRATOR_OK reason={recovery_result.reason}",
