@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Finam Core Protective Order Recovery Check periodically
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=finam-protective-recovery-check.service
+
+[Install]
+WantedBy=timers.target
