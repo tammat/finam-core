@@ -52,6 +52,8 @@ from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
+from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
+from finam_core.analytics.signal_repository import SignalRepository
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -232,6 +234,11 @@ class PaperTradingPipeline:
         self._cooldown_until = {}
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
+        # Русский комментарий: репозиторий сигналов пишет все валидные intent в PostgreSQL.
+        try:
+            self.signal_repository = SignalRepository(self.pg_logger.conn)
+        except Exception:
+            self.signal_repository = None
         # Русский коммент: агрегатор закрытых M1/M5/M15 свечей из live quote потока.
         self.mtf_aggregator = MTFBarAggregator(("M1", "M5", "M15"))
         self.exit_engine = SlTpCooldownEngine()
@@ -1019,7 +1026,10 @@ class PaperTradingPipeline:
             if notifier is None:
                 return
             if hasattr(notifier, "send"):
-                notifier.send(text)
+                # Русский комментарий: старый универсальный Telegram-канал отключён.
+                # В Telegram теперь должны уходить только SignalAlert: вход / стоп / тейк.
+                # notifier.send(text)
+                return
         except Exception as exc:
             LOG.warning("PIPE_TELEGRAM_NOTIFY_FAILED error=%s", exc)
 
@@ -2648,6 +2658,23 @@ class PaperTradingPipeline:
             return
 
         intent = routed.intent.to_dict()
+
+        # Русский комментарий: сохраняем каждый валидный торговый intent до risk/order gate.
+        try:
+            if getattr(self, "signal_repository", None) is not None:
+                signal_id = self.signal_repository.save_signal(intent)
+                intent["signal_id"] = signal_id
+        except Exception as exc:
+            LOG.warning("PIPE_SIGNAL_SAVE_FAILED error=%s", exc)
+
+
+        # Русский комментарий: Telegram получает торговую точку сразу после формирования валидного intent.
+        # Заявка при этом не выставляется; отправляются только вход, стоп-лосс и тейк-профит.
+        try:
+            send_signal_alert_from_intent(self.notifier, intent)
+        except Exception as exc:
+            LOG.warning("PIPE_SIGNAL_ALERT_FAILED error=%s", exc)
+
         # === CONTRACT RESOLVE BEFORE EXECUTION ===
         try:
             intent["symbol"] = self._resolver.resolve(intent["symbol"])
@@ -3445,13 +3472,9 @@ class PaperTradingPipeline:
             trend = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_trend")
             vol = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_vol")
 
-            self.notifier.send(
-                f"📊 СИГНАЛ\n"
-                f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
-                f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
-                f"Объём: {getattr(fill, 'qty', None)}\n"
-                f"Тренд: {trend} | Волатильность: {vol}"
-            )
+            # Русский комментарий: Telegram по сделкам/fill отключён; оставляем только сигналы вход/стоп/тейк.
+            # Русский комментарий: Telegram fill/trade уведомление отключено.
+
         except Exception:
             pass
         LOG.info("FILLED paper %s qty=%s price=%s id=%s",
@@ -3470,14 +3493,33 @@ class PaperTradingPipeline:
             commission=float(getattr(fill, "commission", 0.0) or 0.0),
         )
 
+        # Русский комментарий: связываем сохранённый signal_id с исполнением fill_id.
+        try:
+            signal_id = getattr(fill, "signal_id", None)
+
+            if signal_id is None:
+                payload = getattr(fill, "payload", None)
+                if isinstance(payload, dict):
+                    signal_id = payload.get("signal_id")
+
+            if signal_id and getattr(self, "signal_repository", None) is not None:
+                self.signal_repository.link_fill(
+                    signal_id=str(signal_id),
+                    fill_id=getattr(fill, "fill_id", None),
+                    symbol=str(getattr(fill, "symbol", "")),
+                    side=str(getattr(fill, "side", "")),
+                    qty=float(getattr(fill, "qty", 0.0) or 0.0),
+                    price=float(getattr(fill, "price", 0.0) or 0.0),
+                )
+                self.signal_repository.mark_filled(str(signal_id))
+        except Exception as exc:
+            LOG.warning("PIPE_SIGNAL_FILL_LINK_FAILED error=%s", exc)
+
         # === TELEGRAM: исполнение ===
         try:
-            self.notifier.send(
-                f"✅ ИСПОЛНЕНИЕ\n"
-                f"{getattr(fill, 'symbol', None)} | {getattr(fill, 'side', None)}\n"
-                f"Цена: {round(getattr(fill, 'price', 0), 4)}\n"
-                f"Объём: {getattr(fill, 'qty', None)}"
-            )
+            # Русский комментарий: Telegram по сделкам/fill отключён; оставляем только сигналы вход/стоп/тейк.
+            # Русский комментарий: Telegram fill/trade уведомление отключено.
+            pass
         except Exception:
             pass
 
@@ -4304,16 +4346,8 @@ class PaperTradingPipeline:
         )
 
         try:
-            self.notifier.send(
-                f"🛢 BR PAPER SIGNAL\n"
-                f"{br_signal.symbol} | {br_signal.side}\n"
-                f"Цена: {round(br_signal.price, 4)}\n"
-                f"Стоп: {round(br_signal.stop, 4)}\n"
-                f"Цель: {round(br_signal.take, 4)}\n"
-                f"Причина: {br_signal.reason}\n"
-                f"Risk: {risk_reason}\n"
-                f"Paper: {paper_reason}"
-            )
+            # Русский комментарий: Telegram trade/fill уведомление отключено.
+            pass
         except Exception:
             pass
     def _breakout_level_bucket_for_symbol(self, symbol: str) -> float:
