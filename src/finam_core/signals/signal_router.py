@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 from finam_core.signals.signal_intent import SignalIntent
+from finam_core.ai.sentiment_signal_enricher import SentimentSignalEnricher
 
 
 @dataclass
@@ -23,6 +24,16 @@ class SignalRouter:
         self.signal_ttl_sec = float(os.getenv("SIGNAL_TTL_SEC", "30"))
         self._last_by_symbol = {}
         self._last_ts_by_symbol = {}
+
+        # Русский комментарий:
+        # AI-сентимент только добавляется в features.
+        # Он не принимает торговых решений и не отправляет заявки.
+        self.enable_ai_sentiment_features = os.getenv("ENABLE_AI_SENTIMENT_FEATURES", "0") == "1"
+        self.sentiment_enricher = (
+            SentimentSignalEnricher()
+            if self.enable_ai_sentiment_features
+            else None
+        )
 
     def normalize_confidence(self, score) -> float:
         try:
@@ -65,6 +76,12 @@ class SignalRouter:
                 "atr": atr,
             })
 
+            if self.sentiment_enricher is not None:
+                features = self.sentiment_enricher.enrich(
+                    symbol=str(intent["symbol"]),
+                    features=features,
+                )
+
             intent = SignalIntent(
                 symbol=intent["symbol"],
                 side=side,
@@ -75,6 +92,13 @@ class SignalRouter:
                 ),
                 reason=str(intent.get("reason", "")),
                 features=features,
+            )
+
+        # --- AI FEATURE ENRICHMENT ---
+        if self.sentiment_enricher is not None:
+            intent.features = self.sentiment_enricher.enrich(
+                symbol=intent.symbol,
+                features=intent.features,
             )
 
         # --- VALIDATION ---
@@ -118,6 +142,16 @@ class SignalRouter:
             intent.qty *= 0.8
 
         print(f"ROUTER_VOL {intent.symbol} atr_pct={atr_pct:.5f} vol={vol}", flush=True)
+
+        print(
+            "ROUTER_AI_FEATURES "
+            f"symbol={intent.symbol} "
+            f"label={intent.features.get('ai_sentiment_label', 'none')} "
+            f"score={intent.features.get('ai_sentiment_score', 0.0)} "
+            f"source={intent.features.get('ai_sentiment_source', 'none')} "
+            f"ts={intent.features.get('ai_sentiment_ts', 'none')}",
+            flush=True,
+        )
 
         # --- DEDUP ---
         key = f"{intent.symbol}:{intent.side}:{intent.reason}"
