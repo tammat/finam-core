@@ -2,29 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 from finam_core.ai.sentiment_engine import SentimentEngine, SentimentResult
+from finam_core.ai.sentiment_events import TelegramSentimentEvent
+from finam_core.ai.sentiment_event_repository import SentimentEventRepository
 
 
 LOG = logging.getLogger("finam_core.ai.telegram_sentiment_listener")
-
-
-@dataclass(frozen=True)
-class TelegramSentimentEvent:
-    """
-    Русский комментарий:
-    Событие анализа текста из Telegram.
-    Это только аналитический объект. Он не содержит торговых команд.
-    """
-
-    ts: str
-    source: str
-    text: str
-    label: str
-    score: float
-    raw: dict
 
 
 class TelegramSentimentListener:
@@ -39,8 +25,13 @@ class TelegramSentimentListener:
     - только анализирует текст и пишет результат в лог.
     """
 
-    def __init__(self, engine: SentimentEngine | None = None) -> None:
+    def __init__(
+        self,
+        engine: SentimentEngine | None = None,
+        repository: SentimentEventRepository | None = None,
+    ) -> None:
         self.engine = engine or SentimentEngine()
+        self.repository = repository
 
     def analyze_message(self, text: str, source: str = "telegram") -> TelegramSentimentEvent:
         result: SentimentResult = self.engine.analyze(text)
@@ -55,6 +46,10 @@ class TelegramSentimentListener:
         )
 
         self.log_event(event)
+
+        if self.repository is not None:
+            self.repository.save(event)
+
         return event
 
     def log_event(self, event: TelegramSentimentEvent) -> None:
