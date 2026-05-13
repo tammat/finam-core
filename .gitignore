@@ -54,3 +54,13 @@ logs.txt
 logs*
 .env
 .env.paper_safe
+
+# sessions
+*.session
+
+# backups
+*.bak_*
+
+# pycache
+__pycache__/
+*.pyc
