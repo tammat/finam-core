@@ -128,7 +128,8 @@ class PositionLifecycleService:
             stop_price=None,
         )
 
-        p._evaluate_trailing_order_manager(
+        # Русский комментарий: trailing lifecycle теперь вызывается через сервис.
+        self._evaluate_trailing_order_manager(
             data.symbol,
             abs(float(data.qty)),
             float(data.price),
