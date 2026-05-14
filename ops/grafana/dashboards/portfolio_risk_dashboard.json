@@ -1,0 +1,48 @@
+{
+  "uid": "finam-portfolio-risk",
+  "title": "Finam Portfolio Risk",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1m",
+  "timezone": "browser",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Риск портфеля",
+      "type": "table",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "finam-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "finam-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol, qty, exposure, unrealized_pnl, realized_pnl, risk, mode FROM grafana_portfolio_risk_display"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}

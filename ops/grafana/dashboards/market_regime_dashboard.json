@@ -1,0 +1,48 @@
+{
+  "uid": "finam-market-regime",
+  "title": "Finam Market Regime",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1m",
+  "timezone": "browser",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Режим рынка",
+      "type": "table",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "finam-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "finam-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol, strategy, regime, atr_pct, strength, status, updated FROM grafana_market_regime_display"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}
