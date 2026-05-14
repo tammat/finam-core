@@ -2436,8 +2436,22 @@ class PaperTradingPipeline:
 
 
     def _dispatch_order_if_enabled(self, intent: dict, market_state: dict):
-        """Русский комментарий: применяет OrderRouter и передаёт маршрут в ExecutionDispatcher."""
-        routed = self._route_order_if_enabled(intent, market_state)
+        """Русский комментарий: gated execution route через TradingEngineCoordinator."""
+        if os.getenv("ENABLE_ENGINE_COORDINATOR_EXECUTION_ROUTE", "0") == "1":
+            coordinator = getattr(self, "engine_coordinator", None)
+            if coordinator is not None:
+                routed = coordinator.route_execution(intent, market_state)
+                print(
+                    f"PIPE_ENGINE_COORDINATOR_EXECUTION_ROUTE "
+                    f"symbol={routed.get('symbol') if isinstance(routed, dict) else getattr(routed, 'symbol', None)} "
+                    f"side={routed.get('side') if isinstance(routed, dict) else getattr(routed, 'side', None)}",
+                    flush=True,
+                )
+            else:
+                routed = self._route_order_if_enabled(intent, market_state)
+        else:
+            routed = self._route_order_if_enabled(intent, market_state)
+
         if routed is None:
             print("PIPE_EXECUTION_DISPATCH_SKIP reason=route_none", flush=True)
             return None
