@@ -4198,6 +4198,7 @@ class PaperTradingPipeline:
             trade_id=getattr(fill, "fill_id", None),
             execution_type="paper",
             commission=float(getattr(fill, "commission", 0.0) or 0.0),
+            payload=getattr(fill, "payload", None),
         )
 
         # Русский комментарий: связываем сохранённый signal_id с исполнением fill_id.

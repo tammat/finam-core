@@ -98,7 +98,16 @@ class PostgresLogger:
                     normalized_commission = float(commission or 0.0)
                     normalized_execution_type = str(kwargs.get("execution_type") or getattr(fill, "execution_type", None) or "paper")
 
+                    # Русский комментарий: сохраняем metadata fill для analytics lineage.
+                    extra_payload = kwargs.get("payload")
+                    if extra_payload is None:
+                        extra_payload = getattr(fill, "payload", None)
+
+                    if not isinstance(extra_payload, dict):
+                        extra_payload = {}
+
                     payload = {
+                        **extra_payload,
                         "symbol": normalized_symbol,
                         "side": normalized_side,
                         "qty": normalized_qty,
