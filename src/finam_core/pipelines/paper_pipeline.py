@@ -20,6 +20,8 @@ from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
+from finam_core.execution.profit_lock_engine import ProfitLockEngine
+from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
 from finam_core.execution.position_order_tracker import PositionOrderTracker
 from finam_core.reconciliation.portfolio_reconciliation_repair import PortfolioReconciliationRepair
@@ -204,6 +206,11 @@ class PaperTradingPipeline:
             trail_abs=float(os.getenv("TRAILING_ORDER_TRAIL_ABS", "0.40")),
             min_replace_step=float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")),
         )
+        # Русский комментарий:
+        # ProfitLockEngine сопровождает прибыль до trailing:
+        # qty=1 — только перенос stop; qty>1 — partial close + перенос stop.
+        self.profit_lock_engine = ProfitLockEngine()
+        self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
         self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
@@ -1221,6 +1228,69 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _evaluate_profit_lock_engine(
+        self,
+        symbol: str,
+        qty: float,
+        price: float,
+        avg_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> None:
+        """Русский комментарий: dry-run profit-lock до trailing stop."""
+        if os.getenv("ENABLE_PROFIT_LOCK_ENGINE", "0") != "1":
+            return
+
+        try:
+            if qty <= 0 or price <= 0:
+                return
+
+            entry_price = float(avg_price or price)
+            base_stop = float(stop_price or (entry_price * (1.0 - float(os.getenv("PROFIT_LOCK_DEFAULT_STOP_PCT", "0.01")))))
+
+            decision = self.profit_lock_engine.evaluate_long(
+                qty=float(qty),
+                entry_price=entry_price,
+                current_price=float(price),
+                stop_price=base_stop,
+            )
+
+            if decision.action == "HOLD":
+                return
+
+            self._log_dedup(
+                f"PIPE_PROFIT_LOCK_DECISION:{symbol}:{decision.action}:{decision.reason}",
+                f"PIPE_PROFIT_LOCK_DECISION symbol={symbol} action={decision.action} "
+                f"qty={qty} qty_to_close={decision.qty_to_close} "
+                f"price={price} entry={entry_price} base_stop={base_stop} "
+                f"new_stop={decision.new_stop} reason={decision.reason} dry_run=1",
+                heartbeat_sec=300,
+            )
+
+            self.profit_lock_event_repository.log_event(
+                symbol=symbol,
+                action=decision.action,
+                qty=qty,
+                qty_to_close=decision.qty_to_close,
+                price=price,
+                entry_price=entry_price,
+                base_stop=base_stop,
+                new_stop=decision.new_stop,
+                reason=decision.reason,
+                dry_run=True,
+                raw={
+                    "source": "paper_pipeline",
+                    "engine": "ProfitLockEngine",
+                },
+            )
+
+            # Русский комментарий:
+            # В dry-run режиме не отправляем close/replace orders брокеру.
+            # На следующем этапе decision будет транслироваться в managed exit intent.
+
+        except Exception as exc:
+            print(f"PIPE_PROFIT_LOCK_ERROR symbol={symbol} error={exc}", flush=True)
+
+
     def _evaluate_trailing_order_manager(self, symbol: str, qty: float, price: float) -> None:
         """Русский комментарий: dry-run оценка trailing stop-заявки без отправки брокеру."""
         if os.getenv("ENABLE_TRAILING_ORDER_MANAGER", "0") != "1":
@@ -1497,6 +1567,14 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+        # Русский комментарий: сначала фиксируем/защищаем прибыль, затем trailing.
+        self._evaluate_profit_lock_engine(
+            symbol=symbol,
+            qty=qty,
+            price=price,
+            avg_price=avg_price,
+            stop_price=None,
+        )
         self._evaluate_trailing_order_manager(symbol, qty, price)
 
         if qty == 0:
