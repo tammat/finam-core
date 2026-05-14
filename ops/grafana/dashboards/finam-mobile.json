@@ -2,7 +2,7 @@
   "title": "Finam Core — Мобильный мониторинг",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 7,
+  "version": 8,
   "refresh": "10s",
   "panels": [
     {
@@ -289,6 +289,130 @@
         "tooltip": {
           "mode": "multi"
         }
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Position Lifecycle State",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 124
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    updated_at AS \"time\",\n    symbol,\n    strategy,\n    initial_qty,\n    remaining_qty,\n    tp1_done,\n    tp2_done,\n    profit_lock_done,\n    trailing_active,\n    current_stop,\n    current_take_profit\nFROM position_lifecycle_state\nORDER BY updated_at DESC\nLIMIT 100\n"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Partial Close Status",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 132
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    updated_at AS \"time\",\n    symbol,\n    strategy,\n    remaining_qty,\n    tp1_done,\n    tp2_done,\n    current_stop,\n    current_take_profit\nFROM position_lifecycle_state\nWHERE tp1_done = true\n   OR tp2_done = true\nORDER BY updated_at DESC\nLIMIT 100\n"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Active Trailing Stops",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 140
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    updated_at AS \"time\",\n    symbol,\n    strategy,\n    remaining_qty,\n    trailing_active,\n    current_stop\nFROM position_lifecycle_state\nWHERE trailing_active = true\nORDER BY updated_at DESC\nLIMIT 100\n"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Exit Lifecycle Audit",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 148
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    ts AS \"time\",\n    symbol,\n    action,\n    qty,\n    stop_price,\n    reason,\n    dry_run\nFROM trailing_order_events\nORDER BY ts DESC\nLIMIT 300\n"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
       }
     }
   ],
