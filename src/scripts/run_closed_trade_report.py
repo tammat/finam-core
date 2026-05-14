@@ -112,6 +112,16 @@ def main() -> None:
     for symbol, trades in sorted(by_symbol.items()):
         print_summary(f"SYMBOL {symbol}", summarize_closed_trades(trades))
 
+    by_source_symbol = defaultdict(list)
+    for trade in closed:
+        payload = trade.payload or {}
+        entry_payload = payload.get("entry_payload") or {}
+        source = entry_payload.get("origin") or entry_payload.get("trade_source") or entry_payload.get("execution_type") or "unknown"
+        by_source_symbol[(source, trade.symbol)].append(trade)
+
+    for (source, symbol), trades in sorted(by_source_symbol.items()):
+        print_summary(f"SOURCE {source} SYMBOL {symbol}", summarize_closed_trades(trades))
+
     print("")
     print("LAST CLOSED TRADES")
     print("------------------")
