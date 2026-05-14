@@ -70,6 +70,7 @@ from finam_core.notifications.signal_alert_sender import send_signal_alert_from_
 from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.strategy.strategy_factory import StrategyFactory
 from finam_core.strategy.strategy_runtime import StrategyRuntime
+from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -255,6 +256,7 @@ class PaperTradingPipeline:
         # Новый runtime-слой стратегий. Старый strategy_by_symbol оставлен
         # временно для обратной совместимости и безопасного rollback.
         self.strategy_runtime = StrategyRuntime()
+        self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
         self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
         self.position_order_tracker = PositionOrderTracker()
@@ -2964,7 +2966,12 @@ class PaperTradingPipeline:
                 if not is_force_intent:
                     # Русский комментарий:
                     # выбираем стратегию по symbol; если явной стратегии нет — используется default.
-                    raw_intent = self.strategy_runtime.on_quote(sym, st)
+                    raw_intent = self.quote_signal_processor.process(
+                        QuoteSignalInput(
+                            symbol=sym,
+                            state=st,
+                        )
+                    )
                 if PIPE_DEBUG:
                     print("DEBUG MR result:", raw_intent, flush=True)
 
