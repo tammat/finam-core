@@ -15,6 +15,20 @@ class RoutedSignal:
     intent: SignalIntent | None = None
 
 
+import time
+
+_ROUTER_LOG_DEDUP = {}
+
+
+def _log_allowed(key: str, ttl_seconds: int = 300) -> bool:
+    now = time.time()
+    last = _ROUTER_LOG_DEDUP.get(key)
+    if last is not None and (now - last) < ttl_seconds:
+        return False
+    _ROUTER_LOG_DEDUP[key] = now
+    return True
+
+
 class SignalRouter:
 
     def __init__(self):
@@ -141,17 +155,24 @@ class SignalRouter:
             intent.confidence *= 0.8
             intent.qty *= 0.8
 
-        print(f"ROUTER_VOL {intent.symbol} atr_pct={atr_pct:.5f} vol={vol}", flush=True)
+        # Русский комментарий: router diagnostics выключены по умолчанию, чтобы не засорять journal.
+        if os.getenv("ROUTER_DEBUG_LOGS", "0") == "1":
+            if _log_allowed(f"ROUTER_VOL:{intent.symbol}:{vol}", ttl_seconds=300):
+                print(f"ROUTER_VOL {intent.symbol} atr_pct={atr_pct:.5f} vol={vol}", flush=True)
 
-        print(
-            "ROUTER_AI_FEATURES "
-            f"symbol={intent.symbol} "
-            f"label={intent.features.get('ai_sentiment_label', 'none')} "
-            f"score={intent.features.get('ai_sentiment_score', 0.0)} "
-            f"source={intent.features.get('ai_sentiment_source', 'none')} "
-            f"ts={intent.features.get('ai_sentiment_ts', 'none')}",
-            flush=True,
-        )
+            ai_label = intent.features.get("ai_sentiment_label", "none")
+            ai_source = intent.features.get("ai_sentiment_source", "none")
+
+            if _log_allowed(f"ROUTER_AI_FEATURES:{intent.symbol}:{ai_label}:{ai_source}", ttl_seconds=300):
+                print(
+                    "ROUTER_AI_FEATURES "
+                    f"symbol={intent.symbol} "
+                    f"label={ai_label} "
+                    f"score={intent.features.get('ai_sentiment_score', 0.0)} "
+                    f"source={ai_source} "
+                    f"ts={intent.features.get('ai_sentiment_ts', 'none')}",
+                    flush=True,
+                )
 
         # --- DEDUP ---
         key = f"{intent.symbol}:{intent.side}:{intent.reason}"
