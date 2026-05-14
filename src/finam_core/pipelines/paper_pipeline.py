@@ -2513,6 +2513,8 @@ class PaperTradingPipeline:
         if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_ON_QUOTE", "0") == "1"):
             coordinator = getattr(self, "engine_coordinator", None)
             if coordinator is not None:
+                # Русский комментарий: сохраняем startup/restart recovery перед новым coordinator quote path.
+                self._run_restart_recovery_if_needed()
                 result = coordinator.on_quote(event)
                 if getattr(result, "errors", None):
                     print(
