@@ -18,6 +18,7 @@ python -m py_compile \
 ./scripts/test_trading_engine_coordinator.sh
 ./scripts/test_engine_coordinator_flags.sh
 ./scripts/test_engine_coordinator_full_smoke.sh
+./scripts/test_signal_fill_link_runtime.sh
 ./scripts/test_engine_coordinator_master_recovery_hook.sh
 
 echo "OK: extracted layers regression compile"
