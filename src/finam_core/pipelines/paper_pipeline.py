@@ -28,6 +28,7 @@ from finam_core.execution.partial_close_engine import PartialCloseEngine
 from finam_core.execution.position_lifecycle_state_repository import PositionLifecycleStateRepository
 from finam_core.execution.position_lifecycle_reconciler import PositionLifecycleReconciler
 from finam_core.execution.position_lifecycle_reconcile_event_repository import PositionLifecycleReconcileEventRepository
+from finam_core.execution.position_lifecycle_self_healer import PositionLifecycleSelfHealer
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
@@ -236,6 +237,7 @@ class PaperTradingPipeline:
         self.position_lifecycle_state_repository = PositionLifecycleStateRepository()
         self.position_lifecycle_reconciler = PositionLifecycleReconciler()
         self.position_lifecycle_reconcile_event_repository = PositionLifecycleReconcileEventRepository()
+        self.position_lifecycle_self_healer = PositionLifecycleSelfHealer()
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
@@ -1255,6 +1257,75 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _self_heal_position_lifecycle_state(
+        self,
+        *,
+        symbol: str,
+        actual_qty: float,
+        strategy: str = "default",
+    ) -> None:
+        """Русский комментарий: очищает orphan/stale lifecycle state без торговых действий."""
+        if os.getenv("ENABLE_POSITION_LIFECYCLE_SELF_HEALING", "1") != "1":
+            return
+
+        try:
+            repo = getattr(self, "position_lifecycle_state_repository", None)
+            event_repo = getattr(self, "position_lifecycle_reconcile_event_repository", None)
+            healer = getattr(self, "position_lifecycle_self_healer", None)
+
+            if repo is None or healer is None:
+                return
+
+            state = repo.load_state(symbol=symbol, strategy=strategy)
+            if not state:
+                return
+
+            decision = healer.evaluate(
+                state_exists=True,
+                actual_qty=float(actual_qty or 0.0),
+                trailing_active=bool(state.get("trailing_active", False)),
+                current_stop=state.get("current_stop"),
+            )
+
+            if decision.action in ("NOOP", "OK"):
+                return
+
+            if event_repo is not None:
+                event_repo.log_event(
+                    symbol=symbol,
+                    strategy=strategy,
+                    action=decision.action,
+                    expected_qty=state.get("remaining_qty"),
+                    actual_qty=float(actual_qty or 0.0),
+                    reason=decision.reason,
+                    raw={
+                        "source": "position_lifecycle_self_healing",
+                        "state": state,
+                    },
+                )
+
+            if decision.should_clear_trailing_cache:
+                self._trailing_order_stop_by_symbol.pop(symbol, None)
+
+            if decision.should_delete_state:
+                deleted = repo.delete_state(symbol=symbol, strategy=strategy)
+                print(
+                    f"PIPE_POSITION_LIFECYCLE_SELF_HEAL_DELETE symbol={symbol} "
+                    f"actual_qty={actual_qty} deleted={int(bool(deleted))} reason={decision.reason}",
+                    flush=True,
+                )
+                return
+
+            print(
+                f"PIPE_POSITION_LIFECYCLE_SELF_HEAL_MARK symbol={symbol} "
+                f"actual_qty={actual_qty} action={decision.action} reason={decision.reason}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(f"PIPE_POSITION_LIFECYCLE_SELF_HEAL_FAILED symbol={symbol} error={exc}", flush=True)
+
+
     def _reconcile_position_lifecycle_state(
         self,
         *,
@@ -1887,6 +1958,11 @@ class PaperTradingPipeline:
 
         self._log_position_order_state_if_changed(symbol, qty)
         self._reconcile_position_lifecycle_state(
+            symbol=symbol,
+            actual_qty=float(qty or 0.0),
+            strategy="default",
+        )
+        self._self_heal_position_lifecycle_state(
             symbol=symbol,
             actual_qty=float(qty or 0.0),
             strategy="default",
