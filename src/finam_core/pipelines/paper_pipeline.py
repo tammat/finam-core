@@ -46,6 +46,7 @@ from finam_core.execution.cancel_replace_stop_manager import CancelReplaceStopMa
 from finam_core.execution.execution_decision_layer import ExecutionDecisionLayer
 from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
+from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
 from finam_core.execution.entry_point_selector import EntryPointSelector
 from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
@@ -328,6 +329,7 @@ class PaperTradingPipeline:
             orders_client=self.orders_client,
             real_execution_engine=self.real_execution,
         )
+        self.execution_gateway = ExecutionGateway(self)
         self.regime_engine = RegimeEngine()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
