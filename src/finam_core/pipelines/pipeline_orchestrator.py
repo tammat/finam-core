@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 from finam_core.pipelines.quote_normalizer import NormalizedQuote, QuoteNormalizer
+from finam_core.pipelines.pipeline_kernel import PipelineKernel, PipelineKernelInput
 
 
 @dataclass(frozen=True)
@@ -28,11 +29,15 @@ class PipelineOrchestrator:
 
     def __init__(self, pipeline) -> None:
         self.pipeline = pipeline
+        self.kernel = PipelineKernel(pipeline)
 
     def on_quote(self, context: QuoteEventContext) -> None:
         """Русский комментарий: нормализует quote и передаёт дальше в текущий pipeline."""
         normalized = QuoteNormalizer.normalize(context.event)
 
-        return self.pipeline._on_quote_impl(
-            normalized.raw_event
+        return self.kernel.process_quote(
+            PipelineKernelInput(
+                event=normalized.raw_event,
+                normalized_quote=normalized,
+            )
         )
