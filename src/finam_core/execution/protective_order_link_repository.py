@@ -51,6 +51,43 @@ class ProtectiveOrderLinkRepository:
             print(f"PROTECTIVE_ORDER_LINK_SAVE_FAILED error={exc}", flush=True)
             return None
 
+    def mark_manual_protection_required(
+        self,
+        *,
+        entry_order_id: str,
+        reason: str,
+    ) -> int | None:
+        """Русский комментарий: фиксирует, что автоматическая защитная заявка отклонена брокером."""
+        if not self.enabled or not self.database_url or not entry_order_id:
+            return None
+
+        try:
+            with psycopg2.connect(self.database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE protective_order_links
+                        SET raw = COALESCE(raw, '{}'::jsonb) || %s::jsonb
+                        WHERE entry_order_id = %s
+                        RETURNING id
+                        """,
+                        (
+                            json.dumps(
+                                {
+                                    "manual_protection_required": True,
+                                    "protective_stop_rejected_reason": reason,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            entry_order_id,
+                        ),
+                    )
+                    row = cur.fetchone()
+                    return int(row[0]) if row else None
+        except Exception as exc:
+            print(f"PROTECTIVE_MANUAL_REQUIRED_MARK_FAILED error={exc}", flush=True)
+            return None
+
     def has_existing_protective_order(
         self,
         *,

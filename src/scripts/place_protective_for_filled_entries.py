@@ -8,6 +8,8 @@ import psycopg2
 from dotenv import load_dotenv
 
 from finam_core.execution.protective_duplicate_gate import ProtectiveDuplicateGate
+from finam_core.execution.protective_order_link_repository import ProtectiveOrderLinkRepository
+from finam_core.adapters.grpc.orders_client import FinamOrdersClient
 
 load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
 
@@ -145,6 +147,42 @@ def main() -> int:
             f"duplicate_allowed={duplicate_decision.allowed} "
             f"duplicate_reason={duplicate_decision.reason}"
         )
+
+        auto_enabled = os.getenv("AUTO_REAL_PROTECTIVE_ORDERS", "0") == "1"
+        if auto_enabled and duplicate_decision.allowed and stop_price is not None:
+            protective_side = "SELL" if entry.side.upper() == "BUY" else "BUY"
+            result = FinamOrdersClient().place_stop_order(
+                symbol=entry.symbol,
+                side=protective_side,
+                qty=entry.qty,
+                stop_price=stop_price,
+            )
+            status = result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+            order_id = result.get("order_id") if isinstance(result, dict) else getattr(result, "order_id", None)
+            reason = result.get("reason") if isinstance(result, dict) else getattr(result, "reason", None)
+
+            if status == "REJECTED" and reason == "BROKER_UNCOVERED_POSITION_WARNING":
+                ProtectiveOrderLinkRepository().mark_manual_protection_required(
+                    entry_order_id=entry.entry_order_id,
+                    reason=reason,
+                )
+                print(
+                    "PROTECTIVE_MANUAL_PROTECTION_REQUIRED "
+                    f"symbol={entry.symbol} "
+                    f"entry_order_id={entry.entry_order_id} "
+                    f"reason={reason}"
+                )
+
+            print(
+                "PROTECTIVE_STOP_ORDER_RESULT "
+                f"symbol={entry.symbol} "
+                f"side={protective_side} "
+                f"qty={entry.qty} "
+                f"stop_price={stop_price} "
+                f"status={status} "
+                f"order_id={order_id} "
+                f"reason={reason}"
+            )
 
     return 0
 
