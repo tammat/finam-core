@@ -2205,7 +2205,7 @@ class PaperTradingPipeline:
             broker_orders = getattr(self, "_broker_orders_by_symbol", {}) or {}
 
             # Русский комментарий: gated reconciliation orchestration через TradingEngineCoordinator.
-            if os.getenv("ENABLE_ENGINE_COORDINATOR_RECONCILE", "0") == "1":
+            if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_RECONCILE", "0") == "1"):
                 coordinator = getattr(self, "engine_coordinator", None)
                 if coordinator is not None:
                     result = coordinator.reconcile(
@@ -2437,7 +2437,7 @@ class PaperTradingPipeline:
 
     def _dispatch_order_if_enabled(self, intent: dict, market_state: dict):
         """Русский комментарий: gated execution route через TradingEngineCoordinator."""
-        if os.getenv("ENABLE_ENGINE_COORDINATOR_EXECUTION_ROUTE", "0") == "1":
+        if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_EXECUTION_ROUTE", "0") == "1"):
             coordinator = getattr(self, "engine_coordinator", None)
             if coordinator is not None:
                 routed = coordinator.route_execution(intent, market_state)
@@ -2510,7 +2510,7 @@ class PaperTradingPipeline:
 
     def _on_quote(self, event) -> None:
         """Русский комментарий: thin-wrapper quote path с безопасным флагом Coordinator."""
-        if os.getenv("ENABLE_ENGINE_COORDINATOR_ON_QUOTE", "0") == "1":
+        if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_ON_QUOTE", "0") == "1"):
             coordinator = getattr(self, "engine_coordinator", None)
             if coordinator is not None:
                 result = coordinator.on_quote(event)
