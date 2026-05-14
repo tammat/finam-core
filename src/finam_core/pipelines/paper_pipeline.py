@@ -71,6 +71,7 @@ from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.strategy.strategy_factory import StrategyFactory
 from finam_core.strategy.strategy_runtime import StrategyRuntime
 from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
+from finam_core.strategy.trend_filter import TrendFilter
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -257,6 +258,7 @@ class PaperTradingPipeline:
         # временно для обратной совместимости и безопасного rollback.
         self.strategy_runtime = StrategyRuntime()
         self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
+        self.trend_filter = TrendFilter()
         self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
         self.position_order_tracker = PositionOrderTracker()
@@ -3368,15 +3370,32 @@ class PaperTradingPipeline:
                     return
 
             # === PRIMARY TREND ALIGNMENT ===
-            if (not is_exit_intent) and trend == "up" and side != "BUY":
-                print(f"PIPE_TREND_BLOCK expected=BUY actual={side}", flush=True)
-                return
+            if not is_exit_intent:
+                expected_side = None
+
+                if trend == "up":
+                    expected_side = "BUY"
+                elif trend == "down":
+                    expected_side = "SELL"
+
+                trend_decision = self.trend_filter.check(
+                    expected=expected_side,
+                    actual=side,
+                )
+
+                if not trend_decision.allowed:
+                    self._log_dedup(
+                        f"PIPE_TREND_BLOCK:{sym}:{trend_decision.expected}:{trend_decision.actual}",
+                        f"PIPE_TREND_BLOCK symbol={sym} "
+                        f"expected={trend_decision.expected} "
+                        f"actual={trend_decision.actual}",
+                        heartbeat_sec=60,
+                    )
+                    return
+
             # === EXTRA IMPULSE FILTER ===
             if (not is_exit_intent) and (not is_force_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
                 print("PIPE_NO_IMPULSE_BLOCK", flush=True)
-                return
-            if (not is_exit_intent) and trend == "down" and side != "SELL":
-                print(f"PIPE_TREND_BLOCK expected=SELL actual={side}", flush=True)
                 return
 
             # === REMOVE DUPLICATE HARD FILTER (it caused over-blocking & loops) ===
