@@ -241,6 +241,11 @@ class PaperTradingPipeline:
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
+
+        # Русский комментарий:
+        # Защита от AttributeError в multi-symbol strategy path.
+        # Если strategy map не создана отдельной фабрикой, держим пустой словарь.
+        self.strategy_by_symbol = getattr(self, "strategy_by_symbol", {})
         self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
         self.position_order_tracker = PositionOrderTracker()
