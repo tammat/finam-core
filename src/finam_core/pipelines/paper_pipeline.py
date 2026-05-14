@@ -3478,7 +3478,11 @@ class PaperTradingPipeline:
             cooldown_sec = base_cooldown
 
         if now_ts - last_ts < cooldown_sec:
-            print("PIPE_COOLDOWN_BLOCK", flush=True)
+            self._log_dedup(
+                f"PIPE_COOLDOWN_BLOCK:{sym}",
+                f"PIPE_COOLDOWN_BLOCK symbol={sym}",
+                heartbeat_sec=60,
+            )
             return
 
         # === LOSS COOLDOWN CHECK ===
