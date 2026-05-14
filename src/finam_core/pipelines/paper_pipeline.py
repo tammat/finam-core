@@ -2459,13 +2459,22 @@ class PaperTradingPipeline:
 
 
     def _on_quote(self, event) -> None:
-        """Русский комментарий: thin-wrapper, передающий quote в PipelineOrchestrator."""
-        if not hasattr(self, "pipeline_orchestrator"):
-            self.pipeline_orchestrator = PipelineOrchestrator(self)
+        """Русский комментарий: thin-wrapper quote path с безопасным флагом Coordinator."""
+        if os.getenv("ENABLE_ENGINE_COORDINATOR_ON_QUOTE", "0") == "1":
+            coordinator = getattr(self, "engine_coordinator", None)
+            if coordinator is not None:
+                result = coordinator.on_quote(event)
+                if getattr(result, "errors", None):
+                    print(
+                        f"PIPE_ENGINE_COORDINATOR_ON_QUOTE_ERROR errors={result.errors}",
+                        flush=True,
+                    )
+                return
 
         return self.pipeline_orchestrator.on_quote(
             QuoteEventContext(event=event)
         )
+
 
     def _on_quote_impl(self, event: dict):
         raw_intent = None
