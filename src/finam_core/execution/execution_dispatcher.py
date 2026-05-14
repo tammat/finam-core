@@ -19,6 +19,7 @@ from finam_core.futures.futures_access_gate import FuturesAccessGate
 from finam_core.futures.futures_margin_guard import FuturesMarginGuard
 from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 from finam_core.events.event_store import EventStore
+from finam_core.execution.fill_metadata_factory import FillMetadataFactory
 
 
 class ExecutionDispatcher:
@@ -305,6 +306,14 @@ class ExecutionDispatcher:
             result = self.real_execution_engine.execute(
                 intent=intent,
                 market_state=market_state or {},
+            )
+
+            # Русский комментарий: единая metadata-линия для REAL/DRY_RUN результата исполнения.
+            FillMetadataFactory.attach(
+                result,
+                intent=intent,
+                market_state=market_state or {},
+                raw_fill=result,
             )
 
             broker_order_id = None
