@@ -212,10 +212,17 @@ class PaperTradingPipeline:
         )
         # Русский комментарий:
         # Реальный lifecycle защитных stop-заявок выключен по умолчанию hard-gate env.
-        self.real_protective_lifecycle = RealProtectiveLifecycleEngine(
-            orders_client=FinamOrdersClient(),
-            link_repository=ProtectiveOrderLinkRepository(),
-        )
+        # Русский комментарий:
+        # В dry-run не создаём FinamOrdersClient, чтобы не требовать real broker credentials.
+        self.real_protective_lifecycle = None
+        if (
+            os.getenv("REAL_PROTECTIVE_LIFECYCLE_ENABLED", "0") == "1"
+            and os.getenv("TRAILING_ORDER_DRY_RUN", "1") == "0"
+        ):
+            self.real_protective_lifecycle = RealProtectiveLifecycleEngine(
+                orders_client=FinamOrdersClient(),
+                link_repository=ProtectiveOrderLinkRepository(),
+            )
         # Русский комментарий:
         # ProfitLockEngine сопровождает прибыль до trailing:
         # qty=1 — только перенос stop; qty>1 — partial close + перенос stop.
@@ -1651,23 +1658,6 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
-        # Русский комментарий: сначала считаем take-profit, затем profit-lock и trailing.
-        self._evaluate_take_profit_engine(
-            symbol=symbol,
-            qty=qty,
-            price=price,
-            avg_price=avg_price,
-            stop_price=None,
-        )
-        self._evaluate_profit_lock_engine(
-            symbol=symbol,
-            qty=qty,
-            price=price,
-            avg_price=avg_price,
-            stop_price=None,
-        )
-        self._evaluate_trailing_order_manager(symbol, qty, price)
-
         if qty == 0:
             state["bars_held"] = 0
             state["prev_close"] = float(price)
@@ -1727,6 +1717,24 @@ class PaperTradingPipeline:
                     f"atr={round(effective_atr, 6)} price={round(float(price), 6)}",
                     flush=True,
                 )
+
+        # Русский комментарий:
+        # lifecycle сопровождения запускаем только после подтверждения qty и avg_price.
+        self._evaluate_take_profit_engine(
+            symbol=symbol,
+            qty=abs(float(qty)),
+            price=float(price),
+            avg_price=float(avg_price),
+            stop_price=None,
+        )
+        self._evaluate_profit_lock_engine(
+            symbol=symbol,
+            qty=abs(float(qty)),
+            price=float(price),
+            avg_price=float(avg_price),
+            stop_price=None,
+        )
+        self._evaluate_trailing_order_manager(symbol, abs(float(qty)), float(price))
 
         decision = self._exit_engine_for_symbol(symbol).evaluate(
             side=side,
