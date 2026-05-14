@@ -29,6 +29,8 @@ from finam_core.execution.position_lifecycle_state_repository import PositionLif
 from finam_core.execution.position_lifecycle_reconciler import PositionLifecycleReconciler
 from finam_core.execution.position_lifecycle_reconcile_event_repository import PositionLifecycleReconcileEventRepository
 from finam_core.execution.position_lifecycle_self_healer import PositionLifecycleSelfHealer
+from finam_core.execution.exit_lifecycle_manager import ExitLifecycleInput, ExitLifecycleManager
+from finam_core.execution.position_lifecycle_service import PositionLifecycleInput, PositionLifecycleService
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
@@ -239,6 +241,8 @@ class PaperTradingPipeline:
         self.position_lifecycle_reconciler = PositionLifecycleReconciler()
         self.position_lifecycle_reconcile_event_repository = PositionLifecycleReconcileEventRepository()
         self.position_lifecycle_self_healer = PositionLifecycleSelfHealer()
+        self.position_lifecycle_service = PositionLifecycleService(self)
+        self.exit_lifecycle_manager = ExitLifecycleManager(self)
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
@@ -2056,6 +2060,11 @@ class PaperTradingPipeline:
                     f"atr={round(effective_atr, 6)} price={round(float(price), 6)}",
                     flush=True,
                 )
+
+        # Русский комментарий:
+        # Lazy fallback: сервис мог не инициализироваться в __init__ после refactoring.
+        if not hasattr(self, "position_lifecycle_service"):
+            self.position_lifecycle_service = PositionLifecycleService(self)
 
         # Русский комментарий:
         # lifecycle сопровождения запускаем через отдельный сервис.
