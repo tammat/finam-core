@@ -1,0 +1,48 @@
+{
+  "uid": "finam-runtime-control-v3",
+  "title": "Finam Runtime Control v3",
+  "schemaVersion": 38,
+  "version": 10,
+  "refresh": "1m",
+  "timezone": "browser",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Текущий режим стратегий",
+      "type": "table",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "finam-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "finam-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT symbol, strategy, status, CASE WHEN allow_trade THEN '✅' ELSE '⛔' END AS trade, risk_multiplier AS \"risk x\", CASE WHEN watch_only THEN '⚠️' ELSE '❌' END AS watch, reason, to_char(time, 'HH24:MI') AS updated FROM grafana_strategy_runtime_control ORDER BY time DESC LIMIT 100"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}

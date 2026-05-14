@@ -1,0 +1,73 @@
+{
+  "uid": "finam-runtime-control-v2",
+  "title": "Finam Runtime Control",
+  "schemaVersion": 38,
+  "version": 2,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "title": "Текущий режим стратегий",
+      "type": "table",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT time, symbol, strategy, status, allow_trade, watch_only, risk_multiplier, reason FROM grafana_strategy_runtime_control ORDER BY time DESC LIMIT 100"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "title": "Стратегии по статусам",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT status, COUNT(*) AS strategies FROM grafana_strategy_runtime_control GROUP BY status ORDER BY strategies DESC"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "title": "Заблокированные стратегии",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT time, symbol, strategy, status, reason FROM grafana_strategy_runtime_control WHERE allow_trade = false OR watch_only = true ORDER BY time DESC"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    }
+  ]
+}

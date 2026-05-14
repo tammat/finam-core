@@ -3614,6 +3614,22 @@ class PaperTradingPipeline:
         fill_id_raw = str(getattr(fill, "fill_id", f"paper_br_{int(br_signal.ts.timestamp())}"))
         fill_id = f"{run_id}_{fill_id_raw}"
 
+        trade_payload = {
+            "run_id": run_id,
+            "paper_only": True,
+            "execution_type": paper_reason,
+            "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+            "horizon": "INTRADAY",
+            "timeframe": "M5",
+            "reason": getattr(br_signal, "reason", None),
+            "stop_loss": getattr(br_signal, "stop", None),
+            "take_profit": getattr(br_signal, "take", None),
+            "entry_price": getattr(br_signal, "price", None),
+            "regime_direction": getattr(self.br_breakout, "regime_direction", None),
+            "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
+            "regime_strength": getattr(self.br_breakout, "regime_strength", None),
+        }
+
         try:
             self.pg_logger.log_trade(
                 symbol=br_signal.symbol,
@@ -3623,6 +3639,7 @@ class PaperTradingPipeline:
                 trade_id=fill_id,
                 execution_type=paper_reason,
                 run_id=run_id,
+                payload=trade_payload,
             )
         except TypeError:
             trade = {
@@ -3635,9 +3652,55 @@ class PaperTradingPipeline:
                 "execution_type": paper_reason,
                 "run_id": run_id,
                 "ts": br_signal.ts,
+                "payload": trade_payload,
+                "raw_json": trade_payload,
+                "strategy": trade_payload.get("strategy"),
+                "horizon": trade_payload.get("horizon"),
+                "timeframe": trade_payload.get("timeframe"),
+                "reason": trade_payload.get("reason"),
             }
             self.pg_logger.log_trade(trade)
 
+
+
+    def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
+        """Русский комментарий: runtime-control для paper fills по результатам Strategy Performance Monitor."""
+        try:
+            if getattr(self, "pg_logger", None) is None:
+                return True, qty, "runtime_control_no_pg_logger"
+
+            conn = getattr(self.pg_logger, "conn", None)
+            if conn is None:
+                return True, qty, "runtime_control_no_conn"
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT allow_trade, watch_only, risk_multiplier, status, reason
+                    FROM strategy_runtime_control
+                    WHERE symbol = %s AND strategy = %s
+                    """,
+                    (symbol, strategy),
+                )
+                row = cur.fetchone()
+
+            if row is None:
+                return False, 0.0, "runtime_control_no_data"
+
+            allow_trade, watch_only, risk_multiplier, status, reason = row
+
+            if bool(watch_only) or not bool(allow_trade):
+                return False, 0.0, f"runtime_control_blocked:{status}:{reason}"
+
+            mult = float(risk_multiplier or 0.0)
+            if mult <= 0:
+                return False, 0.0, f"runtime_control_zero_risk:{status}:{reason}"
+
+            adjusted_qty = max(0.0, float(qty) * mult)
+            return True, adjusted_qty, f"runtime_control_ok:{status}:mult={mult}"
+
+        except Exception as exc:
+            return True, qty, f"runtime_control_error_soft:{type(exc).__name__}:{exc}"
 
 
     def _br_total_open_abs_position(self) -> float:
@@ -4144,6 +4207,22 @@ class PaperTradingPipeline:
         allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
         if not allowed:
             return False, limit_reason
+
+        runtime_allowed, runtime_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
+            br_signal.symbol,
+            qty,
+            strategy="BR_CONSERVATIVE_BREAKOUT_M5",
+        )
+
+        if not runtime_allowed:
+            self._log_dedup(
+                f"PIPE_RUNTIME_CONTROL_BLOCK:{br_signal.symbol}",
+                f"PIPE_RUNTIME_CONTROL_BLOCK symbol={br_signal.symbol} reason={runtime_reason}",
+                heartbeat_sec=300,
+            )
+            return False, runtime_reason
+
+        qty = runtime_qty
 
         order = {
             "symbol": br_signal.symbol,
