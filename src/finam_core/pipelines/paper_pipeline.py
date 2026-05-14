@@ -77,6 +77,7 @@ from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
 from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
 from finam_core.analytics.signal_repository import SignalRepository
+from finam_core.analytics.closed_trade_attribution_service import ClosedTradeAttributionService
 from finam_core.strategy.strategy_factory import StrategyFactory
 from finam_core.strategy.strategy_runtime import StrategyRuntime
 from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
@@ -306,6 +307,7 @@ class PaperTradingPipeline:
         # Русский комментарий: репозиторий сигналов пишет все валидные intent в PostgreSQL.
         try:
             self.signal_repository = SignalRepository(self.pg_logger.conn)
+            self.closed_trade_attribution_service = ClosedTradeAttributionService(self.signal_repository)
         except Exception:
             self.signal_repository = None
         # Русский коммент: агрегатор закрытых M1/M5/M15 свечей из live quote потока.
@@ -4190,23 +4192,9 @@ class PaperTradingPipeline:
 
         # Русский комментарий: связываем сохранённый signal_id с исполнением fill_id.
         try:
-            signal_id = getattr(fill, "signal_id", None)
-
-            if signal_id is None:
-                payload = getattr(fill, "payload", None)
-                if isinstance(payload, dict):
-                    signal_id = payload.get("signal_id")
-
-            if signal_id and getattr(self, "signal_repository", None) is not None:
-                self.signal_repository.link_fill(
-                    signal_id=str(signal_id),
-                    fill_id=getattr(fill, "fill_id", None),
-                    symbol=str(getattr(fill, "symbol", "")),
-                    side=str(getattr(fill, "side", "")),
-                    qty=float(getattr(fill, "qty", 0.0) or 0.0),
-                    price=float(getattr(fill, "price", 0.0) or 0.0),
-                )
-                self.signal_repository.mark_filled(str(signal_id))
+            service = getattr(self, "closed_trade_attribution_service", None)
+            if service is not None:
+                service.link_fill_from_payload(fill)
         except Exception as exc:
             LOG.warning("PIPE_SIGNAL_FILL_LINK_FAILED error=%s", exc)
 
