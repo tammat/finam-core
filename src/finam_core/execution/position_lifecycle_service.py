@@ -110,8 +110,8 @@ class PositionLifecycleService:
             stop_price=None,
         )
 
-        # Русский комментарий: остальные lifecycle-блоки перенесём следующими шагами.
-        p._evaluate_partial_close_engine(
+        # Русский комментарий: partial close уже перенесён в сервис.
+        self._evaluate_partial_close_engine(
             symbol=data.symbol,
             qty=abs(float(data.qty)),
             price=float(data.price),
