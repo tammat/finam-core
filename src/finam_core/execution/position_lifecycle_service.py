@@ -119,7 +119,8 @@ class PositionLifecycleService:
             stop_price=None,
         )
 
-        p._evaluate_profit_lock_engine(
+        # Русский комментарий: profit-lock уже перенесён в сервис.
+        self._evaluate_profit_lock_engine(
             symbol=data.symbol,
             qty=abs(float(data.qty)),
             price=float(data.price),
