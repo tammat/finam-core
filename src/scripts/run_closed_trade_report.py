@@ -18,12 +18,34 @@ def load_fills(conn) -> list[TradeFill]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT id, ts, symbol, side, qty, price, commission, fill_id, payload
-            FROM trades
-            WHERE origin = 'paper'
-               OR trade_source = 'paper'
-               OR payload::text ILIKE '%paper%'
-            ORDER BY symbol, ts, id
+            SELECT
+                t.id,
+                t.ts,
+                t.symbol,
+                t.side,
+                t.qty,
+                t.price,
+                t.commission,
+                t.fill_id,
+                coalesce(t.payload, '{}'::jsonb) ||
+                jsonb_strip_nulls(
+                    jsonb_build_object(
+                        'signal_id', s.signal_id,
+                        'strategy', s.strategy,
+                        'horizon', s.horizon,
+                        'regime', s.regime,
+                        'timeframe', s.timeframe
+                    )
+                ) as payload
+            FROM trades t
+            LEFT JOIN signal_fills sf
+                ON sf.fill_id = t.fill_id
+            LEFT JOIN signals s
+                ON s.signal_id = sf.signal_id
+            WHERE t.origin = 'paper'
+               OR t.trade_source = 'paper'
+               OR t.payload::text ILIKE '%paper%'
+            ORDER BY t.symbol, t.ts, t.id
             """
         )
 
