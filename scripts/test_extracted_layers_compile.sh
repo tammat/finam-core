@@ -21,6 +21,7 @@ python -m py_compile \
 ./scripts/test_signal_fill_link_runtime.sh
 ./scripts/test_signal_to_closed_trade_metadata_chain.sh
 ./scripts/test_db_signal_to_closed_trade_join.sh
+./scripts/test_clean_closed_trades_performance_sql.sh
 ./scripts/test_engine_coordinator_master_recovery_hook.sh
 
 echo "OK: extracted layers regression compile"
