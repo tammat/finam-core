@@ -42,9 +42,11 @@ def load_fills(conn) -> list[TradeFill]:
                 ON sf.fill_id = t.fill_id
             LEFT JOIN signals s
                 ON s.signal_id = sf.signal_id
-            WHERE t.origin = 'paper'
-               OR t.trade_source = 'paper'
-               OR t.payload::text ILIKE '%paper%'
+            WHERE (
+                    t.origin = 'paper'
+                    OR t.trade_source = 'paper'
+                    OR t.payload::text ILIKE '%paper%'
+                  )
               AND COALESCE(t.origin, '') != 'backfill_from_fills'
             ORDER BY t.symbol, t.ts, t.id
             """
