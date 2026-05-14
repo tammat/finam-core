@@ -19,6 +19,7 @@ python -m py_compile \
 ./scripts/test_engine_coordinator_flags.sh
 ./scripts/test_engine_coordinator_full_smoke.sh
 ./scripts/test_signal_fill_link_runtime.sh
+./scripts/test_fill_metadata_factory.sh
 ./scripts/test_postgres_logger_log_fill_payload_db.sh
 ./scripts/test_postgres_logger_fill_payload_metadata.sh
 ./scripts/test_signal_to_closed_trade_metadata_chain.sh

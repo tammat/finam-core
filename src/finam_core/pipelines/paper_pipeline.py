@@ -47,6 +47,7 @@ from finam_core.execution.execution_decision_layer import ExecutionDecisionLayer
 from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
+from finam_core.execution.fill_metadata_factory import FillMetadataFactory
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
 from finam_core.engine.coordinator_flags import CoordinatorFlags
 from finam_core.engine.restart_recovery_coordinator import RestartRecoveryCoordinator
@@ -3958,22 +3959,8 @@ class PaperTradingPipeline:
             fill_id=getattr(raw_fill, "fill_id", None),
         )
 
-        # Русский комментарий: переносим metadata сигнала в fill для связи signals -> signal_fills -> trades -> closed_trades.
-        try:
-            signal_payload = {
-                "signal_id": intent.get("signal_id"),
-                "strategy": intent.get("strategy") or (intent.get("features") or {}).get("strategy"),
-                "horizon": intent.get("horizon") or intent.get("signal_horizon"),
-                "regime": intent.get("regime") or st.get("regime") or st.get("regime_trend"),
-                "timeframe": intent.get("timeframe"),
-            }
-            fill.signal_id = signal_payload.get("signal_id")
-            fill.payload = {
-                **(getattr(raw_fill, "payload", {}) if isinstance(getattr(raw_fill, "payload", None), dict) else {}),
-                **{k: v for k, v in signal_payload.items() if v is not None},
-            }
-        except Exception as exc:
-            LOG.warning("PIPE_FILL_METADATA_ATTACH_FAILED error=%s", exc)
+        # Русский комментарий: единый PAPER/REAL helper metadata для analytics lineage.
+        FillMetadataFactory.attach(fill, intent=intent, market_state=st, raw_fill=raw_fill)
 
         # SAFETY: гарантируем корректный fill (также qty > 0)
         if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
