@@ -60,9 +60,27 @@ def main() -> None:
     for row in rows:
         symbol, strategy, trades, wins, losses, net_pnl, expectancy, pf, winrate, last_ts = row
         strategy = str(strategy or "default")
-        status = classify(int(trades or 0), pf, expectancy)
+        status, decision_reason = controller.classify_metrics(
+            trades=int(trades or 0),
+            profit_factor=pf,
+            expectancy=expectancy,
+            net_pnl=net_pnl,
+            min_trades=MIN_TRADES,
+        )
 
-        decision = controller.decision_from_status(symbol, status, strategy=strategy)
+        status, decision_reason = controller.apply_recovery_hysteresis(
+            symbol=symbol,
+            strategy=strategy,
+            candidate_status=status,
+            candidate_reason=decision_reason,
+        )
+
+        decision = controller.decision_from_status(
+            symbol,
+            status,
+            strategy=strategy,
+            reason=decision_reason,
+        )
         controller.upsert_decision(
             decision,
             payload={
@@ -76,6 +94,7 @@ def main() -> None:
                 "last_trade_ts": str(last_ts),
                 "source": "strategy_performance_monitor",
                 "strategy": strategy,
+                "decision_reason": decision_reason,
             },
         )
         control_updates += 1
@@ -105,6 +124,7 @@ def main() -> None:
                         {
                             "source": "strategy_performance_monitor",
                 "strategy": strategy,
+                "decision_reason": decision_reason,
                             "min_trades": MIN_TRADES,
                         },
                         ensure_ascii=False,
