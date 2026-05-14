@@ -10,6 +10,8 @@ export ENABLE_REAL_EXECUTION_SAFETY_GATE=0
 export DISABLE_PERSISTENT_KILL_SWITCH_FOR_TESTS=1
 
 python - <<'PY'
+import uuid
+
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.real_execution import RealOrderResult
 
@@ -57,6 +59,7 @@ dispatcher._futures_access_gate = MockFuturesGate()
 dispatcher._futures_margin_guard = MockMarginGate()
 
 intent = {
+    "client_order_id": f"test-real-meta-{uuid.uuid4().hex}",
     "symbol": "SBER@MISX",
     "side": "BUY",
     "qty": 1,
