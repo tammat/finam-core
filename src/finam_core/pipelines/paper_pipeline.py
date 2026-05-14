@@ -25,6 +25,7 @@ from finam_core.execution.protective_order_link_repository import ProtectiveOrde
 from finam_core.execution.profit_lock_engine import ProfitLockEngine
 from finam_core.execution.take_profit_engine import TakeProfitEngine
 from finam_core.execution.partial_close_engine import PartialCloseEngine
+from finam_core.execution.position_lifecycle_state_repository import PositionLifecycleStateRepository
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
@@ -230,6 +231,7 @@ class PaperTradingPipeline:
         self.profit_lock_engine = ProfitLockEngine()
         self.take_profit_engine = TakeProfitEngine()
         self.partial_close_engine = PartialCloseEngine()
+        self.position_lifecycle_state_repository = PositionLifecycleStateRepository()
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
@@ -1249,6 +1251,46 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _save_position_lifecycle_state(
+        self,
+        *,
+        symbol: str,
+        strategy: str = "default",
+        entry_price: float | None = None,
+        initial_qty: float | None = None,
+        remaining_qty: float | None = None,
+        tp1_done: bool | None = None,
+        tp2_done: bool | None = None,
+        profit_lock_done: bool | None = None,
+        trailing_active: bool | None = None,
+        current_stop: float | None = None,
+        current_take_profit: float | None = None,
+        source: str = "paper_pipeline",
+    ) -> None:
+        """Русский комментарий: сохраняет persistent lifecycle state позиции."""
+        try:
+            repo = getattr(self, "position_lifecycle_state_repository", None)
+            if repo is None:
+                return
+
+            repo.upsert_state(
+                symbol=symbol,
+                strategy=strategy,
+                entry_price=entry_price,
+                initial_qty=initial_qty,
+                remaining_qty=remaining_qty,
+                tp1_done=tp1_done,
+                tp2_done=tp2_done,
+                profit_lock_done=profit_lock_done,
+                trailing_active=trailing_active,
+                current_stop=current_stop,
+                current_take_profit=current_take_profit,
+                raw={"source": source},
+            )
+        except Exception as exc:
+            print(f"PIPE_POSITION_LIFECYCLE_STATE_SAVE_FAILED symbol={symbol} error={exc}", flush=True)
+
+
     def _evaluate_partial_close_engine(
         self,
         symbol: str,
@@ -1288,6 +1330,16 @@ class PaperTradingPipeline:
                 f"remaining_qty={decision.remaining_qty} price={price} entry={entry_price} "
                 f"base_stop={base_stop} reason={decision.reason} dry_run=1",
                 heartbeat_sec=300,
+            )
+
+            self._save_position_lifecycle_state(
+                symbol=symbol,
+                entry_price=entry_price,
+                initial_qty=qty,
+                remaining_qty=decision.remaining_qty,
+                tp1_done=(decision.stage == "TP1"),
+                tp2_done=(decision.stage == "TP2"),
+                source="partial_close_engine",
             )
 
         except Exception as exc:
@@ -1344,6 +1396,15 @@ class PaperTradingPipeline:
                 reason=decision.reason,
                 dry_run=True,
                 raw={"source": "paper_pipeline", "engine": "TakeProfitEngine"},
+            )
+
+            self._save_position_lifecycle_state(
+                symbol=symbol,
+                entry_price=entry_price,
+                initial_qty=qty,
+                remaining_qty=max(0.0, float(qty) - float(decision.qty_to_close or 0.0)),
+                current_take_profit=decision.take_price,
+                source="take_profit_engine",
             )
 
         except Exception as exc:
@@ -1403,6 +1464,15 @@ class PaperTradingPipeline:
                     "source": "paper_pipeline",
                     "engine": "ProfitLockEngine",
                 },
+            )
+
+            self._save_position_lifecycle_state(
+                symbol=symbol,
+                entry_price=entry_price,
+                remaining_qty=qty,
+                profit_lock_done=True,
+                current_stop=decision.new_stop,
+                source="profit_lock_engine",
             )
 
             # Русский комментарий:
@@ -1478,6 +1548,14 @@ class PaperTradingPipeline:
                     "source": "paper_pipeline",
                     "manager": "TrailingOrderManager",
                 },
+            )
+
+            self._save_position_lifecycle_state(
+                symbol=decision.symbol,
+                remaining_qty=decision.qty,
+                trailing_active=True,
+                current_stop=decision.stop_price,
+                source="trailing_order_manager",
             )
 
             if not dry_run:
