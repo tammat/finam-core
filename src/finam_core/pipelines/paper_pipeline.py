@@ -2053,29 +2053,16 @@ class PaperTradingPipeline:
                 )
 
         # Русский комментарий:
-        # lifecycle сопровождения запускаем только после подтверждения qty и avg_price.
-        self._evaluate_take_profit_engine(
-            symbol=symbol,
-            qty=abs(float(qty)),
-            price=float(price),
-            avg_price=float(avg_price),
-            stop_price=None,
+        # lifecycle сопровождения запускаем через отдельный сервис.
+        self.position_lifecycle_service.on_position_quote(
+            PositionLifecycleInput(
+                symbol=symbol,
+                qty=float(qty),
+                price=float(price),
+                avg_price=float(avg_price),
+                strategy="default",
+            )
         )
-        self._evaluate_partial_close_engine(
-            symbol=symbol,
-            qty=abs(float(qty)),
-            price=float(price),
-            avg_price=float(avg_price),
-            stop_price=None,
-        )
-        self._evaluate_profit_lock_engine(
-            symbol=symbol,
-            qty=abs(float(qty)),
-            price=float(price),
-            avg_price=float(avg_price),
-            stop_price=None,
-        )
-        self._evaluate_trailing_order_manager(symbol, abs(float(qty)), float(price))
 
         decision = self._exit_engine_for_symbol(symbol).evaluate(
             side=side,
