@@ -20,15 +20,17 @@ class ClosedTradeRepository:
                 cur.execute(
                     """
                     INSERT INTO closed_trades (
-                        symbol, side, entry_ts, exit_ts, qty,
+                        signal_id, symbol, side, entry_ts, exit_ts, qty,
                         entry_price, exit_price,
                         gross_pnl, commission, net_pnl,
+                        horizon, strategy, regime,
                         trade_source, payload
                     )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                     ON CONFLICT DO NOTHING
                     """,
                     (
+                        t.signal_id,
                         t.symbol,
                         t.side,
                         t.entry_ts,
@@ -39,6 +41,9 @@ class ClosedTradeRepository:
                         t.gross_pnl,
                         t.commission,
                         t.net_pnl,
+                        t.horizon,
+                        t.strategy,
+                        t.regime,
                         trade_source,
                         json.dumps(t.__dict__, ensure_ascii=False, default=str),
                     ),

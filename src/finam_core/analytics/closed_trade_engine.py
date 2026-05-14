@@ -31,6 +31,10 @@ class ClosedTrade:
     gross_pnl: float
     commission: float
     net_pnl: float
+    signal_id: str | None = None
+    strategy: str | None = None
+    horizon: str | None = None
+    regime: str | None = None
     payload: dict[str, Any] | None = None
 
 
@@ -126,11 +130,33 @@ class ClosedTradeEngine:
         commission = self._proportional_commission(open_fill, matched_qty) + self._proportional_commission(close_fill, matched_qty)
         net_pnl = gross_pnl - commission
 
+        entry_payload = open_fill.payload or {}
+        exit_payload = close_fill.payload or {}
+
+        signal_id = (
+            entry_payload.get("signal_id")
+            or exit_payload.get("signal_id")
+        )
+        strategy = (
+            entry_payload.get("strategy")
+            or exit_payload.get("strategy")
+        )
+        horizon = (
+            entry_payload.get("horizon")
+            or entry_payload.get("signal_horizon")
+            or exit_payload.get("horizon")
+            or exit_payload.get("signal_horizon")
+        )
+        regime = (
+            entry_payload.get("regime")
+            or exit_payload.get("regime")
+        )
+
         payload = {
             "entry_fill_id": open_fill.fill_id,
             "exit_fill_id": close_fill.fill_id,
-            "entry_payload": open_fill.payload or {},
-            "exit_payload": close_fill.payload or {},
+            "entry_payload": entry_payload,
+            "exit_payload": exit_payload,
         }
 
         return ClosedTrade(
@@ -144,6 +170,10 @@ class ClosedTradeEngine:
             gross_pnl=gross_pnl,
             commission=commission,
             net_pnl=net_pnl,
+            signal_id=signal_id,
+            strategy=strategy,
+            horizon=horizon,
+            regime=regime,
             payload=payload,
         )
 
