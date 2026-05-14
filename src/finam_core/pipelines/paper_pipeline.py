@@ -48,6 +48,7 @@ from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
+from finam_core.portfolio.portfolio_reconciliation_layer import PortfolioReconciliationLayer
 from finam_core.execution.entry_point_selector import EntryPointSelector
 from finam_core.execution.oco_order_manager import OcoOrderManager
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
@@ -364,6 +365,18 @@ class PaperTradingPipeline:
         self._dedup_log_seen = {}
         # Русский комментарий: read-only слой активных брокерских заявок.
         self.open_orders_sync = OpenOrdersSync()
+
+        # Русский комментарий: единый слой orchestration для reconciliation path.
+        self.portfolio_reconciliation_layer = PortfolioReconciliationLayer(
+            position_sync_layer=None,
+            open_orders_sync=self.open_orders_sync,
+            reconciliation_repair=self.portfolio_reconciliation_repair,
+        )
+
+        # Русский комментарий: обновляем Coordinator после создания reconciliation layer.
+        if hasattr(self, "engine_coordinator"):
+            self.engine_coordinator.portfolio_reconciliation_layer = self.portfolio_reconciliation_layer
+
         self._broker_orders_by_symbol = {}
         self._broker_orders_sync_ts = 0.0
         self._broker_position_avg_by_symbol = {}
