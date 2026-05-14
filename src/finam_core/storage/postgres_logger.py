@@ -90,6 +90,25 @@ class PostgresLogger:
         try:
             with self._connect() as conn:
                 with conn.cursor() as cur:
+                    normalized_fill_id = str(fill_id) if fill_id is not None else f"paper-{datetime.utcnow().timestamp()}"
+                    normalized_symbol = str(symbol)
+                    normalized_side = str(side).upper()
+                    normalized_qty = float(qty)
+                    normalized_price = float(price)
+                    normalized_commission = float(commission or 0.0)
+                    normalized_execution_type = str(kwargs.get("execution_type") or getattr(fill, "execution_type", None) or "paper")
+
+                    payload = {
+                        "symbol": normalized_symbol,
+                        "side": normalized_side,
+                        "qty": normalized_qty,
+                        "price": normalized_price,
+                        "commission": normalized_commission,
+                        "trade_id": normalized_fill_id,
+                        "paper_only": normalized_execution_type.lower().startswith("paper") or normalized_execution_type == "paper",
+                        "execution_type": normalized_execution_type,
+                    }
+
                     cur.execute(
                         """
                         INSERT INTO fills (
@@ -99,13 +118,35 @@ class PostgresLogger:
                         ON CONFLICT (fill_id) DO NOTHING
                         """,
                         (
-                            str(fill_id) if fill_id is not None else f"paper-{datetime.utcnow().timestamp()}",
-                            str(symbol),
-                            str(side).upper(),
-                            float(qty),
-                            float(price),
-                            float(commission or 0.0),
+                            normalized_fill_id,
+                            normalized_symbol,
+                            normalized_side,
+                            normalized_qty,
+                            normalized_price,
+                            normalized_commission,
                             kwargs.get("order_id") or getattr(fill, "order_id", None),
+                        ),
+                    )
+
+                    cur.execute(
+                        """
+                        INSERT INTO trades (
+                            symbol, side, qty, price, commission,
+                            fill_id, origin, payload, created_at, ts, trade_source
+                        )
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now(),now(),%s)
+                        ON CONFLICT (fill_id) DO NOTHING
+                        """,
+                        (
+                            normalized_symbol,
+                            normalized_side,
+                            normalized_qty,
+                            normalized_price,
+                            normalized_commission,
+                            normalized_fill_id,
+                            normalized_execution_type,
+                            json.dumps(payload, ensure_ascii=False),
+                            normalized_execution_type,
                         ),
                     )
         except Exception as e:

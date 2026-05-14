@@ -1019,6 +1019,28 @@ class PaperTradingPipeline:
             )
 
 
+    def _runtime_log_allowed(self, key: str, ttl_seconds: int = 60) -> bool:
+        """
+        Русский комментарий:
+        throttling одинаковых runtime логов.
+        """
+        import time
+
+        now = time.time()
+
+        # Русский комментарий: self-healing init на случай старого/альтернативного конструктора pipeline.
+        if not hasattr(self, "_runtime_log_dedup") or self._runtime_log_dedup is None:
+            self._runtime_log_dedup = {}
+
+        last = self._runtime_log_dedup.get(key)
+
+        if last is not None and (now - last) < ttl_seconds:
+            return False
+
+        self._runtime_log_dedup[key] = now
+        return True
+
+
     def _notify_telegram_event(self, text: str) -> None:
         """Русский комментарий: безопасная отправка Telegram-уведомления без влияния на торговый цикл."""
         try:
@@ -1505,11 +1527,14 @@ class PaperTradingPipeline:
 
         if effective_atr <= 0:
             effective_atr = self._exit_fallback_atr(symbol, price)
-            print(
-                f"PIPE_EXIT_ENGINE_ATR_FALLBACK symbol={symbol} atr={round(effective_atr, 6)} "
-                f"price={round(float(price), 6)}",
-                flush=True,
-            )
+            log_key = f"ATR_FALLBACK:{symbol}"
+
+            if self._runtime_log_allowed(log_key, ttl_seconds=300):
+                print(
+                    f"PIPE_EXIT_ENGINE_ATR_FALLBACK symbol={symbol} "
+                    f"atr={round(effective_atr, 6)} price={round(float(price), 6)}",
+                    flush=True,
+                )
 
         decision = self._exit_engine_for_symbol(symbol).evaluate(
             side=side,
@@ -1541,11 +1566,17 @@ class PaperTradingPipeline:
                 reason=str(decision.reason),
             )
             if not allowed:
-                print(
-                    f"PIPE_EXIT_ENGINE_DUPLICATE_BLOCK symbol={symbol} side={close_side} "
-                    f"qty={abs(float(qty))} reason={decision.reason} sm_reason={sm_reason}",
-                    flush=True,
-                )
+                log_key = f"DUPLICATE_BLOCK:{symbol}:{decision.reason}"
+
+                if self._runtime_log_allowed(log_key, ttl_seconds=120):
+                    print(
+                        f"PIPE_EXIT_ENGINE_DUPLICATE_BLOCK symbol={symbol} "
+                        f"side={close_side} "
+                        f"qty={abs(float(qty))} "
+                        f"reason={decision.reason} "
+                        f"sm_reason={sm_reason}",
+                        flush=True,
+                    )
                 return None
         except Exception as exc:
             print(f"PIPE_EXIT_ENGINE_SM_ERROR symbol={symbol} error={exc}", flush=True)
@@ -1972,10 +2003,13 @@ class PaperTradingPipeline:
             raw_intent["intent_type"] = "EXIT"
             raw_intent["source"] = "ExitEngine"
             raw_intent.setdefault("features", {})["is_exit"] = True
-            print(
+            # Русский комментарий: preopen/closed могут генерировать один и тот же time_exit каждую минуту.
+            # Логируем route с dedup, чтобы не засорять journal до открытия торгов.
+            self._log_dedup(
+                f"PIPE_EXIT_ENGINE_ROUTE:{sym}:{raw_intent.get('side')}:{raw_intent.get('reason')}",
                 f"PIPE_EXIT_ENGINE_ROUTE symbol={sym} side={raw_intent.get('side')} "
                 f"qty={raw_intent.get('qty')} reason={raw_intent.get('reason')}",
-                flush=True,
+                heartbeat_sec=300,
             )
 
             # Русский комментарий: broker snapshot не должен закрываться через paper-fill.
