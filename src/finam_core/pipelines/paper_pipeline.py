@@ -49,6 +49,7 @@ from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
 from finam_core.engine.coordinator_flags import CoordinatorFlags
+from finam_core.engine.restart_recovery_coordinator import RestartRecoveryCoordinator
 from finam_core.portfolio.portfolio_reconciliation_layer import PortfolioReconciliationLayer
 from finam_core.execution.entry_point_selector import EntryPointSelector
 from finam_core.execution.oco_order_manager import OcoOrderManager
@@ -362,6 +363,7 @@ class PaperTradingPipeline:
         self._broker_protection_missing_seen = set()
         # Русский комментарий: restart recovery выполняется один раз после запуска pipeline.
         self._restart_recovery_done = False
+        self.restart_recovery_coordinator = RestartRecoveryCoordinator(self)
         # Русский комментарий: дедупликация повторяющихся operational-логов.
         self._dedup_log_seen = {}
         # Русский комментарий: read-only слой активных брокерских заявок.
@@ -2188,58 +2190,13 @@ class PaperTradingPipeline:
 
 
     def _run_restart_recovery_if_needed(self) -> None:
-        """Русский комментарий: read-only восстановление broker positions/open orders после перезапуска."""
-        if getattr(self, "_restart_recovery_done", False):
-            return
+        """Русский комментарий: thin-wrapper для RestartRecoveryCoordinator."""
+        coordinator = getattr(self, "restart_recovery_coordinator", None)
+        if coordinator is None:
+            coordinator = RestartRecoveryCoordinator(self)
+            self.restart_recovery_coordinator = coordinator
 
-        if os.getenv("ENABLE_RESTART_RECOVERY", "0") != "1":
-            self._restart_recovery_done = True
-            return
-
-        try:
-            print("PIPE_RESTART_RECOVERY_START", flush=True)
-
-            self._sync_broker_positions_readonly()
-            self._sync_broker_open_orders_if_needed()
-
-            broker_positions = getattr(self, "_broker_position_qty_by_symbol", {}) or {}
-            broker_orders = getattr(self, "_broker_orders_by_symbol", {}) or {}
-
-            # Русский комментарий: gated reconciliation orchestration через TradingEngineCoordinator.
-            if CoordinatorFlags.reconcile_enabled():
-                coordinator = getattr(self, "engine_coordinator", None)
-                if coordinator is not None:
-                    result = coordinator.reconcile(
-                        broker_positions=[
-                            {"symbol": symbol, "qty": qty}
-                            for symbol, qty in broker_positions.items()
-                        ],
-                        broker_orders=[
-                            {"symbol": symbol, "orders": orders}
-                            for symbol, orders in broker_orders.items()
-                        ],
-                        context={"source": "restart_recovery"},
-                    )
-                    print(
-                        f"PIPE_ENGINE_COORDINATOR_RECONCILE "
-                        f"processed={getattr(result, 'reconciliation_processed', False)} "
-                        f"errors={getattr(result, 'errors', [])}",
-                        flush=True,
-                    )
-
-            self._refresh_broker_position_hard_gate()
-            halted = getattr(self, "_broker_position_halt_by_symbol", {}) or {}
-
-            print(
-                f"PIPE_RESTART_RECOVERY_DONE positions={len(broker_positions)} "
-                f"open_order_symbols={len(broker_orders)} halted_symbols={len(halted)}",
-                flush=True,
-            )
-            self._restart_recovery_done = True
-
-        except Exception as exc:
-            print(f"PIPE_RESTART_RECOVERY_ERROR error={exc}", flush=True)
-            self._restart_recovery_done = True
+        coordinator.run_if_needed()
 
 
     def _handle_trailing_replace_stop_decision(self, decision) -> None:
