@@ -98,6 +98,30 @@ where ts >= {since_expr}
 group by 1,2,3
 order by rejected desc;
 """,
+        "PNL_BY_SOURCE_SYMBOL": f"""
+select
+  coalesce(payload->'entry_payload'->>'origin',
+           payload->'entry_payload'->>'trade_source',
+           payload->'entry_payload'->>'execution_type',
+           trade_source,
+           'unknown') as source,
+  coalesce(symbol, 'UNKNOWN') as symbol,
+  coalesce(strategy, 'UNKNOWN') as strategy,
+  count(*) as closed_trades,
+  round(sum(net_pnl)::numeric, 4) as net_pnl,
+  round(avg(net_pnl)::numeric, 4) as avg_net_pnl,
+  round((sum(case when net_pnl > 0 then 1 else 0 end)::numeric / nullif(count(*), 0) * 100), 2) as winrate_pct,
+  round(
+    (sum(case when net_pnl > 0 then net_pnl else 0 end)::numeric /
+     nullif(abs(sum(case when net_pnl < 0 then net_pnl else 0 end))::numeric, 0)),
+    4
+  ) as profit_factor
+from closed_trades
+where coalesce(exit_ts, created_at) >= {since_expr}
+  and coalesce(payload->'entry_payload'->>'origin', '') <> 'backfill_from_fills'
+group by 1,2,3
+order by net_pnl desc;
+""",
         "CLOSED_TRADES_PERFORMANCE": f"""
 select
   coalesce(symbol, 'UNKNOWN') as symbol,
