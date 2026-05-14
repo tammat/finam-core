@@ -67,6 +67,7 @@ from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, Sym
 from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
 from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.strategy.strategy_factory import StrategyFactory
+from finam_core.strategy.strategy_runtime import StrategyRuntime
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -246,6 +247,10 @@ class PaperTradingPipeline:
         # Защита от AttributeError в multi-symbol strategy path.
         # Если strategy map не создана отдельной фабрикой, держим пустой словарь.
         self.strategy_by_symbol = getattr(self, "strategy_by_symbol", {})
+        # Русский комментарий:
+        # Новый runtime-слой стратегий. Старый strategy_by_symbol оставлен
+        # временно для обратной совместимости и безопасного rollback.
+        self.strategy_runtime = StrategyRuntime()
         self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
         self.position_order_tracker = PositionOrderTracker()
@@ -2950,11 +2955,7 @@ class PaperTradingPipeline:
                 if not is_force_intent:
                     # Русский комментарий:
                     # выбираем стратегию по symbol; если явной стратегии нет — используется default.
-                    if sym not in self.strategy_by_symbol:
-                        self.strategy_by_symbol[sym] = StrategyFactory.create(sym)
-
-                    strategy = self.strategy_by_symbol[sym]
-                    raw_intent = strategy.on_quote(st)
+                    raw_intent = self.strategy_runtime.on_quote(sym, st)
                 if PIPE_DEBUG:
                     print("DEBUG MR result:", raw_intent, flush=True)
 
