@@ -3958,6 +3958,23 @@ class PaperTradingPipeline:
             fill_id=getattr(raw_fill, "fill_id", None),
         )
 
+        # Русский комментарий: переносим metadata сигнала в fill для связи signals -> signal_fills -> trades -> closed_trades.
+        try:
+            signal_payload = {
+                "signal_id": intent.get("signal_id"),
+                "strategy": intent.get("strategy") or (intent.get("features") or {}).get("strategy"),
+                "horizon": intent.get("horizon") or intent.get("signal_horizon"),
+                "regime": intent.get("regime") or st.get("regime") or st.get("regime_trend"),
+                "timeframe": intent.get("timeframe"),
+            }
+            fill.signal_id = signal_payload.get("signal_id")
+            fill.payload = {
+                **(getattr(raw_fill, "payload", {}) if isinstance(getattr(raw_fill, "payload", None), dict) else {}),
+                **{k: v for k, v in signal_payload.items() if v is not None},
+            }
+        except Exception as exc:
+            LOG.warning("PIPE_FILL_METADATA_ATTACH_FAILED error=%s", exc)
+
         # SAFETY: гарантируем корректный fill (также qty > 0)
         if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
             LOG.error("FILL BUILD ERROR: invalid fill, intent=%s raw_fill=%s", intent, raw_fill)
