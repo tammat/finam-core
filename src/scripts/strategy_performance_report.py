@@ -98,6 +98,27 @@ where ts >= {since_expr}
 group by 1,2,3
 order by rejected desc;
 """,
+        "UNATTRIBUTED_CLOSED_TRADES": f"""
+select
+  coalesce(symbol, 'UNKNOWN') as symbol,
+  coalesce(trade_source, 'unknown') as trade_source,
+  count(*) as closed_trades,
+  round(sum(net_pnl)::numeric, 4) as net_pnl,
+  count(*) filter (
+    where coalesce(strategy, '') in ('', 'UNKNOWN')
+  ) as missing_strategy,
+  count(*) filter (
+    where coalesce(signal_id, '') = ''
+  ) as missing_signal_id
+from closed_trades
+where coalesce(exit_ts, created_at) >= {since_expr}
+  and (
+    coalesce(strategy, '') in ('', 'UNKNOWN')
+    or coalesce(signal_id, '') = ''
+  )
+group by 1,2
+order by closed_trades desc;
+""",
         "CLEAN_CLOSED_TRADES_PERFORMANCE": f"""
 select
   coalesce(payload->'entry_payload'->>'origin',
@@ -122,6 +143,8 @@ from closed_trades
 where coalesce(exit_ts, created_at) >= {since_expr}
   and payload ? 'entry_payload'
   and coalesce(payload->'entry_payload'->>'origin', '') <> 'backfill_from_fills'
+  and coalesce(strategy, payload->'entry_payload'->>'strategy', '') not in ('', 'UNKNOWN')
+  and coalesce(signal_id, payload->'entry_payload'->>'signal_id', '') <> ''
 group by 1,2,3,4,5
 order by net_pnl desc;
 """,
