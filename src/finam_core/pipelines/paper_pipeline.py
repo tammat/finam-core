@@ -21,6 +21,8 @@ from types import SimpleNamespace
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
 from finam_core.execution.profit_lock_engine import ProfitLockEngine
+from finam_core.execution.take_profit_engine import TakeProfitEngine
+from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
 from finam_core.execution.position_order_tracker import PositionOrderTracker
@@ -210,6 +212,8 @@ class PaperTradingPipeline:
         # ProfitLockEngine сопровождает прибыль до trailing:
         # qty=1 — только перенос stop; qty>1 — partial close + перенос stop.
         self.profit_lock_engine = ProfitLockEngine()
+        self.take_profit_engine = TakeProfitEngine()
+        self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
         self.trailing_order_event_repository = TrailingOrderEventRepository()
@@ -1228,6 +1232,62 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _evaluate_take_profit_engine(
+        self,
+        symbol: str,
+        qty: float,
+        price: float,
+        avg_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> None:
+        """Русский комментарий: dry-run take-profit расчёт без отправки заявок брокеру."""
+        if os.getenv("ENABLE_TAKE_PROFIT_ENGINE", "0") != "1":
+            return
+
+        try:
+            if qty <= 0 or price <= 0:
+                return
+
+            entry_price = float(avg_price or price)
+            base_stop = float(stop_price or (entry_price * (1.0 - float(os.getenv("TAKE_PROFIT_DEFAULT_STOP_PCT", "0.01")))))
+
+            decision = self.take_profit_engine.evaluate_long(
+                qty=float(qty),
+                entry_price=entry_price,
+                current_price=float(price),
+                stop_price=base_stop,
+            )
+
+            if decision.action == "HOLD":
+                return
+
+            self._log_dedup(
+                f"PIPE_TAKE_PROFIT_DECISION:{symbol}:{decision.action}:{decision.reason}",
+                f"PIPE_TAKE_PROFIT_DECISION symbol={symbol} action={decision.action} "
+                f"qty={qty} qty_to_close={decision.qty_to_close} "
+                f"price={price} entry={entry_price} base_stop={base_stop} "
+                f"take_price={decision.take_price} reason={decision.reason} dry_run=1",
+                heartbeat_sec=300,
+            )
+
+            self.take_profit_event_repository.log_event(
+                symbol=symbol,
+                action=decision.action,
+                qty=qty,
+                qty_to_close=decision.qty_to_close,
+                price=price,
+                entry_price=entry_price,
+                base_stop=base_stop,
+                take_price=decision.take_price,
+                reason=decision.reason,
+                dry_run=True,
+                raw={"source": "paper_pipeline", "engine": "TakeProfitEngine"},
+            )
+
+        except Exception as exc:
+            print(f"PIPE_TAKE_PROFIT_ERROR symbol={symbol} error={exc}", flush=True)
+
+
     def _evaluate_profit_lock_engine(
         self,
         symbol: str,
@@ -1567,7 +1627,14 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
-        # Русский комментарий: сначала фиксируем/защищаем прибыль, затем trailing.
+        # Русский комментарий: сначала считаем take-profit, затем profit-lock и trailing.
+        self._evaluate_take_profit_engine(
+            symbol=symbol,
+            qty=qty,
+            price=price,
+            avg_price=avg_price,
+            stop_price=None,
+        )
         self._evaluate_profit_lock_engine(
             symbol=symbol,
             qty=qty,

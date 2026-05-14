@@ -2,7 +2,7 @@
   "title": "Finam Core — Мобильный мониторинг",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 6,
+  "version": 7,
   "refresh": "10s",
   "panels": [
     {
@@ -231,6 +231,46 @@
           "format": "time_series",
           "rawQuery": true,
           "rawSql": "\nSELECT\n    ts AS \"time\",\n    new_stop AS value,\n    symbol AS metric\nFROM profit_lock_events\nWHERE $__timeFilter(ts)\n  AND new_stop IS NOT NULL\nORDER BY ts ASC\n"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "lineWidth": 2,
+          "showPoints": "always"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Take Profit Levels",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 116
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    ts AS \"time\",\n    take_price AS value,\n    symbol AS metric\nFROM take_profit_events\nWHERE $__timeFilter(ts)\n  AND take_price IS NOT NULL\nORDER BY ts ASC\n"
         }
       ],
       "fieldConfig": {
