@@ -16,6 +16,7 @@ python -m py_compile \
 ./scripts/test_pipeline_kernel_compile.sh
 ./scripts/test_execution_gateway_compile.sh
 ./scripts/test_trading_engine_coordinator.sh
+./scripts/test_engine_coordinator_flags.sh
 ./scripts/test_engine_coordinator_full_smoke.sh
 ./scripts/test_engine_coordinator_master_recovery_hook.sh
 

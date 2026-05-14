@@ -48,6 +48,7 @@ from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
+from finam_core.engine.coordinator_flags import CoordinatorFlags
 from finam_core.portfolio.portfolio_reconciliation_layer import PortfolioReconciliationLayer
 from finam_core.execution.entry_point_selector import EntryPointSelector
 from finam_core.execution.oco_order_manager import OcoOrderManager
@@ -2205,7 +2206,7 @@ class PaperTradingPipeline:
             broker_orders = getattr(self, "_broker_orders_by_symbol", {}) or {}
 
             # Русский комментарий: gated reconciliation orchestration через TradingEngineCoordinator.
-            if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_RECONCILE", "0") == "1"):
+            if CoordinatorFlags.reconcile_enabled():
                 coordinator = getattr(self, "engine_coordinator", None)
                 if coordinator is not None:
                     result = coordinator.reconcile(
@@ -2437,7 +2438,7 @@ class PaperTradingPipeline:
 
     def _dispatch_order_if_enabled(self, intent: dict, market_state: dict):
         """Русский комментарий: gated execution route через TradingEngineCoordinator."""
-        if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_EXECUTION_ROUTE", "0") == "1"):
+        if CoordinatorFlags.execution_route_enabled():
             coordinator = getattr(self, "engine_coordinator", None)
             if coordinator is not None:
                 routed = coordinator.route_execution(intent, market_state)
@@ -2510,7 +2511,7 @@ class PaperTradingPipeline:
 
     def _on_quote(self, event) -> None:
         """Русский комментарий: thin-wrapper quote path с безопасным флагом Coordinator."""
-        if (os.getenv("ENABLE_ENGINE_COORDINATOR", "0") == "1" or os.getenv("ENABLE_ENGINE_COORDINATOR_ON_QUOTE", "0") == "1"):
+        if CoordinatorFlags.on_quote_enabled():
             coordinator = getattr(self, "engine_coordinator", None)
             if coordinator is not None:
                 # Русский комментарий: сохраняем startup/restart recovery перед новым coordinator quote path.
