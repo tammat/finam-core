@@ -27,6 +27,7 @@ from finam_core.execution.take_profit_engine import TakeProfitEngine
 from finam_core.execution.partial_close_engine import PartialCloseEngine
 from finam_core.execution.position_lifecycle_state_repository import PositionLifecycleStateRepository
 from finam_core.execution.position_lifecycle_reconciler import PositionLifecycleReconciler
+from finam_core.execution.position_lifecycle_reconcile_event_repository import PositionLifecycleReconcileEventRepository
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
@@ -234,6 +235,7 @@ class PaperTradingPipeline:
         self.partial_close_engine = PartialCloseEngine()
         self.position_lifecycle_state_repository = PositionLifecycleStateRepository()
         self.position_lifecycle_reconciler = PositionLifecycleReconciler()
+        self.position_lifecycle_reconcile_event_repository = PositionLifecycleReconcileEventRepository()
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
@@ -1283,6 +1285,18 @@ class PaperTradingPipeline:
 
             if decision.action == "OK":
                 return
+
+            event_repo = getattr(self, "position_lifecycle_reconcile_event_repository", None)
+            if event_repo is not None:
+                event_repo.log_event(
+                    symbol=symbol,
+                    strategy=strategy,
+                    action=decision.action,
+                    expected_qty=decision.expected_qty,
+                    actual_qty=decision.actual_qty,
+                    reason=decision.reason,
+                    raw={"source": "paper_pipeline"},
+                )
 
             if decision.action == "CLEAR_STATE":
                 deleted = repo.delete_state(symbol=symbol, strategy=strategy)

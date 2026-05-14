@@ -2,7 +2,7 @@
   "title": "Finam Core — Мобильный мониторинг",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 8,
+  "version": 9,
   "refresh": "10s",
   "panels": [
     {
@@ -404,6 +404,37 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "\nSELECT\n    ts AS \"time\",\n    symbol,\n    action,\n    qty,\n    stop_price,\n    reason,\n    dry_run\nFROM trailing_order_events\nORDER BY ts DESC\nLIMIT 300\n"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Lifecycle Reconciliation Events",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 156
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    ts AS \"time\",\n    symbol,\n    strategy,\n    action,\n    expected_qty,\n    actual_qty,\n    reason\nFROM position_lifecycle_reconcile_events\nORDER BY ts DESC\nLIMIT 300\n"
         }
       ],
       "options": {
