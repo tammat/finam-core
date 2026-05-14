@@ -159,3 +159,30 @@ class PositionLifecycleStateRepository:
         except Exception as exc:
             print(f"POSITION_LIFECYCLE_STATE_LOAD_FAILED error={exc}", flush=True)
             return None
+
+    def delete_state(
+        self,
+        *,
+        symbol: str,
+        strategy: str = "default",
+    ) -> bool:
+        """Русский комментарий: удаляет lifecycle state после закрытия позиции."""
+        if not self.enabled:
+            return False
+
+        try:
+            with psycopg2.connect(self.database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        DELETE FROM position_lifecycle_state
+                        WHERE symbol = %s
+                          AND strategy = %s
+                        """,
+                        (symbol, strategy),
+                    )
+                    return cur.rowcount > 0
+        except Exception as exc:
+            print(f"POSITION_LIFECYCLE_STATE_DELETE_FAILED error={exc}", flush=True)
+            return False
+

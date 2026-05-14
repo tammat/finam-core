@@ -26,6 +26,7 @@ from finam_core.execution.profit_lock_engine import ProfitLockEngine
 from finam_core.execution.take_profit_engine import TakeProfitEngine
 from finam_core.execution.partial_close_engine import PartialCloseEngine
 from finam_core.execution.position_lifecycle_state_repository import PositionLifecycleStateRepository
+from finam_core.execution.position_lifecycle_reconciler import PositionLifecycleReconciler
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
@@ -232,6 +233,7 @@ class PaperTradingPipeline:
         self.take_profit_engine = TakeProfitEngine()
         self.partial_close_engine = PartialCloseEngine()
         self.position_lifecycle_state_repository = PositionLifecycleStateRepository()
+        self.position_lifecycle_reconciler = PositionLifecycleReconciler()
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
@@ -1251,6 +1253,71 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _reconcile_position_lifecycle_state(
+        self,
+        *,
+        symbol: str,
+        actual_qty: float,
+        strategy: str = "default",
+    ) -> None:
+        """Русский комментарий: сверяет persistent lifecycle state с фактической позицией."""
+        if os.getenv("ENABLE_POSITION_LIFECYCLE_RECONCILIATION", "1") != "1":
+            return
+
+        try:
+            repo = getattr(self, "position_lifecycle_state_repository", None)
+            reconciler = getattr(self, "position_lifecycle_reconciler", None)
+
+            if repo is None or reconciler is None:
+                return
+
+            state = repo.load_state(symbol=symbol, strategy=strategy)
+            if not state:
+                return
+
+            decision = reconciler.reconcile(
+                symbol=symbol,
+                expected_remaining_qty=state.get("remaining_qty"),
+                actual_qty=actual_qty,
+            )
+
+            if decision.action == "OK":
+                return
+
+            if decision.action == "CLEAR_STATE":
+                deleted = repo.delete_state(symbol=symbol, strategy=strategy)
+                self._trailing_order_stop_by_symbol.pop(symbol, None)
+                print(
+                    f"PIPE_POSITION_LIFECYCLE_RECONCILE_CLEAR symbol={symbol} "
+                    f"expected_qty={decision.expected_qty} actual_qty={decision.actual_qty} "
+                    f"deleted={int(bool(deleted))} reason={decision.reason}",
+                    flush=True,
+                )
+                return
+
+            if decision.action == "UPDATE_REMAINING_QTY":
+                repo.upsert_state(
+                    symbol=symbol,
+                    strategy=strategy,
+                    remaining_qty=decision.actual_qty,
+                    raw={
+                        "source": "position_lifecycle_reconciliation",
+                        "reason": decision.reason,
+                        "expected_qty": decision.expected_qty,
+                        "actual_qty": decision.actual_qty,
+                    },
+                )
+                print(
+                    f"PIPE_POSITION_LIFECYCLE_RECONCILE_UPDATE symbol={symbol} "
+                    f"expected_qty={decision.expected_qty} actual_qty={decision.actual_qty} "
+                    f"reason={decision.reason}",
+                    flush=True,
+                )
+
+        except Exception as exc:
+            print(f"PIPE_POSITION_LIFECYCLE_RECONCILE_FAILED symbol={symbol} error={exc}", flush=True)
+
+
     def _load_position_lifecycle_state_for_symbol(
         self,
         symbol: str,
@@ -1805,6 +1872,11 @@ class PaperTradingPipeline:
                 state["last_broker_qty_logged"] = broker_qty
 
         self._log_position_order_state_if_changed(symbol, qty)
+        self._reconcile_position_lifecycle_state(
+            symbol=symbol,
+            actual_qty=float(qty or 0.0),
+            strategy="default",
+        )
 
         now_ts = time.time()
         has_position = abs(float(qty or 0.0)) > 1e-9
