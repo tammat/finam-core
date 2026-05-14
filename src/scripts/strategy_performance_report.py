@@ -98,6 +98,30 @@ where ts >= {since_expr}
 group by 1,2,3
 order by rejected desc;
 """,
+        "CLOSED_TRADES_PERFORMANCE": f"""
+select
+  coalesce(symbol, 'UNKNOWN') as symbol,
+  coalesce(strategy, 'UNKNOWN') as strategy,
+  coalesce(horizon, 'UNKNOWN') as horizon,
+  coalesce(regime, 'UNKNOWN') as regime,
+  coalesce(trade_source, 'unknown') as trade_source,
+  count(*) as closed_trades,
+  round(sum(net_pnl)::numeric, 4) as net_pnl,
+  round(sum(gross_pnl)::numeric, 4) as gross_pnl,
+  round(sum(commission)::numeric, 4) as commission,
+  round(avg(net_pnl)::numeric, 4) as avg_net_pnl,
+  round((sum(case when net_pnl > 0 then 1 else 0 end)::numeric / nullif(count(*), 0) * 100), 2) as winrate_pct,
+  round(
+    (sum(case when net_pnl > 0 then net_pnl else 0 end)::numeric /
+     nullif(abs(sum(case when net_pnl < 0 then net_pnl else 0 end))::numeric, 0)),
+    4
+  ) as profit_factor,
+  round(avg(hold_seconds)::numeric, 2) as avg_hold_seconds
+from closed_trades
+where coalesce(exit_ts, created_at) >= {since_expr}
+group by 1,2,3,4,5
+order by net_pnl desc;
+""",
         "RECENT_TRADES": f"""
 select
   ts,
