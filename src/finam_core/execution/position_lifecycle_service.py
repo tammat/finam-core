@@ -199,6 +199,14 @@ class PositionLifecycleService:
                 p._handle_trailing_replace_stop_decision(decision)
 
 
+    def _evaluate_partial_close_engine(self, **kwargs) -> None:
+        """Русский комментарий: fallback на pipeline до полного переноса partial-close."""
+        return self.pipeline._evaluate_partial_close_engine(**kwargs)
+
+    def _evaluate_profit_lock_engine(self, **kwargs) -> None:
+        """Русский комментарий: fallback на pipeline до полного переноса profit-lock."""
+        return self.pipeline._evaluate_profit_lock_engine(**kwargs)
+
     def on_position_quote(self, data: PositionLifecycleInput) -> None:
         p = self.pipeline
 
