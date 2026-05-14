@@ -2200,10 +2200,33 @@ class PaperTradingPipeline:
 
             self._sync_broker_positions_readonly()
             self._sync_broker_open_orders_if_needed()
-            self._refresh_broker_position_hard_gate()
 
             broker_positions = getattr(self, "_broker_position_qty_by_symbol", {}) or {}
             broker_orders = getattr(self, "_broker_orders_by_symbol", {}) or {}
+
+            # Русский комментарий: gated reconciliation orchestration через TradingEngineCoordinator.
+            if os.getenv("ENABLE_ENGINE_COORDINATOR_RECONCILE", "0") == "1":
+                coordinator = getattr(self, "engine_coordinator", None)
+                if coordinator is not None:
+                    result = coordinator.reconcile(
+                        broker_positions=[
+                            {"symbol": symbol, "qty": qty}
+                            for symbol, qty in broker_positions.items()
+                        ],
+                        broker_orders=[
+                            {"symbol": symbol, "orders": orders}
+                            for symbol, orders in broker_orders.items()
+                        ],
+                        context={"source": "restart_recovery"},
+                    )
+                    print(
+                        f"PIPE_ENGINE_COORDINATOR_RECONCILE "
+                        f"processed={getattr(result, 'reconciliation_processed', False)} "
+                        f"errors={getattr(result, 'errors', [])}",
+                        flush=True,
+                    )
+
+            self._refresh_broker_position_hard_gate()
             halted = getattr(self, "_broker_position_halt_by_symbol", {}) or {}
 
             print(
