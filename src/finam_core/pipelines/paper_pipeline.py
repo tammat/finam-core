@@ -1251,6 +1251,42 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _load_position_lifecycle_state_for_symbol(
+        self,
+        symbol: str,
+        strategy: str = "default",
+    ) -> dict | None:
+        """Русский комментарий: загружает persistent lifecycle state позиции при runtime/startup."""
+        try:
+            repo = getattr(self, "position_lifecycle_state_repository", None)
+            if repo is None:
+                return None
+
+            state = repo.load_state(symbol=symbol, strategy=strategy)
+            if not state:
+                return None
+
+            # Русский комментарий: восстанавливаем trailing stop runtime cache.
+            current_stop = state.get("current_stop")
+            if current_stop is not None:
+                self._trailing_order_stop_by_symbol[symbol] = float(current_stop)
+
+            print(
+                f"PIPE_POSITION_LIFECYCLE_STATE_LOADED symbol={symbol} "
+                f"strategy={strategy} remaining_qty={state.get('remaining_qty')} "
+                f"tp1_done={state.get('tp1_done')} tp2_done={state.get('tp2_done')} "
+                f"trailing_active={state.get('trailing_active')} current_stop={state.get('current_stop')} "
+                f"current_take_profit={state.get('current_take_profit')}",
+                flush=True,
+            )
+
+            return state
+
+        except Exception as exc:
+            print(f"PIPE_POSITION_LIFECYCLE_STATE_LOAD_FAILED symbol={symbol} error={exc}", flush=True)
+            return None
+
+
     def _save_position_lifecycle_state(
         self,
         *,
@@ -1310,14 +1346,15 @@ class PaperTradingPipeline:
             entry_price = float(avg_price or price)
             base_stop = float(stop_price or (entry_price * (1.0 - float(os.getenv("PARTIAL_CLOSE_DEFAULT_STOP_PCT", "0.01")))))
 
-            # Русский комментарий: пока состояние TP1/TP2 не persist, считаем только dry-run.
+            lifecycle_state = self._load_position_lifecycle_state_for_symbol(symbol) or {}
+
             decision = self.partial_close_engine.evaluate_long(
                 qty=float(qty),
                 entry_price=entry_price,
                 current_price=float(price),
                 stop_price=base_stop,
-                tp1_done=False,
-                tp2_done=False,
+                tp1_done=bool(lifecycle_state.get("tp1_done", False)),
+                tp2_done=bool(lifecycle_state.get("tp2_done", False)),
             )
 
             if decision.action == "HOLD":
@@ -1517,7 +1554,12 @@ class PaperTradingPipeline:
             self._trailing_order_stop_by_symbol.pop(symbol, None)
             return
 
+        lifecycle_state = self._load_position_lifecycle_state_for_symbol(symbol) or {}
         current_stop = self._trailing_order_stop_by_symbol.get(symbol)
+
+        if current_stop is None and lifecycle_state.get("current_stop") is not None:
+            current_stop = float(lifecycle_state["current_stop"])
+
         decision = self.trailing_order_manager.evaluate_long(
             symbol=symbol,
             qty=qty,
