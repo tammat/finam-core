@@ -54,6 +54,7 @@ from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
 from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
 from finam_core.analytics.signal_repository import SignalRepository
+from finam_core.strategy.strategy_factory import StrategyFactory
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -1031,6 +1032,11 @@ class PaperTradingPipeline:
         # Русский комментарий: self-healing init на случай старого/альтернативного конструктора pipeline.
         if not hasattr(self, "_runtime_log_dedup") or self._runtime_log_dedup is None:
             self._runtime_log_dedup = {}
+
+        # Русский комментарий:
+        # отдельный экземпляр стратегии на каждый symbol, чтобы не смешивать state.
+        self.strategy_by_symbol = {}
+
 
         last = self._runtime_log_dedup.get(key)
 
@@ -2420,7 +2426,13 @@ class PaperTradingPipeline:
                     print("DEBUG using mean_reversion", flush=True)
 
                 if not is_force_intent:
-                    raw_intent = self.mean_reversion.on_quote(st)
+                    # Русский комментарий:
+                    # выбираем стратегию по symbol; если явной стратегии нет — используется default.
+                    if sym not in self.strategy_by_symbol:
+                        self.strategy_by_symbol[sym] = StrategyFactory.create(sym)
+
+                    strategy = self.strategy_by_symbol[sym]
+                    raw_intent = strategy.on_quote(st)
                 if PIPE_DEBUG:
                     print("DEBUG MR result:", raw_intent, flush=True)
 
