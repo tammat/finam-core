@@ -3,6 +3,8 @@
 # QUOTE -> Strategy -> Risдавайk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
 
 from __future__ import annotations
+
+from finam_core.pipelines.pipeline_orchestrator import PipelineOrchestrator, QuoteEventContext
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
@@ -258,6 +260,7 @@ class PaperTradingPipeline:
         # временно для обратной совместимости и безопасного rollback.
         self.strategy_runtime = StrategyRuntime()
         self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
+        self.pipeline_orchestrator = PipelineOrchestrator(self)
         self.trend_filter = TrendFilter()
         self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
@@ -2441,7 +2444,16 @@ class PaperTradingPipeline:
         return result
 
 
-    def _on_quote(self, event: dict):
+    def _on_quote(self, event) -> None:
+        """Русский комментарий: thin-wrapper, передающий quote в PipelineOrchestrator."""
+        if not hasattr(self, "pipeline_orchestrator"):
+            self.pipeline_orchestrator = PipelineOrchestrator(self)
+
+        return self.pipeline_orchestrator.on_quote(
+            QuoteEventContext(event=event)
+        )
+
+    def _on_quote_impl(self, event: dict):
         raw_intent = None
         is_exit_intent = False
         is_force_intent = False
