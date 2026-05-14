@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from finam_core.pipelines.quote_normalizer import NormalizedQuote, QuoteNormalizer
 
 
 @dataclass(frozen=True)
@@ -29,4 +30,9 @@ class PipelineOrchestrator:
         self.pipeline = pipeline
 
     def on_quote(self, context: QuoteEventContext) -> None:
-        return self.pipeline._on_quote_impl(context.event)
+        """Русский комментарий: нормализует quote и передаёт дальше в текущий pipeline."""
+        normalized = QuoteNormalizer.normalize(context.event)
+
+        return self.pipeline._on_quote_impl(
+            normalized.raw_event
+        )
