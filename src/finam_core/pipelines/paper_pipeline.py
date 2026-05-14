@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
+from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
 from finam_core.execution.position_order_tracker import PositionOrderTracker
 from finam_core.reconciliation.portfolio_reconciliation_repair import PortfolioReconciliationRepair
 from finam_core.execution.open_orders_sync import OpenOrdersSync
@@ -204,6 +205,7 @@ class PaperTradingPipeline:
             min_replace_step=float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")),
         )
         self._trailing_order_stop_by_symbol = {}
+        self.trailing_order_event_repository = TrailingOrderEventRepository()
         # Русский комментарий: read-only сопоставление позиций и активных защитных заявок.
         self.position_order_tracker = PositionOrderTracker()
         self._broker_orders_by_symbol = {}
@@ -1272,6 +1274,21 @@ class PaperTradingPipeline:
                 f"stop={decision.stop_price} reason={decision.reason} dry_run=1",
                 flush=True,
             )
+
+            self.trailing_order_event_repository.log_event(
+                symbol=decision.symbol,
+                action=decision.action,
+                side=decision.side,
+                qty=decision.qty,
+                stop_price=decision.stop_price,
+                reason=decision.reason,
+                dry_run=True,
+                raw={
+                    "source": "paper_pipeline",
+                    "manager": "TrailingOrderManager",
+                },
+            )
+
             self._handle_trailing_replace_stop_decision(decision)
 
 

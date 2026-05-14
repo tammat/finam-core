@@ -2,7 +2,7 @@
   "title": "Finam Core — Мобильный мониторинг",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "10s",
   "panels": [
     {
@@ -170,6 +170,46 @@
           "rawSql": "SELECT id AS \"ID\", event_type AS \"Тип события\", worker_name AS \"Worker\", error_type AS \"Ошибка\", error_message AS \"Описание\", resolved AS \"Решено\", created_at AS \"Создано\" FROM v_dlq_dashboard LIMIT 20"
         }
       ]
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Trailing Stop Movement",
+      "datasource": {
+        "type": "postgres",
+        "uid": "PBF3EFCF229E3034"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "\nSELECT\n    ts as \"time\",\n    stop_price as value,\n    symbol as metric\nFROM trailing_order_events\nWHERE $__timeFilter(ts)\n  AND action IN ('PLACE_STOP', 'REPLACE_STOP')\nORDER BY ts ASC\n"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "lineWidth": 2,
+          "showPoints": "always"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ],
   "style": "dark",
