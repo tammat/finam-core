@@ -45,6 +45,7 @@ def load_fills(conn) -> list[TradeFill]:
             WHERE t.origin = 'paper'
                OR t.trade_source = 'paper'
                OR t.payload::text ILIKE '%paper%'
+              AND COALESCE(t.origin, '') != 'backfill_from_fills'
             ORDER BY t.symbol, t.ts, t.id
             """
         )
