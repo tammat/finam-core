@@ -60,6 +60,7 @@ from finam_core.risk.portfolio_heat import PortfolioHeatEngine
 from finam_core.risk.kill_switch import KillSwitchEngine
 from finam_core.risk.correlation_risk import CorrelationRiskEngine
 from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
+from finam_core.risk.risk_router import RiskRouteInput, RiskRouter
 from finam_core.signals.signal_router import SignalRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
@@ -73,6 +74,7 @@ from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.strategy.strategy_factory import StrategyFactory
 from finam_core.strategy.strategy_runtime import StrategyRuntime
 from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
+from finam_core.strategy.signal_router import SignalRouteInput, SignalRouter
 from finam_core.strategy.trend_filter import TrendFilter
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
@@ -260,6 +262,7 @@ class PaperTradingPipeline:
         # временно для обратной совместимости и безопасного rollback.
         self.strategy_runtime = StrategyRuntime()
         self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
+        self.signal_router = SignalRouter(self.quote_signal_processor)
         self.pipeline_orchestrator = PipelineOrchestrator(self)
         self.trend_filter = TrendFilter()
         self.trailing_order_event_repository = TrailingOrderEventRepository()
@@ -308,7 +311,8 @@ class PaperTradingPipeline:
         self.kill_switch = KillSwitchEngine()
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
-        self.signal_router = SignalRouter()
+        self.risk_router = RiskRouter(self)
+        self.signal_router = SignalRouter(self.quote_signal_processor)
         # Русский комментарий: EntryPointSelector рассчитывает entry/stop/take до выбора типа заявки.
         self.entry_point_selector = EntryPointSelector(
             tick_size=float(os.getenv("ENTRY_TICK_SIZE", "0.01")),
@@ -2597,14 +2601,14 @@ class PaperTradingPipeline:
                     px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask") or price
                     intent["price"] = float(px)
 
-                ctx = build_risk_context(intent, self.portfolio, st)
-                print(
-                    f"PIPE_EXIT_HARD_RISK_CTX symbol={ctx.symbol} qty={ctx.qty} price={ctx.price} "
-                    f"value={ctx.trade_value} exposure={ctx.total_exposure}",
-                    flush=True,
+                decision = self.risk_router.route(
+                    RiskRouteInput(
+                        symbol=sym,
+                        intent=intent,
+                        state=st,
+                        label="PIPE_EXIT_HARD_RISK",
+                    )
                 )
-
-                decision = self.risk.evaluate(signal=intent, context=ctx)
                 if not getattr(decision, "allowed", False):
                     print(
                         f"PIPE_EXIT_HARD_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
@@ -2980,8 +2984,8 @@ class PaperTradingPipeline:
                 if not is_force_intent:
                     # Русский комментарий:
                     # выбираем стратегию по symbol; если явной стратегии нет — используется default.
-                    raw_intent = self.quote_signal_processor.process(
-                        QuoteSignalInput(
+                    raw_intent = self.signal_router.route(
+                        SignalRouteInput(
                             symbol=sym,
                             state=st,
                         )
@@ -3577,15 +3581,14 @@ class PaperTradingPipeline:
         # === RISK (PRODUCTION MODE)
         # =========================================================
         try:
-            ctx = build_risk_context(intent, self.portfolio, st)
-
-            print(
-                f"PIPE_RISK_CTX symbol={ctx.symbol} qty={ctx.qty} price={ctx.price} "
-                f"value={ctx.trade_value} exposure={ctx.total_exposure}",
-                flush=True,
+            decision = self.risk_router.route(
+                RiskRouteInput(
+                    symbol=sym,
+                    intent=intent,
+                    state=st,
+                    label="PIPE_RISK",
+                )
             )
-
-            decision = self.risk.evaluate(signal=intent, context=ctx)
 
             # === DEBUG RISK DECISION (CRITICAL VISIBILITY) ===
             try:
