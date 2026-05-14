@@ -20,6 +20,8 @@ from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
 from finam_core.execution.trailing_order_manager import TrailingOrderManager
+from finam_core.execution.real_protective_lifecycle import RealProtectiveLifecycleEngine
+from finam_core.execution.protective_order_link_repository import ProtectiveOrderLinkRepository
 from finam_core.execution.profit_lock_engine import ProfitLockEngine
 from finam_core.execution.take_profit_engine import TakeProfitEngine
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
@@ -207,6 +209,12 @@ class PaperTradingPipeline:
         self.trailing_order_manager = TrailingOrderManager(
             trail_abs=float(os.getenv("TRAILING_ORDER_TRAIL_ABS", "0.40")),
             min_replace_step=float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")),
+        )
+        # Русский комментарий:
+        # Реальный lifecycle защитных stop-заявок выключен по умолчанию hard-gate env.
+        self.real_protective_lifecycle = RealProtectiveLifecycleEngine(
+            orders_client=FinamOrdersClient(),
+            link_repository=ProtectiveOrderLinkRepository(),
         )
         # Русский комментарий:
         # ProfitLockEngine сопровождает прибыль до trailing:
@@ -1373,11 +1381,10 @@ class PaperTradingPipeline:
 
         dry_run = os.getenv("TRAILING_ORDER_DRY_RUN", "1") == "1"
         if not dry_run:
-            print(
-                f"PIPE_TRAILING_ORDER_SKIP symbol={symbol} reason=non_dry_run_not_implemented",
-                flush=True,
-            )
-            return
+            # Русский комментарий:
+            # Реальный режим: trailing decision может быть отправлен брокеру только через
+            # RealProtectiveLifecycleEngine, который имеет собственные hard-gates.
+            pass
 
         qty = float(qty or 0.0)
         price = float(price)
@@ -1419,7 +1426,24 @@ class PaperTradingPipeline:
                 },
             )
 
-            self._handle_trailing_replace_stop_decision(decision)
+            if not dry_run:
+                result = self.real_protective_lifecycle.place_or_replace_stop(
+                    symbol=decision.symbol,
+                    side=decision.side,
+                    qty=decision.qty,
+                    stop_price=decision.stop_price,
+                    entry_order_id=None,
+                    old_order_id=None,
+                    reason=decision.reason,
+                )
+                print(
+                    f"PIPE_REAL_PROTECTIVE_LIFECYCLE_RESULT symbol={decision.symbol} "
+                    f"action={result.action} executed={int(result.executed)} "
+                    f"status={result.status} order_id={result.order_id} reason={result.reason}",
+                    flush=True,
+                )
+            else:
+                self._handle_trailing_replace_stop_decision(decision)
 
 
     def _log_position_order_state_if_changed(self, symbol: str, qty: float) -> None:
