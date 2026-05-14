@@ -24,6 +24,7 @@ from finam_core.execution.real_protective_lifecycle import RealProtectiveLifecyc
 from finam_core.execution.protective_order_link_repository import ProtectiveOrderLinkRepository
 from finam_core.execution.profit_lock_engine import ProfitLockEngine
 from finam_core.execution.take_profit_engine import TakeProfitEngine
+from finam_core.execution.partial_close_engine import PartialCloseEngine
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
 from finam_core.execution.trailing_order_event_repository import TrailingOrderEventRepository
@@ -228,6 +229,7 @@ class PaperTradingPipeline:
         # qty=1 — только перенос stop; qty>1 — partial close + перенос stop.
         self.profit_lock_engine = ProfitLockEngine()
         self.take_profit_engine = TakeProfitEngine()
+        self.partial_close_engine = PartialCloseEngine()
         self.take_profit_event_repository = TakeProfitEventRepository()
         self.profit_lock_event_repository = ProfitLockEventRepository()
         self._trailing_order_stop_by_symbol = {}
@@ -1247,6 +1249,51 @@ class PaperTradingPipeline:
         return abs(float(price)) * pct
 
 
+    def _evaluate_partial_close_engine(
+        self,
+        symbol: str,
+        qty: float,
+        price: float,
+        avg_price: float | None = None,
+        stop_price: float | None = None,
+    ) -> None:
+        """Русский комментарий: dry-run расчёт частичного закрытия без отправки заявок."""
+        if os.getenv("ENABLE_PARTIAL_CLOSE_ENGINE", "0") != "1":
+            return
+
+        try:
+            if qty <= 0 or price <= 0:
+                return
+
+            entry_price = float(avg_price or price)
+            base_stop = float(stop_price or (entry_price * (1.0 - float(os.getenv("PARTIAL_CLOSE_DEFAULT_STOP_PCT", "0.01")))))
+
+            # Русский комментарий: пока состояние TP1/TP2 не persist, считаем только dry-run.
+            decision = self.partial_close_engine.evaluate_long(
+                qty=float(qty),
+                entry_price=entry_price,
+                current_price=float(price),
+                stop_price=base_stop,
+                tp1_done=False,
+                tp2_done=False,
+            )
+
+            if decision.action == "HOLD":
+                return
+
+            self._log_dedup(
+                f"PIPE_PARTIAL_CLOSE_DECISION:{symbol}:{decision.stage}:{decision.reason}",
+                f"PIPE_PARTIAL_CLOSE_DECISION symbol={symbol} action={decision.action} "
+                f"stage={decision.stage} qty={qty} qty_to_close={decision.qty_to_close} "
+                f"remaining_qty={decision.remaining_qty} price={price} entry={entry_price} "
+                f"base_stop={base_stop} reason={decision.reason} dry_run=1",
+                heartbeat_sec=300,
+            )
+
+        except Exception as exc:
+            print(f"PIPE_PARTIAL_CLOSE_ERROR symbol={symbol} error={exc}", flush=True)
+
+
     def _evaluate_take_profit_engine(
         self,
         symbol: str,
@@ -1721,6 +1768,13 @@ class PaperTradingPipeline:
         # Русский комментарий:
         # lifecycle сопровождения запускаем только после подтверждения qty и avg_price.
         self._evaluate_take_profit_engine(
+            symbol=symbol,
+            qty=abs(float(qty)),
+            price=float(price),
+            avg_price=float(avg_price),
+            stop_price=None,
+        )
+        self._evaluate_partial_close_engine(
             symbol=symbol,
             qty=abs(float(qty)),
             price=float(price),
