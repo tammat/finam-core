@@ -46,6 +46,11 @@ class ContractIdentityResolver:
 
         match = cls.FUTURES_PATTERN.match(normalized_symbol)
 
+        # Русский комментарий: futures-логика применяется только к срочному рынку RTSX.
+        # Иначе акции вроде OZON@MISX ошибочно превращаются в OZO_CONT.
+        if venue != "RTSX":
+            match = None
+
         if not match:
             return ContractIdentity(
                 symbol=normalized_symbol,

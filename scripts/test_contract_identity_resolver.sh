@@ -15,6 +15,8 @@ cases = {
     "NGK6@RTSX": ("NG", "NG_CONT", "K", "6", True),
     "USDRUBF@RTSX": ("USDRUB", "USDRUB_CONT", "F", "", True),
     "SBER@MISX": ("SBER", "SBER", None, None, False),
+    "OZON@MISX": ("OZON", "OZON", None, None, False),
+    "SFIN@MISX": ("SFIN", "SFIN", None, None, False),
 }
 
 for symbol, expected in cases.items():
