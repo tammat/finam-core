@@ -17,7 +17,7 @@ class SignalIntent:
 
     symbol: str
     side: str
-    strategy: str
+    strategy: str = "UNKNOWN_STRATEGY"
 
     qty: float = 1.0
     intent_type: str = "ENTRY"
