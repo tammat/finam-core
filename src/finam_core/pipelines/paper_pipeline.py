@@ -3167,12 +3167,17 @@ class PaperTradingPipeline:
             rr = 2.0
             take_distance = stop_distance * rr
 
+            strategy_name = self._strategy_name_for_symbol(sym)
+
             raw_intent = {
                 "symbol": sym,
                 "side": entry_side,
                 "qty": qty,
                 "price": curr_price,
+                "strategy": strategy_name,
+                "source": "smart_entry_retest",
                 "features": {
+                    "strategy": strategy_name,
                     "stop": curr_price - stop_distance if entry_side == "BUY" else curr_price + stop_distance,
                     "take": curr_price + take_distance if entry_side == "BUY" else curr_price - take_distance,
                     "rr": rr,
@@ -4346,6 +4351,15 @@ class PaperTradingPipeline:
             self.pg_logger.log_trade(trade)
 
 
+
+
+    def _strategy_name_for_symbol(self, symbol: str) -> str:
+        """Русский комментарий: возвращает человекочитаемое имя стратегии для runtime-control."""
+        try:
+            from finam_core.strategy.symbol_strategy_map import SYMBOL_STRATEGY_MAP, DEFAULT_STRATEGY
+            return str(SYMBOL_STRATEGY_MAP.get(symbol, DEFAULT_STRATEGY))
+        except Exception:
+            return "default"
 
     def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
         """Русский комментарий: runtime-control для paper fills по результатам Strategy Performance Monitor."""
