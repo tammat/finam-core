@@ -2719,6 +2719,10 @@ class PaperTradingPipeline:
                     fill_id=getattr(raw_fill, "fill_id", None),
                 )
 
+                # Русский комментарий: exit/hard-close PAPER fill тоже должен нести metadata для analytics lineage.
+                FillMetadataFactory.attach(fill, intent=intent, market_state=st, raw_fill=raw_fill)
+
+
                 self.bus.publish({"type": "FILL", "fill": fill})
                 try:
                     self.exit_state_machine.on_fill(str(intent.get("symbol") or ""))
