@@ -4224,11 +4224,13 @@ class PaperTradingPipeline:
                     from finam_core.contracts.contract_identity_resolver import ContractIdentityResolver
                     identity = ContractIdentityResolver.resolve(fill_symbol)
                     payload.setdefault("root_symbol", identity.root)
-                    payload.setdefault("continuous_symbol", identity.continuous)
+                    payload.setdefault("continuous_symbol", identity.continuous if identity.is_futures else fill_symbol)
                     payload.setdefault("futures_month_code", identity.month_code)
                     payload.setdefault("futures_year_code", identity.year_code)
                     payload.setdefault("venue", identity.venue)
                     payload.setdefault("is_futures", identity.is_futures)
+                    payload.setdefault("confidence", payload.get("confidence") or 1.0)
+                    payload.setdefault("attribution_version", "strategy_attribution_v1")
                 except Exception as exc:
                     print(f"PIPE_CONTRACT_IDENTITY_ENRICH_FAILED symbol={fill_symbol} error={exc}", flush=True)
 
