@@ -48,6 +48,7 @@ from finam_core.execution.order_router import OrderRouter
 from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
 from finam_core.execution.fill_metadata_factory import FillMetadataFactory
+from finam_core.execution.fill_persistence_service import FillPersistenceService
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
 from finam_core.engine.coordinator_flags import CoordinatorFlags
 from finam_core.engine.restart_recovery_coordinator import RestartRecoveryCoordinator
@@ -308,6 +309,10 @@ class PaperTradingPipeline:
         try:
             self.signal_repository = SignalRepository(self.pg_logger.conn)
             self.closed_trade_attribution_service = ClosedTradeAttributionService(self.signal_repository)
+            self.fill_persistence_service = FillPersistenceService(
+                pg_logger=self.pg_logger,
+                attribution_service=self.closed_trade_attribution_service,
+            )
         except Exception:
             self.signal_repository = None
         # Русский коммент: агрегатор закрытых M1/M5/M15 свечей из live quote потока.
@@ -4179,24 +4184,13 @@ class PaperTradingPipeline:
                  getattr(fill, "price", None),
                  getattr(fill, "fill_id", None))
 
-        self.pg_logger.log_fill(
-            symbol=getattr(fill, "symbol", None),
-            side=getattr(fill, "side", None),
-            qty=float(getattr(fill, "qty", 0.0) or 0.0),
-            price=float(getattr(fill, "price", 0.0) or 0.0),
-            trade_id=getattr(fill, "fill_id", None),
-            execution_type="paper",
-            commission=float(getattr(fill, "commission", 0.0) or 0.0),
-            payload=getattr(fill, "payload", None),
-        )
-
-        # Русский комментарий: связываем сохранённый signal_id с исполнением fill_id.
+        # Русский комментарий: единый сервис сохраняет fill/trade и связывает signal_id.
         try:
-            service = getattr(self, "closed_trade_attribution_service", None)
+            service = getattr(self, "fill_persistence_service", None)
             if service is not None:
-                service.link_fill_from_payload(fill)
+                service.persist_fill(fill, execution_type="paper")
         except Exception as exc:
-            LOG.warning("PIPE_SIGNAL_FILL_LINK_FAILED error=%s", exc)
+            LOG.warning("PIPE_FILL_PERSISTENCE_FAILED error=%s", exc)
 
         # === TELEGRAM: исполнение ===
         try:
