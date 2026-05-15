@@ -404,7 +404,7 @@ class PaperTradingPipeline:
         self._broker_orders_sync_ts = 0.0
         self._broker_position_avg_by_symbol = {}
         self._broker_position_sync_ts = 0.0
-        # Русский комментарий: BR_CONSERVATIVE_BREAKOUT_M5 работает только в PAPER и только как генератор сигналов.
+        # Русский комментарий: BR_CONSERVATIVE_BREAKOUT работает только в PAPER и только как генератор сигналов.
         self.br_breakout_enabled = (
             os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
             and os.getenv("ENABLE_BR_CONSERVATIVE_BREAKOUT", "0") == "1"
@@ -2028,15 +2028,19 @@ class PaperTradingPipeline:
                 state["last_broker_qty_logged"] = broker_qty
 
         self._log_position_order_state_if_changed(symbol, qty)
+
+        # Русский комментарий: lifecycle должен использовать тот же strategy key, что и trades/runtime-control.
+        lifecycle_strategy = self._strategy_name_for_symbol(symbol)
+
         self._reconcile_position_lifecycle_state(
             symbol=symbol,
             actual_qty=float(qty or 0.0),
-            strategy="default",
+            strategy=lifecycle_strategy,
         )
         self._self_heal_position_lifecycle_state(
             symbol=symbol,
             actual_qty=float(qty or 0.0),
-            strategy="default",
+            strategy=lifecycle_strategy,
         )
 
         now_ts = time.time()
@@ -2131,7 +2135,7 @@ class PaperTradingPipeline:
                 qty=float(qty),
                 price=float(price),
                 avg_price=float(avg_price),
-                strategy="default",
+                strategy=lifecycle_strategy,
             )
         )
 
@@ -4278,7 +4282,7 @@ class PaperTradingPipeline:
                     "price": br_signal.price,
                     "stop": br_signal.stop,
                     "take": br_signal.take,
-                    "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+                    "strategy": "BR_CONSERVATIVE_BREAKOUT",
                     "source": "paper_pipeline_closed_bar",
                 }
                 decision = self.risk.evaluate(candidate)
@@ -4303,7 +4307,7 @@ class PaperTradingPipeline:
             "price": br_signal.price,
             "stop": br_signal.stop,
             "take": br_signal.take,
-            "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+            "strategy": "BR_CONSERVATIVE_BREAKOUT",
             "accepted": accepted,
             "reason": reason,
             "paper_only": True,
@@ -4338,7 +4342,7 @@ class PaperTradingPipeline:
             "run_id": run_id,
             "paper_only": True,
             "execution_type": paper_reason,
-            "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+            "strategy": "BR_CONSERVATIVE_BREAKOUT",
             "horizon": "INTRADAY",
             "timeframe": "M5",
             "reason": getattr(br_signal, "reason", None),
@@ -4955,7 +4959,7 @@ class PaperTradingPipeline:
         runtime_allowed, runtime_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
             br_signal.symbol,
             qty,
-            strategy="BR_CONSERVATIVE_BREAKOUT_M5",
+            strategy="BR_CONSERVATIVE_BREAKOUT",
         )
 
         if not runtime_allowed:
@@ -4975,7 +4979,7 @@ class PaperTradingPipeline:
             "price": br_signal.price,
             "stop": br_signal.stop,
             "take": br_signal.take,
-            "strategy": "BR_CONSERVATIVE_BREAKOUT_M5",
+            "strategy": "BR_CONSERVATIVE_BREAKOUT",
             "source": "paper_pipeline_closed_bar",
             "paper_only": True,
         }
@@ -5161,7 +5165,7 @@ class PaperTradingPipeline:
 
         self.pg_logger.log_signal(
             symbol=br_signal.symbol,
-            strategy="BR_CONSERVATIVE_BREAKOUT_M5",
+            strategy="BR_CONSERVATIVE_BREAKOUT",
             side=br_signal.side,
             qty=qty,
             status=signal_status,
