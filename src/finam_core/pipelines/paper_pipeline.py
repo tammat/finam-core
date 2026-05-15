@@ -2644,6 +2644,7 @@ class PaperTradingPipeline:
                     px = st.get("last") or st.get("price") or st.get("bid") or st.get("ask") or price
                     intent["price"] = float(px)
 
+                print(f"PIPE_RISK_ROUTE_START symbol={sym} side={intent.get('side')} qty={intent.get('qty')}", flush=True)
                 decision = self.risk_router.route(
                     RiskRouteInput(
                         symbol=sym,
@@ -2655,7 +2656,7 @@ class PaperTradingPipeline:
                 if not getattr(decision, "allowed", False):
                     print(
                         f"PIPE_EXIT_HARD_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
-                        f"value={ctx.trade_value} exposure={ctx.total_exposure}",
+                        f"value={getattr(getattr(self.risk_router, 'last_context', None), 'trade_value', None)} exposure={getattr(getattr(self.risk_router, 'last_context', None), 'total_exposure', None)}",
                         flush=True,
                     )
                     return
@@ -3608,7 +3609,7 @@ class PaperTradingPipeline:
             self._trade_timestamps = trades
             self._symbol_trade_timestamps = sym_trades_map
 
-            print(f"PIPE_TRADE_EXEC global={len(trades)} symbol={len(sym_trades)}", flush=True)
+            print(f"PIPE_TRADE_LIMIT_ACCOUNTED global={len(trades)} symbol={len(sym_trades)}", flush=True)
 
         except Exception as e:
             print(f"PIPE_TRADE_LIMIT_ERROR {e}", flush=True)
@@ -3651,7 +3652,7 @@ class PaperTradingPipeline:
             if not approved:
                 print(
                     f"PIPE_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
-                    f"value={ctx.trade_value} exposure={ctx.total_exposure}",
+                    f"value={getattr(getattr(self.risk_router, 'last_context', None), 'trade_value', None)} exposure={getattr(getattr(self.risk_router, 'last_context', None), 'total_exposure', None)}",
                     flush=True,
                 )
                 return

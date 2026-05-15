@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from finam_core.risk.context_builders import build_risk_context
+
 
 @dataclass(frozen=True)
 class RiskRouteInput:
@@ -17,16 +19,13 @@ class RiskRouter:
 
     def __init__(self, pipeline) -> None:
         self.pipeline = pipeline
+        self.last_context = None
 
     def route(self, data: RiskRouteInput):
         p = self.pipeline
 
-        # Русский комментарий:
-        # build_risk_context пока берём из пространства paper_pipeline,
-        # чтобы не завязаться на неверный модуль при refactor.
-        import finam_core.pipelines.paper_pipeline as paper_pipeline
-
-        ctx = paper_pipeline.build_risk_context(data.intent, p.portfolio, data.state)
+        ctx = build_risk_context(data.intent, p.portfolio, data.state)
+        self.last_context = ctx
 
         print(
             f"{data.label}_CTX symbol={ctx.symbol} qty={ctx.qty} price={ctx.price} "
