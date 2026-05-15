@@ -50,6 +50,7 @@ from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGa
 from finam_core.execution.fill_metadata_factory import FillMetadataFactory
 from finam_core.execution.fill_persistence_service import FillPersistenceService
 from finam_core.runtime.strategy_runtime_control_service import StrategyRuntimeControlService
+from finam_core.runtime.trade_gate_service import TradeGateService
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
 from finam_core.engine.coordinator_flags import CoordinatorFlags
 from finam_core.engine.restart_recovery_coordinator import RestartRecoveryCoordinator
@@ -310,7 +311,17 @@ class PaperTradingPipeline:
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
         self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
+        self.trade_gate_service = TradeGateService(
+            base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
+            max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
+            max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
+        )
         self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
+        self.trade_gate_service = TradeGateService(
+            base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
+            max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
+            max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
+        )
         # Русский комментарий: fill persistence должен работать даже если SignalRepository недоступен.
         self.signal_repository = None
         self.closed_trade_attribution_service = None
@@ -3559,32 +3570,26 @@ class PaperTradingPipeline:
         #     return
 
         # =========================================================
-        # === COOLDOWN (LAST FILTER BEFORE EXECUTION)
+        # === TRADE GATES: COOLDOWN + TRADE LIMIT
         # =========================================================
-        now_ts = time.time()
-        last_ts = getattr(self, "_last_trade_ts", 0.0)
-        # Русский коммент: базовый кулдаун + адаптация под волатильность (Level 2)
-        base_cooldown = float(os.getenv("TRADE_COOLDOWN_SEC", "45"))
+        trade_gate = getattr(self, "trade_gate_service", None)
+        if trade_gate is None:
+            trade_gate = TradeGateService(
+                base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
+                max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
+                max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
+            )
+            self.trade_gate_service = trade_gate
 
-        try:
-            atr_pct = abs(st.get("atr", 0.0) / price) if price else 0.0
-
-            # высокая волатильность → быстрее торгуем
-            if atr_pct > 0.015:
-                cooldown_sec = base_cooldown * 0.6
-            # низкая волатильность → замедляемся
-            elif atr_pct < 0.005:
-                cooldown_sec = base_cooldown * 1.5
-            else:
-                cooldown_sec = base_cooldown
-
-        except Exception:
-            cooldown_sec = base_cooldown
-
-        if now_ts - last_ts < cooldown_sec:
+        cooldown_decision = trade_gate.cooldown_allows(
+            symbol=sym,
+            price=float(price or 0.0),
+            atr=float(st.get("atr", 0.0) or 0.0),
+        )
+        if not cooldown_decision.allowed:
             self._log_dedup(
                 f"PIPE_COOLDOWN_BLOCK:{sym}",
-                f"PIPE_COOLDOWN_BLOCK symbol={sym}",
+                f"PIPE_COOLDOWN_BLOCK symbol={sym} reason={cooldown_decision.reason}",
                 heartbeat_sec=60,
             )
             return
@@ -3595,49 +3600,16 @@ class PaperTradingPipeline:
                 print("PIPE_LOSS_COOLDOWN_BLOCK", flush=True)
                 return
 
-
-        self._last_trade_ts = now_ts
-
-        # === TRADE LIMIT (LEVEL 2: анти-овер-трейдинг) ===
-        try:
-            max_trades_per_hour = int(os.getenv("MAX_TRADES_PER_HOUR", "5"))
-            max_trades_per_symbol = int(os.getenv("MAX_TRADES_PER_SYMBOL", "2"))
-
-            now_ts = time.time()
-
-            # === GLOBAL TRADES ===
-            trades = getattr(self, "_trade_timestamps", [])
-            trades = [t for t in trades if now_ts - t < 3600]
-
-            if len(trades) >= max_trades_per_hour:
+        limit_decision = trade_gate.trade_limit_allows(sym)
+        if not limit_decision.allowed:
+            if "global" in limit_decision.reason:
                 print("PIPE_TRADE_LIMIT_BLOCK_GLOBAL", flush=True)
-                self._trade_timestamps = trades
-                return
-
-            # === SYMBOL TRADES ===
-            sym_trades_map = getattr(self, "_symbol_trade_timestamps", {})
-            sym_trades = sym_trades_map.get(sym, [])
-            sym_trades = [t for t in sym_trades if now_ts - t < 3600]
-
-            if len(sym_trades) >= max_trades_per_symbol:
+            else:
                 print(f"PIPE_TRADE_LIMIT_BLOCK_SYMBOL {sym}", flush=True)
-                sym_trades_map[sym] = sym_trades
-                self._symbol_trade_timestamps = sym_trades_map
-                return
+            return
 
-            # === UPDATE STATE ===
-            trades.append(now_ts)
-            sym_trades.append(now_ts)
-
-            sym_trades_map[sym] = sym_trades
-
-            self._trade_timestamps = trades
-            self._symbol_trade_timestamps = sym_trades_map
-
-            print(f"PIPE_TRADE_LIMIT_ACCOUNTED global={len(trades)} symbol={len(sym_trades)}", flush=True)
-
-        except Exception as e:
-            print(f"PIPE_TRADE_LIMIT_ERROR {e}", flush=True)
+        accounted_decision = trade_gate.account_trade(sym)
+        print(f"PIPE_TRADE_LIMIT_ACCOUNTED {accounted_decision.reason}", flush=True)
         # =========================================================
         # === PORTFOLIO KILL-SWITCH (cumulative PnL / max drawdown)
         # =========================================================
