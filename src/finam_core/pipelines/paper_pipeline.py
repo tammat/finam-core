@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from finam_core.signals.strategy_intent_adapter import StrategyIntentAdapter
+
 from finam_core.pipelines.pipeline_orchestrator import PipelineOrchestrator, QuoteEventContext
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
@@ -3292,6 +3294,16 @@ class PaperTradingPipeline:
                 flush=True,
             )
             return
+        # =========================================================
+        # === SIGNAL INTENT V2 COMPATIBILITY BRIDGE
+        # =========================================================
+        try:
+            normalized_signal_intent = StrategyIntentAdapter.normalize(raw_intent)
+            raw_intent = StrategyIntentAdapter.to_pipeline_dict(normalized_signal_intent)
+        except Exception as exc:
+            print(f"PIPE_SIGNAL_INTENT_ADAPTER_ERROR {type(exc).__name__}:{exc}", flush=True)
+            return
+
         # =========================================================
         # === ROUTER
         # =========================================================
