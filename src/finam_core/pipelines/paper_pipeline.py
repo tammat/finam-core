@@ -68,7 +68,7 @@ from finam_core.risk.kill_switch import KillSwitchEngine
 from finam_core.risk.correlation_risk import CorrelationRiskEngine
 from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
 from finam_core.risk.risk_router import RiskRouteInput, RiskRouter
-from finam_core.signals.signal_router import SignalRouter
+from finam_core.signals.signal_router import SignalRouter as SignalIntentRouter
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
 from finam_core.data.mtf_aggregator import MTFBarAggregator
@@ -82,7 +82,7 @@ from finam_core.analytics.closed_trade_attribution_service import ClosedTradeAtt
 from finam_core.strategy.strategy_factory import StrategyFactory
 from finam_core.strategy.strategy_runtime import StrategyRuntime
 from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
-from finam_core.strategy.signal_router import SignalRouteInput, SignalRouter
+from finam_core.strategy.signal_router import SignalRouteInput, SignalRouter as QuoteSignalRouter
 from finam_core.strategy.trend_filter import TrendFilter
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
@@ -270,7 +270,10 @@ class PaperTradingPipeline:
         # временно для обратной совместимости и безопасного rollback.
         self.strategy_runtime = StrategyRuntime()
         self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
-        self.signal_router = SignalRouter(self.quote_signal_processor)
+        self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
+        self.signal_intent_router = SignalIntentRouter()
+        # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
+        self.signal_intent_router = SignalIntentRouter()
         self.pipeline_orchestrator = PipelineOrchestrator(self)
         self.trend_filter = TrendFilter()
         self.trailing_order_event_repository = TrailingOrderEventRepository()
@@ -325,7 +328,10 @@ class PaperTradingPipeline:
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.risk_router = RiskRouter(self)
-        self.signal_router = SignalRouter(self.quote_signal_processor)
+        self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
+        self.signal_intent_router = SignalIntentRouter()
+        # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
+        self.signal_intent_router = SignalIntentRouter()
         # Русский комментарий: EntryPointSelector рассчитывает entry/stop/take до выбора типа заявки.
         self.entry_point_selector = EntryPointSelector(
             tick_size=float(os.getenv("ENTRY_TICK_SIZE", "0.01")),
@@ -3252,7 +3258,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === ROUTER
         # =========================================================
-        routed = self.signal_router.route(raw_intent)
+        routed = self.signal_intent_router.route(raw_intent)
 
         if self._should_log_routed_signal(routed):
             if PIPE_DEBUG:
