@@ -1,37 +1,42 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from finam_core.runtime.strategy_runtime_control_service import StrategyRuntimeControlService
 from finam_core.runtime.trade_gate_service import TradeGateService
-from finam_core.runtime.strategy_runtime_control_service import (
-    StrategyRuntimeControlService,
-)
 from finam_core.runtime.trend_gate_service import TrendGateService
 
 
 @dataclass(frozen=True)
 class EntryGateDecision:
+    """Русский комментарий: единый результат проверки entry-gates."""
     allowed: bool
     qty: float
     reason: str
     gate: str
 
 
-
 class EntryGateCoordinator:
     """
     Русский комментарий:
-    Единый orchestration layer для всех entry gates.
+    Координатор входных gate-фильтров.
+
+    Порядок:
+    1) trend;
+    2) cooldown;
+    3) trade limit;
+    4) runtime-control.
     """
 
     def __init__(
         self,
-        runtime_control_service,
-        trade_gate_service,
-        trend_gate_service,
+        trade_gate_service: TradeGateService,
+        runtime_control_service: StrategyRuntimeControlService | Any,
+        trend_gate_service: TrendGateService,
     ) -> None:
-        self.runtime_control_service = runtime_control_service
         self.trade_gate_service = trade_gate_service
+        self.runtime_control_service = runtime_control_service
         self.trend_gate_service = trend_gate_service
 
     def allow_entry(
@@ -39,11 +44,11 @@ class EntryGateCoordinator:
         symbol: str,
         strategy: str,
         strategy_side: str,
+        expected_side: str | None,
         qty: float,
-        expected_side: str | None = None,
+        price: float,
         atr: float | None = None,
-    ):
-
+    ) -> EntryGateDecision:
         trend = self.trend_gate_service.allow_entry(
             symbol=symbol,
             side=strategy_side,
@@ -51,44 +56,31 @@ class EntryGateCoordinator:
         )
 
         if not trend.allowed:
-            return {
-                "allowed": False,
-                "qty": 0.0,
-                "reason": trend.reason,
-                "gate": "trend",
-            }
+            return EntryGateDecision(False, 0.0, trend.reason, "trend")
 
         cooldown = self.trade_gate_service.cooldown_allows(
             symbol=symbol,
+            price=price,
             atr=atr,
         )
 
         if not cooldown.allowed:
-            return {
-                "allowed": False,
-                "qty": 0.0,
-                "reason": cooldown.reason,
-                "gate": "cooldown",
-            }
+            return EntryGateDecision(False, 0.0, cooldown.reason, "trade_cooldown")
 
-        runtime = self.runtime_control_service.allow_entry(
+        limit = self.trade_gate_service.trade_limit_allows(symbol)
+
+        if not limit.allowed:
+            return EntryGateDecision(False, 0.0, limit.reason, "trade_limit")
+
+        runtime_allowed, adjusted_qty, runtime_reason = self.runtime_control_service.allow_paper(
             symbol=symbol,
-            strategy=strategy,
             qty=qty,
+            strategy=strategy,
         )
 
-        if not runtime.allowed:
-            return {
-                "allowed": False,
-                "qty": 0.0,
-                "reason": runtime.reason,
-                "gate": "runtime_control",
-            }
+        if not runtime_allowed:
+            return EntryGateDecision(False, 0.0, runtime_reason, "runtime_control")
 
-        return {
-            "allowed": True,
-            "qty": runtime.qty,
-            "reason": runtime.reason,
-            "gate": "runtime_control",
-        }
+        self.trade_gate_service.account_trade(symbol)
 
+        return EntryGateDecision(True, float(adjusted_qty), runtime_reason, "allow")
