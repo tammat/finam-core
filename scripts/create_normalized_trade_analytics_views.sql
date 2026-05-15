@@ -5,7 +5,10 @@ select
     ts at time zone 'Europe/Moscow' as ts_msk,
 
     symbol as execution_symbol,
-    coalesce(payload->>'continuous_symbol', symbol) as analytics_symbol,
+    case
+        when payload->>'is_futures' = 'true' then coalesce(payload->>'continuous_symbol', symbol)
+        else symbol
+    end as analytics_symbol,
     payload->>'root_symbol' as root_symbol,
     payload->>'strategy' as strategy,
     payload->>'source' as source,
