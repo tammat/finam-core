@@ -4206,7 +4206,10 @@ class PaperTradingPipeline:
         try:
             service = getattr(self, "fill_persistence_service", None)
             if service is not None:
-                service.persist_fill(fill, execution_type="paper")
+                persist_result = service.persist_fill(fill, execution_type="paper")
+                print(f"PIPE_FILL_PERSISTED result={persist_result}", flush=True)
+            else:
+                print("PIPE_FILL_PERSISTENCE_SKIP reason=service_not_configured", flush=True)
         except Exception as exc:
             LOG.warning("PIPE_FILL_PERSISTENCE_FAILED error=%s", exc)
 
