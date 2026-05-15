@@ -3,7 +3,12 @@ select
     analytics_symbol,
     strategy,
 
-    coalesce(regime, 'UNKNOWN') as regime,
+    coalesce(
+        payload->>'regime_label',
+        payload->>'regime',
+        regime,
+        'UNKNOWN'
+    ) as regime,
     coalesce(source, 'UNKNOWN') as source,
 
     case
@@ -27,6 +32,11 @@ where strategy is not null
 group by
     analytics_symbol,
     strategy,
-    coalesce(regime, 'UNKNOWN'),
+    coalesce(
+        payload->>'regime_label',
+        payload->>'regime',
+        regime,
+        'UNKNOWN'
+    ),
     coalesce(source, 'UNKNOWN'),
     confidence_bucket;
