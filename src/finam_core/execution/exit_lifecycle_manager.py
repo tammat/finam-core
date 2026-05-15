@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import time
 
 
 @dataclass(frozen=True)
@@ -32,7 +34,10 @@ class ExitLifecycleManager:
         state = p._exit_state_for_symbol(symbol)
 
         qty = p._position_qty_for_symbol(symbol)
-        broker_qty = float(getattr(self, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
+        broker_qty = float(getattr(p, "_broker_position_qty_by_symbol", {}).get(symbol, 0.0) or 0.0)
+
+        # Русский комментарий: exit lifecycle должен использовать реальный strategy key, а не default.
+        lifecycle_strategy = p._strategy_name_for_symbol(symbol) if hasattr(p, "_strategy_name_for_symbol") else "default"
 
         # Русский комментарий: broker snapshot не должен автоматически превращаться в paper-позицию.
         if os.getenv("ENABLE_BROKER_POSITION_APPLY_TO_PM", "0") == "1" and abs(broker_qty) > 1e-9:
@@ -53,12 +58,12 @@ class ExitLifecycleManager:
         p._reconcile_position_lifecycle_state(
             symbol=symbol,
             actual_qty=float(qty or 0.0),
-            strategy="default",
+            strategy=lifecycle_strategy,
         )
         p._self_heal_position_lifecycle_state(
             symbol=symbol,
             actual_qty=float(qty or 0.0),
-            strategy="default",
+            strategy=lifecycle_strategy,
         )
 
         now_ts = time.time()
@@ -142,8 +147,8 @@ class ExitLifecycleManager:
 
         # Русский комментарий:
         # Lazy fallback: сервис мог не инициализироваться в __init__ после refactoring.
-        if not hasattr(self, "position_lifecycle_service"):
-            p.position_lifecycle_service = PositionLifecycleService(self)
+        if not hasattr(p, "position_lifecycle_service"):
+            p.position_lifecycle_service = PositionLifecycleService(p)
 
         # Русский комментарий:
         # lifecycle сопровождения запускаем через отдельный сервис.
@@ -153,7 +158,7 @@ class ExitLifecycleManager:
                 qty=float(qty),
                 price=float(price),
                 avg_price=float(avg_price),
-                strategy="default",
+                strategy=lifecycle_strategy,
             )
         )
 
@@ -218,6 +223,10 @@ class ExitLifecycleManager:
             "qty": abs(float(qty)),
             "price": float(price),
             "source": "exit_engine",
+            "strategy": lifecycle_strategy,
+            "signal_id": f"exit-{symbol}-{int(time.time() * 1000)}",
+            "horizon": "INTRADAY",
+            "timeframe": "LIVE",
             "confidence": 1.0,
             "reason": decision.reason,
             "features": {
