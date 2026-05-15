@@ -14,13 +14,13 @@ class FillPersistenceService:
         self.pg_logger = pg_logger
         self.attribution_service = attribution_service
 
-    def persist_fill(self, fill: Any, execution_type: str = "paper") -> dict:
+    def persist_fill(self, fill: Any, execution_type: str = "paper", payload: dict | None = None) -> dict:
         """Русский комментарий: пишет fill в БД и связывает fill с signal_id при наличии metadata."""
         result = {
             "fill_logged": False,
             "signal_linked": False,
             "fill_id": getattr(fill, "fill_id", None),
-            "signal_id": getattr(fill, "signal_id", None),
+            "signal_id": (payload or {}).get("signal_id") or getattr(fill, "signal_id", None),
         }
 
         if self.pg_logger is not None:
@@ -32,7 +32,7 @@ class FillPersistenceService:
                 trade_id=getattr(fill, "fill_id", None),
                 execution_type=execution_type,
                 commission=float(getattr(fill, "commission", 0.0) or 0.0),
-                payload=getattr(fill, "payload", None),
+                payload=payload if isinstance(payload, dict) else getattr(fill, "payload", None),
             )
             result["fill_logged"] = True
 
