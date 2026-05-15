@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from finam_core.regime.regime_labeler import RegimeLabeler
+
 from finam_core.signals.strategy_intent_adapter import StrategyIntentAdapter
 
 from finam_core.pipelines.pipeline_orchestrator import PipelineOrchestrator, QuoteEventContext
@@ -3277,6 +3279,13 @@ class PaperTradingPipeline:
                 "trend": regime.trend,
                 "volatility": regime.volatility,
             })
+
+            regime_label = RegimeLabeler.label(
+                state=st,
+                features=raw_intent.get("features", {}),
+            )
+            raw_intent["features"]["regime_label"] = regime_label
+            raw_intent["regime"] = regime_label
         else:
             if hasattr(raw_intent, "features"):
                 raw_intent.features.update({
@@ -3284,6 +3293,13 @@ class PaperTradingPipeline:
                     "trend": regime.trend,
                     "volatility": regime.volatility,
                 })
+
+                regime_label = RegimeLabeler.label(
+                    state=st,
+                    features=raw_intent.features,
+                )
+                raw_intent.features["regime_label"] = regime_label
+                raw_intent.regime = regime_label
 
         # =========================================================
         # === REGIME FILTER
