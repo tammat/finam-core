@@ -49,6 +49,7 @@ from finam_core.execution.execution_dispatcher import ExecutionDispatcher
 from finam_core.execution.execution_gateway import ExecutionGateway, ExecutionGatewayInput
 from finam_core.execution.fill_metadata_factory import FillMetadataFactory
 from finam_core.execution.fill_persistence_service import FillPersistenceService
+from finam_core.runtime.strategy_runtime_control_service import StrategyRuntimeControlService
 from finam_core.engine.trading_engine_coordinator import TradingEngineCoordinator
 from finam_core.engine.coordinator_flags import CoordinatorFlags
 from finam_core.engine.restart_recovery_coordinator import RestartRecoveryCoordinator
@@ -308,6 +309,8 @@ class PaperTradingPipeline:
         self._cooldown_until = {}
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
+        self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
+        self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
         # Русский комментарий: fill persistence должен работать даже если SignalRepository недоступен.
         self.signal_repository = None
         self.closed_trade_attribution_service = None
@@ -4410,67 +4413,12 @@ class PaperTradingPipeline:
             return "default"
 
     def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
-        """Русский комментарий: runtime-control для paper fills по результатам Strategy Performance Monitor."""
-        try:
-            # Русский комментарий: runtime/analytics control работает по continuous_symbol,
-            # execution при этом остаётся на исходном контракте.
-            try:
-                from finam_core.contracts.runtime_symbol_mapper import RuntimeSymbolMapper
-                control_symbol = RuntimeSymbolMapper.runtime_symbol(symbol)
-            except Exception:
-                control_symbol = symbol
-
-            if getattr(self, "pg_logger", None) is None:
-                return True, qty, f"runtime_control_no_pg_logger:control_symbol={control_symbol}"
-
-            conn = getattr(self.pg_logger, "conn", None)
-
-            # Русский комментарий:
-            # PostgresLogger обычно не держит постоянное conn, а открывает соединение через _connect().
-            if conn is None and hasattr(self.pg_logger, "_connect"):
-                with self.pg_logger._connect() as runtime_conn:
-                    with runtime_conn.cursor() as cur:
-                        cur.execute(
-                            """
-                            SELECT allow_trade, watch_only, risk_multiplier, status, reason
-                            FROM strategy_runtime_control
-                            WHERE symbol = %s AND strategy = %s
-                            """,
-                            (control_symbol, strategy),
-                        )
-                        row = cur.fetchone()
-            elif conn is not None:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT allow_trade, watch_only, risk_multiplier, status, reason
-                        FROM strategy_runtime_control
-                        WHERE symbol = %s AND strategy = %s
-                        """,
-                        (control_symbol, strategy),
-                    )
-                    row = cur.fetchone()
-            else:
-                return True, qty, "runtime_control_no_connection_provider"
-
-            if row is None:
-                return False, 0.0, f"runtime_control_no_data:control_symbol={control_symbol}"
-
-            allow_trade, watch_only, risk_multiplier, status, reason = row
-
-            if bool(watch_only) or not bool(allow_trade):
-                return False, 0.0, f"runtime_control_blocked:{status}:{reason}:control_symbol={control_symbol}"
-
-            mult = float(risk_multiplier or 0.0)
-            if mult <= 0:
-                return False, 0.0, f"runtime_control_zero_risk:{status}:{reason}:control_symbol={control_symbol}"
-
-            adjusted_qty = max(0.0, float(qty) * mult)
-            return True, adjusted_qty, f"runtime_control_ok:{status}:mult={mult}:control_symbol={control_symbol}"
-
-        except Exception as exc:
-            return True, qty, f"runtime_control_error_soft:{type(exc).__name__}:{exc}"
-
+        """Русский комментарий: thin wrapper; логика runtime-control вынесена в StrategyRuntimeControlService."""
+        service = getattr(self, "strategy_runtime_control_service", None)
+        if service is None:
+            service = StrategyRuntimeControlService(getattr(self, "pg_logger", None))
+            self.strategy_runtime_control_service = service
+        return service.allow_paper(symbol=symbol, qty=qty, strategy=strategy)
 
     def _br_total_open_abs_position(self) -> float:
         """Русский комментарий: сумма абсолютных открытых PAPER-позиций по BR replay/paper."""
