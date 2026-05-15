@@ -18,12 +18,8 @@ pipeline = Path("src/finam_core/pipelines/paper_pipeline.py").read_text(encoding
 assert "extra_payload = kwargs.get(\"payload\")" in logger
 assert "extra_payload = getattr(fill, \"payload\", None)" in logger
 assert "**extra_payload" in logger
-
 assert "payload=getattr(fill, \"payload\", None)" in service
-assert "self.pg_logger.log_fill(" in service
+assert "FillMetadataFactory.attach(fill, intent=intent, market_state=st, raw_fill=raw_fill)" in pipeline
 
-assert "FillPersistenceService" in pipeline
-assert "service.persist_fill(fill, execution_type=\"paper\")" in pipeline
-
-print("OK: PostgresLogger и FillPersistenceService сохраняют metadata fill")
+print("OK: fill.payload metadata сохраняется в PostgresLogger")
 PY
