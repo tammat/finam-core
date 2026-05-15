@@ -4412,8 +4412,16 @@ class PaperTradingPipeline:
     def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
         """Русский комментарий: runtime-control для paper fills по результатам Strategy Performance Monitor."""
         try:
+            # Русский комментарий: runtime/analytics control работает по continuous_symbol,
+            # execution при этом остаётся на исходном контракте.
+            try:
+                from finam_core.contracts.runtime_symbol_mapper import RuntimeSymbolMapper
+                control_symbol = RuntimeSymbolMapper.runtime_symbol(symbol)
+            except Exception:
+                control_symbol = symbol
+
             if getattr(self, "pg_logger", None) is None:
-                return True, qty, "runtime_control_no_pg_logger"
+                return True, qty, f"runtime_control_no_pg_logger:control_symbol={control_symbol}"
 
             conn = getattr(self.pg_logger, "conn", None)
 
@@ -4428,7 +4436,7 @@ class PaperTradingPipeline:
                             FROM strategy_runtime_control
                             WHERE symbol = %s AND strategy = %s
                             """,
-                            (symbol, strategy),
+                            (control_symbol, strategy),
                         )
                         row = cur.fetchone()
             elif conn is not None:
@@ -4439,26 +4447,26 @@ class PaperTradingPipeline:
                         FROM strategy_runtime_control
                         WHERE symbol = %s AND strategy = %s
                         """,
-                        (symbol, strategy),
+                        (control_symbol, strategy),
                     )
                     row = cur.fetchone()
             else:
                 return True, qty, "runtime_control_no_connection_provider"
 
             if row is None:
-                return False, 0.0, "runtime_control_no_data"
+                return False, 0.0, f"runtime_control_no_data:control_symbol={control_symbol}"
 
             allow_trade, watch_only, risk_multiplier, status, reason = row
 
             if bool(watch_only) or not bool(allow_trade):
-                return False, 0.0, f"runtime_control_blocked:{status}:{reason}"
+                return False, 0.0, f"runtime_control_blocked:{status}:{reason}:control_symbol={control_symbol}"
 
             mult = float(risk_multiplier or 0.0)
             if mult <= 0:
-                return False, 0.0, f"runtime_control_zero_risk:{status}:{reason}"
+                return False, 0.0, f"runtime_control_zero_risk:{status}:{reason}:control_symbol={control_symbol}"
 
             adjusted_qty = max(0.0, float(qty) * mult)
-            return True, adjusted_qty, f"runtime_control_ok:{status}:mult={mult}"
+            return True, adjusted_qty, f"runtime_control_ok:{status}:mult={mult}:control_symbol={control_symbol}"
 
         except Exception as exc:
             return True, qty, f"runtime_control_error_soft:{type(exc).__name__}:{exc}"
