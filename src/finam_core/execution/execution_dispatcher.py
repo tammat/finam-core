@@ -20,6 +20,7 @@ from finam_core.futures.futures_margin_guard import FuturesMarginGuard
 from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 from finam_core.events.event_store import EventStore
 from finam_core.execution.fill_metadata_factory import FillMetadataFactory
+from finam_core.execution.fill_persistence_service import FillPersistenceService
 
 
 class ExecutionDispatcher:
@@ -37,6 +38,10 @@ class ExecutionDispatcher:
         self.logger = logger
         # Русский комментарий: журнал execution-событий не должен ломать route.
         self.execution_journal = logger if logger is not None else PostgresLogger()
+        # Русский комментарий: единый сервис сохранения fill/trade/signal_fills для PAPER/REAL.
+        self.fill_persistence_service = kwargs.get("fill_persistence_service")
+        if self.fill_persistence_service is None:
+            self.fill_persistence_service = FillPersistenceService(pg_logger=self.execution_journal)
         # Русский комментарий: OMS guard создаётся лениво, чтобы PAPER mode не зависел от БД.
         self._oms_dispatch_guard = None
         # Русский комментарий: futures gate создаётся лениво и блокирует real futures до разрешения.
@@ -315,6 +320,16 @@ class ExecutionDispatcher:
                 market_state=market_state or {},
                 raw_fill=result,
             )
+
+            # Русский комментарий: сохраняем REAL/DRY_RUN результат через единый persistence layer.
+            try:
+                if getattr(result, "status", None) in {"DRY_RUN_ACCEPTED", "ACCEPTED", "FILLED"}:
+                    self.fill_persistence_service.persist_fill(
+                        result,
+                        execution_type=mode,
+                    )
+            except Exception as exc:
+                print(f"ОШИБКА_СОХРАНЕНИЯ_REAL_FILL error={exc}", flush=True)
 
             broker_order_id = None
             result_status = None

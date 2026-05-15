@@ -22,6 +22,7 @@ python -m py_compile \
 ./scripts/test_fill_metadata_factory.sh
 ./scripts/test_closed_trade_attribution_service.sh
 ./scripts/test_execution_dispatcher_real_metadata_runtime.sh
+./scripts/test_execution_dispatcher_real_fill_persistence.sh
 ./scripts/test_real_execution_metadata_passthrough.sh
 ./scripts/test_postgres_logger_log_fill_payload_db.sh
 ./scripts/test_postgres_logger_fill_payload_metadata.sh
