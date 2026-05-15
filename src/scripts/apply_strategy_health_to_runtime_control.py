@@ -4,6 +4,11 @@ import argparse
 import os
 import subprocess
 
+from finam_core.notifications.strategy_runtime_notification import (
+    StrategyRuntimeNotification,
+    StrategyRuntimeNotificationFormatter,
+)
+
 
 def run_psql(sql: str) -> str:
     database_url = os.getenv("DATABASE_URL")
@@ -207,7 +212,38 @@ on conflict (symbol, strategy) do update set
 returning symbol, strategy, status, allow_trade, watch_only, risk_multiplier, reason;
 """
 
-    print(run_psql(apply_sql))
+    result = run_psql(apply_sql)
+    print(result)
+
+    formatter = StrategyRuntimeNotificationFormatter()
+
+    lines = [line for line in result.splitlines() if line and not line.startswith("(")]
+    header = lines[0].split("\t") if lines else []
+    for line in lines[1:]:
+        values = line.split("\t")
+        row = dict(zip(header, values))
+
+        if not row.get("symbol") or not row.get("strategy"):
+            continue
+
+        event = StrategyRuntimeNotification(
+            symbol=row.get("symbol", ""),
+            strategy=row.get("strategy", ""),
+            status=row.get("status", ""),
+            allow_trade=str(row.get("allow_trade", "")).lower() == "t",
+            watch_only=str(row.get("watch_only", "")).lower() == "t",
+            risk_multiplier=float(row.get("risk_multiplier") or 0.0),
+            reason=row.get("reason", ""),
+        )
+
+        print("")
+        print("## TELEGRAM_RUNTIME_CONTROL_EVENT")
+        print(formatter.format_telegram(event))
+
+        print("")
+        print("## GRAFANA_RUNTIME_CONTROL_ANNOTATION")
+        print(formatter.format_grafana_annotation(event))
+
     return 0
 
 
