@@ -21,6 +21,7 @@ from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 from finam_core.events.event_store import EventStore
 from finam_core.execution.fill_metadata_factory import FillMetadataFactory
 from finam_core.execution.fill_persistence_service import FillPersistenceService
+from finam_core.execution.strategy_runtime_gate import StrategyRuntimeGate
 
 
 class ExecutionDispatcher:
@@ -42,6 +43,11 @@ class ExecutionDispatcher:
         self.fill_persistence_service = kwargs.get("fill_persistence_service")
         if self.fill_persistence_service is None:
             self.fill_persistence_service = FillPersistenceService(pg_logger=self.execution_journal)
+
+        # Русский комментарий: gate runtime-control применяется перед отправкой заявки.
+        self.strategy_runtime_gate = kwargs.get("strategy_runtime_gate")
+        if self.strategy_runtime_gate is None:
+            self.strategy_runtime_gate = StrategyRuntimeGate()
         # Русский комментарий: OMS guard создаётся лениво, чтобы PAPER mode не зависел от БД.
         self._oms_dispatch_guard = None
         # Русский комментарий: futures gate создаётся лениво и блокирует real futures до разрешения.
@@ -262,6 +268,59 @@ class ExecutionDispatcher:
                     "margin_utilization_after": margin_decision.margin_utilization_after,
                     "intent": intent,
                 }
+
+            # Русский комментарий: runtime-control может заблокировать стратегию или изменить размер заявки.
+            try:
+                runtime_decision = self.strategy_runtime_gate.evaluate(intent)
+                if not runtime_decision.allowed:
+                    print(
+                        f"СТРАТЕГИЯ_ЗАБЛОКИРОВАНА_RUNTIME_CONTROL "
+                        f"symbol={intent.get('symbol')} "
+                        f"strategy={intent.get('strategy') or (intent.get('features') or {}).get('strategy') or 'default'} "
+                        f"status={runtime_decision.status} "
+                        f"reason={runtime_decision.reason}",
+                        flush=True,
+                    )
+                    self._append_event_safe(
+                        event_type="STRATEGY_RUNTIME_CONTROL_BLOCKED",
+                        aggregate_type="strategy",
+                        aggregate_id=str(intent.get("symbol") or ""),
+                        payload={
+                            "symbol": intent.get("symbol"),
+                            "strategy": intent.get("strategy") or (intent.get("features") or {}).get("strategy") or "default",
+                            "status": runtime_decision.status,
+                            "reason": runtime_decision.reason,
+                            "intent": dict(intent),
+                        },
+                    )
+                    return {
+                        "status": "REJECTED",
+                        "reason": "strategy_runtime_control_blocked",
+                        "runtime_status": runtime_decision.status,
+                        "runtime_reason": runtime_decision.reason,
+                        "symbol": intent.get("symbol"),
+                        "intent": intent,
+                    }
+
+                if runtime_decision.adjusted_qty != runtime_decision.original_qty:
+                    print(
+                        f"РАЗМЕР_ЗАЯВКИ_ИЗМЕНЁН_RUNTIME_CONTROL "
+                        f"symbol={intent.get('symbol')} "
+                        f"qty={runtime_decision.original_qty}->{runtime_decision.adjusted_qty} "
+                        f"multiplier={runtime_decision.risk_multiplier}",
+                        flush=True,
+                    )
+                    intent = dict(intent)
+                    intent["qty"] = runtime_decision.adjusted_qty
+                    intent["runtime_control"] = {
+                        "status": runtime_decision.status,
+                        "reason": runtime_decision.reason,
+                        "risk_multiplier": runtime_decision.risk_multiplier,
+                        "original_qty": runtime_decision.original_qty,
+                        "adjusted_qty": runtime_decision.adjusted_qty,
+                    }
+            except Exception as exc:
+                print(f"ОШИБКА_RUNTIME_CONTROL_GATE error={exc}", flush=True)
 
             oms_guard = self._get_oms_dispatch_guard()
             oms_decision = oms_guard.prepare(intent)
