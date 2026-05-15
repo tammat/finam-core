@@ -4222,7 +4222,7 @@ class PaperTradingPipeline:
                 if not isinstance(payload, dict):
                     payload = {}
 
-                fill_symbol = str(getattr(fill, "symbol", None) or intent.get("symbol") or "")
+                fill_symbol = str(getattr(fill, "symbol", None) or payload.get("symbol") or "")
                 fill_id = str(getattr(fill, "fill_id", None) or "")
 
                 payload.setdefault("signal_id", getattr(fill, "signal_id", None) or f"fill-{fill_id}")
@@ -4231,6 +4231,19 @@ class PaperTradingPipeline:
                 payload.setdefault("horizon", payload.get("horizon") or "INTRADAY")
                 payload.setdefault("timeframe", payload.get("timeframe") or "LIVE")
                 payload.setdefault("regime", payload.get("regime") or "UNKNOWN")
+
+                # Русский комментарий: добавляем contract identity в fallback payload.
+                try:
+                    from finam_core.contracts.contract_identity_resolver import ContractIdentityResolver
+                    identity = ContractIdentityResolver.resolve(fill_symbol)
+                    payload.setdefault("root_symbol", identity.root)
+                    payload.setdefault("continuous_symbol", identity.continuous)
+                    payload.setdefault("futures_month_code", identity.month_code)
+                    payload.setdefault("futures_year_code", identity.year_code)
+                    payload.setdefault("venue", identity.venue)
+                    payload.setdefault("is_futures", identity.is_futures)
+                except Exception as exc:
+                    print(f"PIPE_CONTRACT_IDENTITY_ENRICH_FAILED symbol={fill_symbol} error={exc}", flush=True)
 
                 persist_result = service.persist_fill(fill, execution_type="paper", payload=payload)
                 print(f"PIPE_FILL_PERSISTED result={persist_result} payload={payload}", flush=True)
