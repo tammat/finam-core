@@ -308,16 +308,22 @@ class PaperTradingPipeline:
         self._cooldown_until = {}
         self.notifier = TelegramNotifier()
         self.pg_logger = PostgresLogger()
-        # Русский комментарий: репозиторий сигналов пишет все валидные intent в PostgreSQL.
+        # Русский комментарий: fill persistence должен работать даже если SignalRepository недоступен.
+        self.signal_repository = None
+        self.closed_trade_attribution_service = None
+
         try:
-            self.signal_repository = SignalRepository(self.pg_logger.conn)
-            self.closed_trade_attribution_service = ClosedTradeAttributionService(self.signal_repository)
-            self.fill_persistence_service = FillPersistenceService(
-                pg_logger=self.pg_logger,
-                attribution_service=self.closed_trade_attribution_service,
-            )
-        except Exception:
-            self.signal_repository = None
+            conn = getattr(self.pg_logger, "conn", None)
+            if conn is not None:
+                self.signal_repository = SignalRepository(conn)
+                self.closed_trade_attribution_service = ClosedTradeAttributionService(self.signal_repository)
+        except Exception as exc:
+            print(f"PIPE_SIGNAL_REPOSITORY_INIT_FAILED error={exc}", flush=True)
+
+        self.fill_persistence_service = FillPersistenceService(
+            pg_logger=self.pg_logger,
+            attribution_service=self.closed_trade_attribution_service,
+        )
         # Русский коммент: агрегатор закрытых M1/M5/M15 свечей из live quote потока.
         self.mtf_aggregator = MTFBarAggregator(("M1", "M5", "M15"))
         self.exit_engine = SlTpCooldownEngine()
