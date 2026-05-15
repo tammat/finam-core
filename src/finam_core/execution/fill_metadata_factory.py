@@ -22,14 +22,26 @@ class FillMetadataFactory:
         )
         identity = ContractIdentityResolver.resolve(str(symbol))
 
+        features = intent.get("features") or {}
+
+        regime_label = (
+            intent.get("regime")
+            or features.get("regime_label")
+            or market_state.get("regime")
+            or market_state.get("regime_label")
+            or market_state.get("regime_trend")
+        )
+
         signal_payload = {
             "signal_id": intent.get("signal_id"),
-            "strategy": intent.get("strategy") or (intent.get("features") or {}).get("strategy"),
+            "strategy": intent.get("strategy") or features.get("strategy"),
             "horizon": intent.get("horizon") or intent.get("signal_horizon"),
-            "regime": intent.get("regime") or market_state.get("regime") or market_state.get("regime_trend"),
+            "regime": regime_label,
+            "regime_label": regime_label,
+            "confidence": intent.get("confidence") or features.get("confidence"),
             "timeframe": intent.get("timeframe"),
             "root_symbol": identity.root,
-            "continuous_symbol": identity.continuous,
+            "continuous_symbol": identity.continuous if identity.is_futures else identity.symbol,
             "futures_month_code": identity.month_code,
             "futures_year_code": identity.year_code,
             "is_futures": identity.is_futures,
