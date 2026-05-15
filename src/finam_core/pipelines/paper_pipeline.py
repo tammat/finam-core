@@ -3182,6 +3182,9 @@ class PaperTradingPipeline:
                 "price": curr_price,
                 "strategy": strategy_name,
                 "source": "smart_entry_retest",
+                "signal_id": f"smart-{sym}-{int(time.time() * 1000)}",
+                "horizon": "INTRADAY",
+                "timeframe": "LIVE",
                 "features": {
                     "strategy": strategy_name,
                     "stop": curr_price - stop_distance if entry_side == "BUY" else curr_price + stop_distance,
