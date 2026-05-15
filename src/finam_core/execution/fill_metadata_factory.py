@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from finam_core.contracts.contract_identity_resolver import ContractIdentityResolver
+
 
 class FillMetadataFactory:
     """Русский комментарий: единый helper metadata для PAPER/REAL/REPLAY fills."""
@@ -12,12 +14,26 @@ class FillMetadataFactory:
         market_state = market_state or {}
         raw_payload = raw_payload if isinstance(raw_payload, dict) else {}
 
+        symbol = (
+            intent.get("symbol")
+            or market_state.get("symbol")
+            or raw_payload.get("symbol")
+            or ""
+        )
+        identity = ContractIdentityResolver.resolve(str(symbol))
+
         signal_payload = {
             "signal_id": intent.get("signal_id"),
             "strategy": intent.get("strategy") or (intent.get("features") or {}).get("strategy"),
             "horizon": intent.get("horizon") or intent.get("signal_horizon"),
             "regime": intent.get("regime") or market_state.get("regime") or market_state.get("regime_trend"),
             "timeframe": intent.get("timeframe"),
+            "root_symbol": identity.root,
+            "continuous_symbol": identity.continuous,
+            "futures_month_code": identity.month_code,
+            "futures_year_code": identity.year_code,
+            "is_futures": identity.is_futures,
+            "venue": identity.venue,
         }
 
         return {
