@@ -4213,8 +4213,26 @@ class PaperTradingPipeline:
         try:
             service = getattr(self, "fill_persistence_service", None)
             if service is not None:
+                # Русский комментарий: последний защитный слой metadata перед записью fill/trade.
+                payload = getattr(fill, "payload", None)
+                if not isinstance(payload, dict):
+                    payload = {}
+
+                fill_symbol = str(getattr(fill, "symbol", None) or intent.get("symbol") or "")
+                fill_id = str(getattr(fill, "fill_id", None) or "")
+
+                payload.setdefault("signal_id", getattr(fill, "signal_id", None) or f"fill-{fill_id}")
+                payload.setdefault("strategy", intent.get("strategy") or (intent.get("features") or {}).get("strategy") or self._strategy_name_for_symbol(fill_symbol))
+                payload.setdefault("source", intent.get("source") or "paper_fill_fallback")
+                payload.setdefault("horizon", intent.get("horizon") or "INTRADAY")
+                payload.setdefault("timeframe", intent.get("timeframe") or "LIVE")
+                payload.setdefault("regime", intent.get("regime") or st.get("regime") or st.get("regime_trend"))
+
+                fill.payload = payload
+                fill.signal_id = payload.get("signal_id")
+
                 persist_result = service.persist_fill(fill, execution_type="paper")
-                print(f"PIPE_FILL_PERSISTED result={persist_result}", flush=True)
+                print(f"PIPE_FILL_PERSISTED result={persist_result} payload={payload}", flush=True)
             else:
                 print("PIPE_FILL_PERSISTENCE_SKIP reason=service_not_configured", flush=True)
         except Exception as exc:
