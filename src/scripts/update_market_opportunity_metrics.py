@@ -34,6 +34,8 @@ insert into market_opportunity_metrics (
     regime,
     is_tradeable,
     raw,
+    smart_money_score,
+    smart_money_label,
     calculated_at
 )
 with latest_scan as (
@@ -65,11 +67,24 @@ select
         'timeframe', timeframe,
         'scan_ts', scan_ts,
         'rank', rank,
-        'score', score
+        'score', score,
+        'smart_money_score', coalesce(sm.smart_money_score, 0),
+        'smart_money_label', coalesce(sm.label, 'NO_SMART_MONEY_DATA')
     ) as raw,
+    coalesce(sm.smart_money_score, 0) as smart_money_score,
+    coalesce(sm.label, 'NO_SMART_MONEY_DATA') as smart_money_label,
     now() as calculated_at
 from src
-where symbol is not null;
+left join lateral (
+    select
+        sm.smart_money_score,
+        sm.label
+    from smart_money_feature_events sm
+    where sm.symbol = src.symbol
+    order by sm.ts desc
+    limit 1
+) sm on true
+where src.symbol is not null;
 """
     print(run_psql(sql))
     print("OK: market opportunity metrics updated from volatility_scan_results")
