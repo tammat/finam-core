@@ -431,6 +431,9 @@ def main() -> None:
         except TypeError:
             md = FinamMarketDataClient(bus)
 
+    # Русский комментарий: даём pipeline доступ к MarketData для runtime resubscribe.
+    pipeline.marketdata = md
+    pipeline._runtime_active_symbols = list(dict.fromkeys(symbols))
     md.start(symbols)
 
     portfolio_refresh_sec = float(args.portfolio_refresh_sec or 0.0)

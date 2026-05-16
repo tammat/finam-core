@@ -2654,6 +2654,24 @@ class PaperTradingPipeline:
             if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
                 print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
             else:
+                try:
+                    preload_symbols = list(getattr(self, "_runtime_active_symbols", []) or [])
+
+                    base_symbol = str(sym) if "sym" in locals() else ""
+                    if base_symbol and base_symbol not in preload_symbols:
+                        preload_symbols.insert(0, base_symbol)
+
+                    if not preload_symbols:
+                        preload_symbols = [base_symbol] if base_symbol else []
+
+                    self._runtime_symbol_reload_if_due(preload_symbols)
+                except Exception as reload_exc:
+                    self._log_dedup(
+                        "PIPE_RUNTIME_SYMBOL_RELOAD_PRE_SESSION_ERROR",
+                        f"PIPE_RUNTIME_SYMBOL_RELOAD_PRE_SESSION_ERROR {type(reload_exc).__name__}:{reload_exc}",
+                        heartbeat_sec=300,
+                    )
+
                 self._log_dedup(
                     f"PIPE_SESSION_BLOCK:{session.get('phase')}",
                     f"PIPE_SESSION_BLOCK phase={session.get('phase')}",
@@ -4510,8 +4528,28 @@ class PaperTradingPipeline:
                         flush=True,
                     )
 
-            # Русский комментарий: удаление/отписка MarketData будет отдельным этапом.
+            # Русский комментарий: runtime MarketData resubscribe без restart pipeline.
             self._runtime_active_symbols = decision.active_symbols
+
+            try:
+                marketdata = getattr(self, "marketdata", None)
+
+                if marketdata is not None and hasattr(marketdata, "ensure_subscribed"):
+                    marketdata.ensure_subscribed(decision.active_symbols)
+
+                    self._log_dedup(
+                        "PIPE_RUNTIME_MD_RESUBSCRIBE",
+                        "PIPE_RUNTIME_MD_RESUBSCRIBE "
+                        f"symbols={','.join(decision.active_symbols)}",
+                        heartbeat_sec=float(os.getenv("RUNTIME_MD_RESUBSCRIBE_LOG_SEC", "60")),
+                    )
+
+            except Exception as md_exc:
+                self._log_dedup(
+                    "PIPE_RUNTIME_MD_RESUBSCRIBE_ERROR",
+                    f"PIPE_RUNTIME_MD_RESUBSCRIBE_ERROR {type(md_exc).__name__}:{md_exc}",
+                    heartbeat_sec=300,
+                )
 
             return decision.active_symbols
 
