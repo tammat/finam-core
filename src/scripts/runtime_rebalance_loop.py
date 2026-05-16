@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import subprocess
 
 
@@ -10,7 +11,7 @@ def run(cmd: list[str]) -> None:
 
 
 def main() -> int:
-    python_bin = os.getenv("PYTHON_BIN", "python")
+    python_bin = os.getenv("PYTHON_BIN") or sys.executable
     env = os.environ.copy()
     env["PYTHONPATH"] = env.get("PYTHONPATH", "src")
 
