@@ -4528,9 +4528,24 @@ class PaperTradingPipeline:
                         flush=True,
                     )
 
-            # Русский комментарий: удаляем runtime strategy/state для символов, исключённых из active universe.
+            # Русский комментарий: удаляем runtime strategy/state только если по символу нет открытой позиции.
             for stale_symbol in decision.removed_symbols:
                 try:
+                    position_qty = 0.0
+                    try:
+                        positions = getattr(getattr(self, "position_manager", None), "positions", {}) or {}
+                        position = positions.get(stale_symbol)
+                        position_qty = float(getattr(position, "qty", 0.0) or 0.0)
+                    except Exception:
+                        position_qty = 0.0
+
+                    if abs(position_qty) > 0:
+                        print(
+                            f"PIPE_RUNTIME_SYMBOL_EVICT_SKIPPED_OPEN_POSITION symbol={stale_symbol} qty={position_qty}",
+                            flush=True,
+                        )
+                        continue
+
                     if hasattr(self, "strategy_by_symbol") and self.strategy_by_symbol is not None:
                         self.strategy_by_symbol.pop(stale_symbol, None)
 
