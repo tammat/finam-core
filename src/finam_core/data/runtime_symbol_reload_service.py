@@ -21,14 +21,20 @@ class RuntimeSymbolReloadService:
         pg_logger: Any,
         source: str = "opportunity_scanner",
         limit: int = 10,
+        sources: list[str] | None = None,
     ) -> None:
         self.provider = RuntimeUniverseProvider(pg_logger)
         self.source = source
+        self.sources = sources or [source, "confirmation_universe"]
         self.limit = int(limit)
 
     def decide(self, current_symbols: list[str]) -> RuntimeSymbolReloadDecision:
         current = list(dict.fromkeys([s for s in current_symbols if s]))
-        desired = self.provider.load_symbols(source=self.source, limit=self.limit)
+        desired = self.provider.load_symbols(
+            source=self.source,
+            sources=self.sources,
+            limit=self.limit,
+        )
 
         active = list(dict.fromkeys(current + desired))
 
