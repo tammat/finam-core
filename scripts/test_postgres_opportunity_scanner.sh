@@ -17,10 +17,10 @@ class Cursor:
 
     def fetchall(self):
         return [
-            ("OZON@MISX", 0.015, 2.0, 2_000_000_000, 0.001, "trend_up_high_vol"),
-            ("SBER@MISX", 0.009, 1.3, 1_000_000_000, 0.001, "trend_up_low_vol"),
-            ("SBER@MISX", 0.020, 3.0, 2_000_000_000, 0.001, "trend_up_high_vol"),
-            ("TRASH@MISX", 0.02, 3.0, 1_000_000, 0.02, "trend_up_high_vol"),
+            ("OZON@MISX", 0.015, 2.0, 2_000_000_000, 0.001, "trend_up_high_vol", 0.75, "INSTITUTIONAL_GRADE"),
+            ("SBER@MISX", 0.009, 1.3, 1_000_000_000, 0.001, "trend_up_low_vol", 0.0, "NO_SMART_MONEY_DATA"),
+            ("SBER@MISX", 0.020, 3.0, 2_000_000_000, 0.001, "trend_up_high_vol", 0.30, "NORMAL_FLOW"),
+            ("TRASH@MISX", 0.02, 3.0, 1_000_000, 0.02, "trend_up_high_vol", 0.0, "NO_SMART_MONEY_DATA"),
         ]
 
     def __enter__(self):
@@ -51,10 +51,20 @@ items = scanner.top_opportunities(limit=5)
 
 assert len(items) == 2
 assert len({x.symbol for x in items}) == 2
-assert items[0].symbol == "SBER@MISX"
-assert items[0].strategy == "VOLATILITY_BREAKOUT_EQUITY"
-assert items[1].symbol == "OZON@MISX"
-assert items[1].strategy == "VOLATILITY_BREAKOUT_EQUITY"
+assert len(items) == 2
+assert len({x.symbol for x in items}) == 2
+
+by_symbol = {x.symbol: x for x in items}
+
+assert "SBER@MISX" in by_symbol
+assert "OZON@MISX" in by_symbol
+
+assert by_symbol["SBER@MISX"].smart_money_score >= 0.0
+assert by_symbol["OZON@MISX"].smart_money_score == 0.75
+assert by_symbol["OZON@MISX"].smart_money_label == "INSTITUTIONAL_GRADE"
+
+assert by_symbol["SBER@MISX"].strategy == "VOLATILITY_BREAKOUT_EQUITY"
+assert by_symbol["OZON@MISX"].strategy == "VOLATILITY_BREAKOUT_EQUITY"
 
 print("OK: PostgresOpportunityScanner")
 PY

@@ -34,7 +34,7 @@ class PostgresOpportunityScanner:
         best_by_symbol: dict[str, OpportunityCandidate] = {}
 
         for row in rows:
-            symbol, atr_pct, rvol, turnover, spread_pct, regime = row
+            symbol, atr_pct, rvol, turnover, spread_pct, regime, smart_money_score, smart_money_label = row
 
             candidate = self.scanner.evaluate(
                 symbol=str(symbol),
@@ -43,6 +43,8 @@ class PostgresOpportunityScanner:
                 turnover=float(turnover or 0.0),
                 spread_pct=float(spread_pct or 0.0),
                 regime=str(regime or "unknown_trend_unknown_vol"),
+                smart_money_score=float(smart_money_score or 0.0),
+                smart_money_label=str(smart_money_label or "NO_SMART_MONEY_DATA"),
             )
 
             if candidate is None:
@@ -64,7 +66,9 @@ class PostgresOpportunityScanner:
             rvol,
             turnover,
             spread_pct,
-            regime
+            regime,
+            smart_money_score,
+            smart_money_label
         from market_opportunity_metrics
         where asset_class = 'EQUITY'
           and is_tradeable = true

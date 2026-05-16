@@ -11,8 +11,10 @@ class OpportunityCandidate:
     turnover: float
     spread_pct: float
     regime: str
-    opportunity_score: float
-    strategy: str
+    smart_money_score: float = 0.0
+    smart_money_label: str = "NO_SMART_MONEY_DATA"
+    opportunity_score: float = 0.0
+    strategy: str = ""
 
 
 class MOEXOpportunityScanner:
@@ -42,6 +44,8 @@ class MOEXOpportunityScanner:
         turnover: float,
         spread_pct: float,
         regime: str,
+        smart_money_score: float = 0.0,
+        smart_money_label: str = "NO_SMART_MONEY_DATA",
     ) -> OpportunityCandidate | None:
 
         if turnover < self.min_turnover:
@@ -64,11 +68,14 @@ class MOEXOpportunityScanner:
         atr_score = min(atr_pct / 0.05, 1.0)
         spread_penalty = min(spread_pct / 0.01, 1.0)
 
+        smart_money_score = max(0.0, min(float(smart_money_score or 0.0), 1.0))
+
         score = (
-            atr_score * 0.35
-            + rvol_score * 0.30
-            + turnover_score * 0.20
-            - spread_penalty * 0.15
+            atr_score * 0.30
+            + rvol_score * 0.25
+            + turnover_score * 0.15
+            + smart_money_score * 0.20
+            - spread_penalty * 0.10
         )
 
         strategy = self.select_strategy(
@@ -84,6 +91,8 @@ class MOEXOpportunityScanner:
             turnover=round(turnover, 2),
             spread_pct=round(spread_pct, 6),
             regime=regime,
+            smart_money_score=round(smart_money_score, 6),
+            smart_money_label=str(smart_money_label or "NO_SMART_MONEY_DATA"),
             opportunity_score=round(score, 6),
             strategy=strategy,
         )
