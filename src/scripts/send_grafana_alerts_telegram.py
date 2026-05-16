@@ -64,8 +64,13 @@ def main() -> int:
             cur.execute(LOAD_SQL)
             rows = cur.fetchall()
 
+            cooldown_min = int(os.getenv("TELEGRAM_ALERT_COOLDOWN_MIN", "30"))
+
+            cooldown_min = int(os.getenv("TELEGRAM_ALERT_COOLDOWN_MIN", "30"))
+
             for ts, symbol, alert, bias, confidence, reason in rows:
-                alert_key = f"{ts}|{symbol}|{alert}|{bias}|{confidence}"
+                # Русский комментарий: cooldown-ключ без timestamp, чтобы не спамить одним и тем же событием.
+                alert_key = f"{symbol}|{alert}|{bias}"
 
                 payload = {
                     "ts": ts,
@@ -75,6 +80,32 @@ def main() -> int:
                     "confidence": confidence,
                     "reason": reason,
                 }
+
+                cur.execute(
+                    """
+                    select 1
+                    from telegram_alert_delivery
+                    where alert_key = %s
+                      and delivered_at > now() - (%s || ' minutes')::interval
+                    limit 1
+                    """,
+                    (alert_key, cooldown_min),
+                )
+                if cur.fetchone():
+                    continue
+
+                cur.execute(
+                    """
+                    select 1
+                    from telegram_alert_delivery
+                    where alert_key = %s
+                      and delivered_at > now() - (%s || ' minutes')::interval
+                    limit 1
+                    """,
+                    (alert_key, cooldown_min),
+                )
+                if cur.fetchone():
+                    continue
 
                 cur.execute(
                     INSERT_SQL,

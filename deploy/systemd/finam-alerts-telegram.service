@@ -1,0 +1,13 @@
+[Unit]
+Description=Finam Core Telegram Alerts Bridge
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/.env
+Environment=PYTHONPATH=src
+Environment=TELEGRAM_ALERT_COOLDOWN_MIN=30
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/send_grafana_alerts_telegram.py
