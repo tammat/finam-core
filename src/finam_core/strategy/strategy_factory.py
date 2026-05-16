@@ -10,14 +10,15 @@ from finam_core.strategy.ng.ng_volatility_breakout import NGVolatilityBreakout
 from finam_core.strategy.fx.usdrub_regime_strategy import USDRUBRegimeStrategy
 from finam_core.strategy.equities.mean_reversion_equity import MeanReversionEquity
 from finam_core.strategy.equities.trend_pullback_equity import TrendPullbackEquity
+from finam_core.strategy.equities.volatility_breakout_equity import VolatilityBreakoutEquity
 
 
 class StrategyFactory:
 
     @staticmethod
-    def create(symbol: str):
+    def create(symbol: str, strategy_name: str | None = None):
 
-        strategy_name = SYMBOL_STRATEGY_MAP.get(
+        strategy_name = strategy_name or SYMBOL_STRATEGY_MAP.get(
             symbol,
             DEFAULT_STRATEGY,
         )
@@ -33,5 +34,8 @@ class StrategyFactory:
 
         if strategy_name == "TREND_PULLBACK_EQUITY":
             return TrendPullbackEquity()
+
+        if strategy_name == "VOLATILITY_BREAKOUT_EQUITY":
+            return VolatilityBreakoutEquity()
 
         return MeanReversionEquity()
