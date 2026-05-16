@@ -3958,40 +3958,6 @@ class PaperTradingPipeline:
             self._log_dedup("PIPE_PAPER_FILL_BLOCKED:main_execution", "PIPE_PAPER_FILL_BLOCKED source=main_execution")
             return
 
-        # Русский комментарий: runtime-control применяется только к новым входам.
-        # EXIT-intent не блокируем, чтобы робот всегда мог закрыть позицию.
-        is_exit_intent = isinstance(intent, dict) and intent.get("intent_type") == "EXIT"
-        if not is_exit_intent:
-            runtime_symbol = str(intent.get("symbol") or st.get("symbol") or "")
-            runtime_strategy = str(
-                intent.get("strategy")
-                or (intent.get("features") or {}).get("strategy")
-                or "default"
-            )
-            runtime_qty = float(intent.get("qty", 0.0) or 0.0)
-
-            runtime_allowed, adjusted_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
-                runtime_symbol,
-                runtime_qty,
-                strategy=runtime_strategy,
-            )
-
-            if not runtime_allowed:
-                self._log_dedup(
-                    f"PIPE_RUNTIME_CONTROL_BLOCK:{runtime_symbol}:{runtime_strategy}",
-                    f"PIPE_RUNTIME_CONTROL_BLOCK symbol={runtime_symbol} strategy={runtime_strategy} reason={runtime_reason}",
-                    heartbeat_sec=300,
-                )
-                return
-
-            if adjusted_qty != runtime_qty:
-                self._log_dedup(
-                    f"PIPE_RUNTIME_CONTROL_SIZE:{runtime_symbol}:{runtime_strategy}",
-                    f"PIPE_RUNTIME_CONTROL_SIZE symbol={runtime_symbol} strategy={runtime_strategy} qty={runtime_qty}->{adjusted_qty} reason={runtime_reason}",
-                    heartbeat_sec=300,
-                )
-                intent["qty"] = adjusted_qty
-
         # =========================================================
         # === ENTRY GATE COORDINATOR
         # =========================================================
