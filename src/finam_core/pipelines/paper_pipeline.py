@@ -3919,6 +3919,7 @@ class PaperTradingPipeline:
             current_positions = getattr(self.pm, "positions", {}) or {}
 
             active_symbols = list(current_positions.keys())
+            active_symbols = self._runtime_symbol_reload_if_due(active_symbols)
 
             def get_cluster(sym):
                 base = sym.split("@")[0][:2]
@@ -4452,6 +4453,75 @@ class PaperTradingPipeline:
 
 
 
+
+    def _runtime_symbol_reload_if_due(self, current_symbols: list[str]) -> list[str]:
+        """Русский комментарий: периодически перечитывает runtime-universe из dynamic_watchlist."""
+        try:
+            import time
+            import os
+
+            enabled = os.getenv("ENABLE_RUNTIME_SYMBOL_RELOAD", "0") == "1"
+            if not enabled:
+                return current_symbols
+
+            interval_sec = float(os.getenv("RUNTIME_SYMBOL_RELOAD_SEC", "300"))
+            now_ts = time.time()
+            last_ts = float(getattr(self, "_runtime_symbol_reload_last_ts", 0.0) or 0.0)
+
+            if now_ts - last_ts < interval_sec:
+                return current_symbols
+
+            self._runtime_symbol_reload_last_ts = now_ts
+
+            from finam_core.data.runtime_symbol_reload_service import RuntimeSymbolReloadService
+            from finam_core.strategy.strategy_factory import StrategyFactory
+
+            svc = getattr(self, "runtime_symbol_reload_service", None)
+            if svc is None:
+                svc = RuntimeSymbolReloadService(
+                    getattr(self, "pg_logger", None),
+                    limit=int(os.getenv("RUNTIME_SYMBOL_RELOAD_LIMIT", "10")),
+                )
+                self.runtime_symbol_reload_service = svc
+
+            decision = svc.decide(current_symbols)
+
+            self._log_dedup(
+                "PIPE_RUNTIME_SYMBOL_RELOAD",
+                "PIPE_RUNTIME_SYMBOL_RELOAD "
+                f"active={','.join(decision.active_symbols)} "
+                f"added={','.join(decision.added_symbols)} "
+                f"removed={','.join(decision.removed_symbols)}",
+                heartbeat_sec=float(os.getenv("RUNTIME_SYMBOL_RELOAD_LOG_SEC", "60")),
+            )
+
+            if not hasattr(self, "strategy_by_symbol") or self.strategy_by_symbol is None:
+                self.strategy_by_symbol = {}
+
+            for dynamic_symbol in decision.added_symbols:
+                if dynamic_symbol not in self.strategy_by_symbol:
+                    strategy_name = self._strategy_name_for_symbol(dynamic_symbol)
+                    self.strategy_by_symbol[dynamic_symbol] = StrategyFactory.create(
+                        dynamic_symbol,
+                        strategy_name=strategy_name,
+                    )
+                    print(
+                        f"PIPE_RUNTIME_SYMBOL_STRATEGY_CREATED symbol={dynamic_symbol} strategy={strategy_name}",
+                        flush=True,
+                    )
+
+            # Русский комментарий: удаление/отписка MarketData будет отдельным этапом.
+            self._runtime_active_symbols = decision.active_symbols
+
+            return decision.active_symbols
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_RUNTIME_SYMBOL_RELOAD_ERROR",
+                f"PIPE_RUNTIME_SYMBOL_RELOAD_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return current_symbols
 
     def _strategy_name_for_symbol(self, symbol: str) -> str:
         """Русский комментарий: возвращает имя стратегии с учётом dynamic_watchlist."""
