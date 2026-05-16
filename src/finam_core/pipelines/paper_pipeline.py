@@ -2565,6 +2565,76 @@ class PaperTradingPipeline:
         )
 
 
+    def _record_smart_money_features_if_enabled(self, symbol: str, price: float, volume: float, event: dict) -> None:
+        """Русский комментарий: считает smart-money признаки по quote и пишет только значимые события."""
+        try:
+            import os
+            import time
+
+            if os.getenv("ENABLE_SMART_MONEY_FEATURES", "0") != "1":
+                return
+
+            threshold = float(os.getenv("SMART_MONEY_MIN_SCORE", "0.45"))
+            min_interval = float(os.getenv("SMART_MONEY_SAVE_INTERVAL_SEC", "60"))
+
+            last_map = getattr(self, "_smart_money_last_save_ts", None)
+            if last_map is None:
+                last_map = {}
+                self._smart_money_last_save_ts = last_map
+
+            now_ts = time.time()
+            if now_ts - float(last_map.get(symbol, 0.0) or 0.0) < min_interval:
+                return
+
+            from finam_core.orderflow.smart_money_features import SmartMoneyFeatureLayer
+            from finam_core.orderflow.smart_money_feature_repository import SmartMoneyFeatureRepository
+
+            layer = getattr(self, "smart_money_feature_layer", None)
+            if layer is None:
+                layer = SmartMoneyFeatureLayer(
+                    window=int(os.getenv("SMART_MONEY_WINDOW", "20")),
+                )
+                self.smart_money_feature_layer = layer
+
+            repo = getattr(self, "smart_money_feature_repository", None)
+            if repo is None:
+                repo = SmartMoneyFeatureRepository(getattr(self, "pg_logger", None))
+                self.smart_money_feature_repository = repo
+
+            high = event.get("high") or event.get("ask") or price
+            low = event.get("low") or event.get("bid") or price
+            avg_volume = event.get("avg_volume")
+
+            features = layer.update(
+                symbol=symbol,
+                price=price,
+                volume=volume,
+                high=high,
+                low=low,
+                avg_volume=avg_volume,
+            )
+
+            if features.smart_money_score < threshold:
+                return
+
+            repo.save(features)
+            last_map[symbol] = now_ts
+
+            print(
+                f"PIPE_SMART_MONEY_FEATURE symbol={symbol} "
+                f"score={features.smart_money_score} label={features.label} "
+                f"rvol={features.rvol} absorption={features.absorption_score} "
+                f"impulse={features.impulse_score}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            self._log_dedup(
+                f"PIPE_SMART_MONEY_FEATURE_ERROR:{symbol}",
+                f"PIPE_SMART_MONEY_FEATURE_ERROR symbol={symbol} error={type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+
     def _on_quote_impl(self, event: dict):
         raw_intent = None
         is_exit_intent = False
@@ -2637,6 +2707,13 @@ class PaperTradingPipeline:
             }
 
         # =========================================================
+        self._record_smart_money_features_if_enabled(
+            symbol=sym,
+            price=price,
+            volume=volume,
+            event=event,
+        )
+
         # === REGIME V2: STRATEGY ROUTER (АДАПТИВНЫЙ)
         # =========================================================
         regime_type = session.get("phase")
