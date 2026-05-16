@@ -4528,6 +4528,30 @@ class PaperTradingPipeline:
                         flush=True,
                     )
 
+            # Русский комментарий: удаляем runtime strategy/state для символов, исключённых из active universe.
+            for stale_symbol in decision.removed_symbols:
+                try:
+                    if hasattr(self, "strategy_by_symbol") and self.strategy_by_symbol is not None:
+                        self.strategy_by_symbol.pop(stale_symbol, None)
+
+                    if hasattr(self, "state") and isinstance(self.state, dict):
+                        self.state.pop(stale_symbol, None)
+
+                    if hasattr(self, "_ng_strategy_by_symbol") and self._ng_strategy_by_symbol is not None:
+                        self._ng_strategy_by_symbol.pop(stale_symbol, None)
+
+                    print(
+                        f"PIPE_RUNTIME_SYMBOL_EVICT symbol={stale_symbol}",
+                        flush=True,
+                    )
+
+                except Exception as evict_exc:
+                    self._log_dedup(
+                        f"PIPE_RUNTIME_SYMBOL_EVICT_ERROR:{stale_symbol}",
+                        f"PIPE_RUNTIME_SYMBOL_EVICT_ERROR symbol={stale_symbol} error={type(evict_exc).__name__}:{evict_exc}",
+                        heartbeat_sec=300,
+                    )
+
             # Русский комментарий: runtime MarketData resubscribe без restart pipeline.
             self._runtime_active_symbols = decision.active_symbols
 
