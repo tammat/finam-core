@@ -1,0 +1,24 @@
+[Unit]
+Description=Finam Core Runtime Rebalance Loop
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finam
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/deploy/env/.env
+
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/runtime_rebalance_loop.py
+
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=4
+
+StandardOutput=append:/opt/finam-core/logs/runtime_rebalance.log
+StandardError=append:/opt/finam-core/logs/runtime_rebalance.log
+
+[Install]
+WantedBy=multi-user.target
