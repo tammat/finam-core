@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+
+
+LOAD_SQL = """
+select
+    "🕒 Время"::text,
+    "📈 Инструмент",
+    "🚨 Alert",
+    "🧭 Bias",
+    "🎯 Уверенность"::text,
+    "📝 Причина"
+from v_grafana_alerts_ru
+order by "🕒 Время" desc
+limit 20;
+"""
+
+INSERT_SQL = """
+insert into telegram_alert_delivery (alert_key, payload)
+values (%s, %s::jsonb)
+on conflict (alert_key) do nothing
+returning id;
+"""
+
+
+def send_telegram(text: str) -> None:
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    if not token or not chat_id:
+        print("TELEGRAM_NOT_CONFIGURED")
+        return
+
+    subprocess.run(
+        [
+            "curl",
+            "-sS",
+            "-X", "POST",
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            "-d", f"chat_id={chat_id}",
+            "-d", f"text={text}",
+            "-d", "parse_mode=HTML",
+        ],
+        check=True,
+    )
+
+
+def main() -> int:
+    import psycopg2
+
+    database_url = os.environ["DATABASE_URL"]
+
+    if not os.getenv("TELEGRAM_BOT_TOKEN") or not os.getenv("TELEGRAM_CHAT_ID"):
+        print("TELEGRAM_NOT_CONFIGURED")
+        return 0
+
+    sent = 0
+
+    with psycopg2.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(LOAD_SQL)
+            rows = cur.fetchall()
+
+            for ts, symbol, alert, bias, confidence, reason in rows:
+                alert_key = f"{ts}|{symbol}|{alert}|{bias}|{confidence}"
+
+                payload = {
+                    "ts": ts,
+                    "symbol": symbol,
+                    "alert": alert,
+                    "bias": bias,
+                    "confidence": confidence,
+                    "reason": reason,
+                }
+
+                cur.execute(
+                    INSERT_SQL,
+                    (
+                        alert_key,
+                        json.dumps(payload, ensure_ascii=False),
+                    ),
+                )
+
+                inserted = cur.fetchone()
+                if not inserted:
+                    continue
+
+                message = (
+                    f"🚨 <b>Finam Core Alert</b>\n\n"
+                    f"📈 Инструмент: <b>{symbol}</b>\n"
+                    f"Событие: <b>{alert}</b>\n"
+                    f"🧭 Bias: <b>{bias}</b>\n"
+                    f"🎯 Уверенность: <b>{confidence}</b>\n"
+                    f"🕒 Время: {ts}\n\n"
+                    f"📝 Причина:\n{reason}"
+                )
+
+                send_telegram(message)
+                sent += 1
+
+        conn.commit()
+
+    print(f"OK: telegram grafana alerts sent={sent}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
