@@ -4386,6 +4386,13 @@ class PaperTradingPipeline:
                 payload.setdefault("timeframe", payload.get("timeframe") or "LIVE")
                 payload.setdefault("regime", payload.get("regime") or "UNKNOWN")
 
+                features = payload.get("features") or {}
+                if isinstance(features, dict):
+                    payload.setdefault("adaptive_position_base_qty", features.get("adaptive_position_base_qty"))
+                    payload.setdefault("adaptive_position_final_qty", features.get("adaptive_position_final_qty"))
+                    payload.setdefault("adaptive_position_multiplier", features.get("adaptive_position_multiplier"))
+                    payload.setdefault("adaptive_position_reason", features.get("adaptive_position_reason"))
+
                 # Русский комментарий: добавляем contract identity в fallback payload.
                 try:
                     from finam_core.contracts.contract_identity_resolver import ContractIdentityResolver
