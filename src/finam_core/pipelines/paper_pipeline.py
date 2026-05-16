@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from finam_core.runtime.trend_gate_service import TrendGateService
+
 from finam_core.runtime.regime_runtime_control_service import RegimeRuntimeControlService
 
 from finam_core.runtime.entry_gate_coordinator import EntryGateCoordinator
@@ -320,6 +322,23 @@ class PaperTradingPipeline:
         self.pg_logger = PostgresLogger()
         self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
         self.regime_runtime_control_service = RegimeRuntimeControlService(self.pg_logger)
+        # Русский комментарий: gate-сервисы должны существовать до создания EntryGateCoordinator.
+        if not hasattr(self, "trade_gate_service"):
+            self.trade_gate_service = TradeGateService(
+                base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
+                max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
+                max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
+            )
+
+        if not hasattr(self, "trend_gate_service"):
+            self.trend_gate_service = TrendGateService()
+
+        if not hasattr(self, "strategy_runtime_control_service"):
+            self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
+
+        if not hasattr(self, "regime_runtime_control_service"):
+            self.regime_runtime_control_service = RegimeRuntimeControlService(self.pg_logger)
+
         self.entry_gate_coordinator = EntryGateCoordinator(
             trade_gate_service=self.trade_gate_service,
             runtime_control_service=self.strategy_runtime_control_service,
