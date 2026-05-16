@@ -4063,6 +4063,8 @@ class PaperTradingPipeline:
             return
 
         # =========================================================
+        self._inject_latest_smart_money_context(intent)
+
         if not self._entry_confidence_gate_if_enabled(intent, st):
             return
 
@@ -4551,6 +4553,68 @@ class PaperTradingPipeline:
 
 
 
+
+    def _inject_latest_smart_money_context(self, intent: dict) -> None:
+        """Русский комментарий: подтягивает latest smart_money_score из PostgreSQL."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_SMART_MONEY_CONTEXT", "1") != "1":
+                return
+
+            symbol = str(intent.get("symbol") or "")
+            if not symbol:
+                return
+
+            lookup_symbols = [symbol]
+
+            try:
+                from finam_core.market.contract_identity import ContractIdentityResolver
+
+                identity = ContractIdentityResolver().resolve(symbol)
+                continuous_symbol = getattr(identity, "continuous_symbol", None)
+                if continuous_symbol and continuous_symbol not in lookup_symbols:
+                    lookup_symbols.append(str(continuous_symbol))
+            except Exception:
+                pass
+
+            pg = getattr(self, "pg_logger", None)
+            if pg is None:
+                return
+
+            sql = """
+            select
+                smart_money_score,
+                smart_money_label
+            from market_opportunity_metrics
+            where symbol = %s
+            order by calculated_at desc
+            limit 1
+            """
+
+            with pg._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (symbol,))
+                    row = cur.fetchone()
+
+            if not row:
+                return
+
+            smart_money_score, smart_money_label = row
+
+            features = intent.setdefault("features", {})
+
+            features["smart_money_score"] = float(smart_money_score or 0.0)
+            features["smart_money_label"] = str(
+                smart_money_label or "NO_SMART_MONEY_DATA"
+            )
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_SMART_MONEY_CONTEXT_ERROR",
+                f"PIPE_SMART_MONEY_CONTEXT_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
 
     def _entry_confidence_gate_if_enabled(self, intent: dict, market_state: dict) -> bool:
         """Русский комментарий: confirmation gate перед Risk/Execution для новых входов."""
