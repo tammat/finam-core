@@ -4065,6 +4065,7 @@ class PaperTradingPipeline:
         # =========================================================
         self._inject_latest_smart_money_context(intent)
         self._inject_latest_institutional_flow_context(intent)
+        self._resolve_execution_symbol_if_enabled(intent, st)
 
         if not self._entry_confidence_gate_if_enabled(intent, st):
             return
@@ -4680,6 +4681,63 @@ class PaperTradingPipeline:
             self._log_dedup(
                 "PIPE_SMART_MONEY_CONTEXT_ERROR",
                 f"PIPE_SMART_MONEY_CONTEXT_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+
+    def _resolve_execution_symbol_if_enabled(self, intent: dict, market_state: dict) -> None:
+        """Русский комментарий: подменяет symbol на preferred execution contract перед Risk/Execution."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_EXECUTION_SYMBOL_RESOLVER", "0") != "1":
+                return
+
+            if not isinstance(intent, dict):
+                return
+
+            if intent.get("intent_type") == "EXIT":
+                return
+
+            symbol = str(intent.get("symbol") or market_state.get("symbol") or "")
+            if not symbol:
+                return
+
+            from finam_core.execution.execution_symbol_resolver import ExecutionSymbolResolver
+
+            resolver = getattr(self, "execution_symbol_resolver", None)
+            if resolver is None:
+                resolver = ExecutionSymbolResolver(getattr(self, "pg_logger", None))
+                self.execution_symbol_resolver = resolver
+
+            decision = resolver.resolve(symbol)
+
+            if decision.execution_symbol == symbol:
+                return
+
+            features = intent.setdefault("features", {})
+            features["requested_symbol"] = decision.requested_symbol
+            features["execution_symbol"] = decision.execution_symbol
+            features["continuous_symbol"] = decision.continuous_symbol
+            features["execution_symbol_reason"] = decision.reason
+
+            intent["requested_symbol"] = decision.requested_symbol
+            intent["symbol"] = decision.execution_symbol
+            market_state["requested_symbol"] = decision.requested_symbol
+            market_state["symbol"] = decision.execution_symbol
+
+            print(
+                f"PIPE_EXECUTION_SYMBOL_RESOLVED "
+                f"requested={decision.requested_symbol} "
+                f"execution={decision.execution_symbol} "
+                f"continuous={decision.continuous_symbol} "
+                f"reason={decision.reason}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_EXECUTION_SYMBOL_RESOLVER_ERROR",
+                f"PIPE_EXECUTION_SYMBOL_RESOLVER_ERROR {type(exc).__name__}:{exc}",
                 heartbeat_sec=300,
             )
 
