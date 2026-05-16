@@ -11,6 +11,7 @@ QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.ap
 from __future__ import annotations
 
 from finam_core.data.runtime_universe_provider import RuntimeUniverseProvider
+from finam_core.storage.postgres_logger import PostgresLogger
 
 import os
 from finam_core.risk.real_stock_safety_gate import RealStockSafetyGate
