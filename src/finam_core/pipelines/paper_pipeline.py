@@ -3973,6 +3973,42 @@ class PaperTradingPipeline:
                 )
                 intent["qty"] = adjusted_qty
 
+        # =========================================================
+        # === ENTRY GATE COORDINATOR
+        # =========================================================
+        if isinstance(intent, dict) and intent.get("intent_type") != "EXIT":
+            try:
+                gate = getattr(self, "entry_gate_coordinator", None)
+
+                if gate is not None:
+                    gate_decision = gate.allow_entry(
+                        symbol=str(intent.get("symbol") or st.get("symbol") or ""),
+                        strategy=str(intent.get("strategy") or (intent.get("features") or {}).get("strategy") or "default"),
+                        strategy_side=str(intent.get("side") or ""),
+                        expected_side=str(st.get("expected_side") or st.get("trend_side") or intent.get("side") or ""),
+                        qty=float(intent.get("qty", 0.0) or 0.0),
+                        price=float(intent.get("price") or st.get("last") or st.get("price") or 0.0),
+                        atr=float(st.get("atr", 0.0) or 0.0),
+                        regime=str(intent.get("regime") or (intent.get("features") or {}).get("regime_label") or "UNKNOWN"),
+                    )
+
+                    if not gate_decision.allowed:
+                        self._log_dedup(
+                            f"PIPE_ENTRY_GATE_BLOCK:{intent.get('symbol')}:{gate_decision.gate}",
+                            f"PIPE_ENTRY_GATE_BLOCK symbol={intent.get('symbol')} gate={gate_decision.gate} reason={gate_decision.reason}",
+                            heartbeat_sec=60,
+                        )
+                        return
+
+                    intent["qty"] = gate_decision.qty
+                    intent.setdefault("features", {})
+                    intent["features"]["entry_gate_reason"] = gate_decision.reason
+                    intent["features"]["entry_gate"] = gate_decision.gate
+
+            except Exception as exc:
+                print(f"PIPE_ENTRY_GATE_COORDINATOR_ERROR {type(exc).__name__}:{exc}", flush=True)
+                return
+
         raw_fill = self.paper.execute(intent, st)
 
         # === NORMALIZE FILL (define raw_qty and side ONCE) ===
