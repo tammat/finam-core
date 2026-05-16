@@ -102,10 +102,14 @@ class FinamMarketDataClient:
         )
         self.stub = marketdata_service_pb2_grpc.MarketDataServiceStub(self.channel)
 
+        # Русский коммент: текущий список подписки; используется для runtime resubscribe.
+        self._symbols: list[str] = []
+
     # -----------------------------
     # Lifecycle
     # -----------------------------
     def start(self, symbols: List[str]):
+        self._symbols = list(dict.fromkeys(symbols or []))
         if self._thread and self._thread.is_alive():
             LOG.info("MarketData start skipped: thread already alive symbols=%s", symbols)
             return
@@ -116,8 +120,27 @@ class FinamMarketDataClient:
             self.heartbeat_sec,
             self.watchdog_mode,
         )
-        self._thread = threading.Thread(target=self.subscribe_quotes, args=(symbols,), daemon=True)
+        self._thread = threading.Thread(target=self.subscribe_quotes, args=(self._symbols,), daemon=True)
         self._thread.start()
+
+    def ensure_subscribed(self, symbols: List[str]) -> list[str]:
+        """Русский коммент: обновляет список подписки и мягко перезапускает active stream."""
+        desired = list(dict.fromkeys(symbols or []))
+        current = list(getattr(self, "_symbols", []) or [])
+
+        if desired == current:
+            return current
+
+        self._symbols = desired
+        LOG.info("MarketData resubscribe requested: symbols=%s", desired)
+
+        try:
+            if self._active_call is not None:
+                self._active_call.cancel()
+        except Exception:
+            pass
+
+        return desired
 
     def stop(self):
         """Останавливаем поток + отменяем активный call."""
@@ -217,7 +240,8 @@ class FinamMarketDataClient:
         backoff = self.reconnect_initial_sec
         while not self._stop.is_set():
             try:
-                req = marketdata_service_pb2.SubscribeQuoteRequest(symbols=symbols)
+                active_symbols = list(getattr(self, "_symbols", []) or symbols or [])
+                req = marketdata_service_pb2.SubscribeQuoteRequest(symbols=active_symbols)
                 call = self.stub.SubscribeQuote(req, metadata=self._md())
 
                 self._active_call = call
@@ -228,9 +252,9 @@ class FinamMarketDataClient:
 
                 self._start_watchdog()
 
-                LOG.info("MarketData SubscribeQuote opened: symbols=%s", symbols)
+                LOG.info("MarketData SubscribeQuote opened: symbols=%s", active_symbols)
                 if os.getenv("MD_DEBUG") == "1":
-                    LOG.debug("MarketData subscribed debug: %s", symbols)
+                    LOG.debug("MarketData subscribed debug: %s", active_symbols)
 
                 backoff = self.reconnect_initial_sec
                 self._handle_stream(call)
