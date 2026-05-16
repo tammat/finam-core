@@ -31,6 +31,8 @@ class PostgresOpportunityScanner:
 
         candidates: list[OpportunityCandidate] = []
 
+        best_by_symbol: dict[str, OpportunityCandidate] = {}
+
         for row in rows:
             symbol, atr_pct, rvol, turnover, spread_pct, regime = row
 
@@ -43,8 +45,14 @@ class PostgresOpportunityScanner:
                 regime=str(regime or "unknown_trend_unknown_vol"),
             )
 
-            if candidate is not None:
-                candidates.append(candidate)
+            if candidate is None:
+                continue
+
+            current = best_by_symbol.get(candidate.symbol)
+            if current is None or candidate.opportunity_score > current.opportunity_score:
+                best_by_symbol[candidate.symbol] = candidate
+
+        candidates = list(best_by_symbol.values())
 
         return self.scanner.rank(candidates)[: int(limit)]
 
