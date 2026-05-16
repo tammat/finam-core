@@ -4069,6 +4069,8 @@ class PaperTradingPipeline:
         if not self._entry_confidence_gate_if_enabled(intent, st):
             return
 
+        self._adaptive_position_size_if_enabled(intent, st)
+
         # === ENTRY GATE COORDINATOR
         # =========================================================
         if isinstance(intent, dict) and intent.get("intent_type") != "EXIT":
@@ -4671,6 +4673,68 @@ class PaperTradingPipeline:
             self._log_dedup(
                 "PIPE_SMART_MONEY_CONTEXT_ERROR",
                 f"PIPE_SMART_MONEY_CONTEXT_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+
+    def _adaptive_position_size_if_enabled(self, intent: dict, market_state: dict) -> None:
+        """Русский комментарий: адаптивно меняет qty после confidence gate и до RiskStack."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_ADAPTIVE_POSITION_SIZER", "0") != "1":
+                return
+
+            if not isinstance(intent, dict):
+                return
+
+            if intent.get("intent_type") == "EXIT":
+                return
+
+            from finam_core.risk.adaptive_position_sizer import AdaptivePositionSizer
+
+            features = intent.setdefault("features", {})
+
+            base_qty = float(intent.get("qty") or intent.get("quantity") or 0.0)
+            if base_qty <= 0:
+                return
+
+            sizer = getattr(self, "adaptive_position_sizer", None)
+            if sizer is None:
+                sizer = AdaptivePositionSizer(
+                    min_multiplier=float(os.getenv("ADAPTIVE_POSITION_MIN_MULTIPLIER", "0.25")),
+                    max_multiplier=float(os.getenv("ADAPTIVE_POSITION_MAX_MULTIPLIER", "1.50")),
+                )
+                self.adaptive_position_sizer = sizer
+
+            decision = sizer.size(
+                base_qty=base_qty,
+                confidence=float(features.get("entry_confidence", 0.5)),
+                institutional_flow_regime=str(features.get("institutional_flow_regime") or "NORMAL_FLOW"),
+                institutional_flow_bias=str(features.get("institutional_flow_bias") or "NEUTRAL"),
+                smart_money_score=float(features.get("smart_money_score", 0.0)),
+                volatility_quality=float(features.get("volatility_quality", 0.5)),
+                portfolio_heat=float(market_state.get("portfolio_heat", 0.0) or features.get("portfolio_heat", 0.0) or 0.0),
+            )
+
+            intent["qty"] = decision.final_qty
+            intent["quantity"] = decision.final_qty
+
+            features["adaptive_position_base_qty"] = decision.base_qty
+            features["adaptive_position_final_qty"] = decision.final_qty
+            features["adaptive_position_multiplier"] = decision.multiplier
+            features["adaptive_position_reason"] = decision.reason
+
+            print(
+                f"PIPE_ADAPTIVE_POSITION_SIZE symbol={intent.get('symbol')} "
+                f"base_qty={decision.base_qty} final_qty={decision.final_qty} "
+                f"multiplier={decision.multiplier}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_ADAPTIVE_POSITION_SIZE_ERROR",
+                f"PIPE_ADAPTIVE_POSITION_SIZE_ERROR {type(exc).__name__}:{exc}",
                 heartbeat_sec=300,
             )
 
