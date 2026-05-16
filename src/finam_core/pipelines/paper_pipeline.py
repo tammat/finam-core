@@ -4063,6 +4063,9 @@ class PaperTradingPipeline:
             return
 
         # =========================================================
+        if not self._entry_confidence_gate_if_enabled(intent, st):
+            return
+
         # === ENTRY GATE COORDINATOR
         # =========================================================
         if isinstance(intent, dict) and intent.get("intent_type") != "EXIT":
@@ -4548,6 +4551,61 @@ class PaperTradingPipeline:
 
 
 
+
+    def _entry_confidence_gate_if_enabled(self, intent: dict, market_state: dict) -> bool:
+        """Русский комментарий: confirmation gate перед Risk/Execution для новых входов."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_ENTRY_CONFIDENCE_GATE", "0") != "1":
+                return True
+
+            if not isinstance(intent, dict):
+                return True
+
+            if intent.get("intent_type") == "EXIT":
+                return True
+
+            from finam_core.strategy.entry_confidence_gate import EntryConfidenceGate
+
+            gate = getattr(self, "entry_confidence_gate", None)
+            if gate is None:
+                gate = EntryConfidenceGate(
+                    min_confidence=float(os.getenv("ENTRY_CONFIDENCE_MIN", "0.55")),
+                )
+                self.entry_confidence_gate = gate
+
+            decision = gate.evaluate(intent=intent, market_state=market_state)
+
+            symbol = str(intent.get("symbol") or market_state.get("symbol") or "")
+
+            if not decision.accepted:
+                self._log_dedup(
+                    f"PIPE_ENTRY_CONFIDENCE_REJECT:{symbol}",
+                    f"PIPE_ENTRY_CONFIDENCE_REJECT symbol={symbol} confidence={decision.confidence} reason={decision.reason}",
+                    heartbeat_sec=float(os.getenv("ENTRY_CONFIDENCE_LOG_SEC", "60")),
+                )
+                return False
+
+            print(
+                f"PIPE_ENTRY_CONFIDENCE_ACCEPT symbol={symbol} "
+                f"confidence={decision.confidence} institutional_confirmed={decision.institutional_confirmed}",
+                flush=True,
+            )
+
+            intent.setdefault("features", {})["entry_confidence"] = decision.confidence
+            intent.setdefault("features", {})["institutional_confirmed"] = decision.institutional_confirmed
+            intent.setdefault("features", {})["entry_confidence_reason"] = decision.reason
+
+            return True
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_ENTRY_CONFIDENCE_ERROR",
+                f"PIPE_ENTRY_CONFIDENCE_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return True
 
     def _runtime_symbol_reload_if_due(self, current_symbols: list[str]) -> list[str]:
         """Русский комментарий: периодически перечитывает runtime-universe из dynamic_watchlist."""
