@@ -47,3 +47,59 @@ select distinct on (symbol)
     ts as "🕒 Время"
 from institutional_flow_regime_events
 order by symbol, ts desc;
+
+
+create or replace view v_grafana_runtime_universe_state as
+with latest_liquidity as (
+    select distinct on (continuous_symbol)
+        continuous_symbol,
+        preferred_symbol,
+        score,
+        ts
+    from cross_contract_liquidity_decisions
+    order by continuous_symbol, ts desc
+)
+
+select
+    case
+        when dw.is_active then '🟢 Активен'
+        else '⚪ Неактивен'
+    end as "🟢 Статус",
+
+    dw.symbol as "📈 Инструмент",
+
+    coalesce(dw.strategy, 'UNKNOWN') as "🧠 Стратегия",
+
+    coalesce(dw.source, 'UNKNOWN') as "🏦 Источник universe",
+
+    round(coalesce(dw.score, 0)::numeric, 6) as "🎯 Score",
+
+    case
+        when ll.preferred_symbol is not null
+            then ll.preferred_symbol
+        else '—'
+    end as "🔄 Preferred execution contract",
+
+    case
+        when ll.score is not null
+            then round(ll.score::numeric, 6)
+        else null
+    end as "💧 Liquidity score",
+
+    coalesce(
+        dw.raw_json->>'continuous_symbol',
+        'NONE'
+    ) as "🔗 Continuous symbol",
+
+    dw.updated_at as "🕒 Обновлено"
+
+from dynamic_watchlist dw
+
+left join latest_liquidity ll
+    on ll.continuous_symbol =
+       coalesce(dw.raw_json->>'continuous_symbol', dw.symbol)
+
+order by
+    dw.is_active desc,
+    dw.score desc nulls last,
+    dw.updated_at desc;
