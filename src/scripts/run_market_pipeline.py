@@ -10,6 +10,8 @@ QUOTE -> Strategy -> Risk -> PaperExecution -> publish(FILL) -> Accounting(PM.ap
 
 from __future__ import annotations
 
+from finam_core.data.runtime_universe_provider import RuntimeUniverseProvider
+
 import os
 from finam_core.risk.real_stock_safety_gate import RealStockSafetyGate
 import time
@@ -56,6 +58,20 @@ def parse_args():
         "--symbols",
         default=os.getenv("SYMBOLS") or "",
         help="Comma-separated list of symbols",
+    )
+
+    parser.add_argument(
+        "--use-dynamic-universe",
+        action="store_true",
+        default=(os.getenv("USE_DYNAMIC_UNIVERSE") == "1"),
+        help="Append active symbols from dynamic_watchlist opportunity_scanner",
+    )
+
+    parser.add_argument(
+        "--dynamic-universe-limit",
+        type=int,
+        default=int(os.getenv("DYNAMIC_UNIVERSE_LIMIT") or "10"),
+        help="Maximum symbols loaded from dynamic_watchlist",
     )
     parser.add_argument(
         "--strategy",
@@ -199,6 +215,26 @@ def main() -> None:
         symbols = [s.strip() for s in symbols_raw.split(",") if s.strip()]
     else:
         symbols = [symbol]
+
+    if getattr(args, "use_dynamic_universe", False):
+        try:
+            runtime_universe = RuntimeUniverseProvider(PostgresLogger()).load_symbols(
+                limit=int(getattr(args, "dynamic_universe_limit", 10) or 10),
+            )
+
+            known = set(symbols)
+            for dynamic_symbol in runtime_universe:
+                if dynamic_symbol not in known:
+                    symbols.append(dynamic_symbol)
+                    known.add(dynamic_symbol)
+
+            print(
+                f"PIPE_DYNAMIC_UNIVERSE symbols={','.join(runtime_universe)} total={len(symbols)}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(f"PIPE_DYNAMIC_UNIVERSE_ERROR {type(exc).__name__}:{exc}", flush=True)
 
     run_secs = float(args.run_secs or 0)
     starting_cash = float(args.starting_cash)
