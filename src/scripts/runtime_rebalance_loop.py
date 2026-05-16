@@ -16,6 +16,9 @@ def main() -> int:
     env["PYTHONPATH"] = env.get("PYTHONPATH", "src")
 
     steps = [
+        [python_bin, "src/scripts/aggregate_continuous_smart_money.py"],
+        [python_bin, "src/scripts/classify_institutional_flow_regime.py"],
+        [python_bin, "src/scripts/select_cross_contract_liquidity.py"],
         [python_bin, "src/scripts/update_market_opportunity_metrics.py"],
         [python_bin, "src/scripts/update_dynamic_watchlist_from_opportunities.py"],
     ]
