@@ -85,6 +85,46 @@ left join lateral (
     limit 1
 ) sm on true
 where src.symbol is not null;
+
+insert into market_opportunity_metrics (
+    symbol,
+    asset_class,
+    atr_pct,
+    rvol,
+    turnover,
+    spread_pct,
+    regime,
+    is_tradeable,
+    raw,
+    smart_money_score,
+    smart_money_label,
+    calculated_at
+)
+select
+    sm.symbol,
+    'FUTURES_CONTINUOUS' as asset_class,
+    0 as atr_pct,
+    sm.rvol,
+    0 as turnover,
+    0 as spread_pct,
+    'continuous_smart_money_context' as regime,
+    true as is_tradeable,
+    sm.raw_json || jsonb_build_object(
+        'source', 'smart_money_feature_events',
+        'context_type', 'continuous_futures',
+        'smart_money_score', sm.smart_money_score,
+        'smart_money_label', sm.label
+    ) as raw,
+    sm.smart_money_score,
+    sm.label as smart_money_label,
+    now() as calculated_at
+from smart_money_feature_events sm
+where sm.symbol in ('BR_CONT', 'NG_CONT', 'USDRUB_CONT')
+  and sm.ts = (
+      select max(sm2.ts)
+      from smart_money_feature_events sm2
+      where sm2.symbol = sm.symbol
+  );
 """
     print(run_psql(sql))
     print("OK: market opportunity metrics updated from volatility_scan_results")
