@@ -64,3 +64,4 @@ logs*
 # pycache
 __pycache__/
 *.pyc
+reports/
