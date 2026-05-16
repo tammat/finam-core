@@ -46,20 +46,44 @@ class EntryConfidenceGate:
             volatility_quality=float(features.get("volatility_quality", 0.5)),
         )
 
+        institutional_flow_regime = str(
+            features.get("institutional_flow_regime") or "UNKNOWN"
+        )
+        institutional_flow_bias = str(
+            features.get("institutional_flow_bias") or "NEUTRAL"
+        )
+
+        confidence = decision.confidence
+        flow_adjustment = 0.0
+
+        if institutional_flow_regime == "ACCUMULATION":
+            flow_adjustment = 0.08
+        elif institutional_flow_regime == "TREND_INITIATION":
+            flow_adjustment = 0.10
+        elif institutional_flow_regime == "INSTITUTIONAL_PARTICIPATION":
+            flow_adjustment = 0.06
+        elif institutional_flow_regime == "BREAKOUT_TRAP":
+            flow_adjustment = -0.20
+
+        confidence = round(max(0.0, min(confidence + flow_adjustment, 1.0)), 6)
+
         accepted = (
             decision.action != "REJECT"
-            and decision.confidence >= self.min_confidence
+            and confidence >= self.min_confidence
         )
 
         reason = (
             f"{decision.reason};"
+            f"institutional_flow_regime={institutional_flow_regime};"
+            f"institutional_flow_bias={institutional_flow_bias};"
+            f"flow_adjustment={flow_adjustment};"
             f"min_confidence={self.min_confidence};"
             f"accepted={accepted}"
         )
 
         return EntryConfidenceGateDecision(
             accepted=accepted,
-            confidence=decision.confidence,
+            confidence=confidence,
             institutional_confirmed=decision.institutional_confirmed,
             action=decision.action,
             reason=reason,

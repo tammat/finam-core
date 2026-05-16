@@ -4064,6 +4064,7 @@ class PaperTradingPipeline:
 
         # =========================================================
         self._inject_latest_smart_money_context(intent)
+        self._inject_latest_institutional_flow_context(intent)
 
         if not self._entry_confidence_gate_if_enabled(intent, st):
             return
@@ -4553,6 +4554,63 @@ class PaperTradingPipeline:
 
 
 
+
+    def _inject_latest_institutional_flow_context(self, intent: dict) -> None:
+        """Русский комментарий: подтягивает latest institutional flow regime из PostgreSQL."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_INSTITUTIONAL_FLOW_CONTEXT", "1") != "1":
+                return
+
+            symbol = str(intent.get("symbol") or "")
+            if not symbol:
+                return
+
+            lookup_symbols = [symbol]
+
+            try:
+                from finam_core.market.contract_identity import ContractIdentityResolver
+
+                identity = ContractIdentityResolver().resolve(symbol)
+                continuous_symbol = getattr(identity, "continuous_symbol", None)
+                if continuous_symbol and continuous_symbol not in lookup_symbols:
+                    lookup_symbols.append(str(continuous_symbol))
+            except Exception:
+                pass
+
+            pg = getattr(self, "pg_logger", None)
+            if pg is None:
+                return
+
+            sql = """
+            select regime, bias, confidence
+            from institutional_flow_regime_events
+            where symbol = any(%s)
+            order by ts desc
+            limit 1
+            """
+
+            with pg._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (lookup_symbols,))
+                    row = cur.fetchone()
+
+            if not row:
+                return
+
+            regime, bias, confidence = row
+            features = intent.setdefault("features", {})
+            features["institutional_flow_regime"] = str(regime or "UNKNOWN")
+            features["institutional_flow_bias"] = str(bias or "NEUTRAL")
+            features["institutional_flow_confidence"] = float(confidence or 0.0)
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_INSTITUTIONAL_FLOW_CONTEXT_ERROR",
+                f"PIPE_INSTITUTIONAL_FLOW_CONTEXT_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
 
     def _inject_latest_smart_money_context(self, intent: dict) -> None:
         """Русский комментарий: подтягивает latest smart_money_score из PostgreSQL."""
