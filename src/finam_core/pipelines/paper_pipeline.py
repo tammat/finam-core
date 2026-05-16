@@ -2654,7 +2654,11 @@ class PaperTradingPipeline:
             if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
                 print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
             else:
-                print(f"PIPE_SESSION_BLOCK phase={session.get('phase')}", flush=True)
+                self._log_dedup(
+                    f"PIPE_SESSION_BLOCK:{session.get('phase')}",
+                    f"PIPE_SESSION_BLOCK phase={session.get('phase')}",
+                    heartbeat_sec=float(os.getenv("SESSION_BLOCK_LOG_SEC", "300")),
+                )
                 return
 
 
@@ -3380,7 +3384,11 @@ class PaperTradingPipeline:
                         heartbeat_sec=float(os.getenv("SESSION_OVERRIDE_LOG_SEC", "30")),
                     )
                 else:
-                    print(f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}", flush=True)
+                    self._log_dedup(
+                        f"PIPE_SESSION_BLOCK_AFTER_ROUTER:{session.get('phase')}",
+                        f"PIPE_SESSION_BLOCK_AFTER_ROUTER phase={session.get('phase')}",
+                        heartbeat_sec=float(os.getenv("SESSION_BLOCK_LOG_SEC", "300")),
+                    )
                     return
 
         except Exception as e:
