@@ -4712,6 +4712,14 @@ class PaperTradingPipeline:
             decision = resolver.resolve(symbol)
 
             if decision.execution_symbol == symbol:
+                print(
+                    f"PIPE_EXECUTION_SYMBOL_UNCHANGED "
+                    f"requested={decision.requested_symbol} "
+                    f"execution={decision.execution_symbol} "
+                    f"continuous={decision.continuous_symbol} "
+                    f"reason={decision.reason}",
+                    flush=True,
+                )
                 return
 
             features = intent.setdefault("features", {})
