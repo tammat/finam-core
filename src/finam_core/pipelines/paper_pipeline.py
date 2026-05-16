@@ -4454,12 +4454,29 @@ class PaperTradingPipeline:
 
 
     def _strategy_name_for_symbol(self, symbol: str) -> str:
-        """Русский комментарий: возвращает человекочитаемое имя стратегии для runtime-control."""
+        """Русский комментарий: возвращает имя стратегии с учётом dynamic_watchlist."""
         try:
-            from finam_core.strategy.symbol_strategy_map import SYMBOL_STRATEGY_MAP, DEFAULT_STRATEGY
-            return str(SYMBOL_STRATEGY_MAP.get(symbol, DEFAULT_STRATEGY))
-        except Exception:
-            return "default"
+            from finam_core.strategy.dynamic_strategy_resolver import DynamicStrategyResolver
+
+            resolver = getattr(self, "dynamic_strategy_resolver", None)
+            if resolver is None:
+                resolver = DynamicStrategyResolver(getattr(self, "pg_logger", None))
+                self.dynamic_strategy_resolver = resolver
+
+            return str(resolver.strategy_for_symbol(symbol))
+
+        except Exception as exc:
+            self._log_dedup(
+                f"PIPE_DYNAMIC_STRATEGY_RESOLVER_ERROR:{symbol}",
+                f"PIPE_DYNAMIC_STRATEGY_RESOLVER_ERROR symbol={symbol} error={type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+
+            try:
+                from finam_core.strategy.symbol_strategy_map import SYMBOL_STRATEGY_MAP, DEFAULT_STRATEGY
+                return str(SYMBOL_STRATEGY_MAP.get(symbol, DEFAULT_STRATEGY))
+            except Exception:
+                return "default"
 
     def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
         """Русский комментарий: thin wrapper; логика runtime-control вынесена в StrategyRuntimeControlService."""
