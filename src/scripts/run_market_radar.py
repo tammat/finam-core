@@ -8,6 +8,7 @@ import psycopg2
 from finam_core.data.moex_client import MoexClient
 from finam_core.data.market_radar import MarketRadar
 from finam_core.storage.dynamic_watchlist_repository import DynamicWatchlistRepository
+from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.notifications.notification_router import NotificationRouter
 from finam_core.data.radar_persistence_repository import RadarPersistenceRepository
 
@@ -98,6 +99,31 @@ def send_top5_telegram(rows: list[dict]) -> None:
     print("WATCHLIST_TELEGRAM_SENT")
 
 
+
+def load_liquid_universe_symbols() -> set[str]:
+    """Русский комментарий: читает liquid universe из PostgreSQL для ограничения radar scan."""
+    try:
+        pg = PostgresLogger()
+        with pg._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select symbol
+                    from moex_liquid_universe
+                    where enabled = true
+                    """
+                )
+                rows = cur.fetchall()
+
+        symbols = {str(r[0]) for r in rows if r and r[0]}
+        print(f"PIPE_LIQUID_UNIVERSE symbols={len(symbols)}")
+        return symbols
+
+    except Exception as exc:
+        print(f"PIPE_LIQUID_UNIVERSE_FALLBACK reason={type(exc).__name__}:{exc}")
+        return set()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--top-n", type=int, default=10)
@@ -105,6 +131,7 @@ def main() -> int:
     parser.add_argument("--no-db", action="store_true")
     parser.add_argument("--send-telegram", action="store_true")
     parser.add_argument("--telegram-top5", action="store_true")
+    parser.add_argument("--use-liquid-universe", action="store_true")
     args = parser.parse_args()
 
     client = MoexClient()
@@ -117,11 +144,58 @@ def main() -> int:
         max_abs_change_pct=20.0,
     )
 
+    liquid_symbols = load_liquid_universe_symbols() if args.use_liquid_universe else set()
+
     all_gainers = []
     all_losers = []
     all_anomalies = []
 
     for _, data in client.get_today_spot_universe().items():
+        if liquid_symbols and isinstance(data, dict):
+            securities = data.get("securities") or {}
+            marketdata = data.get("marketdata") or {}
+
+            sec_columns = securities.get("columns") or []
+            md_columns = marketdata.get("columns") or []
+
+            sec_symbol_idx = sec_columns.index("SECID") if "SECID" in sec_columns else None
+            md_symbol_idx = md_columns.index("SECID") if "SECID" in md_columns else None
+
+            allowed_secids = set()
+            filtered_securities_data = []
+
+            for row in securities.get("data") or []:
+                if sec_symbol_idx is None or sec_symbol_idx >= len(row):
+                    continue
+
+                secid = str(row[sec_symbol_idx])
+                full_symbol = f"{secid}@MISX"
+
+                if secid in liquid_symbols or full_symbol in liquid_symbols:
+                    allowed_secids.add(secid)
+                    filtered_securities_data.append(row)
+
+            filtered_marketdata_data = []
+            for row in marketdata.get("data") or []:
+                if md_symbol_idx is None or md_symbol_idx >= len(row):
+                    continue
+
+                secid = str(row[md_symbol_idx])
+                if secid in allowed_secids:
+                    filtered_marketdata_data.append(row)
+
+            data = dict(data)
+            data["securities"] = dict(securities)
+            data["marketdata"] = dict(marketdata)
+            data["securities"]["data"] = filtered_securities_data
+            data["marketdata"]["data"] = filtered_marketdata_data
+
+            print(
+                f"PIPE_LIQUID_UNIVERSE_FILTERED "
+                f"securities={len(filtered_securities_data)} "
+                f"marketdata={len(filtered_marketdata_data)}"
+            )
+
         result = radar.build(data, top_n=100, imoex_change_pct=imoex_change)
         all_gainers.extend(result["gainers"])
         all_losers.extend(result["losers"])
