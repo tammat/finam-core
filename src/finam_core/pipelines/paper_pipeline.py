@@ -4825,6 +4825,30 @@ class PaperTradingPipeline:
             }
             regime_ru = regime_map.get(regime, regime)
 
+            if regime_ru == "❔ Нет данных":
+                symbol = str(intent.get("symbol") or "")
+                try:
+                    with self.pg_logger._connect() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                select regime
+                                from institutional_flow_regime_events
+                                where symbol = %s
+                                order by ts desc
+                                limit 1
+                                """,
+                                (symbol,),
+                            )
+                            row = cur.fetchone()
+
+                    if row:
+                        regime_ru = regime_map.get(str(row[0]), str(row[0]))
+                        features["institutional_flow_regime"] = str(row[0])
+                        features["institutional_flow_regime_ru"] = regime_ru
+                except Exception:
+                    regime_ru = "❔ Нет данных"
+
             from finam_core.risk.adaptive_regime_repository import AdaptiveRegimeRepository
 
             repo = getattr(self, "adaptive_regime_repository", None)
@@ -4832,7 +4856,7 @@ class PaperTradingPipeline:
                 repo = AdaptiveRegimeRepository(getattr(self, "pg_logger", None))
                 self.adaptive_regime_repository = repo
 
-            decision = repo.evaluate_regime(regime_ru)
+            decision = repo.evaluate_regime(regime_ru, symbol=str(intent.get('symbol') or ''))
 
             features["adaptive_regime_action"] = decision.action
             features["adaptive_regime_multiplier"] = decision.multiplier
