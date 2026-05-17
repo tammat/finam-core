@@ -162,6 +162,7 @@ class RuntimeUniverseAllocator:
                 ) in selected:
 
                     payload = raw_json or {}
+                    payload["base_score"] = float(score or 0)
                     payload["strategy_weight"] = float(weight)
                     payload["effective_score"] = float(effective_score)
 
