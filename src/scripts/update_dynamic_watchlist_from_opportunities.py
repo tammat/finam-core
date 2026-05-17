@@ -3,36 +3,146 @@ from __future__ import annotations
 import json
 import os
 
-from finam_core.data.postgres_opportunity_scanner import PostgresOpportunityScanner
 from finam_core.storage.postgres_logger import PostgresLogger
 
 
 LIMIT = int(os.getenv("OPPORTUNITY_WATCHLIST_LIMIT", "5"))
+MIN_TRADE_PRIORITY_SCORE = float(os.getenv("MIN_TRADE_PRIORITY_SCORE", "0.35"))
+
+
+SQL_SELECT = """
+with latest as (
+    select distinct on (symbol)
+        symbol,
+        asset_class,
+        atr_pct,
+        rvol,
+        turnover,
+        spread_pct,
+        regime,
+        is_tradeable,
+        smart_money_score,
+        smart_money_label,
+        trade_priority_score,
+        trade_priority_label,
+        trade_priority_reason,
+        event_risk_penalty,
+        churn_penalty,
+        raw,
+        calculated_at
+    from market_opportunity_metrics
+    where is_tradeable = true
+      and trade_priority_score is not null
+      and trade_priority_score >= %s
+    order by symbol, calculated_at desc
+)
+select
+    symbol,
+    asset_class,
+    atr_pct,
+    rvol,
+    turnover,
+    spread_pct,
+    regime,
+    smart_money_score,
+    smart_money_label,
+    trade_priority_score,
+    trade_priority_label,
+    trade_priority_reason,
+    event_risk_penalty,
+    churn_penalty,
+    raw,
+    calculated_at
+from latest
+order by trade_priority_score desc, calculated_at desc
+limit %s;
+"""
+
+
+def select_strategy(regime: str, trade_priority_score: float) -> str:
+    """Русский комментарий: выбирает стратегию на основе режима и приоритета торговли."""
+    regime_l = str(regime or "").lower()
+
+    if trade_priority_score < MIN_TRADE_PRIORITY_SCORE:
+        return "NO_TRADE"
+
+    if "trend" in regime_l and trade_priority_score >= 0.55:
+        return "VOLATILITY_BREAKOUT_EQUITY"
+
+    if "trend" in regime_l:
+        return "TREND_PULLBACK_EQUITY"
+
+    return "NO_TRADE"
 
 
 def main() -> int:
     pg = PostgresLogger()
-    scanner = PostgresOpportunityScanner(pg)
-
-    items = scanner.top_opportunities(limit=LIMIT)
-
-    if not items:
-        print("OK: no opportunities found")
-        return 0
 
     with pg._connect() as conn:
         with conn.cursor() as cur:
-            for x in items:
-                raw = {
-                    "atr_pct": x.atr_pct,
-                    "rvol": x.rvol,
-                    "turnover": x.turnover,
-                    "spread_pct": x.spread_pct,
-                    "regime": x.regime,
-                    "opportunity_score": x.opportunity_score,
-                    "strategy": x.strategy,
-                    "source": "opportunity_scanner",
+            cur.execute(SQL_SELECT, (MIN_TRADE_PRIORITY_SCORE, LIMIT))
+            rows = cur.fetchall()
+
+            if not rows:
+                print("OK: no trade-priority opportunities found")
+                return 0
+
+            for row in rows:
+                (
+                    symbol,
+                    asset_class,
+                    atr_pct,
+                    rvol,
+                    turnover,
+                    spread_pct,
+                    regime,
+                    smart_money_score,
+                    smart_money_label,
+                    trade_priority_score,
+                    trade_priority_label,
+                    trade_priority_reason,
+                    event_risk_penalty,
+                    churn_penalty,
+                    raw,
+                    calculated_at,
+                ) = row
+
+                score = float(trade_priority_score or 0.0)
+                strategy = select_strategy(str(regime), score)
+
+                raw_payload = {
+                    "asset_class": asset_class,
+                    "atr_pct": float(atr_pct or 0.0),
+                    "rvol": float(rvol or 0.0),
+                    "turnover": float(turnover or 0.0),
+                    "spread_pct": float(spread_pct or 0.0),
+                    "regime": regime,
+                    "smart_money_score": float(smart_money_score or 0.0),
+                    "smart_money_label": smart_money_label,
+                    "trade_priority_score": score,
+                    "trade_priority_label": trade_priority_label,
+                    "trade_priority_reason": trade_priority_reason,
+                    "event_risk_penalty": float(event_risk_penalty or 0.0),
+                    "churn_penalty": float(churn_penalty or 0.0),
+                    "strategy": strategy,
+                    "source": "trade_priority_scoring_v2",
+                    "source_raw": raw,
+                    "calculated_at": calculated_at,
                 }
+
+                direction = (
+                    "LONG"
+                    if "up" in str(regime).lower() or "trend" in str(regime).lower()
+                    else "WATCH"
+                )
+
+                reason = (
+                    f"trade_priority_score={score};"
+                    f"label={trade_priority_label};"
+                    f"regime={regime};"
+                    f"event_penalty={float(event_risk_penalty or 0.0)};"
+                    f"churn_penalty={float(churn_penalty or 0.0)}"
+                )
 
                 cur.execute(
                     """
@@ -60,7 +170,7 @@ def main() -> int:
                         %s, %s, %s, %s, %s,
                         'WATCH',
                         %s,
-                        'opportunity_scanner',
+                        'trade_priority_scoring_v2',
                         1,
                         0,
                         'ACTIVE',
@@ -86,29 +196,33 @@ def main() -> int:
                         updated_at = now()
                     """,
                     (
-                        x.symbol,
-                        x.symbol,
-                        "LONG" if "up" in x.regime or "trend" in x.regime else "WATCH",
-                        x.opportunity_score,
-                        x.rvol,
-                        f"{x.strategy};regime={x.regime}",
-                        x.strategy,
-                        x.regime,
-                        int(max(1, round(x.opportunity_score * 100))),
-                        f"opportunity_score={x.opportunity_score};regime={x.regime}",
-                        json.dumps(raw, ensure_ascii=False),
+                        symbol,
+                        symbol,
+                        direction,
+                        score,
+                        float(rvol or 0.0),
+                        f"{strategy};regime={regime};priority={trade_priority_label}",
+                        strategy,
+                        regime,
+                        int(max(1, round(score * 100))),
+                        reason,
+                        json.dumps(raw_payload, ensure_ascii=False, default=str),
                     ),
                 )
 
         conn.commit()
 
-    for x in items:
+    for row in rows:
+        symbol = row[0]
+        regime = row[6]
+        score = float(row[9] or 0.0)
+        label = row[10]
         print(
-            f"OPPORTUNITY_WATCHLIST symbol={x.symbol} "
-            f"strategy={x.strategy} score={x.opportunity_score} regime={x.regime}"
+            f"TRADE_PRIORITY_WATCHLIST symbol={symbol} "
+            f"score={score} label={label} regime={regime}"
         )
 
-    print(f"OK: dynamic watchlist updated opportunities={len(items)}")
+    print(f"OK: dynamic watchlist updated trade_priority_opportunities={len(rows)}")
     return 0
 
 
