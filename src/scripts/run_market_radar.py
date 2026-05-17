@@ -213,7 +213,16 @@ def main() -> int:
     print_bucket("=== ANOMALIES ===", anomalies)
 
     clean_rows = [candidate_to_dict(c) for c in gainers + losers]
-    all_rows = clean_rows + [candidate_to_dict(c) for c in anomalies]
+
+    anomaly_rows = []
+    for c in anomalies:
+        row = candidate_to_dict(c)
+        row["strategy"] = "MANUAL_REVIEW"
+        row["status"] = "ANOMALY_REVIEW"
+        row["reason"] = "anomaly_guard_manual_review_only"
+        anomaly_rows.append(row)
+
+    all_rows = clean_rows + anomaly_rows
 
     persistence = RadarPersistenceRepository().load_persistence(hours=4)
     for row in clean_rows:
