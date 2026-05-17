@@ -119,13 +119,38 @@ def main() -> int:
                 if not inserted:
                     continue
 
+                probability_pct = round(float(confidence or 0) * 100, 1)
+
+                # Русский комментарий: alert bridge не отправляет приказ на сделку.
+                # Это только ручная торговая подсказка для анализа.
+                side_hint = "LONG" if "LONG" in str(bias) or "НАКОПЛЕНИЕ" in str(alert) else "WAIT"
+
+                entry_hint = "по подтверждению пробоя/удержания уровня"
+                stop_hint = "за ближайший локальный уровень отмены сценария"
+                take_hint = "не ниже 1.5R–2R от риска"
+                qty_hint = "минимальный лот / базовый размер, если риск укладывается в лимит"
+
+                if "ЛОВУШКА" in str(alert) or "FADE" in str(bias):
+                    side_hint = "NO_LONG / возможен FADE только вручную"
+                    entry_hint = "только после подтверждённого возврата под уровень"
+                    stop_hint = "за максимум ложного пробоя"
+                    take_hint = "к зоне возврата / ближайшей поддержке"
+                    qty_hint = "уменьшенный размер 0.25x–0.5x"
+
                 message = (
                     f"🚨 <b>Finam Core Alert</b>\n\n"
                     f"📈 Инструмент: <b>{symbol}</b>\n"
                     f"Событие: <b>{alert}</b>\n"
                     f"🧭 Bias: <b>{bias}</b>\n"
-                    f"🎯 Уверенность: <b>{confidence}</b>\n"
+                    f"🎯 Вероятность профита / confidence: <b>{probability_pct}%</b>\n"
                     f"🕒 Время: {ts}\n\n"
+                    f"📌 <b>Ручной сценарий</b>\n"
+                    f"Направление: <b>{side_hint}</b>\n"
+                    f"Вход: {entry_hint}\n"
+                    f"Стоп-лосс: {stop_hint}\n"
+                    f"Тейк-профит: {take_hint}\n"
+                    f"Количество: {qty_hint}\n\n"
+                    f"⚠️ Не автосделка. Только сигнал для ручной проверки.\n\n"
                     f"📝 Причина:\n{reason}"
                 )
 
