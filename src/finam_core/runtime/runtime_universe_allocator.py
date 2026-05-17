@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
+
+from finam_core.analytics.strategy_rank_weight_provider import StrategyRankWeightProvider
 
 
 class RuntimeUniverseAllocator:
     """Русский комментарий: формирует фактический runtime-universe из dynamic_watchlist."""
 
-    def __init__(self, pg_logger: Any) -> None:
+    def __init__(self, pg_logger: Any, weight_provider: Any | None = None) -> None:
         self.pg_logger = pg_logger
+        self.weight_provider = weight_provider or StrategyRankWeightProvider(pg_logger)
 
     def allocate(
         self,
@@ -73,6 +77,8 @@ class RuntimeUniverseAllocator:
         from runtime_active_universe
         where is_enabled = true;
         """
+
+        today = date.today()
 
         with self.pg_logger._connect() as conn:
             with conn.cursor() as cur:
