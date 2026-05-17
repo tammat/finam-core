@@ -4,7 +4,7 @@ from typing import Any
 
 
 class RuntimeUniverseProvider:
-    """Русский комментарий: читает активный runtime-universe из dynamic_watchlist."""
+    """Русский комментарий: читает активный runtime-universe из runtime_active_universe с fallback на dynamic_watchlist."""
 
     def __init__(self, pg_logger: Any) -> None:
         self.pg_logger = pg_logger
@@ -17,23 +17,33 @@ class RuntimeUniverseProvider:
     ) -> list[str]:
         sources = sources or [source]
 
-        sql = """
-        select distinct on (symbol)
-            symbol,
-            priority,
-            score,
-            updated_at
-        from dynamic_watchlist
-        where source = any(%s)
-          and is_active = true
+        active_sql = """
+        select symbol
+        from runtime_active_universe
+        where is_enabled = true
           and strategy is not null
           and strategy <> ''
-        order by symbol, priority desc nulls last, score desc nulls last, updated_at desc nulls last
+          and strategy <> 'NO_TRADE'
+        order by priority desc nulls last, score desc nulls last, updated_at desc nulls last
+        limit %s
         """
 
-        outer_sql = f"""
+        fallback_sql = """
         select symbol
-        from ({sql}) q
+        from (
+            select distinct on (symbol)
+                symbol,
+                priority,
+                score,
+                updated_at
+            from dynamic_watchlist
+            where source = any(%s)
+              and is_active = true
+              and strategy is not null
+              and strategy <> ''
+              and strategy <> 'NO_TRADE'
+            order by symbol, priority desc nulls last, score desc nulls last, updated_at desc nulls last
+        ) q
         order by priority desc nulls last, score desc nulls last, updated_at desc nulls last
         limit %s
         """
@@ -43,12 +53,22 @@ class RuntimeUniverseProvider:
         if conn is None and hasattr(self.pg_logger, "_connect"):
             with self.pg_logger._connect() as runtime_conn:
                 with runtime_conn.cursor() as cur:
-                    cur.execute(outer_sql, (sources, int(limit)))
+                    cur.execute(active_sql, (int(limit),))
+                    active_symbols = [str(r[0]) for r in cur.fetchall()]
+                    if active_symbols:
+                        return active_symbols
+
+                    cur.execute(fallback_sql, (sources, int(limit)))
                     return [str(r[0]) for r in cur.fetchall()]
 
         if conn is not None:
             with conn.cursor() as cur:
-                cur.execute(outer_sql, (sources, int(limit)))
+                cur.execute(active_sql, (int(limit),))
+                active_symbols = [str(r[0]) for r in cur.fetchall()]
+                if active_symbols:
+                    return active_symbols
+
+                cur.execute(fallback_sql, (sources, int(limit)))
                 return [str(r[0]) for r in cur.fetchall()]
 
         return []
