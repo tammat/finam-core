@@ -80,11 +80,133 @@ class RuntimeUniverseAllocator:
 
         today = date.today()
 
+        today = date.today()
+
         with self.pg_logger._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (min_score, max_symbols))
-                row = cur.fetchone()
-                active_count = int(row[0] or 0)
+                cur.execute(
+                    '''
+                    select
+                        symbol,
+                        strategy,
+                        regime,
+                        score,
+                        priority,
+                        reason,
+                        raw_json
+                    from dynamic_watchlist
+                    where is_active = true
+                      and source = 'freshness_adjusted_scoring_v2'
+                      and score >= %s
+                      and strategy <> 'NO_TRADE'
+                    order by score desc, priority desc, updated_at desc
+                    limit %s
+                    ''',
+                    (min_score, max_symbols * 5),
+                )
+
+                rows = cur.fetchall()
+
+                weighted_rows = []
+
+                for row in rows:
+                    (
+                        symbol,
+                        strategy,
+                        regime,
+                        score,
+                        priority,
+                        reason,
+                        raw_json,
+                    ) = row
+
+                    weight = self.weight_provider.get_weight(
+                        trade_date=today,
+                        strategy=str(strategy),
+                        symbol=str(symbol),
+                        timeframe="unknown",
+                    )
+
+                    effective_score = float(score or 0) * float(weight)
+
+                    weighted_rows.append(
+                        (
+                            effective_score,
+                            symbol,
+                            strategy,
+                            regime,
+                            score,
+                            priority,
+                            reason,
+                            raw_json,
+                            weight,
+                        )
+                    )
+
+                weighted_rows.sort(key=lambda x: x[0], reverse=True)
+
+                selected = weighted_rows[:max_symbols]
+
+                cur.execute("delete from runtime_active_universe")
+
+                for (
+                    effective_score,
+                    symbol,
+                    strategy,
+                    regime,
+                    score,
+                    priority,
+                    reason,
+                    raw_json,
+                    weight,
+                ) in selected:
+
+                    payload = raw_json or {}
+                    payload["strategy_weight"] = float(weight)
+                    payload["effective_score"] = float(effective_score)
+
+                    cur.execute(
+                        '''
+                        insert into runtime_active_universe (
+                            symbol,
+                            strategy,
+                            regime,
+                            score,
+                            priority,
+                            is_enabled,
+                            allocated_at,
+                            last_seen_at,
+                            source,
+                            raw_json,
+                            updated_at
+                        )
+                        values (
+                            %s,%s,%s,%s,%s,
+                            true,
+                            now(),
+                            now(),
+                            'runtime_universe_allocator_v2',
+                            %s::jsonb,
+                            now()
+                        )
+                        ''',
+                        (
+                            symbol,
+                            strategy,
+                            regime,
+                            effective_score,
+                            priority,
+                            json.dumps(payload),
+                        ),
+                    )
+
+                active_count = len(selected)
+
             conn.commit()
+
+        print(
+            f"RUNTIME_ALLOCATOR_V2_OK active_count={active_count}",
+            flush=True,
+        )
 
         return active_count
