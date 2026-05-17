@@ -25,11 +25,27 @@ select
             when 'BREAKOUT_TRAP' then '🪤 Ловушка пробоя'
             when 'INSTITUTIONAL_PARTICIPATION' then '🏦 Активность крупного участника'
             when 'NORMAL_FLOW' then '⚪ Обычная активность'
-            else '❔ Нет данных'
+            else coalesce(latest_regime.regime_ru, '❔ Нет данных')
         end as institutional_regime
     ,
     coalesce(payload->>'adaptive_position_multiplier', '1.00') as adaptive_multiplier
-from trades
+from trades t
+left join lateral (
+    select
+        case r.regime
+            when 'ACCUMULATION' then '🟢 Накопление'
+            when 'DISTRIBUTION' then '🔴 Распределение'
+            when 'TREND_INITIATION' then '🚀 Запуск тренда'
+            when 'BREAKOUT_TRAP' then '🪤 Ловушка пробоя'
+            when 'INSTITUTIONAL_PARTICIPATION' then '🏦 Активность крупного участника'
+            when 'NORMAL_FLOW' then '⚪ Обычная активность'
+            else '❔ Нет данных'
+        end as regime_ru
+    from institutional_flow_regime_events r
+    where r.symbol = t.symbol
+    order by r.ts desc
+    limit 1
+) latest_regime on true
 where qty > 0
 order by created_at asc, id asc;
 """

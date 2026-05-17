@@ -11,10 +11,10 @@ from pathlib import Path
 text = Path("src/scripts/realized_pnl_engine.py").read_text(encoding="utf-8")
 
 checks = [
-    "Gross PnL",
-    "Net PnL",
+    "Валовая прибыль",
+    "Чистая прибыль после издержек и налога",
     "Налог",
-    "Winrate %",
+    "Доля прибыльных сделок, %",
     "ANALYTICS_ESTIMATED_TAX_RATE",
     "PositionBook",
 ]
