@@ -4,7 +4,7 @@ set -euo pipefail
 export PYTHONPATH=src
 
 python -m py_compile \
-  src/scripts/run_runtime_execution_engine.py \
+  src/scripts/run_runtime_execution_engine_v3.py \
   src/finam_core/runtime/runtime_execution_engine.py \
   src/finam_core/runtime/runtime_rebalance_cycle.py \
   src/finam_core/runtime/runtime_telemetry.py \
