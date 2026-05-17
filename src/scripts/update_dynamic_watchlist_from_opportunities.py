@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import os
 
-from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.runtime.runtime_universe_rotation_logger import RuntimeUniverseRotationLogger
+from finam_core.storage.postgres_logger import PostgresLogger
 
 
 LIMIT = int(os.getenv("OPPORTUNITY_WATCHLIST_LIMIT", "5"))
-MIN_TRADE_PRIORITY_SCORE = float(os.getenv("MIN_TRADE_PRIORITY_SCORE", "0.35"))
+MIN_FRESHNESS_ADJUSTED_SCORE = float(os.getenv("MIN_FRESHNESS_ADJUSTED_SCORE", "0.35"))
 FRESHNESS_EXPIRED_SCORE = float(os.getenv("FRESHNESS_EXPIRED_SCORE", "0.25"))
 SCORE_DROP_THRESHOLD = float(os.getenv("ROTATION_SCORE_DROP_THRESHOLD", "0.20"))
 
@@ -23,10 +23,10 @@ with latest as (
         turnover,
         spread_pct,
         regime,
-        is_tradeable,
         smart_money_score,
         smart_money_label,
         trade_priority_score,
+        freshness_adjusted_score,
         trade_priority_label,
         trade_priority_reason,
         event_risk_penalty,
@@ -35,8 +35,7 @@ with latest as (
         calculated_at
     from market_opportunity_metrics
     where is_tradeable = true
-      and trade_priority_score is not null
-      and trade_priority_score >= %s
+      and coalesce(freshness_adjusted_score, trade_priority_score) >= %s
     order by symbol, calculated_at desc
 )
 select
@@ -50,6 +49,7 @@ select
     smart_money_score,
     smart_money_label,
     trade_priority_score,
+    freshness_adjusted_score,
     trade_priority_label,
     trade_priority_reason,
     event_risk_penalty,
@@ -57,23 +57,25 @@ select
     raw,
     calculated_at
 from latest
-order by trade_priority_score desc, calculated_at desc
+order by coalesce(freshness_adjusted_score, trade_priority_score) desc, calculated_at desc
 limit %s;
 """
 
 
+def select_strategy(regime: str, score: float) -> str:
+    regime_l = str(regime or "").lower()
+    if score < MIN_FRESHNESS_ADJUSTED_SCORE:
+        return "NO_TRADE"
+    if "trend" in regime_l and score >= 0.55:
+        return "VOLATILITY_BREAKOUT_EQUITY"
+    if "trend" in regime_l:
+        return "TREND_PULLBACK_EQUITY"
+    return "NO_TRADE"
 
-def classify_rotation_action(
-    *,
-    previous: dict | None,
-    score: float,
-    freshness_adjusted_score: float,
-    strategy: str,
-) -> tuple[str, str | None, str]:
-    """Русский комментарий: классифицирует событие ротации runtime universe."""
-    if freshness_adjusted_score < FRESHNESS_EXPIRED_SCORE:
+
+def classify_rotation_action(previous: dict | None, score: float, strategy: str) -> tuple[str, str | None, str]:
+    if score < FRESHNESS_EXPIRED_SCORE:
         return "FRESHNESS_EXPIRED", previous.get("portfolio_status") if previous else None, "WATCH"
-
     if previous is None:
         return "ADD", None, "ACTIVE"
 
@@ -83,27 +85,9 @@ def classify_rotation_action(
 
     if previous_score > 0 and (previous_score - score) >= SCORE_DROP_THRESHOLD:
         return "SCORE_DROP", previous_status, "ACTIVE"
-
     if previous_strategy and previous_strategy != strategy:
         return "DOWNGRADE", previous_status, "ACTIVE"
-
     return "UPDATE", previous_status, "ACTIVE"
-
-
-def select_strategy(regime: str, trade_priority_score: float) -> str:
-    """Русский комментарий: выбирает стратегию на основе режима и приоритета торговли."""
-    regime_l = str(regime or "").lower()
-
-    if trade_priority_score < MIN_TRADE_PRIORITY_SCORE:
-        return "NO_TRADE"
-
-    if "trend" in regime_l and trade_priority_score >= 0.55:
-        return "VOLATILITY_BREAKOUT_EQUITY"
-
-    if "trend" in regime_l:
-        return "TREND_PULLBACK_EQUITY"
-
-    return "NO_TRADE"
 
 
 def main() -> int:
@@ -112,36 +96,33 @@ def main() -> int:
 
     with pg._connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(SQL_SELECT, (MIN_TRADE_PRIORITY_SCORE, LIMIT))
+            cur.execute(SQL_SELECT, (MIN_FRESHNESS_ADJUSTED_SCORE, LIMIT))
             rows = cur.fetchall()
 
-            symbols = [str(row[0]) for row in rows]
-            previous_by_symbol = {}
-
-            if symbols:
-                cur.execute(
-                    """
-                    select symbol, portfolio_status, strategy, regime, score, reason, raw_json
-                    from dynamic_watchlist
-                    where symbol = any(%s)
-                    """,
-                    (symbols,),
-                )
-                previous_by_symbol = {
-                    str(r[0]): {
-                        "portfolio_status": r[1],
-                        "strategy": r[2],
-                        "regime": r[3],
-                        "score": r[4],
-                        "reason": r[5],
-                        "raw_json": r[6],
-                    }
-                    for r in cur.fetchall()
-                }
-
             if not rows:
-                print("OK: no trade-priority opportunities found")
+                print("OK: no freshness-adjusted opportunities found")
                 return 0
+
+            symbols = [str(row[0]) for row in rows]
+            cur.execute(
+                """
+                select symbol, portfolio_status, strategy, regime, score, reason, raw_json
+                from dynamic_watchlist
+                where symbol = any(%s)
+                """,
+                (symbols,),
+            )
+            previous_by_symbol = {
+                str(r[0]): {
+                    "portfolio_status": r[1],
+                    "strategy": r[2],
+                    "regime": r[3],
+                    "score": r[4],
+                    "reason": r[5],
+                    "raw_json": r[6],
+                }
+                for r in cur.fetchall()
+            }
 
             for row in rows:
                 (
@@ -155,6 +136,7 @@ def main() -> int:
                     smart_money_score,
                     smart_money_label,
                     trade_priority_score,
+                    freshness_adjusted_score,
                     trade_priority_label,
                     trade_priority_reason,
                     event_risk_penalty,
@@ -163,8 +145,8 @@ def main() -> int:
                     calculated_at,
                 ) = row
 
-                score = float(trade_priority_score or 0.0)
-                freshness_score_value = float(row[13] or 0.0)
+                base_score = float(trade_priority_score or 0.0)
+                score = float(freshness_adjusted_score if freshness_adjusted_score is not None else base_score)
                 strategy = select_strategy(str(regime), score)
 
                 raw_payload = {
@@ -176,25 +158,22 @@ def main() -> int:
                     "regime": regime,
                     "smart_money_score": float(smart_money_score or 0.0),
                     "smart_money_label": smart_money_label,
-                    "trade_priority_score": score,
+                    "trade_priority_score": base_score,
+                    "freshness_adjusted_score": score,
                     "trade_priority_label": trade_priority_label,
                     "trade_priority_reason": trade_priority_reason,
                     "event_risk_penalty": float(event_risk_penalty or 0.0),
                     "churn_penalty": float(churn_penalty or 0.0),
                     "strategy": strategy,
-                    "source": "trade_priority_scoring_v2",
+                    "source": "freshness_adjusted_scoring_v2",
                     "source_raw": raw,
                     "calculated_at": calculated_at,
                 }
 
-                direction = (
-                    "LONG"
-                    if "up" in str(regime).lower() or "trend" in str(regime).lower()
-                    else "WATCH"
-                )
-
+                direction = "LONG" if "up" in str(regime).lower() or "trend" in str(regime).lower() else "WATCH"
                 reason = (
-                    f"trade_priority_score={score};"
+                    f"trade_priority_score={base_score};"
+                    f"freshness_adjusted_score={score};"
                     f"label={trade_priority_label};"
                     f"regime={regime};"
                     f"event_penalty={float(event_risk_penalty or 0.0)};"
@@ -202,44 +181,23 @@ def main() -> int:
                 )
 
                 previous = previous_by_symbol.get(str(symbol))
-                rotation_action, previous_status, new_status = classify_rotation_action(
-                    previous=previous,
-                    score=score,
-                    freshness_adjusted_score=freshness_score_value,
-                    strategy=strategy,
-                )
+                rotation_action, previous_status, new_status = classify_rotation_action(previous, score, strategy)
 
                 cur.execute(
                     """
                     insert into dynamic_watchlist (
-                        symbol,
-                        name,
-                        direction,
-                        score,
-                        relative_strength,
-                        portfolio_status,
-                        portfolio_action,
-                        source,
-                        appearances,
-                        score_delta,
-                        persistence_state,
-                        strategy,
-                        regime,
-                        priority,
-                        is_active,
-                        reason,
-                        raw_json,
-                        updated_at
+                        symbol, name, direction, score, relative_strength,
+                        portfolio_status, portfolio_action, source,
+                        appearances, score_delta, persistence_state,
+                        strategy, regime, priority, is_active,
+                        reason, raw_json, updated_at
                     )
                     values (
                         %s, %s, %s, %s, %s,
-                        %s,
-                        %s,
-                        'trade_priority_scoring_v2',
-                        1,
-                        0,
-                        'ACTIVE',
-                        %s, %s, %s, true, %s, %s::jsonb, now()
+                        %s, %s, 'freshness_adjusted_scoring_v2',
+                        1, 0, 'ACTIVE',
+                        %s, %s, %s, true,
+                        %s, %s::jsonb, now()
                     )
                     on conflict (symbol) do update set
                         ts = now(),
@@ -284,7 +242,7 @@ def main() -> int:
                     strategy=strategy,
                     regime=str(regime),
                     score=score,
-                    freshness_adjusted_score=freshness_score_value,
+                    freshness_adjusted_score=score,
                     reason=reason,
                     raw_json=raw_payload,
                 )
@@ -294,14 +252,15 @@ def main() -> int:
     for row in rows:
         symbol = row[0]
         regime = row[6]
-        score = float(row[9] or 0.0)
-        label = row[10]
+        base_score = float(row[9] or 0.0)
+        score = float(row[10] if row[10] is not None else base_score)
+        label = row[11]
         print(
-            f"TRADE_PRIORITY_WATCHLIST symbol={symbol} "
-            f"score={score} label={label} regime={regime}"
+            f"FRESHNESS_WATCHLIST symbol={symbol} "
+            f"score={score} base_score={base_score} label={label} regime={regime}"
         )
 
-    print(f"OK: dynamic watchlist updated trade_priority_opportunities={len(rows)}")
+    print(f"OK: dynamic watchlist updated freshness_adjusted_opportunities={len(rows)}")
     return 0
 
 
