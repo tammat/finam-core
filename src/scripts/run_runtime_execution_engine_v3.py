@@ -5,6 +5,7 @@ import os
 from finam_core.data.runtime_universe_provider import RuntimeUniverseProvider
 from finam_core.runtime.runtime_execution_engine import RuntimeExecutionEngine
 from finam_core.runtime.runtime_rebalance_cycle import RuntimeRebalanceCycle
+from finam_core.runtime.runtime_subprocess_worker import RuntimeSubprocessWorker
 from finam_core.runtime.runtime_telemetry import RuntimeTelemetry
 from finam_core.runtime.runtime_universe_allocator import RuntimeUniverseAllocator
 from finam_core.storage.postgres_logger import PostgresLogger
@@ -24,12 +25,18 @@ def main() -> None:
 
     telemetry = RuntimeTelemetry(pg_logger)
 
+    worker_run_secs = int(os.getenv("RUNTIME_WORKER_RUN_SECS", "60"))
+
     engine = RuntimeExecutionEngine(
         universe_provider=provider,
         telemetry=telemetry,
         supervisor_interval_sec=float(os.getenv("RUNTIME_SUPERVISOR_INTERVAL_SEC", "5")),
         rebalance_interval_sec=float(os.getenv("RUNTIME_REBALANCE_INTERVAL_SEC", "60")),
         rebalance_callback=rebalance_cycle,
+        worker_runner=lambda symbol: RuntimeSubprocessWorker(
+            symbol,
+            run_secs=worker_run_secs,
+        ).start(),
     )
 
     print("RUNTIME_EXECUTION_ENGINE_V3_START", flush=True)
