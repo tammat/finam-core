@@ -4067,6 +4067,9 @@ class PaperTradingPipeline:
         self._inject_latest_institutional_flow_context(intent)
         self._resolve_execution_symbol_if_enabled(intent, st)
 
+        if not self._adaptive_regime_filter_if_enabled(intent):
+            return
+
         if not self._entry_confidence_gate_if_enabled(intent, st):
             return
 
@@ -4684,6 +4687,77 @@ class PaperTradingPipeline:
                 heartbeat_sec=300,
             )
 
+    def _adaptive_regime_filter_if_enabled(self, intent: dict) -> bool:
+        """Русский комментарий: блокирует или снижает риск входа по исторической эффективности режима."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_ADAPTIVE_REGIME_FILTER", "0") != "1":
+                return True
+
+            if not isinstance(intent, dict):
+                return True
+
+            if intent.get("intent_type") == "EXIT":
+                return True
+
+            features = intent.setdefault("features", {})
+            regime = str(
+                features.get("institutional_flow_regime_ru")
+                or features.get("institutional_flow_regime")
+                or "❔ Нет данных"
+            )
+
+            # Русский комментарий: если режим пришёл техническим кодом, переводим в операционный русский label.
+            regime_map = {
+                "ACCUMULATION": "🟢 Накопление",
+                "DISTRIBUTION": "🔴 Распределение",
+                "TREND_INITIATION": "🚀 Запуск тренда",
+                "BREAKOUT_TRAP": "🪤 Ловушка пробоя",
+                "INSTITUTIONAL_PARTICIPATION": "🏦 Активность крупного участника",
+                "NORMAL_FLOW": "⚪ Обычная активность",
+                "UNKNOWN": "❔ Нет данных",
+            }
+            regime_ru = regime_map.get(regime, regime)
+
+            from finam_core.risk.adaptive_regime_repository import AdaptiveRegimeRepository
+
+            repo = getattr(self, "adaptive_regime_repository", None)
+            if repo is None:
+                repo = AdaptiveRegimeRepository(getattr(self, "pg_logger", None))
+                self.adaptive_regime_repository = repo
+
+            decision = repo.evaluate_regime(regime_ru)
+
+            features["adaptive_regime_action"] = decision.action
+            features["adaptive_regime_multiplier"] = decision.multiplier
+            features["adaptive_regime_reason"] = decision.reason
+            features["institutional_flow_regime_ru"] = regime_ru
+
+            print(
+                f"PIPE_ADAPTIVE_REGIME_FILTER "
+                f"symbol={intent.get('symbol')} "
+                f"regime={regime_ru} "
+                f"action={decision.action} "
+                f"allowed={decision.allowed} "
+                f"multiplier={decision.multiplier} "
+                f"reason={decision.reason}",
+                flush=True,
+            )
+
+            if not decision.allowed:
+                return False
+
+            return True
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_ADAPTIVE_REGIME_FILTER_ERROR",
+                f"PIPE_ADAPTIVE_REGIME_FILTER_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return True
+
     def _resolve_execution_symbol_if_enabled(self, intent: dict, market_state: dict) -> None:
         """Русский комментарий: подменяет symbol на preferred execution contract перед Risk/Execution."""
         try:
@@ -4788,6 +4862,22 @@ class PaperTradingPipeline:
                 volatility_quality=float(features.get("volatility_quality", 0.5)),
                 portfolio_heat=float(market_state.get("portfolio_heat", 0.0) or features.get("portfolio_heat", 0.0) or 0.0),
             )
+
+            regime_multiplier = float(features.get("adaptive_regime_multiplier", 1.0) or 1.0)
+            if regime_multiplier < 1.0:
+                adjusted_qty = round(decision.final_qty * regime_multiplier, 6)
+                features["adaptive_regime_adjusted_qty"] = adjusted_qty
+                features["adaptive_regime_original_qty"] = decision.final_qty
+                decision = type(decision)(
+                    base_qty=decision.base_qty,
+                    final_qty=adjusted_qty,
+                    multiplier=round(decision.multiplier * regime_multiplier, 6),
+                    confidence_multiplier=decision.confidence_multiplier,
+                    institutional_multiplier=decision.institutional_multiplier,
+                    volatility_multiplier=decision.volatility_multiplier,
+                    heat_multiplier=decision.heat_multiplier,
+                    reason=decision.reason + f";adaptive_regime_multiplier={regime_multiplier};adaptive_regime_adjusted_qty={adjusted_qty}",
+                )
 
             intent["qty"] = decision.final_qty
             intent["quantity"] = decision.final_qty
