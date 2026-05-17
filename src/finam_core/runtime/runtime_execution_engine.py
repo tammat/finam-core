@@ -60,6 +60,7 @@ class RuntimeExecutionEngine:
     def supervisor_tick(self) -> None:
         active_symbols = set(self.load_active_symbols())
 
+        self.reap_exited_workers()
         self.stop_disabled_workers(active_symbols)
         self.start_new_workers(active_symbols)
         self.rebalance_if_due()
@@ -107,6 +108,44 @@ class RuntimeExecutionEngine:
                 continue
 
             self.stop_worker(symbol, reason="disabled_in_runtime_universe")
+
+    def reap_exited_workers(self) -> None:
+        """
+        Русский комментарий: фиксирует worker, которые завершились сами.
+
+        Если symbol остаётся в runtime_active_universe, следующий supervisor_tick
+        сможет запустить worker заново через start_new_workers().
+        """
+        for symbol, worker in sorted(list(self.workers.items())):
+            poll = getattr(worker, "poll", None)
+
+            if not callable(poll):
+                process = getattr(worker, "process", None)
+                poll = getattr(process, "poll", None)
+
+            if not callable(poll):
+                continue
+
+            code = poll()
+
+            if code is None:
+                continue
+
+            self.workers.pop(symbol, None)
+
+            state = self.worker_states.get(symbol)
+            if state is None:
+                state = RuntimeWorkerState(symbol=symbol, enabled=True, status="exited")
+
+            state.status = "exited"
+            state.stopped_at = datetime.utcnow()
+            state.last_error = f"worker_exited:code={code}"
+            self.worker_states[symbol] = state
+
+            print(
+                f"RUNTIME_WORKER_EXITED symbol={symbol} code={code}",
+                flush=True,
+            )
 
     def stop_worker(self, symbol: str, reason: str) -> None:
         worker = self.workers.pop(symbol, None)
