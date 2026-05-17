@@ -20,6 +20,10 @@ checks = [
     "institutional_flow_regime_events",
     "market_opportunity_metrics",
     "adaptive_position_multiplier",
+    "Обычная активность",
+    "Приоритет покупок",
+    "Кандидат крупного потока",
+    "Контекст крупного потока",
 ]
 
 for c in checks:

@@ -45,8 +45,24 @@ REPORTS = {
     "institutional_flow_latest.tsv": """
         select distinct on (symbol)
             symbol as "Инструмент",
-            regime as "Режим крупного потока",
-            bias as "Смещение",
+            case regime
+                when 'ACCUMULATION' then '🟢 Накопление'
+                when 'DISTRIBUTION' then '🔴 Распределение'
+                when 'TREND_INITIATION' then '🚀 Запуск тренда'
+                when 'BREAKOUT_TRAP' then '🪤 Ловушка пробоя'
+                when 'INSTITUTIONAL_PARTICIPATION' then '🏦 Активность крупного участника'
+                when 'NORMAL_FLOW' then '⚪ Обычная активность'
+                else '❔ Нет данных'
+            end as "Режим крупного потока",
+
+            case bias
+                when 'LONG_BIAS' then '🟢⬆ Приоритет покупок'
+                when 'SHORT_BIAS' then '🔴⬇ Приоритет продаж'
+                when 'NEUTRAL' then '⚪ Преимущество отсутствует'
+                when 'MOMENTUM_BIAS' then '🚀 Импульсное движение'
+                when 'FADE_BIAS' then '🪤 Возврат после ложного пробоя'
+                else '❔ Нет данных'
+            end as "Смещение",
             round(confidence::numeric, 6) as "Уверенность",
             ts as "Время"
         from institutional_flow_regime_events
@@ -56,12 +72,33 @@ REPORTS = {
     "opportunity_latest.tsv": """
         select distinct on (symbol)
             symbol as "Инструмент",
-            asset_class as "Класс актива",
-            regime as "Рыночный режим",
+            case asset_class
+                when 'EQUITY' then 'Акции'
+                when 'FUTURES_CONTINUOUS' then 'Фьючерсы / непрерывный контекст'
+                when 'FUTURES' then 'Фьючерсы'
+                else coalesce(asset_class, '❔ Нет данных')
+            end as "Класс актива",
+
+            case regime
+                when 'trend_down' then '🔴 Нисходящий тренд'
+                when 'trend_up' then '🟢 Восходящий тренд'
+                when 'trend_up_high_vol' then '🚀 Восходящий тренд / высокая волатильность'
+                when 'trend_down_high_vol' then '🔻 Нисходящий тренд / высокая волатильность'
+                when 'continuous_smart_money_context' then '🔗 Контекст крупного потока'
+                when 'unknown_trend_unknown_vol' then '❔ Режим не определён'
+                else coalesce(regime, '❔ Нет данных')
+            end as "Рыночный режим",
             round(coalesce(atr_pct,0)::numeric, 6) as "ATR %",
             round(coalesce(rvol,0)::numeric, 6) as "RVOL",
             round(coalesce(smart_money_score,0)::numeric, 6) as "Оценка крупного потока",
-            coalesce(smart_money_label, 'NO_DATA') as "Метка крупного потока",
+            case coalesce(smart_money_label, 'NO_DATA')
+                when 'SMART_MONEY_CANDIDATE' then '🏦 Кандидат крупного потока'
+                when 'INSTITUTIONAL_GRADE' then '🏛️ Институциональный уровень'
+                when 'NORMAL_FLOW' then '⚪ Обычный поток'
+                when 'NO_SMART_MONEY_DATA' then '❔ Нет данных'
+                when 'NO_DATA' then '❔ Нет данных'
+                else coalesce(smart_money_label, '❔ Нет данных')
+            end as "Метка крупного потока",
             calculated_at as "Время расчёта"
         from market_opportunity_metrics
         order by symbol, calculated_at desc;
@@ -69,7 +106,15 @@ REPORTS = {
 
     "strategy_signal_quality_proxy.tsv": """
         select
-            coalesce(payload->>'institutional_flow_regime', '❔ Нет данных') as "Режим крупного потока",
+            case coalesce(payload->>'institutional_flow_regime', 'UNKNOWN')
+                when 'ACCUMULATION' then '🟢 Накопление'
+                when 'DISTRIBUTION' then '🔴 Распределение'
+                when 'TREND_INITIATION' then '🚀 Запуск тренда'
+                when 'BREAKOUT_TRAP' then '🪤 Ловушка пробоя'
+                when 'INSTITUTIONAL_PARTICIPATION' then '🏦 Активность крупного участника'
+                when 'NORMAL_FLOW' then '⚪ Обычная активность'
+                else '❔ Нет данных'
+            end as "Режим крупного потока",
             coalesce(payload->>'adaptive_position_multiplier', '1.00') as "Мультипликатор позиции",
             count(*) as "Сделок",
             round(avg(qty)::numeric, 6) as "Средний объём",
