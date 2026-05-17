@@ -26,12 +26,14 @@ class RuntimeExecutionEngine:
         supervisor_interval_sec: float = 5.0,
         rebalance_interval_sec: float = 60.0,
         worker_runner: Optional[Callable[[str], object]] = None,
+        rebalance_callback: Optional[Callable[[], None]] = None,
     ):
         self.universe_provider = universe_provider
         self.telemetry = telemetry
         self.supervisor_interval_sec = supervisor_interval_sec
         self.rebalance_interval_sec = rebalance_interval_sec
         self.worker_runner = worker_runner
+        self.rebalance_callback = rebalance_callback
 
         self.shutdown_requested = False
         self.workers: dict[str, object] = {}
@@ -140,7 +142,11 @@ class RuntimeExecutionEngine:
             return
 
         self.last_rebalance_at = now
+
         print("RUNTIME_REBALANCE_DUE", flush=True)
+
+        if self.rebalance_callback is not None:
+            self.rebalance_callback()
 
     def write_telemetry(self) -> None:
         if self.telemetry is None:
