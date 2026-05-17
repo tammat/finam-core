@@ -20,6 +20,7 @@ def main() -> int:
         [python_bin, "src/scripts/classify_institutional_flow_regime.py"],
         [python_bin, "src/scripts/select_cross_contract_liquidity.py"],
         [python_bin, "src/scripts/update_market_opportunity_metrics.py"],
+        [python_bin, "src/scripts/update_market_opportunity_scores_v2.py"],
         [python_bin, "src/scripts/update_dynamic_watchlist_from_opportunities.py"],
         [python_bin, "src/scripts/update_market_event_calendar.py"],
         [python_bin, "src/scripts/send_market_event_calendar_alerts_telegram.py"],
