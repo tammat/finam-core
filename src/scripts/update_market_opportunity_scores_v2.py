@@ -15,7 +15,8 @@ with latest as (
         coalesce(atr_pct, 0.0) as atr_pct,
         coalesce(rvol, 0.0) as rvol,
         coalesce(smart_money_score, 0.0) as smart_money_score,
-        coalesce(regime, '') as regime
+        coalesce(regime, '') as regime,
+        extract(epoch from (now() - calculated_at)) / 60.0 as signal_age_min
     from market_opportunity_metrics
     order by symbol, calculated_at desc
 ),
@@ -90,7 +91,15 @@ scored as (
 
         coalesce(c.churn_penalty, 0.0) as churn_penalty,
 
-        l.smart_money_score
+        l.smart_money_score,
+        l.signal_age_min,
+
+        case
+            when l.signal_age_min <= 15 then 1.0
+            when l.signal_age_min <= 30 then 0.8
+            when l.signal_age_min <= 60 then 0.5
+            else 0.1
+        end as freshness_score
 
     from latest l
     left join calendar_risk br on br.instrument_group = 'BR'
@@ -115,7 +124,30 @@ final as (
                 - 0.20 * event_risk_penalty
                 - 0.25 * churn_penalty
             )
-        ) as trade_priority_score
+        ) as trade_priority_score,
+
+        greatest(
+            0.0,
+            least(
+                1.0,
+                (
+                    greatest(
+                        0.0,
+                        least(
+                            1.0,
+                              0.30 * volatility_score
+                            + 0.25 * rvol_score
+                            + 0.20 * trend_efficiency_score
+                            + 0.10 * liquidity_score_v2
+                            + 0.10 * spread_quality_score
+                            + 0.15 * smart_money_score
+                            - 0.20 * event_risk_penalty
+                            - 0.25 * churn_penalty
+                        )
+                    )
+                ) * freshness_score
+            )
+        ) as freshness_adjusted_score
     from scored
 )
 
@@ -129,6 +161,14 @@ set
     event_risk_penalty = f.event_risk_penalty,
     churn_penalty = f.churn_penalty,
     trade_priority_score = f.trade_priority_score,
+    signal_age_min = f.signal_age_min,
+    freshness_score = f.freshness_score,
+    freshness_adjusted_score = f.freshness_adjusted_score,
+    freshness_reason =
+        'age_min=' || round(f.signal_age_min::numeric, 2) ||
+        ';freshness_score=' || round(f.freshness_score::numeric, 4) ||
+        ';base_score=' || round(f.trade_priority_score::numeric, 4) ||
+        ';freshness_adjusted_score=' || round(f.freshness_adjusted_score::numeric, 4),
     trade_priority_label =
         case
             when f.trade_priority_score >= 0.75 then '🔥 ТОП-приоритет'
@@ -155,7 +195,9 @@ select
     symbol,
     asset_class,
     round(coalesce(trade_priority_score,0)::numeric, 6) as trade_priority_score,
+    round(coalesce(freshness_adjusted_score,0)::numeric, 6) as freshness_adjusted_score,
     trade_priority_label,
+    freshness_reason,
     trade_priority_reason,
     calculated_at
 from market_opportunity_metrics
