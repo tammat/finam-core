@@ -33,6 +33,12 @@ class RuntimeSubprocessWorker:
         self.process = subprocess.Popen(cmd, env=env)
         return self
 
+    def poll(self) -> int | None:
+        if self.process is None:
+            return None
+
+        return self.process.poll()
+
     def stop(self) -> None:
         if self.process is None:
             return
