@@ -1,0 +1,12 @@
+[Unit]
+Description=Finam Core Market Event Calendar Telegram Alerts
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finam
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/.env
+Environment=PYTHONPATH=src
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/send_market_event_calendar_alerts_telegram.py

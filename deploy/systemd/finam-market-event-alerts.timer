@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Finam Core Market Event Calendar Alerts every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

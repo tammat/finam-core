@@ -22,6 +22,7 @@ def main() -> int:
         [python_bin, "src/scripts/update_market_opportunity_metrics.py"],
         [python_bin, "src/scripts/update_dynamic_watchlist_from_opportunities.py"],
         [python_bin, "src/scripts/update_market_event_calendar.py"],
+        [python_bin, "src/scripts/send_market_event_calendar_alerts_telegram.py"],
     ]
 
     for cmd in steps:
