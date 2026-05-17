@@ -34,7 +34,7 @@ REPORTS = {
         select
             coalesce(payload->>'requested_symbol', symbol) as "Сигнальный инструмент",
             coalesce(payload->>'execution_symbol', symbol) as "Инструмент исполнения",
-            coalesce(payload->>'continuous_symbol', 'NONE') as "Continuous context",
+            coalesce(payload->>'continuous_symbol', 'NONE') as "Непрерывный контекст",
             count(*) as "Сделок",
             round(sum(qty * price)::numeric, 2) as "Оборот"
         from trades
@@ -60,8 +60,8 @@ REPORTS = {
             regime as "Рыночный режим",
             round(coalesce(atr_pct,0)::numeric, 6) as "ATR %",
             round(coalesce(rvol,0)::numeric, 6) as "RVOL",
-            round(coalesce(smart_money_score,0)::numeric, 6) as "Smart money score",
-            coalesce(smart_money_label, 'NO_DATA') as "Smart money label",
+            round(coalesce(smart_money_score,0)::numeric, 6) as "Оценка крупного потока",
+            coalesce(smart_money_label, 'NO_DATA') as "Метка крупного потока",
             calculated_at as "Время расчёта"
         from market_opportunity_metrics
         order by symbol, calculated_at desc;
@@ -69,7 +69,7 @@ REPORTS = {
 
     "strategy_signal_quality_proxy.tsv": """
         select
-            coalesce(payload->>'institutional_flow_regime', 'UNKNOWN') as "Режим крупного потока",
+            coalesce(payload->>'institutional_flow_regime', '❔ Нет данных') as "Режим крупного потока",
             coalesce(payload->>'adaptive_position_multiplier', '1.00') as "Мультипликатор позиции",
             count(*) as "Сделок",
             round(avg(qty)::numeric, 6) as "Средний объём",
