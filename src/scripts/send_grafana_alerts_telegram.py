@@ -27,23 +27,34 @@ returning id;
 
 
 def send_telegram(text: str) -> None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TG_BOT_TOKEN") or os.getenv("TG_ALERT_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID") or os.getenv("TG_CHAT_ID") or os.getenv("TG_ALERT_CHAT")
 
     if not token or not chat_id:
         print("TELEGRAM_NOT_CONFIGURED")
         return
 
+    cmd = [
+        "curl",
+        "-sS",
+        "--connect-timeout", os.getenv("TG_CURL_CONNECT_TIMEOUT", "10"),
+        "--max-time", os.getenv("TG_CURL_MAX_TIME", "30"),
+    ]
+
+    proxy = os.getenv("TG_PROXY") or os.getenv("TELEGRAM_PROXY")
+    if proxy:
+        cmd.extend(["--proxy", proxy])
+
+    cmd.extend([
+        "-X", "POST",
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        "-d", f"chat_id={chat_id}",
+        "-d", f"text={text}",
+        "-d", "parse_mode=HTML",
+    ])
+
     subprocess.run(
-        [
-            "curl",
-            "-sS",
-            "-X", "POST",
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            "-d", f"chat_id={chat_id}",
-            "-d", f"text={text}",
-            "-d", "parse_mode=HTML",
-        ],
+        cmd,
         check=True,
     )
 
@@ -53,7 +64,7 @@ def main() -> int:
 
     database_url = os.environ["DATABASE_URL"]
 
-    if not os.getenv("TELEGRAM_BOT_TOKEN") or not os.getenv("TELEGRAM_CHAT_ID"):
+    if not (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TG_BOT_TOKEN") or os.getenv("TG_ALERT_BOT_TOKEN")) or not (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("TG_CHAT_ID") or os.getenv("TG_ALERT_CHAT")):
         print("TELEGRAM_NOT_CONFIGURED")
         return 0
 
