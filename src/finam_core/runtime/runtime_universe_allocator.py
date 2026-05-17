@@ -28,6 +28,7 @@ class RuntimeUniverseAllocator:
                 raw_json
             from dynamic_watchlist
             where is_active = true
+              and source = 'freshness_adjusted_scoring_v2'
               and score >= %s
               and strategy <> 'NO_TRADE'
             order by score desc, priority desc, updated_at desc

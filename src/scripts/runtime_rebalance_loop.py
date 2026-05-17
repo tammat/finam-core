@@ -24,6 +24,7 @@ def main() -> int:
         [python_bin, "src/scripts/update_market_opportunity_metrics_from_moex_top.py"],
         [python_bin, "src/scripts/update_market_opportunity_scores_v2.py"],
         [python_bin, "src/scripts/update_dynamic_watchlist_from_opportunities.py"],
+        [python_bin, "src/scripts/run_runtime_universe_allocator.py"],
         [python_bin, "src/scripts/update_market_event_calendar.py"],
         [python_bin, "src/scripts/send_market_event_calendar_alerts_telegram.py"],
     ]
