@@ -17,7 +17,17 @@ select
     price,
     coalesce(commission, 0) as commission,
     coalesce(payload->>'strategy', payload->>'source', trade_source, origin, 'UNKNOWN') as strategy,
-    coalesce(payload->>'institutional_flow_regime', 'UNKNOWN') as institutional_regime,
+    
+        case coalesce(payload->>'institutional_flow_regime', 'UNKNOWN')
+            when 'ACCUMULATION' then '🟢 Накопление'
+            when 'DISTRIBUTION' then '🔴 Распределение'
+            when 'TREND_INITIATION' then '🚀 Запуск тренда'
+            when 'BREAKOUT_TRAP' then '🪤 Ловушка пробоя'
+            when 'INSTITUTIONAL_PARTICIPATION' then '🏦 Активность крупного участника'
+            when 'NORMAL_FLOW' then '⚪ Обычная активность'
+            else '❔ Нет данных'
+        end as institutional_regime
+    ,
     coalesce(payload->>'adaptive_position_multiplier', '1.00') as adaptive_multiplier
 from trades
 where qty > 0
@@ -185,11 +195,11 @@ def main() -> int:
             "Режим крупного капитала",
             "Мультипликатор позиции",
             "Закрытых сделок",
-            "Gross PnL",
+            "Валовая прибыль",
             "Комиссии",
             "Налог",
-            "Net PnL",
-            "Winrate %",
+            "Чистая прибыль после издержек и налога",
+            "Доля прибыльных сделок, %",
         ])
 
         writer.writerows(result_rows)
