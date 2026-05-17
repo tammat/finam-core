@@ -4067,6 +4067,9 @@ class PaperTradingPipeline:
         self._inject_latest_institutional_flow_context(intent)
         self._resolve_execution_symbol_if_enabled(intent, st)
 
+        if not self._institutional_execution_gate_if_enabled(intent):
+            return
+
         if not self._adaptive_regime_filter_if_enabled(intent):
             return
 
@@ -4690,6 +4693,104 @@ class PaperTradingPipeline:
                 f"PIPE_SMART_MONEY_CONTEXT_ERROR {type(exc).__name__}:{exc}",
                 heartbeat_sec=300,
             )
+
+    def _institutional_execution_gate_if_enabled(self, intent: dict) -> bool:
+        """Русский комментарий: событийный institutional gate перед входом в сделку."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_INSTITUTIONAL_EXECUTION_GATE", "0") != "1":
+                return True
+
+            if not isinstance(intent, dict):
+                return True
+
+            if intent.get("intent_type") == "EXIT":
+                return True
+
+            features = intent.setdefault("features", {})
+            symbol = str(intent.get("symbol") or "")
+            strategy = str(features.get("strategy") or intent.get("strategy") or self._strategy_name_for_symbol(symbol))
+
+            regime_ru = str(
+                features.get("institutional_flow_regime_ru")
+                or features.get("institutional_flow_regime")
+                or "❔ Нет данных"
+            )
+
+            regime_map = {
+                "ACCUMULATION": "🟢 Накопление",
+                "DISTRIBUTION": "🔴 Распределение",
+                "TREND_INITIATION": "🚀 Запуск тренда",
+                "BREAKOUT_TRAP": "🪤 Ловушка пробоя",
+                "INSTITUTIONAL_PARTICIPATION": "🏦 Активность крупного участника",
+                "NORMAL_FLOW": "⚪ Обычная активность",
+                "UNKNOWN": "❔ Нет данных",
+            }
+            regime_ru = regime_map.get(regime_ru, regime_ru)
+
+            if symbol.startswith("BR"):
+                instrument_group = "BR"
+            elif symbol.startswith("NG"):
+                instrument_group = "NG"
+            elif symbol.startswith("USDRUB") or "USDRUB" in symbol:
+                instrument_group = "USDRUB"
+            else:
+                instrument_group = "EQUITY"
+
+            from finam_core.risk.market_event_calendar_repository import MarketEventCalendarRepository
+            from finam_core.risk.institutional_execution_gate import InstitutionalExecutionGate
+
+            event_repo = getattr(self, "market_event_calendar_repository", None)
+            if event_repo is None:
+                event_repo = MarketEventCalendarRepository(getattr(self, "pg_logger", None))
+                self.market_event_calendar_repository = event_repo
+
+            gate = getattr(self, "institutional_execution_gate", None)
+            if gate is None:
+                gate = InstitutionalExecutionGate()
+                self.institutional_execution_gate = gate
+
+            event_ctx = event_repo.load_context(instrument_group)
+
+            decision = gate.evaluate(
+                symbol=symbol,
+                strategy=strategy,
+                regime_ru=regime_ru,
+                liquidity_score=float(features.get("liquidity_score", 0.0) or 0.0),
+                churn_status=str(features.get("churn_status") or ""),
+                has_cbr_event_today=event_ctx.has_cbr_event_today,
+                has_inventory_event_today=event_ctx.has_inventory_event_today,
+                minutes_to_event=event_ctx.minutes_to_event,
+                is_rollover_window=bool(features.get("is_rollover_window", False)),
+            )
+
+            features["institutional_execution_action"] = decision.action
+            features["institutional_execution_multiplier"] = decision.multiplier
+            features["institutional_execution_reason"] = decision.reason
+            features["market_event_type"] = event_ctx.event_type
+            features["market_event_name"] = event_ctx.event_name
+            features["market_event_severity"] = event_ctx.severity
+            features["market_event_minutes_to_event"] = event_ctx.minutes_to_event
+
+            print(
+                f"PIPE_INSTITUTIONAL_EXECUTION_GATE "
+                f"symbol={symbol} group={instrument_group} "
+                f"event={event_ctx.event_type} minutes={event_ctx.minutes_to_event} "
+                f"action={decision.action} allowed={decision.allowed} "
+                f"multiplier={decision.multiplier} reason={decision.reason}",
+                flush=True,
+            )
+
+            return bool(decision.allowed)
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_INSTITUTIONAL_EXECUTION_GATE_ERROR",
+                f"PIPE_INSTITUTIONAL_EXECUTION_GATE_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return True
 
     def _adaptive_regime_filter_if_enabled(self, intent: dict) -> bool:
         """Русский комментарий: блокирует или снижает риск входа по исторической эффективности режима."""
