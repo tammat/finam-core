@@ -4,10 +4,13 @@ import json
 import os
 
 from finam_core.storage.postgres_logger import PostgresLogger
+from finam_core.runtime.runtime_universe_rotation_logger import RuntimeUniverseRotationLogger
 
 
 LIMIT = int(os.getenv("OPPORTUNITY_WATCHLIST_LIMIT", "5"))
 MIN_TRADE_PRIORITY_SCORE = float(os.getenv("MIN_TRADE_PRIORITY_SCORE", "0.35"))
+FRESHNESS_EXPIRED_SCORE = float(os.getenv("FRESHNESS_EXPIRED_SCORE", "0.25"))
+SCORE_DROP_THRESHOLD = float(os.getenv("ROTATION_SCORE_DROP_THRESHOLD", "0.20"))
 
 
 SQL_SELECT = """
@@ -59,6 +62,34 @@ limit %s;
 """
 
 
+
+def classify_rotation_action(
+    *,
+    previous: dict | None,
+    score: float,
+    freshness_adjusted_score: float,
+    strategy: str,
+) -> tuple[str, str | None, str]:
+    """Русский комментарий: классифицирует событие ротации runtime universe."""
+    if freshness_adjusted_score < FRESHNESS_EXPIRED_SCORE:
+        return "FRESHNESS_EXPIRED", previous.get("portfolio_status") if previous else None, "WATCH"
+
+    if previous is None:
+        return "ADD", None, "ACTIVE"
+
+    previous_score = float(previous.get("score") or 0.0)
+    previous_strategy = str(previous.get("strategy") or "")
+    previous_status = str(previous.get("portfolio_status") or "WATCH")
+
+    if previous_score > 0 and (previous_score - score) >= SCORE_DROP_THRESHOLD:
+        return "SCORE_DROP", previous_status, "ACTIVE"
+
+    if previous_strategy and previous_strategy != strategy:
+        return "DOWNGRADE", previous_status, "ACTIVE"
+
+    return "UPDATE", previous_status, "ACTIVE"
+
+
 def select_strategy(regime: str, trade_priority_score: float) -> str:
     """Русский комментарий: выбирает стратегию на основе режима и приоритета торговли."""
     regime_l = str(regime or "").lower()
@@ -77,11 +108,36 @@ def select_strategy(regime: str, trade_priority_score: float) -> str:
 
 def main() -> int:
     pg = PostgresLogger()
+    rotation_logger = RuntimeUniverseRotationLogger(pg)
 
     with pg._connect() as conn:
         with conn.cursor() as cur:
             cur.execute(SQL_SELECT, (MIN_TRADE_PRIORITY_SCORE, LIMIT))
             rows = cur.fetchall()
+
+            symbols = [str(row[0]) for row in rows]
+            previous_by_symbol = {}
+
+            if symbols:
+                cur.execute(
+                    """
+                    select symbol, portfolio_status, strategy, regime, score, reason, raw_json
+                    from dynamic_watchlist
+                    where symbol = any(%s)
+                    """,
+                    (symbols,),
+                )
+                previous_by_symbol = {
+                    str(r[0]): {
+                        "portfolio_status": r[1],
+                        "strategy": r[2],
+                        "regime": r[3],
+                        "score": r[4],
+                        "reason": r[5],
+                        "raw_json": r[6],
+                    }
+                    for r in cur.fetchall()
+                }
 
             if not rows:
                 print("OK: no trade-priority opportunities found")
@@ -108,6 +164,7 @@ def main() -> int:
                 ) = row
 
                 score = float(trade_priority_score or 0.0)
+                freshness_score_value = float(row[13] or 0.0)
                 strategy = select_strategy(str(regime), score)
 
                 raw_payload = {
@@ -144,6 +201,14 @@ def main() -> int:
                     f"churn_penalty={float(churn_penalty or 0.0)}"
                 )
 
+                previous = previous_by_symbol.get(str(symbol))
+                rotation_action, previous_status, new_status = classify_rotation_action(
+                    previous=previous,
+                    score=score,
+                    freshness_adjusted_score=freshness_score_value,
+                    strategy=strategy,
+                )
+
                 cur.execute(
                     """
                     insert into dynamic_watchlist (
@@ -168,7 +233,7 @@ def main() -> int:
                     )
                     values (
                         %s, %s, %s, %s, %s,
-                        'WATCH',
+                        %s,
                         %s,
                         'trade_priority_scoring_v2',
                         1,
@@ -201,6 +266,7 @@ def main() -> int:
                         direction,
                         score,
                         float(rvol or 0.0),
+                        new_status,
                         f"{strategy};regime={regime};priority={trade_priority_label}",
                         strategy,
                         regime,
@@ -208,6 +274,19 @@ def main() -> int:
                         reason,
                         json.dumps(raw_payload, ensure_ascii=False, default=str),
                     ),
+                )
+
+                rotation_logger.log_rotation(
+                    symbol=str(symbol),
+                    action=rotation_action,
+                    previous_status=previous_status,
+                    new_status=new_status,
+                    strategy=strategy,
+                    regime=str(regime),
+                    score=score,
+                    freshness_adjusted_score=freshness_score_value,
+                    reason=reason,
+                    raw_json=raw_payload,
                 )
 
         conn.commit()
