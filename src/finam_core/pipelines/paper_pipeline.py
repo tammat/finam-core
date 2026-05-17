@@ -4396,6 +4396,10 @@ class PaperTradingPipeline:
                     payload.setdefault("adaptive_position_final_qty", features.get("adaptive_position_final_qty"))
                     payload.setdefault("adaptive_position_multiplier", features.get("adaptive_position_multiplier"))
                     payload.setdefault("adaptive_position_reason", features.get("adaptive_position_reason"))
+                    payload.setdefault("adaptive_regime_action", features.get("adaptive_regime_action"))
+                    payload.setdefault("adaptive_regime_multiplier", features.get("adaptive_regime_multiplier"))
+                    payload.setdefault("adaptive_regime_reason", features.get("adaptive_regime_reason"))
+                    payload.setdefault("institutional_flow_regime_ru", features.get("institutional_flow_regime_ru"))
 
                 # Русский комментарий: добавляем contract identity в fallback payload.
                 try:
