@@ -26,13 +26,13 @@ returning id;
 """
 
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TG_BOT_TOKEN") or os.getenv("TG_ALERT_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID") or os.getenv("TG_CHAT_ID") or os.getenv("TG_ALERT_CHAT")
 
     if not token or not chat_id:
         print("TELEGRAM_NOT_CONFIGURED")
-        return
+        return False
 
     cmd = [
         "curl",
@@ -53,9 +53,59 @@ def send_telegram(text: str) -> None:
         "-d", "parse_mode=HTML",
     ])
 
-    subprocess.run(
+    result = subprocess.run(
         cmd,
-        check=True,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        print(f"TELEGRAM_SEND_FAILED returncode={result.returncode} stderr={result.stderr}")
+        return False
+
+    if '"ok":true' not in result.stdout:
+        print(f"TELEGRAM_SEND_FAILED response={result.stdout}")
+        return False
+
+    return True
+
+
+
+def format_reason_ru(alert: str, reason: str) -> str:
+    """Русский комментарий: переводит техническую причину alert в человекочитаемый вид."""
+    alert = str(alert or "")
+    reason = str(reason or "")
+
+    if "СМЕНА ЛИКВИДНОГО КОНТРАКТА" in alert:
+        parts = {}
+        for item in reason.replace(";", " ").split():
+            if "=" in item:
+                k, v = item.split("=", 1)
+                parts[k.strip()] = v.strip()
+
+        continuous = parts.get("continuous", "не определён")
+        preferred = parts.get("preferred", "не определён")
+        score = parts.get("score", "нет данных")
+
+        return (
+            f"Непрерывный инструмент: {continuous}\n"
+            f"Выбранный фьючерс для исполнения: {preferred}\n"
+            f"Причина: выбран наиболее ликвидный/активный контракт по текущей оценке рынка.\n"
+            f"Оценка ликвидности: {score}"
+        )
+
+    return (
+        reason
+        .replace("regime=ACCUMULATION", "режим=Накопление")
+        .replace("regime=NORMAL_FLOW", "режим=Обычная активность")
+        .replace("bias=LONG_BIAS", "направление=Приоритет покупок")
+        .replace("bias=SHORT_BIAS", "направление=Приоритет продаж")
+        .replace("smart_money_score=", "оценка крупного потока=")
+        .replace("rvol=", "относительный объём=")
+        .replace("absorption_score=", "оценка поглощения=")
+        .replace("impulse_score=", "оценка импульса=")
+        .replace("range_pct=", "диапазон, %=")
     )
 
 
@@ -66,7 +116,7 @@ def main() -> int:
 
     if not (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TG_BOT_TOKEN") or os.getenv("TG_ALERT_BOT_TOKEN")) or not (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("TG_CHAT_ID") or os.getenv("TG_ALERT_CHAT")):
         print("TELEGRAM_NOT_CONFIGURED")
-        return 0
+        return False
 
     sent = 0
 
@@ -155,17 +205,31 @@ def main() -> int:
                     f"🧭 Bias: <b>{bias}</b>\n"
                     f"🎯 Вероятность профита / confidence: <b>{probability_pct}%</b>\n"
                     f"🕒 Время: {ts}\n\n"
-                    f"📌 <b>Ручной сценарий</b>\n"
-                    f"Направление: <b>{side_hint}</b>\n"
-                    f"Вход: {entry_hint}\n"
-                    f"Стоп-лосс: {stop_hint}\n"
-                    f"Тейк-профит: {take_hint}\n"
-                    f"Количество: {qty_hint}\n\n"
+                    f"🎯 <b>Момент точки входа</b>\n"
+                    f"Сценарий: <b>{side_hint}</b>\n"
+                    f"📌 Условная заявка на вход: {entry_hint}\n"
+                    f"🛑 Стоп-лосс: {stop_hint}\n"
+                    f"💰 Тейк-профит: {take_hint}\n"
+                    f"⚖️ Количество: {qty_hint}\n\n"
                     f"⚠️ Не автосделка. Только сигнал для ручной проверки.\n\n"
-                    f"📝 Причина:\n{reason}"
+                    f"📝 Причина:\n{format_reason_ru(alert, reason)}"
                 )
 
-                send_telegram(message)
+                if not send_telegram(message):
+                    continue
+
+                cur.execute(
+                    INSERT_SQL,
+                    (
+                        alert_key,
+                        json.dumps(payload, ensure_ascii=False),
+                    ),
+                )
+
+                inserted = cur.fetchone()
+                if not inserted:
+                    continue
+
                 sent += 1
 
         conn.commit()
