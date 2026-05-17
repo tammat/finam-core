@@ -1,0 +1,4 @@
+event_time	event_type	instrument_group	event_name	severity	source	pre_event_block_min	pre_event_reduce_min
+2026-06-19 13:30:00+03	CBR_RATE_DECISION	USDRUB	Заседание Банка России по ключевой ставке	HIGH	manual_cbr	120	1440
+2026-05-20 17:30:00+03	EIA_INVENTORY	BR	EIA: еженедельные данные по запасам нефти	HIGH	manual_eia	30	90
+2026-05-22 17:30:00+03	EIA_GAS_STORAGE	NG	EIA: еженедельные данные по запасам природного газа	HIGH	manual_eia	30	90
