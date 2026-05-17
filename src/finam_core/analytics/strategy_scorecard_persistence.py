@@ -61,6 +61,8 @@ class StrategyScorecardPersistence:
         from closed_trades
         where created_at::date = %s
           and trade_source = 'paper'
+          and coalesce(strategy, payload->>'strategy', '') <> ''
+          and coalesce(strategy, payload->>'strategy', '') <> 'unknown'
         order by symbol, strategy, horizon, created_at
         """
 
