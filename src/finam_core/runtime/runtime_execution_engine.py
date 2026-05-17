@@ -64,8 +64,22 @@ class RuntimeExecutionEngine:
         self.write_telemetry()
 
     def load_active_symbols(self) -> Iterable[str]:
-        symbols = self.universe_provider.get_symbols()
-        return list(symbols or [])
+        """
+        Русский комментарий: поддерживаем оба интерфейса провайдера.
+
+        v3 supervisor изолирован от конкретной реализации источника:
+        - RuntimeUniverseProvider использует load_symbols();
+        - тестовые/mock-провайдеры могут использовать get_symbols().
+        """
+        if hasattr(self.universe_provider, "load_symbols"):
+            symbols = self.universe_provider.load_symbols()
+            return list(symbols or [])
+
+        if hasattr(self.universe_provider, "get_symbols"):
+            symbols = self.universe_provider.get_symbols()
+            return list(symbols or [])
+
+        return []
 
     def start_new_workers(self, active_symbols: set[str]) -> None:
         for symbol in sorted(active_symbols):
