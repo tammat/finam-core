@@ -5238,6 +5238,50 @@ class PaperTradingPipeline:
             except Exception:
                 return "default"
 
+    def _runtime_active_universe_allows_paper(self, symbol: str, strategy: str = "default") -> tuple[bool, str]:
+        """Русский комментарий: запрещает paper-entry, если инструмент не включён runtime allocator-ом."""
+        try:
+            import os
+
+            if os.getenv("ENABLE_RUNTIME_ACTIVE_UNIVERSE_GATE", "0") != "1":
+                return True, "runtime_active_universe_gate_disabled"
+
+            pg_logger = getattr(self, "pg_logger", None)
+            if pg_logger is None:
+                return True, "runtime_active_universe_no_pg_logger"
+
+            with pg_logger._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select strategy, regime, score, priority
+                        from runtime_active_universe
+                        where symbol = %s
+                          and is_enabled = true
+                        limit 1
+                        """,
+                        (symbol,),
+                    )
+                    row = cur.fetchone()
+
+            if not row:
+                return False, f"runtime_active_universe_not_enabled:symbol={symbol}"
+
+            active_strategy, active_regime, active_score, active_priority = row
+            return (
+                True,
+                f"runtime_active_universe_ok:symbol={symbol}:strategy={active_strategy}:regime={active_regime}:score={active_score}:priority={active_priority}",
+            )
+
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_RUNTIME_ACTIVE_UNIVERSE_GATE_ERROR",
+                f"PIPE_RUNTIME_ACTIVE_UNIVERSE_GATE_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return True, f"runtime_active_universe_error_soft:{type(exc).__name__}:{exc}"
+
+
     def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
         """Русский комментарий: thin wrapper; логика runtime-control вынесена в StrategyRuntimeControlService."""
         service = getattr(self, "strategy_runtime_control_service", None)
@@ -5750,6 +5794,23 @@ class PaperTradingPipeline:
         allowed, limit_reason = self._position_limit_allows_br(br_signal, qty)
         if not allowed:
             return False, limit_reason
+
+        br_symbol = str(getattr(br_signal, "symbol", "") or "")
+        br_strategy = self._strategy_name_for_symbol(br_symbol)
+        active_universe_allowed, active_universe_reason = self._runtime_active_universe_allows_paper(
+            symbol=br_symbol,
+            strategy=br_strategy,
+        )
+        if not active_universe_allowed:
+            print(
+                f"PIPE_ENTRY_GATE_BLOCK symbol={br_symbol} gate=runtime_active_universe reason={active_universe_reason}",
+                flush=True,
+            )
+            return False, active_universe_reason
+        print(
+            f"PIPE_RUNTIME_ACTIVE_UNIVERSE_OK symbol={br_symbol} reason={active_universe_reason}",
+            flush=True,
+        )
 
         runtime_allowed, runtime_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
             br_signal.symbol,
