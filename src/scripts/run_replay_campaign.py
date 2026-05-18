@@ -120,28 +120,75 @@ def main() -> int:
         if not args.date_from or not args.date_to:
             raise SystemExit("--date-from and --date-to are required for --data-source moex")
 
-        adapter = ExternalReplayAdapter()
+        total = 0
+        failed = 0
 
         for symbol in symbols:
             for timeframe in timeframes:
-                events = adapter.load_events(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    date_from=args.date_from,
-                    date_to=args.date_to,
-                )
-                print(
-                    "REPLAY_CAMPAIGN_MOEX_EVENTS "
-                    f"campaign_id={campaign_id} symbol={symbol} timeframe={timeframe} "
-                    f"date_from={args.date_from} date_to={args.date_to} events={len(events)}",
-                    flush=True,
-                )
+                for strategy in strategies:
+                    total += 1
+
+                    cmd = [
+                        sys.executable,
+                        "src/scripts/run_external_replay_pipeline.py",
+                        "--campaign-id",
+                        campaign_id,
+                        "--symbol",
+                        symbol,
+                        "--timeframe",
+                        timeframe,
+                        "--date-from",
+                        args.date_from,
+                        "--date-to",
+                        args.date_to,
+                        "--strategy",
+                        strategy,
+                    ]
+
+                    print(
+                        "REPLAY_CAMPAIGN_MOEX_RUN "
+                        f"campaign_id={campaign_id} symbol={symbol} timeframe={timeframe} "
+                        f"strategy={strategy} cmd={' '.join(cmd)}",
+                        flush=True,
+                    )
+
+                    if args.dry_run:
+                        continue
+
+                    result = subprocess.run(cmd)
+
+                    if result.returncode != 0:
+                        failed += 1
+                        print(
+                            "REPLAY_CAMPAIGN_MOEX_RUN_FAILED "
+                            f"campaign_id={campaign_id} symbol={symbol} code={result.returncode}",
+                            flush=True,
+                        )
+
+        if not args.dry_run:
+            build_cmd = [
+                sys.executable,
+                "src/scripts/build_replay_closed_trades.py",
+                "--campaign-id",
+                campaign_id,
+            ]
+
+            print(
+                "REPLAY_CAMPAIGN_BUILD_CLOSED_TRADES "
+                f"campaign_id={campaign_id} cmd={' '.join(build_cmd)}",
+                flush=True,
+            )
+
+            build_result = subprocess.run(build_cmd)
+
+            if build_result.returncode != 0:
+                failed += 1
 
         print(
-            f"REPLAY_CAMPAIGN_DONE campaign_id={campaign_id} total=0 failed=0",
+            f"REPLAY_CAMPAIGN_DONE campaign_id={campaign_id} total={total} failed={failed}",
             flush=True,
         )
-        return 0
+        return 1 if failed else 0
 
     for symbol in symbols:
         for timeframe in timeframes:
