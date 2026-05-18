@@ -20,6 +20,7 @@ def parse_args():
     p.add_argument("--test-months", type=int, default=1)
     p.add_argument("--step-months", type=int, default=1)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--regime-policy-id", default="")
     return p.parse_args()
 
 
@@ -55,6 +56,9 @@ def main() -> int:
             "--date-to", w.test_to.isoformat(),
             "--campaign-id", campaign_id,
         ]
+
+        if args.regime_policy_id:
+            cmd.extend(["--regime-policy-id", args.regime_policy_id])
 
         if args.dry_run:
             cmd.append("--dry-run")
