@@ -48,6 +48,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-source", choices=("sim", "moex"), default="sim")
     parser.add_argument("--date-from", default="")
     parser.add_argument("--date-to", default="")
+    parser.add_argument("--stop-pct", type=float, default=0.015)
+    parser.add_argument("--take-pct", type=float, default=0.030)
+    parser.add_argument("--holding-bars", type=int, default=3)
 
     return parser.parse_args()
 
@@ -143,6 +146,12 @@ def main() -> int:
                         args.date_to,
                         "--strategy",
                         strategy,
+                        "--stop-pct",
+                        str(args.stop_pct),
+                        "--take-pct",
+                        str(args.take_pct),
+                        "--holding-bars",
+                        str(args.holding_bars),
                     ]
 
                     print(
