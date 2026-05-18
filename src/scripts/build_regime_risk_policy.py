@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from finam_core.research.regime_policy_repository import RegimePolicyRepository
 from finam_core.research.regime_risk_policy import RegimePerformance, RegimeRiskPolicy
 from finam_core.storage.postgres_logger import PostgresLogger
 
@@ -11,6 +12,8 @@ def parse_args():
     p.add_argument("--campaign-pattern", required=True)
     p.add_argument("--min-trades", type=int, default=5)
     p.add_argument("--min-expectancy", type=float, default=0.0)
+    p.add_argument("--policy-id", default="")
+    p.add_argument("--save", action="store_true")
     return p.parse_args()
 
 
@@ -69,6 +72,20 @@ def main() -> int:
         min_trades=args.min_trades,
         min_expectancy=args.min_expectancy,
     )
+
+    if args.save and decisions:
+        policy_id = args.policy_id or args.campaign_pattern.replace("%", "ALL").replace("*", "ALL")
+        with pg._connect() as conn:
+            saved = RegimePolicyRepository(conn).save_policy(
+                policy_id=policy_id,
+                campaign_pattern=args.campaign_pattern,
+                decisions=decisions,
+            )
+        print(
+            "ПОЛИТИКА_РЕЖИМОВ_СОХРАНЕНА "
+            f"policy_id={policy_id} rows={saved}",
+            flush=True,
+        )
 
     if not decisions:
         print(f"ПОЛИТИКА_РЕЖИМОВ_ПУСТО pattern={args.campaign_pattern}", flush=True)
