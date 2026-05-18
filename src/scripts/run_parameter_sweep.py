@@ -25,6 +25,9 @@ def parse_args():
     p.add_argument("--stop-pcts", default="0.005,0.01,0.015,0.02")
     p.add_argument("--take-pcts", default="0.01,0.02,0.03,0.04")
     p.add_argument("--holding-bars", default="1,3,5")
+    p.add_argument("--mr-thresholds", default="0.015,0.02,0.025")
+    p.add_argument("--mr-max-drops", default="0.05,0.07,0.09")
+    p.add_argument("--mr-min-range-pcts", default="0.01,0.015,0.02")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
@@ -36,7 +39,18 @@ def main() -> int:
     take_pcts = parse_float_list(args.take_pcts)
     holding_bars_list = parse_int_list(args.holding_bars)
 
-    combos = list(itertools.product(stop_pcts, take_pcts, holding_bars_list))
+    mr_thresholds = parse_float_list(args.mr_thresholds)
+    mr_max_drops = parse_float_list(args.mr_max_drops)
+    mr_min_range_pcts = parse_float_list(args.mr_min_range_pcts)
+
+    combos = list(itertools.product(
+        stop_pcts,
+        take_pcts,
+        holding_bars_list,
+        mr_thresholds,
+        mr_max_drops,
+        mr_min_range_pcts,
+    ))
 
     print(
         f"PARAM_SWEEP_START sweep_id={args.sweep_id} combos={len(combos)}",
@@ -45,12 +59,15 @@ def main() -> int:
 
     failed = 0
 
-    for idx, (stop_pct, take_pct, holding_bars) in enumerate(combos, start=1):
+    for idx, (stop_pct, take_pct, holding_bars, mr_threshold, mr_max_drop, mr_min_range_pct) in enumerate(combos, start=1):
         campaign_id = (
             f"{args.sweep_id}-"
             f"s{str(stop_pct).replace('.', 'p')}-"
             f"t{str(take_pct).replace('.', 'p')}-"
-            f"h{holding_bars}"
+            f"h{holding_bars}-"
+            f"mr{str(mr_threshold).replace('.', 'p')}-"
+            f"md{str(mr_max_drop).replace('.', 'p')}-"
+            f"rg{str(mr_min_range_pct).replace('.', 'p')}"
         )
 
         cmd = [
@@ -66,6 +83,9 @@ def main() -> int:
             "--stop-pct", str(stop_pct),
             "--take-pct", str(take_pct),
             "--holding-bars", str(holding_bars),
+            "--mr-threshold", str(mr_threshold),
+            "--mr-max-drop", str(mr_max_drop),
+            "--mr-min-range-pct", str(mr_min_range_pct),
         ]
 
         # Русский комментарий: параметры пока передаём через env-compatible argv в external pipeline на следующем шаге.
@@ -74,6 +94,7 @@ def main() -> int:
             "PARAM_SWEEP_RUN "
             f"sweep_id={args.sweep_id} index={idx} campaign_id={campaign_id} "
             f"stop_pct={stop_pct} take_pct={take_pct} holding_bars={holding_bars} "
+            f"mr_threshold={mr_threshold} mr_max_drop={mr_max_drop} mr_min_range_pct={mr_min_range_pct} "
             f"cmd={' '.join(cmd)}",
             flush=True,
         )

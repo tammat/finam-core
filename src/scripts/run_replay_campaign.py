@@ -51,6 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stop-pct", type=float, default=0.015)
     parser.add_argument("--take-pct", type=float, default=0.030)
     parser.add_argument("--holding-bars", type=int, default=3)
+    parser.add_argument("--mr-threshold", type=float, default=0.02)
+    parser.add_argument("--mr-max-drop", type=float, default=0.07)
+    parser.add_argument("--mr-min-range-pct", type=float, default=0.015)
 
     return parser.parse_args()
 
@@ -152,6 +155,12 @@ def main() -> int:
                         str(args.take_pct),
                         "--holding-bars",
                         str(args.holding_bars),
+                        "--mr-threshold",
+                        str(args.mr_threshold),
+                        "--mr-max-drop",
+                        str(args.mr_max_drop),
+                        "--mr-min-range-pct",
+                        str(args.mr_min_range_pct),
                     ]
 
                     print(
