@@ -337,6 +337,53 @@ def mark_alert_sent(cur, candidate: dict, decision: dict) -> None:
         ),
     )
 
+
+def save_signal_lifecycle(cur, candidate: dict, decision: dict) -> None:
+    """Русский комментарий: регистрирует новый ALERT в жизненном цикле сигналов."""
+    if decision.get("decision") != "ALERT":
+        return
+
+    signal_id = build_alert_key(candidate, decision)
+
+    cur.execute(
+        """
+        insert into signal_lifecycle (
+            signal_id,
+            symbol,
+            strategy,
+            regime,
+            state,
+            entry_price,
+            stop_loss,
+            take_profit,
+            risk_reward,
+            expire_at,
+            raw_json
+        )
+        values (
+            %s,%s,%s,%s,'NEW',%s,%s,%s,%s,
+            now() + interval '120 minutes',
+            %s::jsonb
+        )
+        on conflict(signal_id) do nothing
+        """,
+        (
+            signal_id,
+            candidate.get("symbol"),
+            candidate.get("strategy"),
+            candidate.get("regime"),
+            decision.get("entry_price"),
+            decision.get("stop_loss"),
+            decision.get("take_profit"),
+            decision.get("risk_reward"),
+            json.dumps(
+                {"candidate": candidate, "decision": decision},
+                ensure_ascii=False,
+                default=str,
+            ),
+        ),
+    )
+
 def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision: dict, ttl_minutes: int) -> int:
     if decision["decision"] != "ALERT":
         return 0
@@ -358,6 +405,7 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
 
     notifier.send(text)
     mark_alert_sent(cur, candidate, decision)
+    save_signal_lifecycle(cur, candidate, decision)
     return 1
 
 
