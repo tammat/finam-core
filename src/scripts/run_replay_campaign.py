@@ -142,6 +142,11 @@ def main() -> int:
                 env = os.environ.copy()
                 env["SIMULATE_MARKET"] = "1"
                 env["REPLAY_ACCUMULATION_MODE"] = "1"
+                env["REPLAY_CAMPAIGN_ID"] = campaign_id
+                env["REPLAY_ID"] = replay_id
+                env["REPLAY_SYMBOL"] = symbol
+                env["REPLAY_TIMEFRAME"] = timeframe
+                env["REPLAY_STRATEGY"] = strategy
                 env["PYTHONPATH"] = env.get("PYTHONPATH", "src")
 
                 result = subprocess.run(cmd, env=env)
@@ -175,6 +180,30 @@ def main() -> int:
                         f"replay_id={replay_id} code={result.returncode}",
                         flush=True,
                     )
+
+    if not args.dry_run:
+        build_cmd = [
+            sys.executable,
+            "src/scripts/build_replay_closed_trades.py",
+            "--campaign-id",
+            campaign_id,
+        ]
+
+        print(
+            "REPLAY_CAMPAIGN_BUILD_CLOSED_TRADES "
+            f"campaign_id={campaign_id} cmd={' '.join(build_cmd)}",
+            flush=True,
+        )
+
+        build_result = subprocess.run(build_cmd)
+
+        if build_result.returncode != 0:
+            failed += 1
+            print(
+                "REPLAY_CAMPAIGN_BUILD_CLOSED_TRADES_FAILED "
+                f"campaign_id={campaign_id} code={build_result.returncode}",
+                flush=True,
+            )
 
     print(
         f"REPLAY_CAMPAIGN_DONE campaign_id={campaign_id} total={total} failed={failed}",
