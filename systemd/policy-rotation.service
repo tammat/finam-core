@@ -1,0 +1,17 @@
+[Unit]
+Description=Finam Core Policy Rotation
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=finam
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+ExecStart=/opt/finam-core/venv/bin/python \
+    src/scripts/rotate_active_policy.py \
+    --objective conservative \
+    --limit 20 \
+    --decision-id auto-conservative-runtime
+
+StandardOutput=append:/opt/finam-core/logs/policy_rotation.log
+StandardError=append:/opt/finam-core/logs/policy_rotation.log
