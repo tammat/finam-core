@@ -141,6 +141,7 @@ def main() -> int:
                 started_at = datetime.now(timezone.utc)
                 env = os.environ.copy()
                 env["SIMULATE_MARKET"] = "1"
+                env["REPLAY_ACCUMULATION_MODE"] = "1"
                 env["PYTHONPATH"] = env.get("PYTHONPATH", "src")
 
                 result = subprocess.run(cmd, env=env)

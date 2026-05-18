@@ -3126,14 +3126,26 @@ class PaperTradingPipeline:
             atr_pct = abs(regime.atr / price) if price else 0
 
             # === 1. Слабая волатильность → нет сделки
+            replay_accumulation_mode = (
+                os.getenv("SIMULATE_MARKET", "0") == "1"
+                and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
+            )
+
             if (not is_exit_intent) and (not is_force_intent) and atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
-                # Русский комментарий: анти-спам для повторяющихся low-volatility блокировок.
-                now_ts = time.time()
-                log_every_sec = float(os.getenv("PIPE_VOL_LOW_BLOCK_LOG_EVERY_SEC", "60"))
-                if (now_ts - float(getattr(self, "_last_vol_low_block_log_ts", 0.0) or 0.0)) >= log_every_sec:
-                    self._last_vol_low_block_log_ts = now_ts
-                    print("PIPE_VOL_LOW_BLOCK", flush=True)
-                return
+                if replay_accumulation_mode:
+                    self._log_dedup(
+                        "PIPE_VOL_LOW_BYPASS_REPLAY_ACCUMULATION",
+                        "PIPE_VOL_LOW_BYPASS_REPLAY_ACCUMULATION",
+                        heartbeat_sec=float(os.getenv("PIPE_VOL_LOW_BLOCK_LOG_EVERY_SEC", "60")),
+                    )
+                else:
+                    # Русский комментарий: анти-спам для повторяющихся low-volatility блокировок.
+                    now_ts = time.time()
+                    log_every_sec = float(os.getenv("PIPE_VOL_LOW_BLOCK_LOG_EVERY_SEC", "60"))
+                    if (now_ts - float(getattr(self, "_last_vol_low_block_log_ts", 0.0) or 0.0)) >= log_every_sec:
+                        self._last_vol_low_block_log_ts = now_ts
+                        print("PIPE_VOL_LOW_BLOCK", flush=True)
+                    return
 
             # === 2. Слишком высокая вола → шум
             if (not is_exit_intent) and (not is_force_intent) and atr_pct > 0.03:
@@ -4177,17 +4189,31 @@ class PaperTradingPipeline:
         if regime is None:
             return None
 
+        replay_accumulation_mode = (
+            os.getenv("SIMULATE_MARKET", "0") == "1"
+            and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
+        )
+
         # ✔ Правильная логика: используем только regime.tradable
         if not regime.tradable:
-            print(
-                f"PIPE_SIGNAL_REJECT reason=regime_filter trend={regime.trend} vol={regime.volatility}",
-                flush=True,
-            )
-            return
+            if replay_accumulation_mode:
+                print(
+                    f"PIPE_SIGNAL_REPLAY_ACCUMULATION_BYPASS reason=regime_filter trend={regime.trend} vol={regime.volatility}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"PIPE_SIGNAL_REJECT reason=regime_filter trend={regime.trend} vol={regime.volatility}",
+                    flush=True,
+                )
+                return
 
         # 🚫 не торгуем низкую волу
         if regime.volatility == "low":
-            return None
+            if replay_accumulation_mode:
+                print("PIPE_SIGNAL_REPLAY_ACCUMULATION_BYPASS reason=low_volatility", flush=True)
+            else:
+                return None
 
         # ✔ breakout только в тренде
         if regime.trend in ("up", "down"):
