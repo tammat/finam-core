@@ -31,7 +31,7 @@ class RuntimeStrategyCooldownProvider:
                 cur.execute(sql, (strategy, symbol, timeframe))
                 row = cur.fetchone()
 
-        if row is None:
+        if row is None or len(row) < 3:
             return True, "runtime_strategy_cooldown_not_active"
 
         decision = str(row[0])

@@ -7,6 +7,7 @@ from typing import Any
 from finam_core.analytics.strategy_rank_weight_provider import StrategyRankWeightProvider
 from finam_core.runtime.runtime_allocator_decision_logger import RuntimeAllocatorDecisionLogger
 from finam_core.runtime.runtime_strategy_gate_provider import RuntimeStrategyGateProvider
+from finam_core.runtime.runtime_strategy_cooldown_provider import RuntimeStrategyCooldownProvider
 
 
 class RuntimeUniverseAllocator:
@@ -17,6 +18,7 @@ class RuntimeUniverseAllocator:
         self.weight_provider = weight_provider or StrategyRankWeightProvider(pg_logger)
         self.decision_logger = RuntimeAllocatorDecisionLogger(pg_logger)
         self.strategy_gate_provider = RuntimeStrategyGateProvider(pg_logger)
+        self.strategy_cooldown_provider = RuntimeStrategyCooldownProvider(pg_logger)
 
     def allocate(
         self,
@@ -131,6 +133,15 @@ class RuntimeUniverseAllocator:
                         timeframe="unknown",
                     )
 
+                    cooldown_allowed, cooldown_reason = self.strategy_cooldown_provider.allows(
+                        strategy=str(strategy),
+                        symbol=str(symbol),
+                        timeframe="unknown",
+                    )
+
+                    allowed = allowed and cooldown_allowed
+                    gate_reason = f"{gate_reason}|{cooldown_reason}"
+
                     weight = self.weight_provider.get_weight(
                         trade_date=today,
                         strategy=str(strategy),
@@ -196,6 +207,7 @@ class RuntimeUniverseAllocator:
                             "priority": priority,
                             "allocator_reason": reason,
                             "gate_reason": gate_reason,
+                            "cooldown_reason": cooldown_reason,
                         },
                     )
 
