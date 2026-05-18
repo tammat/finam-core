@@ -79,25 +79,74 @@ def save_radar_results(rows: list[dict]) -> int:
 
 
 def send_top5_telegram(rows: list[dict]) -> None:
-    top = rows[:5]
-    if not top:
+    """Русский комментарий: отправляет отдельное Telegram-сообщение по каждому инструменту."""
+
+    if not rows:
         print("WATCHLIST_TELEGRAM_SKIP reason=empty")
         return
 
-    lines = ["📡 Market Radar TOP-5"]
-    for i, r in enumerate(top, start=1):
-        lines.append(
-            f"{i}. {r['symbol']} {r.get('name') or ''}\n"
-            f"   {r.get('direction')} | score={float(r.get('score') or 0):.2f} | "
-            f"RS={float(r.get('relative_strength') or 0):.2f}%\n"
-            f"   state={r.get('persistence_state', 'UNKNOWN')} | "
-            f"seen={r.get('appearances', 0)} | "
-            f"Δscore={float(r.get('score_delta') or 0):.2f}"
+    from finam_core.notifications.telegram_notifier import TelegramNotifier
+
+    notifier = TelegramNotifier()
+
+    sent = 0
+
+    for r in rows[:10]:
+        symbol = str(r.get("symbol") or "")
+        name = str(r.get("short_name") or r.get("name") or "")
+        change_pct = float(r.get("change_pct") or r.get("chg") or 0.0)
+        rel_strength = float(r.get("relative_strength") or r.get("rs") or 0.0)
+        score = float(r.get("score") or 0.0)
+        status = str(r.get("status") or "КАНДИДАТ")
+
+        last_price = float(
+            r.get("last_price")
+            or r.get("last")
+            or r.get("price")
+            or r.get("close")
+            or 0.0
         )
 
-    NotificationRouter().send(trigger="market_radar", text="\n".join(lines))
-    print("WATCHLIST_TELEGRAM_SENT")
+        # Русский комментарий: базовая торговая гипотеза для radar.
+        if change_pct >= 0:
+            direction = "ЛОНГ / наблюдение за продолжением импульса"
+            entry = last_price
+            stop = last_price * 0.985 if last_price > 0 else 0.0
+            take = last_price * 1.030 if last_price > 0 else 0.0
+        else:
+            direction = "ОТСКОК / наблюдение за разворотом после снижения"
+            entry = last_price
+            stop = last_price * 0.970 if last_price > 0 else 0.0
+            take = last_price * 1.025 if last_price > 0 else 0.0
 
+        if last_price <= 0:
+            entry_text = "нет цены — вход не рассчитывается"
+            stop_text = "нет цены"
+            take_text = "нет цены"
+        else:
+            entry_text = f"{entry:.4f}"
+            stop_text = f"{stop:.4f}"
+            take_text = f"{take:.4f}"
+
+        text = (
+            "📌 <b>Торговый кандидат TOP-10</b>\n\n"
+            f"Инструмент: <b>{symbol}</b>\n"
+            f"Название: {name}\n"
+            f"Статус: {status}\n\n"
+            f"Направление: {direction}\n"
+            f"Точка входа: <b>{entry_text}</b>\n"
+            f"Стоп-лосс: <b>{stop_text}</b>\n"
+            f"Тейк-профит: <b>{take_text}</b>\n\n"
+            f"Изменение: {change_pct:.2f}%\n"
+            f"Относительная сила: {rel_strength:.2f}%\n"
+            f"Оценка сигнала: {score:.4f}\n\n"
+            "Решение: не рыночная заявка, а сигнал для ручной проверки."
+        )
+
+        notifier.send(text)
+        sent += 1
+
+    print(f"WATCHLIST_TELEGRAM_SENT messages={sent}")
 
 
 def load_liquid_universe_symbols() -> set[str]:
