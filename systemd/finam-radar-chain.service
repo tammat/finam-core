@@ -1,0 +1,17 @@
+[Unit]
+Description=Finam Radar Chain
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env.paper_safe
+
+User=alex
+Group=alex
+
+ExecStart=/bin/bash -lc '/opt/finam-core/venv/bin/python src/scripts/run_market_radar.py --send-telegram --telegram-top5 && /opt/finam-core/venv/bin/python src/scripts/analyze_radar_candidates.py && /opt/finam-core/venv/bin/python src/scripts/analyze_watch_candidates_runtime.py'
+
+StandardOutput=append:/opt/finam-core/logs/finam_radar_chain.log
+StandardError=append:/opt/finam-core/logs/finam_radar_chain.log
