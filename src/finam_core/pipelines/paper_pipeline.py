@@ -4108,13 +4108,25 @@ class PaperTradingPipeline:
                         regime=str(intent.get("regime") or (intent.get("features") or {}).get("regime_label") or "UNKNOWN"),
                     )
 
+                    replay_accumulation_mode = (
+                        os.getenv("SIMULATE_MARKET", "0") == "1"
+                        and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
+                    )
+
                     if not gate_decision.allowed:
-                        self._log_dedup(
-                            f"PIPE_ENTRY_GATE_BLOCK:{intent.get('symbol')}:{gate_decision.gate}",
-                            f"PIPE_ENTRY_GATE_BLOCK symbol={intent.get('symbol')} gate={gate_decision.gate} reason={gate_decision.reason}",
-                            heartbeat_sec=60,
-                        )
-                        return
+                        if replay_accumulation_mode and gate_decision.gate == "runtime_control":
+                            self._log_dedup(
+                                f"PIPE_ENTRY_GATE_BYPASS_REPLAY:{intent.get('symbol')}",
+                                f"PIPE_ENTRY_GATE_BYPASS_REPLAY symbol={intent.get('symbol')} gate={gate_decision.gate} reason={gate_decision.reason}",
+                                heartbeat_sec=60,
+                            )
+                        else:
+                            self._log_dedup(
+                                f"PIPE_ENTRY_GATE_BLOCK:{intent.get('symbol')}:{gate_decision.gate}",
+                                f"PIPE_ENTRY_GATE_BLOCK symbol={intent.get('symbol')} gate={gate_decision.gate} reason={gate_decision.reason}",
+                                heartbeat_sec=60,
+                            )
+                            return
 
                     intent["qty"] = gate_decision.qty
                     intent.setdefault("features", {})
@@ -5850,13 +5862,25 @@ class PaperTradingPipeline:
             strategy="BR_CONSERVATIVE_BREAKOUT",
         )
 
+        replay_accumulation_mode = (
+            os.getenv("SIMULATE_MARKET", "0") == "1"
+            and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
+        )
+
         if not runtime_allowed:
-            self._log_dedup(
-                f"PIPE_RUNTIME_CONTROL_BLOCK:{br_signal.symbol}",
-                f"PIPE_RUNTIME_CONTROL_BLOCK symbol={br_signal.symbol} reason={runtime_reason}",
-                heartbeat_sec=300,
-            )
-            return False, runtime_reason
+            if replay_accumulation_mode:
+                self._log_dedup(
+                    f"PIPE_RUNTIME_CONTROL_BYPASS_REPLAY:{br_signal.symbol}",
+                    f"PIPE_RUNTIME_CONTROL_BYPASS_REPLAY symbol={br_signal.symbol} reason={runtime_reason}",
+                    heartbeat_sec=300,
+                )
+            else:
+                self._log_dedup(
+                    f"PIPE_RUNTIME_CONTROL_BLOCK:{br_signal.symbol}",
+                    f"PIPE_RUNTIME_CONTROL_BLOCK symbol={br_signal.symbol} reason={runtime_reason}",
+                    heartbeat_sec=300,
+                )
+                return False, runtime_reason
 
         qty = runtime_qty
 
