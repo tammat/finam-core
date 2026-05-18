@@ -16,13 +16,6 @@ def main() -> int:
     pg = PostgresLogger()
 
     sql = """
-    with campaign_window as (
-        select
-            min(started_at) as started_at,
-            max(finished_at) as finished_at
-        from replay_campaign_runs
-        where campaign_id = %s
-    )
     select
         ct.symbol,
         coalesce(ct.strategy, 'unknown') as strategy,
@@ -32,10 +25,7 @@ def main() -> int:
         round(avg(case when ct.net_pnl > 0 then 1 else 0 end)::numeric, 4) as winrate,
         round(avg(ct.net_pnl)::numeric, 4) as expectancy
     from closed_trades ct
-    cross join campaign_window cw
-    where cw.started_at is not null
-      and ct.created_at >= cw.started_at
-      and ct.created_at <= coalesce(cw.finished_at, now())
+    where ct.payload->>'replay_campaign_id' = %s
       and ct.trade_source = 'paper'
     group by ct.symbol, coalesce(ct.strategy, 'unknown'), coalesce(ct.horizon, 'unknown')
     order by net_pnl desc
