@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any
 
 from finam_core.analytics.strategy_rank_weight_provider import StrategyRankWeightProvider
+from finam_core.runtime.runtime_allocator_decision_logger import RuntimeAllocatorDecisionLogger
 
 
 class RuntimeUniverseAllocator:
@@ -13,6 +14,7 @@ class RuntimeUniverseAllocator:
     def __init__(self, pg_logger: Any, weight_provider: Any | None = None) -> None:
         self.pg_logger = pg_logger
         self.weight_provider = weight_provider or StrategyRankWeightProvider(pg_logger)
+        self.decision_logger = RuntimeAllocatorDecisionLogger(pg_logger)
 
     def allocate(
         self,
@@ -128,6 +130,27 @@ class RuntimeUniverseAllocator:
                     )
 
                     effective_score = float(score or 0) * float(weight)
+
+                    selected_candidate = effective_score > 0
+
+                    self.decision_logger.log_decision(
+                        symbol=str(symbol),
+                        strategy=str(strategy),
+                        regime=str(regime),
+                        base_score=float(score or 0),
+                        strategy_weight=float(weight),
+                        effective_score=float(effective_score),
+                        selected=selected_candidate,
+                        decision_reason=(
+                            "candidate_selected"
+                            if selected_candidate
+                            else "rejected_by_weight"
+                        ),
+                        raw_json={
+                            "priority": priority,
+                            "allocator_reason": reason,
+                        },
+                    )
 
                     weighted_rows.append(
                         (
