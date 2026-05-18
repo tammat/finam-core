@@ -40,7 +40,9 @@ def decide(row: dict) -> dict:
             "score": score,
         }
 
-    if turnover < 50_000_000:
+    # Русский комментарий: если turnover отсутствует, не отсекаем кандидата,
+    # потому что ликвидность могла уже быть проверена при формировании dynamic_watchlist.
+    if turnover > 0 and turnover < 50_000_000:
         return {
             "decision": "IGNORE",
             "reason": f"низкая ликвидность; turnover={turnover:.0f}",
@@ -49,23 +51,8 @@ def decide(row: dict) -> dict:
             "score": score,
         }
 
-    if atr_pct <= 0:
-        return {
-            "decision": "IGNORE",
-            "reason": "нет ATR/волатильности",
-            "strategy": strategy,
-            "regime": regime,
-            "score": score,
-        }
-
-    if rvol <= 0:
-        return {
-            "decision": "IGNORE",
-            "reason": "нет RVOL",
-            "strategy": strategy,
-            "regime": regime,
-            "score": score,
-        }
+    # Русский комментарий: отсутствие ATR/RVOL не должно убивать кандидата,
+    # если он уже прошёл market radar и имеет положительный score.
 
     if score <= 0:
         return {
@@ -99,6 +86,11 @@ def main() -> int:
             cur.execute("""
                 select
                     symbol,
+                    score,
+                    relative_strength,
+                    strategy,
+                    regime,
+                    reason,
                     raw_json
                 from dynamic_watchlist
                 where is_active = true
@@ -106,13 +98,23 @@ def main() -> int:
                 limit 10
             """)
 
-            rows = [
-                {
+            rows = []
+            for symbol, score, relative_strength, strategy, regime, reason, raw_json in cur.fetchall():
+                payload = raw_json or {}
+                if not isinstance(payload, dict):
+                    payload = {}
+
+                payload["symbol"] = symbol
+                payload["score"] = float(score or 0)
+                payload["relative_strength"] = float(relative_strength or 0)
+                payload["strategy"] = strategy or payload.get("strategy") or "UNKNOWN"
+                payload["regime"] = regime or payload.get("regime") or "UNKNOWN"
+                payload["reason"] = reason or payload.get("reason") or ""
+
+                rows.append({
                     "symbol": symbol,
-                    "raw_json": raw_json or {},
-                }
-                for symbol, raw_json in cur.fetchall()
-            ]
+                    "raw_json": payload,
+                })
 
             saved = 0
             watch = 0
