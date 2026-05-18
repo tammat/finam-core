@@ -23,14 +23,42 @@ def main() -> int:
     sql = """
     with base as (
         select
-            coalesce(payload->>'research_regime', payload->'payload'->>'research_regime', 'UNKNOWN') as regime,
-            coalesce(payload->>'research_trend', payload->'payload'->>'research_trend', 'UNKNOWN') as trend,
-            coalesce(payload->>'research_volatility', payload->'payload'->>'research_volatility', 'UNKNOWN') as volatility,
+            coalesce(
+                payload->>'research_regime',
+                payload->'entry_payload'->>'research_regime',
+                payload->'exit_payload'->>'research_regime',
+                payload->'payload'->>'research_regime',
+                payload->'payload'->'entry_payload'->>'research_regime',
+                payload->'payload'->'exit_payload'->>'research_regime',
+                'UNKNOWN'
+            ) as regime,
+            coalesce(
+                payload->>'research_trend',
+                payload->'entry_payload'->>'research_trend',
+                payload->'exit_payload'->>'research_trend',
+                payload->'payload'->>'research_trend',
+                payload->'payload'->'entry_payload'->>'research_trend',
+                payload->'payload'->'exit_payload'->>'research_trend',
+                'UNKNOWN'
+            ) as trend,
+            coalesce(
+                payload->>'research_volatility',
+                payload->'entry_payload'->>'research_volatility',
+                payload->'exit_payload'->>'research_volatility',
+                payload->'payload'->>'research_volatility',
+                payload->'payload'->'entry_payload'->>'research_volatility',
+                payload->'payload'->'exit_payload'->>'research_volatility',
+                'UNKNOWN'
+            ) as volatility,
             net_pnl
         from closed_trades
         where coalesce(
             payload->>'replay_campaign_id',
-            payload->'payload'->>'replay_campaign_id'
+            payload->'entry_payload'->>'replay_campaign_id',
+            payload->'exit_payload'->>'replay_campaign_id',
+            payload->'payload'->>'replay_campaign_id',
+            payload->'payload'->'entry_payload'->>'replay_campaign_id',
+            payload->'payload'->'exit_payload'->>'replay_campaign_id'
         ) like %s
           and trade_source = 'paper'
     )
