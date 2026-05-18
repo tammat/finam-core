@@ -4565,6 +4565,12 @@ class PaperTradingPipeline:
             "regime_direction": getattr(self.br_breakout, "regime_direction", None),
             "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
             "regime_strength": getattr(self.br_breakout, "regime_strength", None),
+            "replay_campaign_id": os.getenv("REPLAY_CAMPAIGN_ID"),
+            "replay_id": os.getenv("REPLAY_ID"),
+            "replay_symbol": os.getenv("REPLAY_SYMBOL"),
+            "replay_timeframe": os.getenv("REPLAY_TIMEFRAME"),
+            "replay_strategy": os.getenv("REPLAY_STRATEGY"),
+            "dataset_source": "replay_campaign" if os.getenv("REPLAY_CAMPAIGN_ID") else "runtime",
         }
 
         try:
