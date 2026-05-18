@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import uuid
@@ -138,7 +139,11 @@ def main() -> int:
                     continue
 
                 started_at = datetime.now(timezone.utc)
-                result = subprocess.run(cmd)
+                env = os.environ.copy()
+                env["SIMULATE_MARKET"] = "1"
+                env["PYTHONPATH"] = env.get("PYTHONPATH", "src")
+
+                result = subprocess.run(cmd, env=env)
                 finished_at = datetime.now(timezone.utc)
                 duration_sec = (finished_at - started_at).total_seconds()
 
