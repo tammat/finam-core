@@ -183,6 +183,19 @@ def main() -> int:
                 )
 
                 if decision.state == row["state"]:
+                    gap = price - row["entry_price"]
+                    gap_pct = (gap / row["entry_price"] * 100.0) if row["entry_price"] else 0.0
+
+                    print(
+                        "SIGNAL_LIFECYCLE_PRICE_CHECK "
+                        f"symbol={row['symbol']} "
+                        f"state={row['state']} "
+                        f"current={price:.4f} "
+                        f"entry={row['entry_price']:.4f} "
+                        f"gap={gap:.4f} "
+                        f"gap_pct={gap_pct:.4f}",
+                        flush=True,
+                    )
                     continue
 
                 if decision.state == "TRIGGERED":
