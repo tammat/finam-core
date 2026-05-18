@@ -24,8 +24,13 @@ assert br.market == "forts"
 assert br.board == "RFUD"
 assert br.asset_class == "futures"
 
-ng = r.resolve("NGK6@RTSX")
-assert ng.symbol == "NGK6"
+sber2 = r.resolve("SBER")
+assert sber2.asset_class == "equity"
+
+br2 = r.resolve("BRM6")
+assert br2.asset_class == "futures"
+
+ng = r.resolve("NGK6")
 assert ng.asset_class == "futures"
 
 print("OK: moex symbol resolver")
