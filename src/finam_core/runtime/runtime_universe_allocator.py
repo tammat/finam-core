@@ -131,27 +131,6 @@ class RuntimeUniverseAllocator:
 
                     effective_score = float(score or 0) * float(weight)
 
-                    selected_candidate = effective_score > 0
-
-                    self.decision_logger.log_decision(
-                        symbol=str(symbol),
-                        strategy=str(strategy),
-                        regime=str(regime),
-                        base_score=float(score or 0),
-                        strategy_weight=float(weight),
-                        effective_score=float(effective_score),
-                        selected=selected_candidate,
-                        decision_reason=(
-                            "candidate_selected"
-                            if selected_candidate
-                            else "rejected_by_weight"
-                        ),
-                        raw_json={
-                            "priority": priority,
-                            "allocator_reason": reason,
-                        },
-                    )
-
                     weighted_rows.append(
                         (
                             effective_score,
@@ -169,6 +148,43 @@ class RuntimeUniverseAllocator:
                 weighted_rows.sort(key=lambda x: x[0], reverse=True)
 
                 selected = weighted_rows[:max_symbols]
+                selected_keys = {(row[1], row[2]) for row in selected}
+
+                for (
+                    effective_score,
+                    symbol,
+                    strategy,
+                    regime,
+                    score,
+                    priority,
+                    reason,
+                    raw_json,
+                    weight,
+                ) in weighted_rows:
+                    if float(weight) <= 0 or float(effective_score) <= 0:
+                        selected_flag = False
+                        decision_reason = "rejected_by_weight"
+                    elif (symbol, strategy) in selected_keys:
+                        selected_flag = True
+                        decision_reason = "selected_by_effective_score_limit"
+                    else:
+                        selected_flag = False
+                        decision_reason = "rejected_by_limit"
+
+                    self.decision_logger.log_decision(
+                        symbol=str(symbol),
+                        strategy=str(strategy),
+                        regime=str(regime),
+                        base_score=float(score or 0),
+                        strategy_weight=float(weight),
+                        effective_score=float(effective_score),
+                        selected=selected_flag,
+                        decision_reason=decision_reason,
+                        raw_json={
+                            "priority": priority,
+                            "allocator_reason": reason,
+                        },
+                    )
 
                 cur.execute("delete from runtime_active_universe")
 
