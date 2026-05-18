@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 from datetime import datetime, timezone
 
@@ -15,6 +16,7 @@ def parse_args():
     p.add_argument("--strategies", default="BR_CONSERVATIVE_BREAKOUT")
     p.add_argument("--run-secs", type=float, default=60.0)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--workers", type=int, default=1)
     return p.parse_args()
 
 
@@ -26,7 +28,7 @@ def main() -> int:
 
     print(f"REPLAY_BATCH_START batch_id={batch_id} campaigns={args.campaigns}", flush=True)
 
-    for i in range(1, args.campaigns + 1):
+    def run_campaign(i: int) -> tuple[str, int]:
         campaign_id = f"{batch_id}-{i:04d}"
 
         cmd = [
@@ -45,8 +47,19 @@ def main() -> int:
         print(f"REPLAY_BATCH_CAMPAIGN campaign_id={campaign_id} cmd={' '.join(cmd)}", flush=True)
 
         result = subprocess.run(cmd)
-        if result.returncode != 0:
-            failed += 1
+        return campaign_id, int(result.returncode)
+
+    with ThreadPoolExecutor(max_workers=max(1, int(args.workers))) as executor:
+        futures = [executor.submit(run_campaign, i) for i in range(1, args.campaigns + 1)]
+
+        for future in as_completed(futures):
+            campaign_id, code = future.result()
+            if code != 0:
+                failed += 1
+                print(
+                    f"REPLAY_BATCH_CAMPAIGN_FAILED batch_id={batch_id} campaign_id={campaign_id} code={code}",
+                    flush=True,
+                )
 
     print(f"REPLAY_BATCH_DONE batch_id={batch_id} failed={failed}", flush=True)
     return 1 if failed else 0
