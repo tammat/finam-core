@@ -39,7 +39,7 @@ class RuntimeStrategyGateProvider:
             return True, "runtime_strategy_gate_no_rank_decision"
 
         decision = str(row[0]).upper()
-        reason = str(row[1] or "")
+        reason = str(row[1] or "") if len(row) > 1 else ""
 
         if decision in self.BLOCKING_DECISIONS:
             return False, f"runtime_strategy_gate_blocked:{decision}:{reason}"
