@@ -20,6 +20,8 @@ def parse_args():
     p.add_argument("--take-pct", type=float, default=0.030)
     p.add_argument("--holding-bars", type=int, default=3)
     p.add_argument("--mr-threshold", type=float, default=0.02)
+    p.add_argument("--mr-max-drop", type=float, default=0.07)
+    p.add_argument("--mr-min-range-pct", type=float, default=0.015)
     return p.parse_args()
 
 
@@ -56,7 +58,19 @@ def main() -> int:
                 float(signal_bar.close) - float(signal_bar.open)
             ) / float(signal_bar.open)
 
+            range_pct = (
+                float(signal_bar.high) - float(signal_bar.low)
+            ) / float(signal_bar.open)
+
             if drop_pct > -abs(args.mr_threshold):
+                i += 1
+                continue
+
+            if drop_pct < -abs(args.mr_max_drop):
+                i += 1
+                continue
+
+            if range_pct < abs(args.mr_min_range_pct):
                 i += 1
                 continue
 
