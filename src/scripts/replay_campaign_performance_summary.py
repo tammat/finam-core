@@ -25,7 +25,7 @@ def main() -> int:
         round(avg(case when ct.net_pnl > 0 then 1 else 0 end)::numeric, 4) as winrate,
         round(avg(ct.net_pnl)::numeric, 4) as expectancy
     from closed_trades ct
-    where ct.payload->>'replay_campaign_id' = %s
+    where coalesce(ct.payload->>'replay_campaign_id', ct.payload->'payload'->>'replay_campaign_id') = %s
       and ct.trade_source = 'paper'
     group by ct.symbol, coalesce(ct.strategy, 'unknown'), coalesce(ct.horizon, 'unknown')
     order by net_pnl desc
