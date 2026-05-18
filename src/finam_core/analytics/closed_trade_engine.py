@@ -157,6 +157,34 @@ class ClosedTradeEngine:
             "exit_fill_id": close_fill.fill_id,
             "entry_payload": entry_payload,
             "exit_payload": exit_payload,
+
+            # Русский комментарий:
+            # replay metadata поднимаем в top-level payload,
+            # чтобы analytics/reporting могли фильтровать кампании SQL-запросом.
+            "replay_campaign_id": (
+                entry_payload.get("replay_campaign_id")
+                or exit_payload.get("replay_campaign_id")
+            ),
+            "replay_id": (
+                entry_payload.get("replay_id")
+                or exit_payload.get("replay_id")
+            ),
+            "replay_symbol": (
+                entry_payload.get("replay_symbol")
+                or exit_payload.get("replay_symbol")
+            ),
+            "replay_timeframe": (
+                entry_payload.get("replay_timeframe")
+                or exit_payload.get("replay_timeframe")
+            ),
+            "replay_strategy": (
+                entry_payload.get("replay_strategy")
+                or exit_payload.get("replay_strategy")
+            ),
+            "dataset_source": (
+                entry_payload.get("dataset_source")
+                or exit_payload.get("dataset_source")
+            ),
         }
 
         return ClosedTrade(
