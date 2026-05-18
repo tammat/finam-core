@@ -404,6 +404,7 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
         f"Стоп-лосс: {decision['stop_loss']}\n"
         f"Тейк-профит: {decision['take_profit']}\n"
         f"Risk/Reward: {decision['risk_reward']}\n\n"
+        "Условие входа: покупать только при пробое уровня входа, не по рынку.\n\n"
         f"Причина: {decision['reason']}"
     )
 
