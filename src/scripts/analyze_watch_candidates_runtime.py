@@ -23,6 +23,7 @@ def load_watch_candidates(cur, limit: int = 10) -> list[dict]:
             raw_json
         from radar_candidate_analysis
         where decision = 'WATCH'
+          and source = 'market_radar_top10'
         order by created_at desc, id desc
         limit %s
         """,
@@ -388,6 +389,9 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
     if decision["decision"] != "ALERT":
         return 0
 
+    # Русский комментарий: lifecycle должен сохраняться даже если Telegram ALERT подавлен TTL/dedup.
+    save_signal_lifecycle(cur, candidate, decision)
+
     if not should_send_alert(cur, candidate, decision, ttl_minutes):
         return 0
 
@@ -405,7 +409,6 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
 
     notifier.send(text)
     mark_alert_sent(cur, candidate, decision)
-    save_signal_lifecycle(cur, candidate, decision)
     return 1
 
 
