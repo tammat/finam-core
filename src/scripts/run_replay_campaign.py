@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mr-max-drop", type=float, default=0.07)
     parser.add_argument("--mr-min-range-pct", type=float, default=0.015)
     parser.add_argument("--regime-policy-id", default="")
+    parser.add_argument("--policy-objective", default="")
 
     return parser.parse_args()
 
@@ -166,6 +167,9 @@ def main() -> int:
 
                     if args.regime_policy_id:
                         cmd.extend(["--regime-policy-id", args.regime_policy_id])
+
+                    if args.policy_objective:
+                        cmd.extend(["--policy-objective", args.policy_objective])
 
                     print(
                         "REPLAY_CAMPAIGN_MOEX_RUN "
