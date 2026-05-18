@@ -8,6 +8,7 @@ import requests
 from datetime import datetime, timezone
 
 from finam_core.notifications.telegram_notifier import TelegramNotifier
+from finam_core.runtime.runtime_decision_digest import build_runtime_digest
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
