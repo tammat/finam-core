@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import psycopg2
@@ -224,8 +225,74 @@ def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
     )
 
 
-def send_alert_if_any(notifier: TelegramNotifier, candidate: dict, decision: dict) -> int:
+
+def build_alert_key(candidate: dict, decision: dict) -> str:
+    raw = "|".join([
+        str(candidate.get("symbol") or ""),
+        str(candidate.get("strategy") or ""),
+        str(candidate.get("regime") or ""),
+        str(decision.get("decision") or ""),
+    ])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def should_send_alert(cur, candidate: dict, decision: dict, ttl_minutes: int) -> bool:
+    """Русский комментарий: антидубль ALERT по ключу symbol+strategy+regime+decision."""
+    alert_key = build_alert_key(candidate, decision)
+
+    cur.execute(
+        """
+        select 1
+        from signal_alert_dedup
+        where alert_key = %s
+          and last_sent_at > now() - (%s || ' minutes')::interval
+        limit 1
+        """,
+        (alert_key, str(ttl_minutes)),
+    )
+
+    return cur.fetchone() is None
+
+
+def mark_alert_sent(cur, candidate: dict, decision: dict) -> None:
+    alert_key = build_alert_key(candidate, decision)
+
+    payload = {
+        "candidate": candidate,
+        "decision": decision,
+    }
+
+    cur.execute(
+        """
+        insert into signal_alert_dedup (
+            alert_key,
+            symbol,
+            strategy,
+            regime,
+            decision,
+            last_sent_at,
+            payload
+        )
+        values (%s,%s,%s,%s,%s,now(),%s::jsonb)
+        on conflict (alert_key) do update set
+            last_sent_at = excluded.last_sent_at,
+            payload = excluded.payload
+        """,
+        (
+            alert_key,
+            candidate.get("symbol"),
+            candidate.get("strategy"),
+            candidate.get("regime"),
+            decision.get("decision"),
+            json.dumps(payload, ensure_ascii=False, default=str),
+        ),
+    )
+
+def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision: dict, ttl_minutes: int) -> int:
     if decision["decision"] != "ALERT":
+        return 0
+
+    if not should_send_alert(cur, candidate, decision, ttl_minutes):
         return 0
 
     text = (
@@ -241,6 +308,7 @@ def send_alert_if_any(notifier: TelegramNotifier, candidate: dict, decision: dic
     )
 
     notifier.send(text)
+    mark_alert_sent(cur, candidate, decision)
     return 1
 
 
@@ -250,6 +318,7 @@ def main() -> int:
         raise RuntimeError("DATABASE_URL is empty")
 
     limit = int(os.getenv("WATCH_RUNTIME_LIMIT", "10"))
+    alert_ttl_minutes = int(os.getenv("SIGNAL_ALERT_TTL_MINUTES", "120"))
 
     conn = psycopg2.connect(dsn)
     notifier = TelegramNotifier()
@@ -264,7 +333,7 @@ def main() -> int:
             for candidate in candidates:
                 decision = make_runtime_decision(candidate)
                 save_runtime_analysis(cur, candidate, decision)
-                alerts += send_alert_if_any(notifier, candidate, decision)
+                alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
                 processed += 1
 
     print(
