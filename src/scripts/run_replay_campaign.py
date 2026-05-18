@@ -6,6 +6,9 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
+from finam_core.replay.replay_campaign_telemetry import ReplayCampaignTelemetry
+from finam_core.storage.postgres_logger import PostgresLogger
+
 
 DEFAULT_SYMBOLS = [
     "BRM6@RTSX",
@@ -99,6 +102,7 @@ def main() -> int:
 
     total = 0
     failed = 0
+    telemetry = None if args.dry_run else ReplayCampaignTelemetry(PostgresLogger())
 
     print(
         f"REPLAY_CAMPAIGN_START campaign_id={campaign_id} "
@@ -133,7 +137,30 @@ def main() -> int:
                 if args.dry_run:
                     continue
 
+                started_at = datetime.now(timezone.utc)
                 result = subprocess.run(cmd)
+                finished_at = datetime.now(timezone.utc)
+                duration_sec = (finished_at - started_at).total_seconds()
+
+                status = "success" if result.returncode == 0 else "failed"
+
+                if telemetry is not None:
+                    telemetry.log_run(
+                        campaign_id=campaign_id,
+                        replay_id=replay_id,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        strategy=strategy,
+                        status=status,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_sec=duration_sec,
+                        return_code=result.returncode,
+                        command=" ".join(cmd),
+                        raw_json={
+                            "normalized_strategy": normalize_strategy(strategy),
+                        },
+                    )
 
                 if result.returncode != 0:
                     failed += 1
