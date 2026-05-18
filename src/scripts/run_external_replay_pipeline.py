@@ -19,6 +19,7 @@ def parse_args():
     p.add_argument("--stop-pct", type=float, default=0.015)
     p.add_argument("--take-pct", type=float, default=0.030)
     p.add_argument("--holding-bars", type=int, default=3)
+    p.add_argument("--mr-threshold", type=float, default=0.02)
     return p.parse_args()
 
 
@@ -47,8 +48,24 @@ def main() -> int:
         signal_bar = events[i]
         entry_bar = events[i + 1]
 
-        side = "BUY" if signal_bar.close >= signal_bar.open else "SELL"
-        exit_side = "SELL" if side == "BUY" else "BUY"
+        if args.strategy == "MOEX_MEAN_REVERSION_V1":
+            # Русский комментарий:
+            # mean reversion:
+            # если сильное падение -> long.
+            drop_pct = (
+                float(signal_bar.close) - float(signal_bar.open)
+            ) / float(signal_bar.open)
+
+            if drop_pct > -abs(args.mr_threshold):
+                i += 1
+                continue
+
+            side = "BUY"
+            exit_side = "SELL"
+
+        else:
+            side = "BUY" if signal_bar.close >= signal_bar.open else "SELL"
+            exit_side = "SELL" if side == "BUY" else "BUY"
 
         entry_price = float(entry_bar.open)
         entry_ts = entry_bar.ts
