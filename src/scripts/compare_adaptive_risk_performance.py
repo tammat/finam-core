@@ -7,7 +7,8 @@ from finam_core.storage.postgres_logger import PostgresLogger
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--base-campaign", required=True)
-    p.add_argument("--policy-campaign", required=True)
+    p.add_argument("--limited-campaign", required=True)
+    p.add_argument("--selective-campaign", required=True)
     return p.parse_args()
 
 
@@ -23,7 +24,9 @@ def load_stats(pg, campaign_id: str) -> dict:
         payload->>'replay_campaign_id',
         payload->'entry_payload'->>'replay_campaign_id',
         payload->'exit_payload'->>'replay_campaign_id',
-        payload->'payload'->>'replay_campaign_id'
+        payload->'payload'->>'replay_campaign_id',
+        payload->'payload'->'entry_payload'->>'replay_campaign_id',
+        payload->'payload'->'exit_payload'->>'replay_campaign_id'
     ) = %s
       and trade_source = 'paper'
     """
@@ -41,32 +44,32 @@ def load_stats(pg, campaign_id: str) -> dict:
     }
 
 
+def print_line(label: str, base: dict, current: dict) -> None:
+    print(
+        "АДАПТИВНЫЙ_РИСК_СРАВНЕНИЕ "
+        f"режим={label} "
+        f"campaign={current['campaign_id']} "
+        f"trades={current['trades']} "
+        f"net_pnl={current['net_pnl']:.6f} "
+        f"expectancy={current['expectancy']:.6f} "
+        f"winrate={current['winrate']:.4f} "
+        f"delta_net_pnl={current['net_pnl'] - base['net_pnl']:.6f} "
+        f"delta_expectancy={current['expectancy'] - base['expectancy']:.6f}",
+        flush=True,
+    )
+
+
 def main() -> int:
     args = parse_args()
     pg = PostgresLogger()
 
     base = load_stats(pg, args.base_campaign)
-    policy = load_stats(pg, args.policy_campaign)
+    limited = load_stats(pg, args.limited_campaign)
+    selective = load_stats(pg, args.selective_campaign)
 
-    delta_pnl = policy["net_pnl"] - base["net_pnl"]
-    delta_expectancy = policy["expectancy"] - base["expectancy"]
-
-    print(
-        "АДАПТИВНЫЙ_РИСК_СРАВНЕНИЕ "
-        f"base={base['campaign_id']} "
-        f"policy={policy['campaign_id']} "
-        f"base_trades={base['trades']} "
-        f"policy_trades={policy['trades']} "
-        f"base_net_pnl={base['net_pnl']:.6f} "
-        f"policy_net_pnl={policy['net_pnl']:.6f} "
-        f"delta_net_pnl={delta_pnl:.6f} "
-        f"base_expectancy={base['expectancy']:.6f} "
-        f"policy_expectancy={policy['expectancy']:.6f} "
-        f"delta_expectancy={delta_expectancy:.6f} "
-        f"base_winrate={base['winrate']:.4f} "
-        f"policy_winrate={policy['winrate']:.4f}",
-        flush=True,
-    )
+    print_line("BASE", base, base)
+    print_line("LIMITED", base, limited)
+    print_line("SELECTIVE", base, selective)
 
     return 0
 
