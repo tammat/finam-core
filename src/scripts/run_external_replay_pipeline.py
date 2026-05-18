@@ -66,7 +66,7 @@ def main() -> int:
                 price=float(price),
                 trade_id=f"{replay_id}:{role}:{fills}",
                 execution_type="paper",
-                raw_json=payload,
+                payload=payload,
             )
             fills += 1
 
