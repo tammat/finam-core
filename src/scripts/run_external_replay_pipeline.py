@@ -8,6 +8,8 @@ from finam_core.replay.external_replay_adapter import ExternalReplayAdapter
 from finam_core.research.research_regime_classifier import RegimeInput, ResearchRegimeClassifier
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.runtime.runtime_adaptive_risk import RuntimeAdaptiveRisk
+from finam_core.runtime.active_policy_reader import ActivePolicyRuntimeReader
+from finam_core.runtime.runtime_policy_mode_resolver import RuntimePolicyModeResolver
 
 
 def parse_args():
@@ -25,6 +27,7 @@ def parse_args():
     p.add_argument("--mr-max-drop", type=float, default=0.07)
     p.add_argument("--mr-min-range-pct", type=float, default=0.015)
     p.add_argument("--regime-policy-id", default="")
+    p.add_argument("--policy-objective", default="")
     return p.parse_args()
 
 
@@ -32,7 +35,28 @@ def main() -> int:
     args = parse_args()
     adapter = ExternalReplayAdapter()
     pg = PostgresLogger()
+
     runtime_risk = None
+    runtime_policy_mode = None
+
+    if args.policy_objective:
+        with pg._connect() as conn:
+            active_policy = ActivePolicyRuntimeReader(conn).get_active(
+                objective=args.policy_objective,
+            )
+
+        runtime_policy_mode = RuntimePolicyModeResolver().resolve(active_policy)
+
+        print(
+            "RUNTIME_POLICY_MODE "
+            f"objective={args.policy_objective} "
+            f"mode={runtime_policy_mode.selected_mode} "
+            f"adaptive={runtime_policy_mode.apply_adaptive_risk} "
+            f"blocking={runtime_policy_mode.allow_blocking} "
+            f"multiplier={runtime_policy_mode.allow_multiplier}",
+            flush=True,
+        )
+
     if args.regime_policy_id:
         runtime_risk = RuntimeAdaptiveRisk(pg._connect())
 
@@ -119,11 +143,33 @@ def main() -> int:
                 policy_id=args.regime_policy_id,
             )
 
-            if not adaptive_decision.allowed:
-                i += 1
-                continue
+            if runtime_policy_mode is not None:
+                if not runtime_policy_mode.apply_adaptive_risk:
+                    adaptive_decision = None
+                    qty = 1.0
 
-            qty = max(0.0, float(adaptive_decision.risk_multiplier))
+                elif not runtime_policy_mode.allow_blocking:
+                    if adaptive_decision is not None and not adaptive_decision.allowed:
+                        qty = 1.0
+                    elif adaptive_decision is not None:
+                        qty = max(0.0, float(adaptive_decision.risk_multiplier))
+
+                else:
+                    if adaptive_decision is not None and not adaptive_decision.allowed:
+                        i += 1
+                        continue
+
+                    if adaptive_decision is not None:
+                        qty = max(0.0, float(adaptive_decision.risk_multiplier))
+
+            else:
+                if adaptive_decision is not None and not adaptive_decision.allowed:
+                    i += 1
+                    continue
+
+                if adaptive_decision is not None:
+                    qty = max(0.0, float(adaptive_decision.risk_multiplier))
+
             if qty <= 0:
                 i += 1
                 continue
@@ -204,6 +250,8 @@ def main() -> int:
                 "adaptive_risk_decision": getattr(adaptive_decision, "decision", None),
                 "adaptive_risk_multiplier": getattr(adaptive_decision, "risk_multiplier", None),
                 "adaptive_risk_reason": getattr(adaptive_decision, "reason", None),
+                "runtime_policy_mode": getattr(runtime_policy_mode, "selected_mode", None),
+                "runtime_policy_apply_adaptive": getattr(runtime_policy_mode, "apply_adaptive_risk", None),
             }
 
             pg.log_fill(
