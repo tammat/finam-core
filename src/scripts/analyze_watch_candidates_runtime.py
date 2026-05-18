@@ -460,6 +460,38 @@ def main() -> int:
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
                 processed += 1
 
+    if alerts == 0 and processed > 0:
+        try:
+            digest_rows = []
+
+            with conn.cursor() as digest_cur:
+                digest_cur.execute(
+                    """
+                    select
+                        symbol,
+                        decision,
+                        reason
+                    from radar_candidate_analysis
+                    where source = 'watch_candidate_runtime_analyzer'
+                    order by created_at desc, id desc
+                    limit 10
+                    """
+                )
+
+                for r in digest_cur.fetchall():
+                    digest_rows.append(
+                        {
+                            "symbol": r[0],
+                            "decision": r[1],
+                            "reason": r[2],
+                        }
+                    )
+
+            notifier.send(build_runtime_digest(digest_rows))
+
+        except Exception as e:
+            print(f"RUNTIME_DIGEST_FAILED error={e}", flush=True)
+
     print(
         f"WATCH_CANDIDATE_RUNTIME_ANALYSIS_OK processed={processed} alerts={alerts}",
         flush=True,
