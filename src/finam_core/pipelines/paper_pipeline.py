@@ -2729,7 +2729,11 @@ class PaperTradingPipeline:
         # === SESSION FILTER (FIX: do not block in SIM/OVERRIDE) ===
         if not session.get("allow_entries", False):
             if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
-                print("PIPE_SESSION_BYPASS (override/sim)", flush=True)
+                self._log_dedup(
+                    "PIPE_SESSION_BYPASS",
+                    "PIPE_SESSION_BYPASS (override/sim)",
+                    heartbeat_sec=float(os.getenv("SESSION_BYPASS_LOG_SEC", "60")),
+                )
             else:
                 try:
                     preload_symbols = list(getattr(self, "_runtime_active_symbols", []) or [])
