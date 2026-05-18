@@ -19,6 +19,8 @@ class Cursor:
         pass
 
     def fetchone(self):
+        if not self.values:
+            raise AssertionError("mock values exhausted")
         return (self.values.pop(0),)
 
     def __enter__(self):
@@ -36,9 +38,13 @@ class Conn:
         return Cursor(self.values)
 
 
-assert PortfolioAwareSignalFilter(Conn([0, 0])).check(symbol="SBER@MISX").allowed is True
+# real_positions, managed_positions, lifecycle_positions, symbol_active, total_active
+assert PortfolioAwareSignalFilter(Conn([0, 0, 0, 0, 0])).check(symbol="SBER@MISX").allowed is True
 assert PortfolioAwareSignalFilter(Conn([1])).check(symbol="SBER@MISX").allowed is False
-assert PortfolioAwareSignalFilter(Conn([0, 5])).check(symbol="SBER@MISX", max_active_signals=5).allowed is False
+assert PortfolioAwareSignalFilter(Conn([0, 1])).check(symbol="SBER@MISX").allowed is False
+assert PortfolioAwareSignalFilter(Conn([0, 0, 1])).check(symbol="SBER@MISX").allowed is False
+assert PortfolioAwareSignalFilter(Conn([0, 0, 0, 1])).check(symbol="SBER@MISX").allowed is False
+assert PortfolioAwareSignalFilter(Conn([0, 0, 0, 0, 5])).check(symbol="SBER@MISX", max_active_signals=5).allowed is False
 
 print("OK: portfolio aware signal filter")
 PY

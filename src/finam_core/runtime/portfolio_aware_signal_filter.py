@@ -11,7 +11,7 @@ class PortfolioAwareDecision:
 
 
 class PortfolioAwareSignalFilter:
-    """Русский комментарий: блокирует новые ALERT при уже существующем риске по инструменту/портфелю."""
+    """Русский комментарий: блокирует ALERT при уже существующем риске по инструменту/портфелю."""
 
     def __init__(self, conn: Any):
         self.conn = conn
@@ -21,8 +21,58 @@ class PortfolioAwareSignalFilter:
         *,
         symbol: str,
         max_active_signals: int = 5,
+        check_real_positions: bool = True,
     ) -> PortfolioAwareDecision:
         with self.conn.cursor() as cur:
+            if check_real_positions:
+                cur.execute(
+                    """
+                    select count(*)
+                    from real_portfolio_positions
+                    where symbol = %s
+                      and coalesce(qty, 0) <> 0
+                    """,
+                    (symbol,),
+                )
+                real_positions = int(cur.fetchone()[0] or 0)
+                if real_positions > 0:
+                    return PortfolioAwareDecision(
+                        allowed=False,
+                        reason=f"уже есть реальная позиция по инструменту; positions={real_positions}",
+                    )
+
+                cur.execute(
+                    """
+                    select count(*)
+                    from managed_positions
+                    where symbol = %s
+                      and coalesce(qty, 0) <> 0
+                    """,
+                    (symbol,),
+                )
+                managed_positions = int(cur.fetchone()[0] or 0)
+                if managed_positions > 0:
+                    return PortfolioAwareDecision(
+                        allowed=False,
+                        reason=f"уже есть managed position по инструменту; positions={managed_positions}",
+                    )
+
+                cur.execute(
+                    """
+                    select count(*)
+                    from position_lifecycle_state
+                    where symbol = %s
+                      and coalesce(remaining_qty, initial_qty, 0) <> 0
+                    """,
+                    (symbol,),
+                )
+                lifecycle_positions = int(cur.fetchone()[0] or 0)
+                if lifecycle_positions > 0:
+                    return PortfolioAwareDecision(
+                        allowed=False,
+                        reason=f"уже есть lifecycle position по инструменту; positions={lifecycle_positions}",
+                    )
+
             cur.execute(
                 """
                 select count(*)
@@ -33,7 +83,6 @@ class PortfolioAwareSignalFilter:
                 (symbol,),
             )
             symbol_active = int(cur.fetchone()[0] or 0)
-
             if symbol_active > 0:
                 return PortfolioAwareDecision(
                     allowed=False,
@@ -48,7 +97,6 @@ class PortfolioAwareSignalFilter:
                 """
             )
             total_active = int(cur.fetchone()[0] or 0)
-
             if total_active >= max_active_signals:
                 return PortfolioAwareDecision(
                     allowed=False,
