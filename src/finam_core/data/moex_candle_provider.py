@@ -50,9 +50,11 @@ class MoexCandleProvider:
         if interval is None:
             raise ValueError(f"Неподдерживаемый timeframe: {timeframe}")
 
+        # Русский комментарий: candles endpoint MOEX ISS работает стабильнее без boards/{board}.
+        # board оставляем в сигнатуре метода для будущего resolver/cache, но в URL v1 не используем.
         url = (
             "https://iss.moex.com/iss/engines/"
-            f"{engine}/markets/{market}/boards/{board}/securities/{symbol}/candles.json"
+            f"{engine}/markets/{market}/securities/{symbol}/candles.json"
         )
 
         params = {
