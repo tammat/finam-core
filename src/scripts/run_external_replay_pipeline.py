@@ -5,6 +5,7 @@ import json
 from datetime import timezone
 
 from finam_core.replay.external_replay_adapter import ExternalReplayAdapter
+from finam_core.research.research_regime_classifier import RegimeInput, ResearchRegimeClassifier
 from finam_core.storage.postgres_logger import PostgresLogger
 
 
@@ -38,6 +39,14 @@ def main() -> int:
     )
 
     fills = 0
+    regime_classifier = ResearchRegimeClassifier()
+
+    ranges = [
+        (float(e.high) - float(e.low)) / float(e.open)
+        for e in events
+        if float(e.open) > 0
+    ]
+    avg_range_pct = sum(ranges) / len(ranges) if ranges else 0.0
 
     # Русский комментарий:
     # signal candle = events[i]
@@ -49,6 +58,19 @@ def main() -> int:
     while i < len(events) - 1:
         signal_bar = events[i]
         entry_bar = events[i + 1]
+        prev_bar = events[i - 1] if i > 0 else signal_bar
+
+        research_regime = regime_classifier.classify(
+            RegimeInput(
+                symbol=args.symbol,
+                open=float(signal_bar.open),
+                high=float(signal_bar.high),
+                low=float(signal_bar.low),
+                close=float(signal_bar.close),
+                prev_close=float(prev_bar.close),
+                avg_range_pct=avg_range_pct,
+            )
+        )
 
         if args.strategy == "MOEX_MEAN_REVERSION_V1":
             # Русский комментарий:
@@ -152,6 +174,10 @@ def main() -> int:
                 "stop_pct": args.stop_pct,
                 "take_pct": args.take_pct,
                 "holding_bars": args.holding_bars,
+                "research_regime": research_regime.regime,
+                "research_trend": research_regime.trend,
+                "research_volatility": research_regime.volatility,
+                "research_regime_reason": research_regime.reason,
             }
 
             pg.log_fill(
