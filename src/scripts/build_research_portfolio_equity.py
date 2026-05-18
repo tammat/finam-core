@@ -7,6 +7,7 @@ from finam_core.research.portfolio_research_allocator import (
     PortfolioResearchAllocator,
     ResearchInstrumentCandidate,
 )
+from finam_core.research.research_portfolio_metrics import ResearchPortfolioMetricsEngine
 from finam_core.research.research_portfolio_equity import (
     PortfolioTrade,
     ResearchPortfolioEquityCurve,
@@ -136,6 +137,7 @@ def main() -> int:
 
     final = points[-1]
     max_dd = min(p.drawdown for p in points)
+    metrics = ResearchPortfolioMetricsEngine().calculate(points)
 
     print(
         "ПОРТФЕЛЬНАЯ_EQUITY_ИТОГ "
@@ -144,6 +146,20 @@ def main() -> int:
         f"итоговая_прибыль={final.equity:.6f} "
         f"макс_просадка={max_dd:.6f} "
         f"инструменты={','.join(weights.keys())}",
+        flush=True,
+    )
+
+    print(
+        "ПОРТФЕЛЬНЫЕ_МЕТРИКИ "
+        f"pattern={pattern} "
+        f"точек={metrics.points} "
+        f"net_pnl={metrics.net_pnl:.6f} "
+        f"max_drawdown={metrics.max_drawdown:.6f} "
+        f"expectancy={metrics.expectancy:.6f} "
+        f"volatility={metrics.volatility:.6f} "
+        f"sharpe_like={metrics.sharpe_like:.6f} "
+        f"recovery_factor={metrics.recovery_factor:.6f} "
+        f"winrate={metrics.winrate:.6f}",
         flush=True,
     )
 
