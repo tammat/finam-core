@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from finam_core.analytics.strategy_rank_persistence import StrategyRankPersistence
 from finam_core.analytics.strategy_scorecard_persistence import StrategyScorecardPersistence
 from finam_core.runtime.runtime_governance_coordinator import RuntimeGovernanceCoordinator
+from finam_core.runtime.runtime_governance_telemetry import RuntimeGovernanceTelemetry
 from finam_core.runtime.runtime_strategy_cooldown_builder import RuntimeStrategyCooldownBuilder
 from finam_core.runtime.runtime_universe_allocator import RuntimeUniverseAllocator
 from finam_core.storage.postgres_logger import PostgresLogger
@@ -40,6 +41,7 @@ def build_coordinator() -> RuntimeGovernanceCoordinator:
         rank_persistence=StrategyRankPersistence(pg_logger),
         cooldown_builder=RuntimeStrategyCooldownBuilder(pg_logger),
         allocator=RuntimeUniverseAllocator(pg_logger),
+        telemetry=RuntimeGovernanceTelemetry(pg_logger),
     )
 
 

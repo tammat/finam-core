@@ -32,11 +32,13 @@ class RuntimeGovernanceCoordinator:
         rank_persistence: Any,
         cooldown_builder: Any,
         allocator: Any,
+        telemetry: Any | None = None,
     ) -> None:
         self.scorecard_persistence = scorecard_persistence
         self.rank_persistence = rank_persistence
         self.cooldown_builder = cooldown_builder
         self.allocator = allocator
+        self.telemetry = telemetry
 
     def run_daily(
         self,
@@ -61,6 +63,15 @@ class RuntimeGovernanceCoordinator:
             cooldowns_saved=int(cooldowns_saved or 0),
             allocation_count=int(allocation_count or 0),
         )
+
+        if self.telemetry is not None:
+            self.telemetry.write_cycle(
+                trade_date=result.trade_date,
+                scorecards_saved=result.scorecards_saved,
+                rank_decisions_saved=result.rank_decisions_saved,
+                cooldowns_saved=result.cooldowns_saved,
+                allocation_count=result.allocation_count,
+            )
 
         print(
             "RUNTIME_GOVERNANCE_OK "
