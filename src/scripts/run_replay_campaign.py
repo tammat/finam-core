@@ -39,8 +39,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strategies", default=",".join(DEFAULT_STRATEGIES))
     parser.add_argument("--campaign-id", default="")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--run-secs", type=float, default=5.0)
 
     return parser.parse_args()
+
+
+def normalize_strategy(strategy: str) -> str:
+    strategy_map = {
+        "BR_CONSERVATIVE_BREAKOUT": "breakout_reactive",
+        "VOLATILITY_BREAKOUT_EQUITY": "breakout_reactive",
+        "USDRUB_REGIME": "strategy_stack",
+    }
+
+    return strategy_map.get(strategy, strategy)
 
 
 def build_replay_command(
@@ -50,21 +61,25 @@ def build_replay_command(
     strategy: str,
     campaign_id: str,
     replay_id: str,
+    run_secs: float,
 ) -> list[str]:
+    del timeframe
+    del campaign_id
+    del replay_id
+
     return [
         sys.executable,
         "src/scripts/run_market_pipeline.py",
         "--symbol",
         symbol,
-        "--timeframe",
-        timeframe,
         "--strategy",
-        strategy,
-        "--replay",
-        "--campaign-id",
-        campaign_id,
-        "--replay-id",
-        replay_id,
+        normalize_strategy(strategy),
+        "--feed",
+        "sim",
+        "--run-secs",
+        str(run_secs),
+        "--risk-soft",
+        "--exit-on-fill",
     ]
 
 
@@ -102,6 +117,7 @@ def main() -> int:
                     strategy=strategy,
                     campaign_id=campaign_id,
                     replay_id=replay_id,
+                    run_secs=args.run_secs,
                 )
 
                 total += 1
