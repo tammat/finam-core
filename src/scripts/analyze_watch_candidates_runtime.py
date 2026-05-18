@@ -8,6 +8,7 @@ import requests
 from datetime import datetime, timezone
 
 from finam_core.notifications.telegram_notifier import TelegramNotifier
+from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
 def load_watch_candidates(cur, limit: int = 10) -> list[dict]:
@@ -421,6 +422,8 @@ def main() -> int:
     limit = int(os.getenv("WATCH_RUNTIME_LIMIT", "10"))
     alert_ttl_minutes = int(os.getenv("SIGNAL_ALERT_TTL_MINUTES", "120"))
     max_alerts_per_group = int(os.getenv("MAX_ALERTS_PER_CORRELATION_GROUP", "2"))
+    max_active_signals = int(os.getenv("MAX_ACTIVE_SIGNALS", "5"))
+    max_active_signals = int(os.getenv("MAX_ACTIVE_SIGNALS", "5"))
 
     conn = psycopg2.connect(dsn)
     notifier = TelegramNotifier()
@@ -441,6 +444,18 @@ def main() -> int:
                     max_alerts_per_group,
                     alert_ttl_minutes,
                 )
+
+                if decision.get("decision") == "ALERT":
+                    portfolio_decision = PortfolioAwareSignalFilter(conn).check(
+                        symbol=candidate["symbol"],
+                        max_active_signals=max_active_signals,
+                    )
+
+                    if not portfolio_decision.allowed:
+                        decision = dict(decision)
+                        decision["decision"] = "WATCH"
+                        decision["reason"] = f"portfolio_filter: {portfolio_decision.reason}"
+
                 save_runtime_analysis(cur, candidate, decision)
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
                 processed += 1
