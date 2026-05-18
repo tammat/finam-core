@@ -18,41 +18,41 @@ class StatisticalValidationDecisionEngine:
     def decide(self, result: StatisticalValidationResult) -> StatisticalValidationDecision:
         if result.trades < 30:
             return StatisticalValidationDecision(
-                decision="INSUFFICIENT_DATA",
-                reason="trades_below_minimum_30",
+                decision="НЕДОСТАТОЧНО_ДАННЫХ",
+                reason="недостаточно_сделок",
                 confidence=result.probability_positive_expectancy,
             )
 
         if result.expectancy_ci_low <= 0 <= result.expectancy_ci_high:
             if result.probability_positive_expectancy < 0.70:
                 return StatisticalValidationDecision(
-                    decision="REJECT",
-                    reason="ci_crosses_zero_and_low_positive_probability",
+                    decision="ОТКЛОНИТЬ",
+                    reason="интервал_пересекает_ноль_низкая_вероятность",
                     confidence=result.probability_positive_expectancy,
                 )
 
             return StatisticalValidationDecision(
-                decision="WATCH",
-                reason="ci_crosses_zero",
+                decision="НАБЛЮДЕНИЕ",
+                reason="доверительный_интервал_пересекает_ноль",
                 confidence=result.probability_positive_expectancy,
             )
 
         if result.probability_positive_expectancy >= 0.95 and result.expectancy_ci_low > 0:
             return StatisticalValidationDecision(
-                decision="ACCEPT_STRONG",
-                reason="positive_expectancy_high_confidence",
+                decision="ПРИНЯТЬ",
+                reason="положительное_матожидание_высокая_уверенность",
                 confidence=result.probability_positive_expectancy,
             )
 
         if result.probability_positive_expectancy >= 0.85 and result.expectancy > 0:
             return StatisticalValidationDecision(
-                decision="ACCEPT_WEAK",
-                reason="positive_expectancy_moderate_confidence",
+                decision="ПРИНЯТЬ_УСЛОВНО",
+                reason="положительное_матожидание_умеренная_уверенность",
                 confidence=result.probability_positive_expectancy,
             )
 
         return StatisticalValidationDecision(
-            decision="WATCH",
-            reason="default_watch",
+            decision="НАБЛЮДЕНИЕ",
+            reason="требуется_наблюдение",
             confidence=result.probability_positive_expectancy,
         )
