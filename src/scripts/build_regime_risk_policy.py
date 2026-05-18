@@ -14,6 +14,8 @@ def parse_args():
     p.add_argument("--min-expectancy", type=float, default=0.0)
     p.add_argument("--policy-id", default="")
     p.add_argument("--save", action="store_true")
+    p.add_argument("--min-winrate-to-allow", type=float, default=0.55)
+    p.add_argument("--min-winrate-to-limit", type=float, default=0.45)
     return p.parse_args()
 
 
@@ -99,6 +101,8 @@ def main() -> int:
         items,
         min_trades=args.min_trades,
         min_expectancy=args.min_expectancy,
+        min_winrate_to_allow=args.min_winrate_to_allow,
+        min_winrate_to_limit=args.min_winrate_to_limit,
     )
 
     if args.save and decisions:

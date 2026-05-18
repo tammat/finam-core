@@ -27,5 +27,11 @@ assert decisions[0].decision == "РАЗРЕШИТЬ"
 assert decisions[1].decision == "ЗАПРЕТИТЬ"
 assert decisions[2].decision == "НЕДОСТАТОЧНО_ДАННЫХ"
 
+blocked_by_winrate = RegimeRiskPolicy().decide([
+    RegimePerformance("weak:normal_vol", "weak", "normal_vol", 10, 100, 10, 0.3),
+], min_trades=5)
+
+assert blocked_by_winrate[0].decision == "ЗАПРЕТИТЬ"
+
 print("OK: regime risk policy")
 PY

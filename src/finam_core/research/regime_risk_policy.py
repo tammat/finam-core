@@ -33,6 +33,8 @@ class RegimeRiskPolicy:
         *,
         min_trades: int = 5,
         min_expectancy: float = 0.0,
+        min_winrate_to_allow: float = 0.55,
+        min_winrate_to_limit: float = 0.45,
     ) -> list[RegimePolicyDecision]:
         result: list[RegimePolicyDecision] = []
 
@@ -63,7 +65,20 @@ class RegimeRiskPolicy:
                 )
                 continue
 
-            if item.winrate >= 0.55 and item.expectancy > 0:
+            if item.winrate < min_winrate_to_limit:
+                result.append(
+                    RegimePolicyDecision(
+                        regime=item.regime,
+                        trend=item.trend,
+                        volatility=item.volatility,
+                        decision="ЗАПРЕТИТЬ",
+                        risk_multiplier=0.0,
+                        reason=f"winrate={item.winrate:.4f}<min_winrate_to_limit={min_winrate_to_limit:.4f}",
+                    )
+                )
+                continue
+
+            if item.winrate >= min_winrate_to_allow and item.expectancy > 0:
                 multiplier = 1.0
                 decision = "РАЗРЕШИТЬ"
             else:
