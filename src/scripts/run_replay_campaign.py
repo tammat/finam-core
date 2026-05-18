@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from finam_core.replay.replay_campaign_telemetry import ReplayCampaignTelemetry
 from finam_core.storage.postgres_logger import PostgresLogger
+from finam_core.replay.external_replay_adapter import ExternalReplayAdapter
 
 
 DEFAULT_SYMBOLS = [
@@ -44,6 +45,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--campaign-id", default="")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--run-secs", type=float, default=5.0)
+    parser.add_argument("--data-source", choices=("sim", "moex"), default="sim")
+    parser.add_argument("--date-from", default="")
+    parser.add_argument("--date-to", default="")
 
     return parser.parse_args()
 
@@ -108,9 +112,36 @@ def main() -> int:
     print(
         f"REPLAY_CAMPAIGN_START campaign_id={campaign_id} "
         f"symbols={len(symbols)} timeframes={len(timeframes)} strategies={len(strategies)} "
-        f"dry_run={args.dry_run}",
+        f"data_source={args.data_source} dry_run={args.dry_run}",
         flush=True,
     )
+
+    if args.data_source == "moex":
+        if not args.date_from or not args.date_to:
+            raise SystemExit("--date-from and --date-to are required for --data-source moex")
+
+        adapter = ExternalReplayAdapter()
+
+        for symbol in symbols:
+            for timeframe in timeframes:
+                events = adapter.load_events(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    date_from=args.date_from,
+                    date_to=args.date_to,
+                )
+                print(
+                    "REPLAY_CAMPAIGN_MOEX_EVENTS "
+                    f"campaign_id={campaign_id} symbol={symbol} timeframe={timeframe} "
+                    f"date_from={args.date_from} date_to={args.date_to} events={len(events)}",
+                    flush=True,
+                )
+
+        print(
+            f"REPLAY_CAMPAIGN_DONE campaign_id={campaign_id} total=0 failed=0",
+            flush=True,
+        )
+        return 0
 
     for symbol in symbols:
         for timeframe in timeframes:
