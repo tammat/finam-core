@@ -33,8 +33,13 @@ def main() -> int:
 
     fills = 0
 
-    for prev, cur in zip(events, events[1:]):
-        side = "BUY" if cur.close >= prev.close else "SELL"
+    # Русский комментарий:
+    # signal candle = prev
+    # execution candle = cur
+    # убираем look-ahead bias.
+
+    for prev, cur in zip(events[:-1], events[1:]):
+        side = "BUY" if prev.close >= prev.open else "SELL"
         exit_side = "SELL" if side == "BUY" else "BUY"
 
         replay_id = f"{args.campaign_id}:{args.symbol}:{args.timeframe}:{args.strategy}"
