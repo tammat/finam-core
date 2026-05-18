@@ -4128,10 +4128,20 @@ class PaperTradingPipeline:
                             )
                             return
 
-                    intent["qty"] = gate_decision.qty
+                    if not (
+                        replay_accumulation_mode
+                        and gate_decision.gate == "runtime_control"
+                        and float(gate_decision.qty or 0.0) <= 0.0
+                    ):
+                        intent["qty"] = gate_decision.qty
+
                     intent.setdefault("features", {})
                     intent["features"]["entry_gate_reason"] = gate_decision.reason
                     intent["features"]["entry_gate"] = gate_decision.gate
+                    intent["features"]["entry_gate_replay_bypass"] = (
+                        replay_accumulation_mode
+                        and gate_decision.gate == "runtime_control"
+                    )
 
             except Exception as exc:
                 print(f"PIPE_ENTRY_GATE_COORDINATOR_ERROR {type(exc).__name__}:{exc}", flush=True)
