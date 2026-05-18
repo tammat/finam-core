@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import psycopg2
+import requests
 from datetime import datetime, timezone
 
 from finam_core.notifications.telegram_notifier import TelegramNotifier
@@ -43,16 +44,107 @@ def load_watch_candidates(cur, limit: int = 10) -> list[dict]:
     return rows
 
 
+
+def normalize_moex_secid(symbol: str) -> str:
+    """Русский комментарий: LKOH@MISX -> LKOH."""
+    return str(symbol or "").split("@", 1)[0]
+
+
+def load_moex_last_price(symbol: str) -> float | None:
+    """Русский комментарий: получает последнюю цену акции с MOEX ISS."""
+    secid = normalize_moex_secid(symbol)
+    if not secid:
+        return None
+
+    url = (
+        "https://iss.moex.com/iss/engines/stock/markets/shares/"
+        f"securities/{secid}.json"
+    )
+
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        marketdata = data.get("marketdata", {})
+        columns = marketdata.get("columns", [])
+        rows = marketdata.get("data", [])
+
+        if not columns or not rows:
+            return None
+
+        idx = {name: i for i, name in enumerate(columns)}
+
+        for row in rows:
+            # Русский комментарий: предпочитаем LAST, fallback на MARKETPRICE / LCURRENTPRICE.
+            for key in ("LAST", "MARKETPRICE", "LCURRENTPRICE"):
+                if key in idx:
+                    value = row[idx[key]]
+                    if value is not None:
+                        price = float(value)
+                        if price > 0:
+                            return price
+
+    except Exception:
+        return None
+
+    return None
+
+
+def build_trade_setup(candidate: dict, price: float) -> dict:
+    """Русский комментарий: строит entry/stop/take по типу стратегии."""
+    strategy = str(candidate.get("strategy") or "").upper()
+    regime = str(candidate.get("regime") or "")
+
+    if price <= 0:
+        return {
+            "decision": "WATCH",
+            "reason": "цена недоступна",
+            "entry_price": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "risk_reward": None,
+        }
+
+    if "MEAN_REVERSION" in strategy or "OVERSOLD" in regime.upper():
+        entry = price
+        stop = price * 0.970
+        take = price * 1.025
+        setup_name = "отскок после снижения"
+    elif "BREAKOUT" in strategy or "TREND" in regime.upper():
+        entry = price * 1.002
+        stop = price * 0.985
+        take = price * 1.035
+        setup_name = "пробой / продолжение импульса"
+    else:
+        entry = price
+        stop = price * 0.980
+        take = price * 1.030
+        setup_name = "универсальный сетап наблюдения"
+
+    risk = abs(entry - stop)
+    reward = abs(take - entry)
+    rr = reward / risk if risk > 0 else 0.0
+
+    if rr >= 1.5:
+        decision = "ALERT"
+    else:
+        decision = "WATCH"
+
+    return {
+        "decision": decision,
+        "reason": f"{setup_name}; price={price:.4f}; rr={rr:.2f}",
+        "entry_price": round(entry, 4),
+        "stop_loss": round(stop, 4),
+        "take_profit": round(take, 4),
+        "risk_reward": round(rr, 4),
+    }
+
 def make_runtime_decision(candidate: dict) -> dict:
-    """
-    Русский комментарий:
-    v1 не имитирует реальную цену и не отправляет ложный торговый сигнал.
-    Он только подтверждает, что кандидат готов к runtime-проверке.
-    Настоящие entry/stop/take появятся после подключения price/strategy engine.
-    """
+    """Русский комментарий: получает реальную цену MOEX и строит strategy-specific setup."""
     score = float(candidate.get("score") or 0.0)
     strategy = str(candidate.get("strategy") or "UNKNOWN")
-    regime = str(candidate.get("regime") or "UNKNOWN")
 
     if score <= 0:
         return {
@@ -74,14 +166,19 @@ def make_runtime_decision(candidate: dict) -> dict:
             "risk_reward": None,
         }
 
-    return {
-        "decision": "WATCH",
-        "reason": f"кандидат ожидает подтверждения цены и стратегии; strategy={strategy}; regime={regime}; score={score:.6f}",
-        "entry_price": None,
-        "stop_loss": None,
-        "take_profit": None,
-        "risk_reward": None,
-    }
+    price = load_moex_last_price(candidate["symbol"])
+
+    if price is None:
+        return {
+            "decision": "WATCH",
+            "reason": "MOEX цена недоступна; оставлен в наблюдении",
+            "entry_price": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "risk_reward": None,
+        }
+
+    return build_trade_setup(candidate, price)
 
 
 def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
