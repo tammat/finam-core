@@ -4467,6 +4467,15 @@ class PaperTradingPipeline:
                 except Exception as exc:
                     print(f"PIPE_CONTRACT_IDENTITY_ENRICH_FAILED symbol={fill_symbol} error={exc}", flush=True)
 
+                # Русский комментарий: metadata replay campaign для связывания fills/trades/closed_trades с campaign.
+                if os.getenv("REPLAY_CAMPAIGN_ID"):
+                    payload.setdefault("replay_campaign_id", os.getenv("REPLAY_CAMPAIGN_ID"))
+                    payload.setdefault("replay_id", os.getenv("REPLAY_ID"))
+                    payload.setdefault("replay_symbol", os.getenv("REPLAY_SYMBOL"))
+                    payload.setdefault("replay_timeframe", os.getenv("REPLAY_TIMEFRAME"))
+                    payload.setdefault("replay_strategy", os.getenv("REPLAY_STRATEGY"))
+                    payload.setdefault("dataset_source", "replay_campaign")
+
                 persist_result = service.persist_fill(fill, execution_type="paper", payload=payload)
                 print(f"PIPE_FILL_PERSISTED result={persist_result} payload={payload}", flush=True)
             else:
