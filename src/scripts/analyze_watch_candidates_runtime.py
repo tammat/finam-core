@@ -182,6 +182,55 @@ def make_runtime_decision(candidate: dict) -> dict:
     return build_trade_setup(candidate, price)
 
 
+
+def get_correlation_group(cur, symbol: str) -> str:
+    cur.execute(
+        """
+        select correlation_group
+        from signal_correlation_groups
+        where symbol = %s
+        """,
+        (symbol,),
+    )
+    row = cur.fetchone()
+    return str(row[0]) if row else "OTHER"
+
+
+def active_group_alert_count(cur, group_name: str, ttl_minutes: int) -> int:
+    cur.execute(
+        """
+        select count(*)
+        from signal_alert_dedup d
+        join signal_correlation_groups g on g.symbol = d.symbol
+        where g.correlation_group = %s
+          and d.last_sent_at > now() - (%s || ' minutes')::interval
+        """,
+        (group_name, str(ttl_minutes)),
+    )
+    return int(cur.fetchone()[0] or 0)
+
+
+def apply_correlation_filter(cur, candidate: dict, decision: dict, max_per_group: int, ttl_minutes: int) -> dict:
+    """Русский комментарий: ограничивает число активных ALERT в одной факторной группе."""
+    if decision.get("decision") != "ALERT":
+        return decision
+
+    group_name = get_correlation_group(cur, candidate["symbol"])
+    active_count = active_group_alert_count(cur, group_name, ttl_minutes)
+
+    decision["correlation_group"] = group_name
+    decision["active_group_alerts"] = active_count
+
+    if active_count >= max_per_group:
+        decision = dict(decision)
+        decision["decision"] = "WATCH"
+        decision["reason"] = (
+            f"корреляционный лимит: группа={group_name}; "
+            f"активных_сигналов={active_count}; лимит={max_per_group}"
+        )
+
+    return decision
+
 def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
     payload = {
         "source_analysis_id": candidate["analysis_id"],
@@ -319,6 +368,7 @@ def main() -> int:
 
     limit = int(os.getenv("WATCH_RUNTIME_LIMIT", "10"))
     alert_ttl_minutes = int(os.getenv("SIGNAL_ALERT_TTL_MINUTES", "120"))
+    max_alerts_per_group = int(os.getenv("MAX_ALERTS_PER_CORRELATION_GROUP", "2"))
 
     conn = psycopg2.connect(dsn)
     notifier = TelegramNotifier()
@@ -332,6 +382,13 @@ def main() -> int:
 
             for candidate in candidates:
                 decision = make_runtime_decision(candidate)
+                decision = apply_correlation_filter(
+                    cur,
+                    candidate,
+                    decision,
+                    max_alerts_per_group,
+                    alert_ttl_minutes,
+                )
                 save_runtime_analysis(cur, candidate, decision)
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
                 processed += 1
