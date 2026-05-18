@@ -7,6 +7,7 @@ from datetime import timezone
 from finam_core.replay.external_replay_adapter import ExternalReplayAdapter
 from finam_core.research.research_regime_classifier import RegimeInput, ResearchRegimeClassifier
 from finam_core.storage.postgres_logger import PostgresLogger
+from finam_core.runtime.runtime_adaptive_risk import RuntimeAdaptiveRisk
 
 
 def parse_args():
@@ -23,6 +24,7 @@ def parse_args():
     p.add_argument("--mr-threshold", type=float, default=0.02)
     p.add_argument("--mr-max-drop", type=float, default=0.07)
     p.add_argument("--mr-min-range-pct", type=float, default=0.015)
+    p.add_argument("--regime-policy-id", default="")
     return p.parse_args()
 
 
@@ -30,6 +32,9 @@ def main() -> int:
     args = parse_args()
     adapter = ExternalReplayAdapter()
     pg = PostgresLogger()
+    runtime_risk = None
+    if args.regime_policy_id:
+        runtime_risk = RuntimeAdaptiveRisk(pg._connect())
 
     events = adapter.load_events(
         symbol=args.symbol,
@@ -105,6 +110,23 @@ def main() -> int:
 
         entry_price = float(entry_bar.open)
         entry_ts = entry_bar.ts
+        qty = 1.0
+        adaptive_decision = None
+
+        if runtime_risk is not None:
+            adaptive_decision = runtime_risk.decide(
+                regime=research_regime.regime,
+                policy_id=args.regime_policy_id,
+            )
+
+            if not adaptive_decision.allowed:
+                i += 1
+                continue
+
+            qty = max(0.0, float(adaptive_decision.risk_multiplier))
+            if qty <= 0:
+                i += 1
+                continue
 
         if side == "BUY":
             stop_price = entry_price * (1.0 - args.stop_pct)
@@ -178,12 +200,16 @@ def main() -> int:
                 "research_trend": research_regime.trend,
                 "research_volatility": research_regime.volatility,
                 "research_regime_reason": research_regime.reason,
+                "adaptive_risk_policy_id": args.regime_policy_id,
+                "adaptive_risk_decision": getattr(adaptive_decision, "decision", None),
+                "adaptive_risk_multiplier": getattr(adaptive_decision, "risk_multiplier", None),
+                "adaptive_risk_reason": getattr(adaptive_decision, "reason", None),
             }
 
             pg.log_fill(
                 symbol=args.symbol,
                 side=fill_side,
-                qty=1.0,
+                qty=qty,
                 price=float(price),
                 trade_id=f"{replay_id}:{role}:{fills}",
                 execution_type="paper",
