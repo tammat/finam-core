@@ -39,6 +39,8 @@ def main() -> int:
 
     with conn:
         with conn.cursor() as cur:
+            lookback_minutes = int(os.getenv("PORTFOLIO_QUEUE_LOOKBACK_MINUTES", "1440"))
+
             cur.execute("""
                 select
                     symbol,
@@ -51,10 +53,10 @@ def main() -> int:
                 from radar_candidate_analysis
                 where source = 'watch_candidate_runtime_analyzer'
                   and decision = 'ALERT'
-                  and created_at >= now() - interval '60 minutes'
+                  and created_at >= now() - (%s || ' minutes')::interval
                 order by created_at desc
                 limit 50
-            """)
+            """, (str(lookback_minutes),))
 
             candidates = []
 
