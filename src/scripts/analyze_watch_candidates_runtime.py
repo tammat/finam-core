@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.runtime.runtime_decision_digest import build_runtime_digest
+from finam_core.runtime.runtime_capital_allocator import RuntimeCapitalAllocator
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -234,6 +235,73 @@ def apply_correlation_filter(cur, candidate: dict, decision: dict, max_per_group
 
     return decision
 
+
+def load_latest_portfolio_context(cur) -> dict:
+    """Русский комментарий: читает последний снимок портфеля для расчёта допустимого капитала."""
+    cur.execute(
+        """
+        select
+            coalesce(equity, 0),
+            coalesce(cash, 0),
+            coalesce(margin_utilization_pct, 0),
+            coalesce(drawdown, 0)
+        from portfolio_snapshots
+        order by ts desc
+        limit 1
+        """
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        return {
+            "equity": 0.0,
+            "cash": 0.0,
+            "margin_utilization_pct": 0.0,
+            "drawdown": 0.0,
+        }
+
+    return {
+        "equity": float(row[0] or 0),
+        "cash": float(row[1] or 0),
+        "margin_utilization_pct": float(row[2] or 0),
+        "drawdown": float(row[3] or 0),
+    }
+
+
+def apply_capital_allocator(cur, candidate: dict, decision: dict) -> dict:
+    """Русский комментарий: добавляет к ALERT допустимый размер позиции и risk multiplier."""
+    if decision.get("decision") != "ALERT":
+        return decision
+
+    portfolio = load_latest_portfolio_context(cur)
+
+    correlation_pressure = int(decision.get("active_group_alerts") or 0)
+    signal_score = float(candidate.get("score") or 0.0)
+    risk_reward = float(decision.get("risk_reward") or 0.0)
+
+    allocation = RuntimeCapitalAllocator().allocate(
+        equity=portfolio["equity"],
+        cash=portfolio["cash"],
+        margin_utilization_pct=portfolio["margin_utilization_pct"],
+        drawdown=portfolio["drawdown"],
+        signal_score=signal_score,
+        risk_reward=risk_reward,
+        correlation_pressure=correlation_pressure,
+        runtime_severity="INFO",
+    )
+
+    decision = dict(decision)
+    decision["capital_allowed"] = allocation.allowed
+    decision["risk_multiplier"] = allocation.risk_multiplier
+    decision["max_position_value"] = allocation.max_position_value
+    decision["capital_reason"] = allocation.reason
+
+    if not allocation.allowed:
+        decision["decision"] = "WATCH"
+        decision["reason"] = f"capital_allocator: {allocation.reason}"
+
+    return decision
+
 def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
     payload = {
         "source_analysis_id": candidate["analysis_id"],
@@ -456,6 +524,8 @@ def main() -> int:
                         decision = dict(decision)
                         decision["decision"] = "WATCH"
                         decision["reason"] = f"portfolio_filter: {portfolio_decision.reason}"
+
+                decision = apply_capital_allocator(cur, candidate, decision)
 
                 save_runtime_analysis(cur, candidate, decision)
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
