@@ -10,6 +10,7 @@ Environment=PYTHONPATH=src
 EnvironmentFile=/opt/finam-core/.env.paper_safe
 Environment=RUNTIME_SUPERVISOR_SEND_OK=0
 Environment=RUNTIME_SUPERVISOR_MAX_LOG_AGE_MIN=30
+Environment=RUNTIME_SUPERVISOR_AUTO_RECOVERY=1
 
 User=alex
 Group=alex

@@ -39,6 +39,11 @@ def is_active(unit: str) -> bool:
     return code == 0 and out.strip() == "active"
 
 
+def restart_unit(unit: str) -> tuple[bool, str]:
+    code, out = run_cmd(["systemctl", "restart", unit])
+    return code == 0, out
+
+
 def log_age_minutes(path: str) -> float | None:
     p = Path(path)
     if not p.exists():
@@ -50,21 +55,46 @@ def log_age_minutes(path: str) -> float | None:
 def main() -> int:
     max_log_age_min = float(os.getenv("RUNTIME_SUPERVISOR_MAX_LOG_AGE_MIN", "30"))
     send_ok = os.getenv("RUNTIME_SUPERVISOR_SEND_OK", "0") == "1"
+    auto_recovery = os.getenv("RUNTIME_SUPERVISOR_AUTO_RECOVERY", "0") == "1"
+
+    recoverable_units = {
+        "finam-radar-chain.timer",
+        "signal-lifecycle-monitor.timer",
+        "policy-rotation.timer",
+        "finam-position-sync.timer",
+        "finam-manual-reconciliation.timer",
+        "finam-projection-worker.service",
+    }
 
     problems: list[str] = []
+    recoveries: list[str] = []
     ok_lines: list[str] = []
 
     for unit in SERVICES:
         if is_active(unit):
             ok_lines.append(f"✅ service {unit}: active")
         else:
-            problems.append(f"🛑 service {unit}: not active")
+            msg = f"🛑 service {unit}: not active"
+            problems.append(msg)
+
+            if auto_recovery and unit in recoverable_units:
+                ok, out = restart_unit(unit)
+                recoveries.append(
+                    f"{'✅' if ok else '❌'} recovery service {unit}: {'restarted' if ok else out}"
+                )
 
     for unit in TIMERS:
         if is_active(unit):
             ok_lines.append(f"✅ timer {unit}: active")
         else:
-            problems.append(f"🛑 timer {unit}: not active")
+            msg = f"🛑 timer {unit}: not active"
+            problems.append(msg)
+
+            if auto_recovery and unit in recoverable_units:
+                ok, out = restart_unit(unit)
+                recoveries.append(
+                    f"{'✅' if ok else '❌'} recovery timer {unit}: {'restarted' if ok else out}"
+                )
 
     for log_path in LOGS:
         age = log_age_minutes(log_path)
@@ -87,6 +117,9 @@ def main() -> int:
 
     if problems:
         text += "Проблемы:\n" + "\n".join(problems[:20])
+
+        if recoveries:
+            text += "\n\nRecovery:\n" + "\n".join(recoveries[:20])
     else:
         text += "Все ключевые сервисы и таймеры активны."
 
@@ -96,7 +129,7 @@ def main() -> int:
         TelegramNotifier().send(text)
 
     print(
-        f"RUNTIME_SUPERVISOR_OK status={status} problems={len(problems)}",
+        f"RUNTIME_SUPERVISOR_OK status={status} problems={len(problems)} recoveries={len(recoveries)}",
         flush=True,
     )
 
