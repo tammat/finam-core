@@ -13,6 +13,8 @@ from finam_core.runtime.runtime_capital_allocator import RuntimeCapitalAllocator
 from finam_core.runtime.signal_probability_estimator import SignalProbabilityEstimator
 from finam_core.runtime.net_trade_evaluator import NetTradeEvaluator
 from finam_core.runtime.institutional_trade_quality_score import InstitutionalTradeQualityScorer
+from finam_core.runtime.capital_growth_mode import CapitalGrowthMode
+from finam_core.runtime.risk_per_trade_sizing import RiskPerTradeSizer
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -447,6 +449,60 @@ def apply_trade_quality_score(candidate: dict, decision: dict) -> dict:
 
     return decision
 
+
+def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
+    """Русский комментарий: пересчитывает qty через риск до стопа, а не только через капитал."""
+    if decision.get("decision") != "ALERT":
+        return decision
+
+    portfolio = load_latest_portfolio_context(cur)
+
+    equity = float(portfolio.get("equity") or 0.0)
+    margin_utilization_pct = float(portfolio.get("margin_utilization_pct") or 0.0)
+    portfolio_heat = margin_utilization_pct / 100.0
+
+    growth = CapitalGrowthMode().decide(
+        trade_quality_grade=str(decision.get("trade_quality_grade") or "D"),
+        trade_quality_score=float(decision.get("trade_quality_score") or 0.0),
+        expected_value=float(decision.get("expected_value") or 0.0),
+        probability_tp=float(decision.get("probability_tp") or 0.0),
+        probability_sl=float(decision.get("probability_sl") or 0.0),
+        risk_reward=float(decision.get("risk_reward") or 0.0),
+        portfolio_heat=portfolio_heat,
+        runtime_severity="INFO",
+    )
+
+    decision = dict(decision)
+    decision["capital_growth_allowed"] = growth.allowed
+    decision["capital_growth_mode"] = growth.mode
+    decision["capital_growth_risk_pct"] = growth.risk_pct
+    decision["capital_growth_reason"] = growth.reason
+
+    size = RiskPerTradeSizer().size(
+        equity=equity,
+        risk_pct=float(growth.risk_pct or 0.0),
+        entry_price=float(decision.get("entry_price") or 0.0),
+        stop_loss=float(decision.get("stop_loss") or 0.0),
+        max_position_value=float(decision.get("max_position_value") or 0.0),
+    )
+
+    decision["risk_sizing_allowed"] = size.allowed
+    decision["recommended_qty"] = size.qty
+    decision["risk_rub"] = size.risk_rub
+    decision["risk_per_unit"] = size.risk_per_unit
+    decision["capital_used"] = size.capital_used
+    decision["risk_sizing_reason"] = size.reason
+
+    if not growth.allowed:
+        decision["decision"] = "WATCH"
+        decision["reason"] = f"capital_growth_mode: {growth.reason}"
+
+    elif not size.allowed:
+        decision["decision"] = "WATCH"
+        decision["reason"] = f"risk_per_trade_sizing: {size.reason}"
+
+    return decision
+
 def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
     payload = {
         "source_analysis_id": candidate["analysis_id"],
@@ -631,7 +687,12 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
         f"Risk/Reward: {decision['risk_reward']}\n\n"
         "Условие входа: покупать только при пробое уровня входа, не по рынку.\n\n"
         f"Максимум позиции: {max_position_value:.2f} ₽\n"
-        f"Рекомендуемый объём: {recommended_qty} шт\n"
+        f"Рекомендуемый объём: {int(decision.get('recommended_qty') or recommended_qty)} шт\n"
+        f"Риск на сделку: {float(decision.get('risk_rub') or 0.0):.2f} ₽\n"
+        f"Риск на единицу: {float(decision.get('risk_per_unit') or 0.0):.4f} ₽\n"
+        f"Капитал в сделке: {float(decision.get('capital_used') or max_position_value):.2f} ₽\n"
+        f"Режим разгона: {decision.get('capital_growth_mode', 'N/A')}\n"
+        f"Риск от капитала: {float(decision.get('capital_growth_risk_pct') or 0.0) * 100:.2f}%\n"
         f"Множитель риска: {risk_multiplier:.2f}\n"
         f"Вероятность TP: {float(decision.get('probability_tp') or 0.0) * 100:.1f}%\n"
         f"Вероятность SL: {float(decision.get('probability_sl') or 0.0) * 100:.1f}%\n"
@@ -697,6 +758,7 @@ def main() -> int:
                 decision = apply_capital_allocator(cur, candidate, decision)
                 decision = apply_net_trade_evaluation(cur, candidate, decision)
                 decision = apply_trade_quality_score(candidate, decision)
+                decision = apply_risk_per_trade_sizing(cur, candidate, decision)
 
                 save_runtime_analysis(cur, candidate, decision)
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
