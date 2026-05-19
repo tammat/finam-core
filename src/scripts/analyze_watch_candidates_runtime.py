@@ -240,6 +240,19 @@ def apply_correlation_filter(cur, candidate: dict, decision: dict, max_per_group
     return decision
 
 
+
+def strategy_display_name(strategy: str) -> str:
+    """Русский комментарий: человекочитаемые названия стратегий."""
+    mapping = {
+        "MEAN_REVERSION_EQUITY": "Отскок после снижения",
+        "VOLATILITY_BREAKOUT_EQUITY": "Пробой волатильности",
+        "TREND_FOLLOWING": "Следование за трендом",
+        "MOMENTUM_BREAKOUT": "Импульсный пробой",
+        "RANGE_REVERSION": "Возврат к диапазону",
+    }
+
+    return mapping.get(strategy, strategy)
+
 def load_latest_portfolio_context(cur) -> dict:
     """Русский комментарий: читает последний снимок портфеля для расчёта допустимого капитала."""
     cur.execute(
@@ -586,7 +599,7 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
         f"Инструмент: {candidate['symbol']}\n"
         f"Название: {candidate.get('name') or candidate.get('short_name') or 'UNKNOWN'}\n"
         f"Название: {candidate.get('name', 'UNKNOWN')}\n"
-        f"Стратегия: {candidate['strategy']}\n"
+        f"Стратегия: {strategy_display_name(candidate['strategy'])}\n"
         f"Режим: {candidate['regime']}\n\n"
         f"Точка входа: {decision['entry_price']}\n"
         f"Стоп-лосс: {decision['stop_loss']}\n"
