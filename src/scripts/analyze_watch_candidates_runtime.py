@@ -584,6 +584,8 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
     text = (
         "🚨 Торговый ALERT\n\n"
         f"Инструмент: {candidate['symbol']}\n"
+        f"Название: {candidate.get('name') or candidate.get('short_name') or 'UNKNOWN'}\n"
+        f"Название: {candidate.get('name', 'UNKNOWN')}\n"
         f"Стратегия: {candidate['strategy']}\n"
         f"Режим: {candidate['regime']}\n\n"
         f"Точка входа: {decision['entry_price']}\n"
