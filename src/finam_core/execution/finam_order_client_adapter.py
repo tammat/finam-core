@@ -48,14 +48,26 @@ class FinamOrderClientAdapter:
         else:
             return FinamOrderResult(False, None, "client_has_no_order_method")
 
+        print(f"FINAM_ORDER_RAW_RESULT type={type(result)} result={result}", flush=True)
+
         broker_order_id = None
 
         if isinstance(result, dict):
+            status = str(result.get("status") or "").upper()
+            reason = str(result.get("reason") or "")
+
             broker_order_id = (
                 result.get("order_id")
                 or result.get("broker_order_id")
                 or result.get("transaction_id")
             )
+
+            if status in {"REJECTED", "FAILED", "ERROR"}:
+                return FinamOrderResult(
+                    ok=False,
+                    broker_order_id=None,
+                    reason=reason or status,
+                )
         else:
             broker_order_id = str(result) if result is not None else None
 
