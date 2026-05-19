@@ -56,7 +56,8 @@ def main() -> int:
                     i.symbol,
                     i.side,
                     i.planned_qty,
-                    coalesce(i.planned_price, (q.raw_json->>'entry_price')::numeric) as planned_price
+                    coalesce(i.planned_price, (q.raw_json->>'entry_price')::numeric) as planned_price,
+                    coalesce(i.raw_json->>'order_type', q.raw_json->>'order_type', 'limit') as order_type
                 from execution_intents i
                 left join portfolio_execution_queue q
                     on q.id = i.queue_id
@@ -66,7 +67,7 @@ def main() -> int:
                 limit 10
             """)
 
-            for intent_id, queue_id, symbol, side, qty, planned_price in cur.fetchall():
+            for intent_id, queue_id, symbol, side, qty, planned_price, order_type in cur.fetchall():
                 processed += 1
 
                 decision = adapter.validate(
@@ -75,7 +76,7 @@ def main() -> int:
                     qty=float(qty or 0),
                     max_qty=max_qty,
                     max_position_value=max_position_value,
-                    planned_price=float(planned_price or 0),
+                    planned_price=float(planned_price or 1 if str(order_type).lower() == "market" else planned_price or 0),
                     kill_switch=kill_switch,
                 )
 
@@ -130,18 +131,40 @@ def main() -> int:
                 if float(qty or 0) > 1:
                     raise RuntimeError(f"FIRST_REAL_ORDER qty too high: {qty}")
 
-                if float(planned_price or 0) <= 0:
-                    raise RuntimeError("FIRST_REAL_ORDER planned_price<=0")
+                if str(order_type).lower() != "market":
+                    if float(planned_price or 0) <= 0:
+                        raise RuntimeError("FIRST_REAL_ORDER planned_price<=0")
 
-                if float(planned_price or 0) > float(os.getenv("FIRST_REAL_ORDER_MAX_VALUE", "3000")):
-                    raise RuntimeError(f"FIRST_REAL_ORDER planned_price too high: {planned_price}")
+                    if float(planned_price or 0) > float(os.getenv("FIRST_REAL_ORDER_MAX_VALUE", "3000")):
+                        raise RuntimeError(f"FIRST_REAL_ORDER planned_price too high: {planned_price}")
 
                 client = build_finam_order_client()
-                order_result = FinamOrderClientAdapter(client).place_buy_limit(
-                    symbol=str(symbol),
-                    qty=float(qty or 0),
-                    price=float(planned_price or 0),
-                )
+
+                if str(order_type).lower() == "market":
+                    if os.getenv("REAL_BUY_MARKET_ENABLED", "0") != "1":
+                        raise RuntimeError("REAL_BUY_MARKET_ENABLED is not enabled")
+
+                    import signal
+
+                    def _market_timeout_handler(signum, frame):
+                        raise TimeoutError("real_buy_market_order_timeout")
+
+                    signal.signal(signal.SIGALRM, _market_timeout_handler)
+                    signal.alarm(int(os.getenv("REAL_MARKET_ORDER_TIMEOUT_SEC", "15")))
+
+                    try:
+                        order_result = FinamOrderClientAdapter(client).place_buy_market(
+                            symbol=str(symbol),
+                            qty=float(qty or 0),
+                        )
+                    finally:
+                        signal.alarm(0)
+                else:
+                    order_result = FinamOrderClientAdapter(client).place_buy_limit(
+                        symbol=str(symbol),
+                        qty=float(qty or 0),
+                        price=float(planned_price or 0),
+                    )
 
                 if not order_result.ok:
                     cur.execute("""
