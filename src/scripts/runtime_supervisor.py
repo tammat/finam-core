@@ -52,6 +52,14 @@ def log_age_minutes(path: str) -> float | None:
     return (datetime.now(timezone.utc) - mtime).total_seconds() / 60.0
 
 
+
+def run_restore_check() -> tuple[bool, str]:
+    code, out = run_cmd([
+        "/opt/finam-core/venv/bin/python",
+        "src/scripts/restore_runtime_state.py",
+    ])
+    return code == 0, out
+
 def main() -> int:
     max_log_age_min = float(os.getenv("RUNTIME_SUPERVISOR_MAX_LOG_AGE_MIN", "30"))
     send_ok = os.getenv("RUNTIME_SUPERVISOR_SEND_OK", "0") == "1"
@@ -69,6 +77,12 @@ def main() -> int:
     problems: list[str] = []
     recoveries: list[str] = []
     ok_lines: list[str] = []
+
+    restore_ok, restore_out = run_restore_check()
+    if restore_ok:
+        ok_lines.append(f"✅ restore check: {restore_out}")
+    else:
+        problems.append(f"🛑 restore check failed: {restore_out}")
 
     for unit in SERVICES:
         if is_active(unit):
