@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from finam_core.notifications.telegram_notifier import TelegramNotifier
 from finam_core.runtime.runtime_decision_digest import build_runtime_digest
 from finam_core.runtime.runtime_capital_allocator import RuntimeCapitalAllocator
+from finam_core.runtime.signal_probability_estimator import SignalProbabilityEstimator
+from finam_core.runtime.net_trade_evaluator import NetTradeEvaluator
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -308,6 +310,106 @@ def apply_capital_allocator(cur, candidate: dict, decision: dict) -> dict:
 
     return decision
 
+
+def estimate_signal_probability(cur, candidate: dict) -> dict:
+    """Русский комментарий: оценивает вероятность TP/SL по истории signal_lifecycle."""
+    strategy = str(candidate.get("strategy") or "")
+    regime = str(candidate.get("regime") or "")
+
+    cur.execute(
+        """
+        select
+            count(*) filter (where close_reason = 'TAKE_PROFIT') as tp_hits,
+            count(*) filter (where close_reason = 'STOP_LOSS') as sl_hits,
+            count(*) filter (where state = 'EXPIRED' or close_reason = 'TIME_EXPIRED') as expired
+        from signal_lifecycle
+        where strategy = %s
+          and regime = %s
+          and state in ('CLOSED','EXPIRED')
+        """,
+        (strategy, regime),
+    )
+
+    row = cur.fetchone()
+    tp_hits = int(row[0] or 0)
+    sl_hits = int(row[1] or 0)
+    expired = int(row[2] or 0)
+
+    probability = SignalProbabilityEstimator().estimate(
+        tp_hits=tp_hits,
+        sl_hits=sl_hits,
+        expired=expired,
+    )
+
+    # Русский комментарий: если истории мало, используем консервативный baseline.
+    if probability.sample_size < 10:
+        return {
+            "probability_tp": 0.50,
+            "probability_sl": 0.45,
+            "probability_expire": 0.05,
+            "probability_sample_size": probability.sample_size,
+            "probability_source": "baseline_low_sample",
+        }
+
+    return {
+        "probability_tp": probability.probability_tp,
+        "probability_sl": probability.probability_sl,
+        "probability_expire": probability.probability_expire,
+        "probability_sample_size": probability.sample_size,
+        "probability_source": "signal_lifecycle_history",
+    }
+
+
+def apply_net_trade_evaluation(cur, candidate: dict, decision: dict) -> dict:
+    """Русский комментарий: добавляет вероятность, комиссии, налог и чистое матожидание."""
+    if decision.get("decision") != "ALERT":
+        return decision
+
+    entry = float(decision.get("entry_price") or 0.0)
+    stop = float(decision.get("stop_loss") or 0.0)
+    take = float(decision.get("take_profit") or 0.0)
+    max_position_value = float(decision.get("max_position_value") or 0.0)
+
+    if entry <= 0 or stop <= 0 or take <= 0 or max_position_value <= 0:
+        return decision
+
+    qty = int(max_position_value / entry)
+    if qty <= 0:
+        decision = dict(decision)
+        decision["decision"] = "WATCH"
+        decision["reason"] = "net_trade_evaluator: qty<=0"
+        return decision
+
+    prob = estimate_signal_probability(cur, candidate)
+
+    evaluation = NetTradeEvaluator().evaluate(
+        entry_price=entry,
+        stop_loss=stop,
+        take_profit=take,
+        qty=qty,
+        probability_tp=float(prob["probability_tp"]),
+        probability_sl=float(prob["probability_sl"]),
+    )
+
+    decision = dict(decision)
+    decision["recommended_qty"] = qty
+    decision.update(prob)
+    decision["gross_profit"] = evaluation.gross_profit
+    decision["gross_loss"] = evaluation.gross_loss
+    decision["commissions"] = evaluation.commissions
+    decision["estimated_tax"] = evaluation.estimated_tax
+    decision["slippage_cost"] = evaluation.slippage_cost
+    decision["net_take_profit"] = evaluation.net_take_profit
+    decision["net_stop_loss"] = evaluation.net_stop_loss
+    decision["expected_value"] = evaluation.expected_value
+    decision["expected_value_pct"] = evaluation.expected_value_pct
+
+    if evaluation.expected_value <= 0:
+        decision["decision"] = "WATCH"
+        decision["reason"] = f"net_trade_evaluator: expected_value<=0; ev={evaluation.expected_value}"
+
+    return decision
+
 def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
     payload = {
         "source_analysis_id": candidate["analysis_id"],
@@ -491,7 +593,16 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
         "Условие входа: покупать только при пробое уровня входа, не по рынку.\n\n"
         f"Максимум позиции: {max_position_value:.2f} ₽\n"
         f"Рекомендуемый объём: {recommended_qty} шт\n"
-        f"Множитель риска: {risk_multiplier:.2f}\n\n"
+        f"Множитель риска: {risk_multiplier:.2f}\n"
+        f"Вероятность TP: {float(decision.get('probability_tp') or 0.0) * 100:.1f}%\n"
+        f"Вероятность SL: {float(decision.get('probability_sl') or 0.0) * 100:.1f}%\n"
+        f"Выборка: {int(decision.get('probability_sample_size') or 0)}\n"
+        f"Чистый TP: {float(decision.get('net_take_profit') or 0.0):.2f} ₽\n"
+        f"Чистый SL: {float(decision.get('net_stop_loss') or 0.0):.2f} ₽\n"
+        f"Матожидание: {float(decision.get('expected_value') or 0.0):.2f} ₽ "
+        f"({float(decision.get('expected_value_pct') or 0.0):.2f}%)\n"
+        f"Комиссии: {float(decision.get('commissions') or 0.0):.2f} ₽\n"
+        f"Налог: {float(decision.get('estimated_tax') or 0.0):.2f} ₽\n\n"
         f"Причина: {decision['reason']}"
     )
 
@@ -543,6 +654,7 @@ def main() -> int:
                         decision["reason"] = f"portfolio_filter: {portfolio_decision.reason}"
 
                 decision = apply_capital_allocator(cur, candidate, decision)
+                decision = apply_net_trade_evaluation(cur, candidate, decision)
 
                 save_runtime_analysis(cur, candidate, decision)
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
