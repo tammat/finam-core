@@ -1,0 +1,19 @@
+[Unit]
+Description=Finam Core Runtime State Snapshot
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env.paper_safe
+
+User=alex
+Group=alex
+
+ExecStart=/opt/finam-core/venv/bin/python \
+  src/scripts/save_runtime_state_snapshot.py
+
+StandardOutput=append:/opt/finam-core/logs/runtime_state_snapshot.log
+StandardError=append:/opt/finam-core/logs/runtime_state_snapshot.log
