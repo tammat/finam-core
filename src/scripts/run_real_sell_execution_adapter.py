@@ -103,17 +103,64 @@ def main() -> int:
                     )
 
                 client = build_finam_order_client()
-                order_result = FinamOrderClientAdapter(client).place_buy_limit(
+                order_result = FinamOrderClientAdapter(client).place_sell_limit(
                     symbol=str(symbol),
                     qty=float(qty or 0),
                     price=float(planned_price or 0),
                 )
 
-                # Русский комментарий:
-                # В v1 FinamOrderClientAdapter пока BUY-only методом.
-                # Поэтому реальную SELL-отправку намеренно блокируем до добавления place_sell_limit.
-                raise RuntimeError(
-                    "REAL SELL live call blocked: add FinamOrderClientAdapter.place_sell_limit first."
+                print(
+                    f"FINAM_SELL_RAW_RESULT type={type(order_result)} result={order_result}",
+                    flush=True,
+                )
+
+                if not order_result.ok:
+
+                    blocked += 1
+
+                    cur.execute("""
+                        update execution_intents
+                        set
+                            updated_at = now(),
+                            intent_state = 'REJECTED',
+                            reason = %s
+                        where id = %s
+                    """, (
+                        f"real_sell_rejected:{order_result.reason}",
+                        intent_id,
+                    ))
+
+                    print(
+                        f"REAL_SELL_REJECTED intent_id={intent_id} "
+                        f"symbol={symbol} reason={order_result.reason}",
+                        flush=True,
+                    )
+
+                    continue
+
+                broker_order_id = str(order_result.broker_order_id)
+
+                cur.execute("""
+                    update execution_intents
+                    set
+                        updated_at = now(),
+                        intent_state = 'SENT',
+                        broker_order_id = %s,
+                        reason = 'real_sell_sent'
+                    where id = %s
+                """, (
+                    broker_order_id,
+                    intent_id,
+                ))
+
+                sent += 1
+
+                print(
+                    f"REAL_SELL_SENT intent_id={intent_id} "
+                    f"symbol={symbol} qty={qty} "
+                    f"price={planned_price} "
+                    f"broker_order_id={broker_order_id}",
+                    flush=True,
                 )
 
     print(
