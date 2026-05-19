@@ -15,6 +15,21 @@ class RealOrderStateSynchronizer:
     def map_broker_status(self, *, broker_status: str) -> OrderStateSyncDecision:
         status = str(broker_status or "").upper()
 
+        if status == "1":
+            return OrderStateSyncDecision("ACK", "broker_status=ORDER_STATUS_NEW")
+
+        if status == "2":
+            return OrderStateSyncDecision("PARTIAL_FILL", "broker_status=ORDER_STATUS_PARTIALLY_FILLED")
+
+        if status in {"3", "22"}:
+            return OrderStateSyncDecision("FILLED", "broker_status=ORDER_STATUS_FILLED_OR_EXECUTED")
+
+        if status == "5":
+            return OrderStateSyncDecision("CANCELLED", "broker_status=ORDER_STATUS_CANCELED")
+
+        if status in {"9", "16", "19", "20"}:
+            return OrderStateSyncDecision("REJECTED", f"broker_status={status}")
+
         if status in {"NEW", "ACTIVE", "WORKING", "ACCEPTED"}:
             return OrderStateSyncDecision("ACK", f"broker_status={status}")
 
