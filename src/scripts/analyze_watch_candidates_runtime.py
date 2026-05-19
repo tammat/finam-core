@@ -17,6 +17,7 @@ from finam_core.runtime.capital_growth_mode import CapitalGrowthMode
 from finam_core.runtime.risk_per_trade_sizing import RiskPerTradeSizer
 from finam_core.runtime.capital_growth_profile import CapitalGrowthProfile
 from finam_core.runtime.capital_growth_daily_loss_guard import CapitalGrowthDailyLossGuard
+from finam_core.runtime.capital_growth_portfolio_governor import CapitalGrowthPortfolioGovernor
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -494,6 +495,38 @@ def load_daily_loss_guard_context(cur) -> dict:
         "daily_loss_limit_pct": decision.limit_pct,
     }
 
+
+def load_capital_growth_governor_context(cur) -> dict:
+    """Русский комментарий: проверяет лимит активных growth-сделок по профилю."""
+    import os
+
+    profile = CapitalGrowthProfile().load(
+        os.getenv("CAPITAL_GROWTH_PROFILE", "growth")
+    )
+
+    cur.execute(
+        """
+        select count(*)
+        from execution_intents
+        where intent_state in ('SENT','ACK','PARTIAL_FILL','FILLED')
+          and coalesce(raw_json->>'capital_growth_mode','') <> ''
+        """
+    )
+
+    active_growth_trades = int(cur.fetchone()[0] or 0)
+
+    decision = CapitalGrowthPortfolioGovernor().check(
+        active_growth_trades=active_growth_trades,
+        max_active_growth_trades=profile.max_active_growth_trades,
+    )
+
+    return {
+        "growth_governor_allowed": decision.allowed,
+        "active_growth_trades": decision.active_growth_trades,
+        "max_active_growth_trades": decision.max_active_growth_trades,
+        "growth_governor_reason": decision.reason,
+    }
+
 def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     """Русский комментарий: пересчитывает qty через риск до стопа, а не только через капитал."""
     if decision.get("decision") != "ALERT":
@@ -506,6 +539,17 @@ def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     portfolio_heat = margin_utilization_pct / 100.0
 
     daily_loss = load_daily_loss_guard_context(cur)
+    governor = load_capital_growth_governor_context(cur)
+
+    if not bool(governor.get("growth_governor_allowed")):
+        decision = dict(decision)
+        decision["decision"] = "WATCH"
+        decision["growth_governor_allowed"] = governor.get("growth_governor_allowed")
+        decision["active_growth_trades"] = governor.get("active_growth_trades")
+        decision["max_active_growth_trades"] = governor.get("max_active_growth_trades")
+        decision["growth_governor_reason"] = governor.get("growth_governor_reason")
+        decision["reason"] = f"capital_growth_governor: {governor.get('growth_governor_reason')}"
+        return decision
 
     growth = CapitalGrowthMode().decide(
         trade_quality_grade=str(decision.get("trade_quality_grade") or "D"),
@@ -530,6 +574,14 @@ def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     decision["daily_loss_pct"] = daily_loss.get("daily_loss_pct")
     decision["daily_loss_limit_pct"] = daily_loss.get("daily_loss_limit_pct")
     decision["daily_loss_reason"] = daily_loss.get("daily_loss_reason")
+    decision["growth_governor_allowed"] = governor.get("growth_governor_allowed")
+    decision["active_growth_trades"] = governor.get("active_growth_trades")
+    decision["max_active_growth_trades"] = governor.get("max_active_growth_trades")
+    decision["growth_governor_reason"] = governor.get("growth_governor_reason")
+    decision["growth_governor_allowed"] = governor.get("growth_governor_allowed")
+    decision["active_growth_trades"] = governor.get("active_growth_trades")
+    decision["max_active_growth_trades"] = governor.get("max_active_growth_trades")
+    decision["growth_governor_reason"] = governor.get("growth_governor_reason")
 
     size = RiskPerTradeSizer().size(
         equity=equity,
