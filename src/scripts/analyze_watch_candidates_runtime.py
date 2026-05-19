@@ -12,6 +12,7 @@ from finam_core.runtime.runtime_decision_digest import build_runtime_digest
 from finam_core.runtime.runtime_capital_allocator import RuntimeCapitalAllocator
 from finam_core.runtime.signal_probability_estimator import SignalProbabilityEstimator
 from finam_core.runtime.net_trade_evaluator import NetTradeEvaluator
+from finam_core.runtime.institutional_trade_quality_score import InstitutionalTradeQualityScorer
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -423,6 +424,29 @@ def apply_net_trade_evaluation(cur, candidate: dict, decision: dict) -> dict:
 
     return decision
 
+
+def apply_trade_quality_score(candidate: dict, decision: dict) -> dict:
+    """Русский комментарий: добавляет итоговый institutional score к ALERT."""
+    if decision.get("decision") != "ALERT":
+        return decision
+
+    score = InstitutionalTradeQualityScorer().score(
+        probability_tp=float(decision.get("probability_tp") or 0.0),
+        probability_sl=float(decision.get("probability_sl") or 0.0),
+        expected_value_pct=float(decision.get("expected_value_pct") or 0.0),
+        risk_reward=float(decision.get("risk_reward") or 0.0),
+        signal_score=float(candidate.get("score") or 0.0),
+        correlation_pressure=int(decision.get("active_group_alerts") or 0),
+        risk_multiplier=float(decision.get("risk_multiplier") or 0.0),
+    )
+
+    decision = dict(decision)
+    decision["trade_quality_score"] = score.score
+    decision["trade_quality_grade"] = score.grade
+    decision["trade_quality_reason"] = score.reason
+
+    return decision
+
 def save_runtime_analysis(cur, candidate: dict, decision: dict) -> None:
     payload = {
         "source_analysis_id": candidate["analysis_id"],
@@ -616,6 +640,8 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
         f"Чистый SL: {float(decision.get('net_stop_loss') or 0.0):.2f} ₽\n"
         f"Матожидание: {float(decision.get('expected_value') or 0.0):.2f} ₽ "
         f"({float(decision.get('expected_value_pct') or 0.0):.2f}%)\n"
+        f"Качество сделки: {decision.get('trade_quality_grade', 'N/A')} "
+        f"({float(decision.get('trade_quality_score') or 0.0):.1f}/100)\n"
         f"Комиссии: {float(decision.get('commissions') or 0.0):.2f} ₽\n"
         f"Налог: {float(decision.get('estimated_tax') or 0.0):.2f} ₽\n\n"
         f"Причина: {decision['reason']}"
@@ -670,6 +696,7 @@ def main() -> int:
 
                 decision = apply_capital_allocator(cur, candidate, decision)
                 decision = apply_net_trade_evaluation(cur, candidate, decision)
+                decision = apply_trade_quality_score(candidate, decision)
 
                 save_runtime_analysis(cur, candidate, decision)
                 alerts += send_alert_if_any(cur, notifier, candidate, decision, alert_ttl_minutes)
