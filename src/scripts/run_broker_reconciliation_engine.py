@@ -66,6 +66,27 @@ def main() -> int:
                 if issue:
                     issues.append(issue)
 
+
+            cur.execute("""
+                select
+                    coalesce(source, 'UNKNOWN') as source,
+                    count(*) as positions,
+                    sum(abs(qty)) as total_qty
+                from real_portfolio_positions
+                where coalesce(qty, 0) <> 0
+                group by coalesce(source, 'UNKNOWN')
+                order by positions desc
+            """)
+
+            for source, positions, total_qty in cur.fetchall():
+                print(
+                    "BROKER_RECONCILIATION_SUMMARY "
+                    f"source={source} "
+                    f"positions={positions} "
+                    f"total_qty={total_qty}",
+                    flush=True,
+                )
+
             inserted = 0
 
             for issue in issues:

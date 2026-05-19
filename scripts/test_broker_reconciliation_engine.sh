@@ -42,3 +42,6 @@ assert ok is None
 
 print("OK: broker reconciliation engine")
 PY
+
+grep -q "BROKER_RECONCILIATION_SUMMARY" src/scripts/run_broker_reconciliation_engine.py
+echo "OK: broker reconciliation summary"
