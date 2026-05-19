@@ -18,6 +18,22 @@ def main() -> int:
     max_position_value = float(os.getenv("REAL_BUY_MAX_POSITION_VALUE", "30000"))
 
     conn = psycopg2.connect(dsn)
+
+    with conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                select exists (
+                    select 1
+                    from runtime_risk_freeze
+                    where is_active = true
+                      and created_at >= now() - interval '24 hours'
+                )
+            """)
+            db_freeze = bool(cur.fetchone()[0])
+
+    if db_freeze:
+        kill_switch = True
+
     adapter = RealBuyExecutionAdapter()
 
     processed = 0
