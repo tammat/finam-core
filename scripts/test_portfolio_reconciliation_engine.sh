@@ -40,3 +40,8 @@ assert e.check_orphan_lifecycle(
 
 print("OK: portfolio reconciliation engine")
 PY
+
+grep -q "paper_execution_bridge" src/scripts/run_portfolio_reconciliation_engine.py
+grep -q "is_runtime_owned" src/scripts/run_portfolio_reconciliation_engine.py
+
+echo "OK: portfolio reconciliation ownership filtering"

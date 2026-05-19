@@ -45,6 +45,7 @@ def main() -> int:
                     p.symbol,
                     coalesce(p.qty, 0) as position_qty,
                     coalesce(l.remaining_qty, 0) as lifecycle_qty,
+                    coalesce(p.source, '') as position_source,
                     exists(
                         select 1
                         from position_lifecycle_state x
@@ -60,26 +61,31 @@ def main() -> int:
                     symbol,
                     position_qty,
                     lifecycle_qty,
+                    position_source,
                     lifecycle_exists,
                 ) = row
 
-                issue = engine.check_position_vs_lifecycle(
-                    symbol=symbol,
-                    position_qty=float(position_qty),
-                    lifecycle_qty=float(lifecycle_qty),
-                )
+                # Русский комментарий: ручные/внешние брокерские позиции не считаем ошибкой lifecycle.
+                is_runtime_owned = str(position_source) == "paper_execution_bridge"
 
-                if issue:
-                    issues.append(issue)
+                if is_runtime_owned:
+                    issue = engine.check_position_vs_lifecycle(
+                        symbol=symbol,
+                        position_qty=float(position_qty),
+                        lifecycle_qty=float(lifecycle_qty),
+                    )
 
-                issue = engine.check_orphan_position(
-                    symbol=symbol,
-                    position_qty=float(position_qty),
-                    lifecycle_exists=bool(lifecycle_exists),
-                )
+                    if issue:
+                        issues.append(issue)
 
-                if issue:
-                    issues.append(issue)
+                    issue = engine.check_orphan_position(
+                        symbol=symbol,
+                        position_qty=float(position_qty),
+                        lifecycle_exists=bool(lifecycle_exists),
+                    )
+
+                    if issue:
+                        issues.append(issue)
 
             cur.execute("""
                 select
@@ -126,12 +132,17 @@ def main() -> int:
             cur.execute("""
                 select
                     symbol,
-                    qty
+                    qty,
+                    coalesce(source, '') as source
                 from real_portfolio_positions
             """)
 
             for row in cur.fetchall():
-                symbol, position_qty = row
+                symbol, position_qty, position_source = row
+
+                # Русский комментарий: execution mismatch проверяем только для runtime-owned paper positions.
+                if str(position_source) != "paper_execution_bridge":
+                    continue
 
                 executed_qty = execution_map.get(symbol, 0.0)
 
