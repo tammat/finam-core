@@ -81,6 +81,7 @@ def main() -> int:
                 select count(*)
                 from portfolio_reconciliation_events
                 where severity = 'HIGH'
+                  and coalesce(is_archived, false) = false
                   and created_at >= now() - interval '60 minutes'
             """)
 
