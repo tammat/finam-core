@@ -4,6 +4,7 @@ import os
 import psycopg2
 
 from finam_core.execution.real_order_state_synchronizer import RealOrderStateSynchronizer
+from finam_core.execution.finam_order_status_adapter import FinamOrderStatusAdapter
 
 
 def main() -> int:
@@ -50,10 +51,16 @@ def main() -> int:
                     continue
 
                 # Русский комментарий:
-                # Здесь будет вызов реального client.get_order_status(broker_order_id).
-                # До подключения конкретного метода брокера оставляем синхронизацию заблокированной.
+                # Adapter подключён архитектурно, но реальный client пока не создаём здесь.
+                # Перед включением нужно явно передать/создать Finam client.
+                if os.getenv("REAL_ORDER_STATUS_CLIENT_WIRING_CONFIRMED", "0") != "1":
+                    raise RuntimeError(
+                        "REAL ORDER STATUS client wiring is not confirmed; "
+                        "set REAL_ORDER_STATUS_CLIENT_WIRING_CONFIRMED=1 only after final method check."
+                    )
+
                 raise RuntimeError(
-                    "REAL_ORDER_STATE_SYNC_ENABLED=1 but broker get_order_status is not wired yet"
+                    "REAL ORDER STATUS sync is still blocked in v1 scaffold."
                 )
 
                 # broker_status = client.get_order_status(...)
