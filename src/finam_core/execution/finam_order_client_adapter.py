@@ -35,7 +35,7 @@ class FinamOrderClientAdapter:
                 symbol=symbol,
                 side="BUY",
                 qty=qty,
-                price=price,
+                limit_price=price,
             )
         elif hasattr(self.client, "place_order"):
             result = self.client.place_order(

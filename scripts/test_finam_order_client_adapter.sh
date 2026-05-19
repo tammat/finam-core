@@ -12,6 +12,7 @@ from finam_core.execution.finam_order_client_adapter import FinamOrderClientAdap
 class Client:
     def place_limit_order(self, **kwargs):
         assert kwargs["side"] == "BUY"
+        assert kwargs["limit_price"] == 300
         return {"order_id": "TEST123"}
 
 
