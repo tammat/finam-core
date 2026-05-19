@@ -144,6 +144,21 @@ def main() -> int:
                     if os.getenv("REAL_BUY_MARKET_ENABLED", "0") != "1":
                         raise RuntimeError("REAL_BUY_MARKET_ENABLED is not enabled")
 
+                    cur.execute("""
+                        update execution_intents
+                        set
+                            updated_at = now(),
+                            intent_state = 'SENDING',
+                            reason = 'real_buy_market_pre_persist_before_broker_call'
+                        where id = %s
+                    """, (intent_id,))
+
+                    print(
+                        f"REAL_BUY_MARKET_PRE_PERSIST intent_id={intent_id} "
+                        f"symbol={symbol} qty={qty}",
+                        flush=True,
+                    )
+
                     import signal
 
                     def _market_timeout_handler(signum, frame):
