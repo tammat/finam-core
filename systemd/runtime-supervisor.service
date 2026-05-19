@@ -1,0 +1,21 @@
+[Unit]
+Description=Finam Core Runtime Supervisor Health Check
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env.paper_safe
+Environment=RUNTIME_SUPERVISOR_SEND_OK=0
+Environment=RUNTIME_SUPERVISOR_MAX_LOG_AGE_MIN=30
+
+User=alex
+Group=alex
+
+ExecStart=/opt/finam-core/venv/bin/python \
+  src/scripts/runtime_supervisor.py
+
+StandardOutput=append:/opt/finam-core/logs/runtime_supervisor.log
+StandardError=append:/opt/finam-core/logs/runtime_supervisor.log
