@@ -4,6 +4,7 @@ import os
 import psycopg2
 
 from finam_core.execution.real_buy_execution_adapter import RealBuyExecutionAdapter
+from finam_core.execution.finam_order_client_adapter import FinamOrderClientAdapter
 
 
 def main() -> int:
@@ -107,11 +108,16 @@ def main() -> int:
                     continue
 
                 # Русский комментарий:
-                # Здесь будет вызов реального Finam client.place_market_buy/place_limit_buy.
-                # До подключения конкретного client API запрещаем фактическую отправку.
+                # Adapter уже подключён архитектурно, но реальная отправка намеренно заблокирована
+                # до финальной проверки сигнатуры Finam client и отдельного боевого флага.
+                if os.getenv("REAL_BUY_CLIENT_WIRING_CONFIRMED", "0") != "1":
+                    raise RuntimeError(
+                        "REAL BUY client wiring is not confirmed; "
+                        "set REAL_BUY_CLIENT_WIRING_CONFIRMED=1 only after final method check."
+                    )
+
                 raise RuntimeError(
-                    "REAL BUY client call is not wired yet; "
-                    "connect Finam order client explicitly before enabling."
+                    "REAL BUY order placement is still blocked in v1 scaffold."
                 )
 
     print(
