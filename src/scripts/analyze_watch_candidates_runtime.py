@@ -471,6 +471,14 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
     if not should_send_alert(cur, candidate, decision, ttl_minutes):
         return 0
 
+    max_position_value = float(decision.get("max_position_value") or 0.0)
+    risk_multiplier = float(decision.get("risk_multiplier") or 0.0)
+    entry_price = float(decision.get("entry_price") or 0.0)
+
+    recommended_qty = 0
+    if entry_price > 0 and max_position_value > 0:
+        recommended_qty = int(max_position_value / entry_price)
+
     text = (
         "🚨 Торговый ALERT\n\n"
         f"Инструмент: {candidate['symbol']}\n"
@@ -481,6 +489,9 @@ def send_alert_if_any(cur, notifier: TelegramNotifier, candidate: dict, decision
         f"Тейк-профит: {decision['take_profit']}\n"
         f"Risk/Reward: {decision['risk_reward']}\n\n"
         "Условие входа: покупать только при пробое уровня входа, не по рынку.\n\n"
+        f"Максимум позиции: {max_position_value:.2f} ₽\n"
+        f"Рекомендуемый объём: {recommended_qty} шт\n"
+        f"Множитель риска: {risk_multiplier:.2f}\n\n"
         f"Причина: {decision['reason']}"
     )
 
