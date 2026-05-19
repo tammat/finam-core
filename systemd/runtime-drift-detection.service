@@ -1,0 +1,23 @@
+[Unit]
+Description=Finam Runtime Drift Detection
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env.paper_safe
+
+Environment=RUNTIME_DRIFT_WATCHLIST_DROP_PCT=70
+Environment=RUNTIME_DRIFT_SIGNAL_DROP_PCT=80
+Environment=RUNTIME_DRIFT_STALE_SNAPSHOT_MINUTES=20
+
+User=alex
+Group=alex
+
+ExecStart=/opt/finam-core/venv/bin/python \
+  src/scripts/runtime_drift_detection.py
+
+StandardOutput=append:/opt/finam-core/logs/runtime_drift_detection.log
+StandardError=append:/opt/finam-core/logs/runtime_drift_detection.log
