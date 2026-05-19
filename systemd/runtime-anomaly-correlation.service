@@ -1,0 +1,22 @@
+[Unit]
+Description=Finam Runtime Anomaly Correlation
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env.paper_safe
+
+Environment=ANOMALY_CORRELATION_SIGNAL_THRESHOLD=2
+Environment=ANOMALY_CORRELATION_WATCHLIST_THRESHOLD=3
+
+User=alex
+Group=alex
+
+ExecStart=/opt/finam-core/venv/bin/python \
+  src/scripts/runtime_anomaly_correlation.py
+
+StandardOutput=append:/opt/finam-core/logs/runtime_anomaly_correlation.log
+StandardError=append:/opt/finam-core/logs/runtime_anomaly_correlation.log
