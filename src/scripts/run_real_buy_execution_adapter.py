@@ -157,6 +157,28 @@ def main() -> int:
                             symbol=str(symbol),
                             qty=float(qty or 0),
                         )
+                    except TimeoutError as exc:
+                        cur.execute("""
+                            update execution_intents
+                            set
+                                updated_at = now(),
+                                intent_state = 'RECONCILE_REQUIRED',
+                                reason = %s
+                            where id = %s
+                        """, (
+                            f"real_buy_market_timeout_reconcile_required:{exc}",
+                            intent_id,
+                        ))
+
+                        blocked += 1
+
+                        print(
+                            f"REAL_BUY_MARKET_TIMEOUT_RECONCILE_REQUIRED "
+                            f"intent_id={intent_id} symbol={symbol} qty={qty} reason={exc}",
+                            flush=True,
+                        )
+
+                        continue
                     finally:
                         signal.alarm(0)
                 else:
