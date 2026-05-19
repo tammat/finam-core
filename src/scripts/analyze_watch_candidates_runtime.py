@@ -113,9 +113,11 @@ def build_trade_setup(candidate: dict, price: float) -> dict:
         }
 
     if "MEAN_REVERSION" in strategy or "OVERSOLD" in regime.upper():
+        # Русский комментарий: MeanReversionSetup v2 — более сбалансированный RR.
+        # Вход по текущей цене, короткий защитный стоп, цель на технический отскок.
         entry = price
-        stop = price * 0.970
-        take = price * 1.025
+        stop = price * 0.985
+        take = price * 1.030
         setup_name = "отскок после снижения"
     elif "BREAKOUT" in strategy or "TREND" in regime.upper():
         entry = price * 1.002
