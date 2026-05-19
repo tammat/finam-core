@@ -18,6 +18,7 @@ from finam_core.runtime.risk_per_trade_sizing import RiskPerTradeSizer
 from finam_core.runtime.capital_growth_profile import CapitalGrowthProfile
 from finam_core.runtime.capital_growth_daily_loss_guard import CapitalGrowthDailyLossGuard
 from finam_core.runtime.capital_growth_portfolio_governor import CapitalGrowthPortfolioGovernor
+from finam_core.runtime.adaptive_capital_allocator_v2 import AdaptiveCapitalAllocatorV2
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -526,6 +527,38 @@ def load_capital_growth_governor_context(cur) -> dict:
         "max_active_growth_trades": decision.max_active_growth_trades,
         "growth_governor_reason": decision.reason,
     }
+
+
+def apply_adaptive_capital_allocator(
+    decision: dict,
+    *,
+    market_breadth: float,
+    runtime_stress_level: str,
+    portfolio_drawdown_pct: float,
+    correlation_pressure: float,
+    runtime_regime: str,
+) -> dict:
+
+    alloc = AdaptiveCapitalAllocatorV2().decide(
+        trade_quality_score=float(decision.get("trade_quality_score") or 0),
+        expected_value=float(decision.get("expected_value") or 0),
+        probability_tp=float(decision.get("probability_tp") or 0),
+        probability_sl=float(decision.get("probability_sl") or 0),
+        market_breadth=market_breadth,
+        runtime_stress_level=runtime_stress_level,
+        portfolio_drawdown_pct=portfolio_drawdown_pct,
+        correlation_pressure=correlation_pressure,
+        runtime_regime=runtime_regime,
+    )
+
+    decision = dict(decision)
+
+    decision["adaptive_capital_allowed"] = alloc.allowed
+    decision["adaptive_capital_multiplier"] = alloc.capital_multiplier
+    decision["adaptive_capital_allocation_pct"] = alloc.allocation_pct
+    decision["adaptive_capital_reason"] = alloc.reason
+
+    return decision
 
 def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     """Русский комментарий: пересчитывает qty через риск до стопа, а не только через капитал."""
