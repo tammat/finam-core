@@ -246,7 +246,8 @@ def load_latest_portfolio_context(cur) -> dict:
             coalesce(equity, 0),
             coalesce(cash, 0),
             coalesce(margin_utilization_pct, 0),
-            coalesce(drawdown, 0)
+            coalesce(drawdown, 0),
+            coalesce(free_margin, 0)
         from portfolio_snapshots
         order by ts desc
         limit 1
@@ -260,6 +261,7 @@ def load_latest_portfolio_context(cur) -> dict:
             "cash": 0.0,
             "margin_utilization_pct": 0.0,
             "drawdown": 0.0,
+            "free_margin": 0.0,
         }
 
     return {
@@ -267,6 +269,7 @@ def load_latest_portfolio_context(cur) -> dict:
         "cash": float(row[1] or 0),
         "margin_utilization_pct": float(row[2] or 0),
         "drawdown": float(row[3] or 0),
+        "free_margin": float(row[4] or 0),
     }
 
 
@@ -286,6 +289,7 @@ def apply_capital_allocator(cur, candidate: dict, decision: dict) -> dict:
         cash=portfolio["cash"],
         margin_utilization_pct=portfolio["margin_utilization_pct"],
         drawdown=portfolio["drawdown"],
+        free_margin=portfolio["free_margin"],
         signal_score=signal_score,
         risk_reward=risk_reward,
         correlation_pressure=correlation_pressure,

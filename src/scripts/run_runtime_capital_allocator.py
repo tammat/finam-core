@@ -17,7 +17,7 @@ def main() -> int:
     with conn:
         with conn.cursor() as cur:
             cur.execute("""
-                select equity, cash, coalesce(margin_utilization_pct, 0), coalesce(drawdown, 0)
+                select equity, cash, coalesce(margin_utilization_pct, 0), coalesce(drawdown, 0), coalesce(free_margin, 0)
                 from portfolio_snapshots
                 order by ts desc
                 limit 1
@@ -28,7 +28,7 @@ def main() -> int:
                 print("RUNTIME_CAPITAL_ALLOCATOR_SKIP reason=no_portfolio_snapshot", flush=True)
                 return 0
 
-            equity, cash, margin_utilization_pct, drawdown = map(float, portfolio)
+            equity, cash, margin_utilization_pct, drawdown, free_margin = map(float, portfolio)
 
             cur.execute("""
                 select
@@ -51,6 +51,7 @@ def main() -> int:
                     cash=cash,
                     margin_utilization_pct=margin_utilization_pct,
                     drawdown=drawdown,
+                    free_margin=free_margin,
                     signal_score=float(score or 0),
                     risk_reward=float(risk_reward or 0),
                     correlation_pressure=int(correlation_pressure or 0),

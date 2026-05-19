@@ -25,6 +25,22 @@ ok = a.allocate(
 assert ok.allowed is True
 assert ok.max_position_value > 0
 
+
+fallback = a.allocate(
+    equity=100000,
+    cash=0,
+    free_margin=50000,
+    margin_utilization_pct=10,
+    drawdown=0,
+    signal_score=3,
+    risk_reward=2,
+    correlation_pressure=0,
+    runtime_severity="INFO",
+)
+assert fallback.allowed is True
+assert fallback.max_position_value > 0
+
+
 blocked = a.allocate(
     equity=100000,
     cash=50000,
