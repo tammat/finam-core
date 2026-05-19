@@ -1,0 +1,21 @@
+[Unit]
+Description=Finam Runtime Operational Dashboard
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env.paper_safe
+
+Environment=RUNTIME_OPERATIONAL_DASHBOARD_SEND_ALWAYS=0
+
+User=alex
+Group=alex
+
+ExecStart=/opt/finam-core/venv/bin/python \
+  src/scripts/runtime_operational_dashboard.py
+
+StandardOutput=append:/opt/finam-core/logs/runtime_operational_dashboard.log
+StandardError=append:/opt/finam-core/logs/runtime_operational_dashboard.log
