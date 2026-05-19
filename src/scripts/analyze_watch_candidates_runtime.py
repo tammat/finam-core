@@ -15,6 +15,8 @@ from finam_core.runtime.net_trade_evaluator import NetTradeEvaluator
 from finam_core.runtime.institutional_trade_quality_score import InstitutionalTradeQualityScorer
 from finam_core.runtime.capital_growth_mode import CapitalGrowthMode
 from finam_core.runtime.risk_per_trade_sizing import RiskPerTradeSizer
+from finam_core.runtime.capital_growth_profile import CapitalGrowthProfile
+from finam_core.runtime.capital_growth_daily_loss_guard import CapitalGrowthDailyLossGuard
 from finam_core.runtime.portfolio_aware_signal_filter import PortfolioAwareSignalFilter
 
 
@@ -450,6 +452,48 @@ def apply_trade_quality_score(candidate: dict, decision: dict) -> dict:
     return decision
 
 
+
+def load_daily_loss_guard_context(cur) -> dict:
+    """Русский комментарий: проверяет дневную просадку по текущему профилю разгона."""
+    import os
+
+    profile = CapitalGrowthProfile().load(
+        os.getenv("CAPITAL_GROWTH_PROFILE", "growth")
+    )
+
+    cur.execute(
+        """
+        select
+            coalesce(equity, 0),
+            coalesce(realized_pnl, 0) + coalesce(unrealized_pnl, 0) as daily_pnl
+        from portfolio_snapshots
+        order by ts desc
+        limit 1
+        """
+    )
+
+    row = cur.fetchone()
+
+    if row is None:
+        return {
+            "daily_loss_allowed": False,
+            "daily_loss_reason": "no_portfolio_snapshot",
+        }
+
+    decision = CapitalGrowthDailyLossGuard().check(
+        equity=float(row[0] or 0.0),
+        daily_pnl=float(row[1] or 0.0),
+        max_daily_loss_pct=profile.max_daily_loss_pct,
+    )
+
+    return {
+        "daily_loss_allowed": decision.allowed,
+        "daily_loss_reason": decision.reason,
+        "daily_pnl": decision.daily_pnl,
+        "daily_loss_pct": decision.daily_loss_pct,
+        "daily_loss_limit_pct": decision.limit_pct,
+    }
+
 def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     """Русский комментарий: пересчитывает qty через риск до стопа, а не только через капитал."""
     if decision.get("decision") != "ALERT":
@@ -461,6 +505,8 @@ def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     margin_utilization_pct = float(portfolio.get("margin_utilization_pct") or 0.0)
     portfolio_heat = margin_utilization_pct / 100.0
 
+    daily_loss = load_daily_loss_guard_context(cur)
+
     growth = CapitalGrowthMode().decide(
         trade_quality_grade=str(decision.get("trade_quality_grade") or "D"),
         trade_quality_score=float(decision.get("trade_quality_score") or 0.0),
@@ -470,6 +516,8 @@ def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
         risk_reward=float(decision.get("risk_reward") or 0.0),
         portfolio_heat=portfolio_heat,
         runtime_severity="INFO",
+        daily_loss_allowed=bool(daily_loss.get("daily_loss_allowed")),
+        daily_loss_reason=str(daily_loss.get("daily_loss_reason") or ""),
     )
 
     decision = dict(decision)
@@ -477,6 +525,11 @@ def apply_risk_per_trade_sizing(cur, candidate: dict, decision: dict) -> dict:
     decision["capital_growth_mode"] = growth.mode
     decision["capital_growth_risk_pct"] = growth.risk_pct
     decision["capital_growth_reason"] = growth.reason
+    decision["daily_loss_allowed"] = daily_loss.get("daily_loss_allowed")
+    decision["daily_pnl"] = daily_loss.get("daily_pnl")
+    decision["daily_loss_pct"] = daily_loss.get("daily_loss_pct")
+    decision["daily_loss_limit_pct"] = daily_loss.get("daily_loss_limit_pct")
+    decision["daily_loss_reason"] = daily_loss.get("daily_loss_reason")
 
     size = RiskPerTradeSizer().size(
         equity=equity,

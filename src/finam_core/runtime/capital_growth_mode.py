@@ -27,6 +27,8 @@ class CapitalGrowthMode:
         risk_reward: float,
         portfolio_heat: float,
         runtime_severity: str,
+        daily_loss_allowed: bool = True,
+        daily_loss_reason: str = "",
     ) -> CapitalGrowthDecision:
 
         grade = str(trade_quality_grade or "D").upper()
@@ -38,6 +40,14 @@ class CapitalGrowthMode:
                 risk_pct=0.0,
                 mode="BLOCK",
                 reason=f"runtime_severity={severity}",
+            )
+
+        if not daily_loss_allowed:
+            return CapitalGrowthDecision(
+                allowed=False,
+                risk_pct=0.0,
+                mode="BLOCK",
+                reason=f"daily_loss_guard:{daily_loss_reason}",
             )
 
         if portfolio_heat >= 0.70:
