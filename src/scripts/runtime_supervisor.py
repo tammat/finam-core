@@ -53,6 +53,14 @@ def log_age_minutes(path: str) -> float | None:
 
 
 
+
+def run_recovery_coordinator() -> tuple[bool, str]:
+    code, out = run_cmd([
+        "/opt/finam-core/venv/bin/python",
+        "src/scripts/run_runtime_recovery_coordinator_v2.py",
+    ])
+    return code == 0, out
+
 def run_restore_check() -> tuple[bool, str]:
     code, out = run_cmd([
         "/opt/finam-core/venv/bin/python",
@@ -77,6 +85,12 @@ def main() -> int:
     problems: list[str] = []
     recoveries: list[str] = []
     ok_lines: list[str] = []
+
+    recovery_ok, recovery_out = run_recovery_coordinator()
+    if recovery_ok:
+        recoveries.append(f"✅ recovery coordinator: {recovery_out}")
+    else:
+        problems.append(f"🛑 recovery coordinator failed: {recovery_out}")
 
     restore_ok, restore_out = run_restore_check()
     if restore_ok:
