@@ -16,6 +16,23 @@ def _as_float(payload: dict, *keys: str, default: float = 0.0) -> float:
     return default
 
 
+
+def infer_strategy_from_radar(raw: dict) -> tuple[str, str]:
+    direction = str(raw.get("direction") or "").upper()
+    status = str(raw.get("status") or "").upper()
+    rs = float(raw.get("relative_strength") or 0)
+
+    if status == "ANOMALY":
+        return "IGNORE", "anomaly"
+
+    if "GAIN" in direction or rs > 0:
+        return "VOLATILITY_BREAKOUT_EQUITY", "trend_up"
+
+    if "LOS" in direction or rs < 0:
+        return "MEAN_REVERSION_EQUITY", "oversold"
+
+    return "UNKNOWN", "UNKNOWN"
+
 def decide(row: dict) -> dict:
     symbol = str(row.get("symbol") or "")
 
@@ -29,6 +46,13 @@ def decide(row: dict) -> dict:
     score = _as_float(raw, "freshness_adjusted_score", "trade_priority_score", "score")
     regime = str(raw.get("regime") or "UNKNOWN")
     strategy = str(raw.get("strategy") or "UNKNOWN")
+
+    if strategy == "UNKNOWN" or regime == "UNKNOWN":
+        inferred_strategy, inferred_regime = infer_strategy_from_radar(raw)
+        if strategy == "UNKNOWN":
+            strategy = inferred_strategy
+        if regime == "UNKNOWN":
+            regime = inferred_regime
     source = str(raw.get("source") or "market_radar")
 
     if not symbol:
