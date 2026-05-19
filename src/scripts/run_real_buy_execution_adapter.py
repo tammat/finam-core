@@ -7,6 +7,12 @@ from finam_core.execution.real_buy_execution_adapter import RealBuyExecutionAdap
 from finam_core.execution.finam_order_client_adapter import FinamOrderClientAdapter
 
 
+
+def build_finam_order_client():
+    """Русский комментарий: factory реального Finam order client."""
+    from finam_core.adapters.grpc.orders_client import FinamOrdersClient
+    return FinamOrdersClient()
+
 def main() -> int:
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
@@ -116,8 +122,59 @@ def main() -> int:
                         "set REAL_BUY_CLIENT_WIRING_CONFIRMED=1 only after final method check."
                     )
 
-                raise RuntimeError(
-                    "REAL BUY order placement is still blocked in v1 scaffold."
+                first_symbol = os.getenv("FIRST_REAL_ORDER_SYMBOL", "SBER@MISX")
+
+                if str(symbol) != first_symbol:
+                    raise RuntimeError(f"FIRST_REAL_ORDER_SYMBOL mismatch: {symbol} != {first_symbol}")
+
+                if float(qty or 0) > 1:
+                    raise RuntimeError(f"FIRST_REAL_ORDER qty too high: {qty}")
+
+                if float(planned_price or 0) <= 0:
+                    raise RuntimeError("FIRST_REAL_ORDER planned_price<=0")
+
+                if float(planned_price or 0) > float(os.getenv("FIRST_REAL_ORDER_MAX_VALUE", "3000")):
+                    raise RuntimeError(f"FIRST_REAL_ORDER planned_price too high: {planned_price}")
+
+                client = build_finam_order_client()
+                order_result = FinamOrderClientAdapter(client).place_buy_limit(
+                    symbol=str(symbol),
+                    qty=float(qty or 0),
+                    price=float(planned_price or 0),
+                )
+
+                if not order_result.ok:
+                    cur.execute("""
+                        update execution_intents
+                        set
+                            updated_at = now(),
+                            intent_state = 'REJECTED',
+                            reason = %s
+                        where id = %s
+                    """, (f"real_buy_rejected:{order_result.reason}", intent_id))
+                    blocked += 1
+                    print(
+                        f"REAL_BUY_REJECTED intent_id={intent_id} symbol={symbol} reason={order_result.reason}",
+                        flush=True,
+                    )
+                    continue
+
+                cur.execute("""
+                    update execution_intents
+                    set
+                        updated_at = now(),
+                        intent_state = 'SENT',
+                        broker_order_id = %s,
+                        reason = 'real_buy_sent'
+                    where id = %s
+                """, (order_result.broker_order_id, intent_id))
+
+                sent += 1
+
+                print(
+                    f"REAL_BUY_SENT intent_id={intent_id} symbol={symbol} qty={qty} "
+                    f"price={planned_price} broker_order_id={order_result.broker_order_id}",
+                    flush=True,
                 )
 
     print(
