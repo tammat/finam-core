@@ -656,6 +656,7 @@ class FinamOrdersClient:
         side: str,
         qty: float,
         price: float | None = None,
+        client_order_id: str | None = None,
     ) -> FinamOrderResult:
         """
         Русский комментарий:
