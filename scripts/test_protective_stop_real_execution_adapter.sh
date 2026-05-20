@@ -15,6 +15,9 @@ grep -q "PROTECTIVE_REAL_SENT" \
 grep -q "place_stop_order" \
   src/scripts/run_protective_stop_real_execution_adapter.py
 
+grep -q "dry_stop_order_id_blocked" \
+  src/scripts/run_protective_stop_real_execution_adapter.py
+
 grep -q "client_order_id" \
   src/scripts/run_protective_stop_real_execution_adapter.py
 

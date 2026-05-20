@@ -152,6 +152,31 @@ def main() -> int:
                         or ""
                     )
 
+                    if str(broker_order_id).startswith("dry_stop_"):
+                        cur.execute("""
+                            update execution_intents
+                            set
+                                intent_state='REJECTED',
+                                updated_at=now(),
+                                raw_json = coalesce(raw_json, '{}'::jsonb) ||
+                                    jsonb_build_object(
+                                        'protective_stop_error', 'dry_stop_order_id_blocked',
+                                        'broker_response', %s::jsonb
+                                    )
+                            where id=%s
+                        """, (
+                            json.dumps(response),
+                            intent_id,
+                        ))
+
+                        print(
+                            f"PROTECTIVE_REAL_REJECTED "
+                            f"intent_id={intent_id} reason=dry_stop_order_id_blocked "
+                            f"broker_order_id={broker_order_id}",
+                            flush=True,
+                        )
+                        continue
+
                     cur.execute("""
                         update execution_intents
                         set
