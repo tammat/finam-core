@@ -142,6 +142,7 @@ def main() -> int:
                         side="SELL",
                         qty=qty,
                         stop_price=stop_price,
+                        client_order_id=client_order_id,
                     )
 
                     broker_order_id = str(

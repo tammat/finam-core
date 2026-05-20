@@ -488,7 +488,14 @@ class FinamOrdersClient:
             reason, raw = self._normalize_broker_error(exc)
             return {"status": "REJECTED", "order_id": order_id, "reason": reason, "raw": raw}
 
-    def place_stop_order(self, symbol: str, side: str, qty: float, stop_price: float) -> dict:
+    def place_stop_order(
+        self,
+        symbol: str,
+        side: str,
+        qty: float,
+        stop_price: float,
+        client_order_id: str | None = None,
+    ) -> dict:
         """Русский комментарий: постановка стоп-заявки; без подтверждения работает как dry-run."""
         err = self._validate(symbol, side, qty)
         if err:
