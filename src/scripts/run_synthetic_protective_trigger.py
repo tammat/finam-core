@@ -14,6 +14,7 @@ def main() -> int:
     max_qty = float(os.getenv("PROTECTIVE_MAX_QTY", "1"))
     armed = os.getenv("SYNTHETIC_PROTECTIVE_ARMED", "0") == "1"
     live_dry_run = os.getenv("SYNTHETIC_PROTECTIVE_DRY_RUN", "1") == "1"
+    force_trigger = os.getenv("SYNTHETIC_PROTECTIVE_FORCE_TRIGGER", "0") == "1"
 
     conn = psycopg2.connect(dsn)
     created = 0
@@ -47,9 +48,16 @@ def main() -> int:
                 flush=True,
             )
 
-            if current_price > stop_price:
+            if current_price > stop_price and not force_trigger:
                 print(f"SYNTH_PROTECTIVE_HOLD symbol={symbol}")
                 return 0
+
+            if force_trigger:
+                print(
+                    f"SYNTH_PROTECTIVE_FORCE_TRIGGER_ACTIVE "
+                    f"symbol={symbol} current={current_price} stop={stop_price}",
+                    flush=True,
+                )
 
             if not armed:
                 print(f"SYNTH_PROTECTIVE_TRIGGER_NOT_ARMED symbol={symbol}")
