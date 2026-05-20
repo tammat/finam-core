@@ -5,6 +5,7 @@ import psycopg2
 
 from finam_core.execution.real_buy_execution_adapter import RealBuyExecutionAdapter
 from finam_core.execution.finam_order_client_adapter import FinamOrderClientAdapter
+from finam_core.execution.execution_intent_transition_service import ExecutionIntentTransitionService
 
 
 
@@ -25,6 +26,7 @@ def main() -> int:
     max_position_value = float(os.getenv("REAL_BUY_MAX_POSITION_VALUE", "30000"))
 
     conn = psycopg2.connect(dsn)
+    transition_service = ExecutionIntentTransitionService()
 
     with conn:
         with conn.cursor() as cur:
@@ -144,14 +146,12 @@ def main() -> int:
                     if os.getenv("REAL_BUY_MARKET_ENABLED", "0") != "1":
                         raise RuntimeError("REAL_BUY_MARKET_ENABLED is not enabled")
 
-                    cur.execute("""
-                        update execution_intents
-                        set
-                            updated_at = now(),
-                            intent_state = 'SENDING',
-                            reason = 'real_buy_market_pre_persist_before_broker_call'
-                        where id = %s
-                    """, (intent_id,))
+                    transition_service.transition(
+                        cur,
+                        intent_id=int(intent_id),
+                        next_state="SENDING",
+                        reason="real_buy_market_pre_persist_before_broker_call",
+                    )
 
                     print(
                         f"REAL_BUY_MARKET_PRE_PERSIST intent_id={intent_id} "
@@ -204,14 +204,12 @@ def main() -> int:
                     )
 
                 if not order_result.ok:
-                    cur.execute("""
-                        update execution_intents
-                        set
-                            updated_at = now(),
-                            intent_state = 'REJECTED',
-                            reason = %s
-                        where id = %s
-                    """, (f"real_buy_rejected:{order_result.reason}", intent_id))
+                    transition_service.transition(
+                        cur,
+                        intent_id=int(intent_id),
+                        next_state="REJECTED",
+                        reason=f"real_buy_rejected:{order_result.reason}",
+                    )
                     blocked += 1
                     print(
                         f"REAL_BUY_REJECTED intent_id={intent_id} symbol={symbol} reason={order_result.reason}",
@@ -219,13 +217,16 @@ def main() -> int:
                     )
                     continue
 
+                transition_service.transition(
+                    cur,
+                    intent_id=int(intent_id),
+                    next_state="SENT",
+                    reason="real_buy_sent",
+                )
+
                 cur.execute("""
                     update execution_intents
-                    set
-                        updated_at = now(),
-                        intent_state = 'SENT',
-                        broker_order_id = %s,
-                        reason = 'real_buy_sent'
+                    set broker_order_id = %s
                     where id = %s
                 """, (order_result.broker_order_id, intent_id))
 
