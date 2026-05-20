@@ -31,6 +31,7 @@ def main() -> int:
             select id, symbol
             from execution_intents
             where intent_state = 'FILLED'
+              and execution_mode = 'real'
               and (
                     broker_order_id is null
                     or broker_order_id = ''
