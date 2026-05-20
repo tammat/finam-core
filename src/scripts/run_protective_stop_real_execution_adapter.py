@@ -91,7 +91,7 @@ def main() -> int:
                     set
                         intent_state='SENDING',
                         updated_at=now(),
-                        broker_client_order_id=%s
+                        client_order_id=%s
                     where id=%s
                 """, (
                     client_order_id,

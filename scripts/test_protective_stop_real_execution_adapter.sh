@@ -15,7 +15,7 @@ grep -q "PROTECTIVE_REAL_SENT" \
 grep -q "place_stop_order" \
   src/scripts/run_protective_stop_real_execution_adapter.py
 
-grep -q "broker_client_order_id" \
+grep -q "client_order_id" \
   src/scripts/run_protective_stop_real_execution_adapter.py
 
 echo "OK: protective stop real execution adapter"
