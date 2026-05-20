@@ -15,13 +15,24 @@ def main() -> int:
     for tick in range(1, max_ticks + 1):
         print(f"TRAILING_EXIT_LOOP_TICK tick={tick}", flush=True)
 
-        result = subprocess.run([
-            py,
-            "src/scripts/run_trailing_exit_state_supervisor.py",
-        ])
+        for step_name, script_name in (
+            ("real_portfolio_position_sync", "src/scripts/run_real_portfolio_position_sync.py"),
+            ("real_portfolio_price_sync", "src/scripts/run_real_portfolio_price_sync.py"),
+            ("trailing_exit_state_supervisor", "src/scripts/run_trailing_exit_state_supervisor.py"),
+        ):
+            print(f"TRAILING_EXIT_LOOP_STEP_BEGIN name={step_name}", flush=True)
 
-        if result.returncode != 0:
-            raise RuntimeError(f"TRAILING_EXIT_LOOP_STEP_FAILED rc={result.returncode}")
+            result = subprocess.run([
+                py,
+                script_name,
+            ])
+
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"TRAILING_EXIT_LOOP_STEP_FAILED name={step_name} rc={result.returncode}"
+                )
+
+            print(f"TRAILING_EXIT_LOOP_STEP_OK name={step_name}", flush=True)
 
         if tick < max_ticks:
             time.sleep(interval_sec)
