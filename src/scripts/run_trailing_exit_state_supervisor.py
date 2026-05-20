@@ -12,6 +12,7 @@ def main() -> int:
     enabled = os.getenv("TRAILING_EXIT_ENABLED", "0") == "1"
     symbol = os.getenv("TRAILING_EXIT_SYMBOL", "SBER@MISX")
     trail_pct = float(os.getenv("TRAILING_EXIT_PCT", "0.01"))
+    live_dry_run = os.getenv("TRAILING_EXIT_LIVE_DRY_RUN", "1") == "1"
 
     if not enabled:
         print("TRAILING_EXIT_DISABLED")
@@ -106,6 +107,15 @@ def main() -> int:
                 print(f"TRAILING_EXIT_HOLD symbol={symbol}")
                 return 0
 
+            if live_dry_run:
+                print(
+                    f"TRAILING_EXIT_LIVE_DRY_RUN_WOULD_CREATE_SELL "
+                    f"symbol={symbol} qty={qty} stop={stop} high={high} current={current_price}",
+                    flush=True,
+                )
+                print("TRAILING_EXIT_STATE_SUPERVISOR_OK created=0 live_dry_run=1", flush=True)
+                return 0
+
             cur.execute("""
                 select count(*)
                 from execution_intents
@@ -146,7 +156,7 @@ def main() -> int:
             created = 1
             print(f"TRAILING_EXIT_INTENT_CREATED symbol={symbol} qty={qty} stop={stop}")
 
-    print(f"TRAILING_EXIT_STATE_SUPERVISOR_OK created={created}")
+    print(f"TRAILING_EXIT_STATE_SUPERVISOR_OK created={created} live_dry_run={int(live_dry_run)}")
     return 0
 
 
