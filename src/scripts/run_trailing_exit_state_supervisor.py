@@ -16,6 +16,8 @@ def main() -> int:
     max_position_age_sec = int(os.getenv("TRAILING_EXIT_MAX_POSITION_AGE_SEC", "300"))
     live_dry_run = os.getenv("TRAILING_EXIT_LIVE_DRY_RUN", "1") == "1"
     real_armed = os.getenv("TRAILING_EXIT_REAL_ARMED", "0") == "1"
+    shadow_sell_enabled = os.getenv("TRAILING_EXIT_SHADOW_SELL_ENABLED", "0") == "1"
+    force_trigger = os.getenv("TRAILING_EXIT_FORCE_TRIGGER", "0") == "1"
 
     if not enabled:
         print("TRAILING_EXIT_DISABLED")
@@ -129,9 +131,16 @@ def main() -> int:
                 flush=True,
             )
 
-            if current_price > stop:
+            if current_price > stop and not force_trigger:
                 print(f"TRAILING_EXIT_HOLD symbol={symbol}")
                 return 0
+
+            if force_trigger:
+                print(
+                    f"TRAILING_EXIT_FORCE_TRIGGER_ACTIVE "
+                    f"symbol={symbol} current={current_price} stop={stop}",
+                    flush=True,
+                )
 
             if live_dry_run:
                 print(
@@ -143,6 +152,41 @@ def main() -> int:
                 return 0
 
             if not real_armed:
+                if shadow_sell_enabled:
+                    cur.execute("""
+                        insert into execution_intents (
+                            created_at, updated_at, symbol,
+                            intent_state, side,
+                            planned_qty, remaining_qty,
+                            execution_priority, execution_mode,
+                            reason, raw_json
+                        )
+                        values (
+                            now(), now(), %s,
+                            'RESERVED', 'SELL',
+                            %s, %s,
+                            1, 'shadow',
+                            'trailing_exit_shadow_sell',
+                            jsonb_build_object(
+                                'order_type','market',
+                                'shadow',true,
+                                'trailing_stop_price',%s,
+                                'highest_price_since_entry',%s,
+                                'trail_pct',%s,
+                                'current_price',%s,
+                                'raw_qty',%s
+                            )
+                        )
+                    """, (symbol, exit_qty, exit_qty, stop, high, trail_pct, current_price, qty))
+
+                    print(
+                        f"TRAILING_EXIT_SHADOW_SELL_INTENT_CREATED "
+                        f"symbol={symbol} qty={exit_qty} raw_qty={qty} stop={stop} high={high} current={current_price}",
+                        flush=True,
+                    )
+                    print("TRAILING_EXIT_STATE_SUPERVISOR_OK created=1 shadow=1 real_armed=0", flush=True)
+                    return 0
+
                 print(
                     f"TRAILING_EXIT_REAL_NOT_ARMED_WOULD_CREATE_SELL "
                     f"symbol={symbol} qty={exit_qty} raw_qty={qty} stop={stop} high={high} current={current_price}",
