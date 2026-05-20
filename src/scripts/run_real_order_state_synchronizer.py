@@ -5,6 +5,7 @@ import psycopg2
 
 from finam_core.execution.real_order_state_synchronizer import RealOrderStateSynchronizer
 from finam_core.execution.finam_order_status_adapter import FinamOrderStatusAdapter
+from finam_core.execution.execution_intent_transition_service import ExecutionIntentTransitionService
 
 
 
@@ -23,6 +24,7 @@ def main() -> int:
 
     conn = psycopg2.connect(dsn)
     sync = RealOrderStateSynchronizer()
+    transition_service = ExecutionIntentTransitionService()
 
     processed = 0
     updated = 0
@@ -96,11 +98,26 @@ def main() -> int:
                     broker_status=status.broker_status,
                 )
 
+                transition = transition_service.transition(
+                    cur,
+                    intent_id=int(intent_id),
+                    next_state=decision.intent_state,
+                    reason=decision.reason,
+                )
+
+                if not transition.applied:
+                    print(
+                        f"REAL_ORDER_STATE_SYNC_TRANSITION_BLOCKED "
+                        f"intent_id={intent_id} symbol={symbol} "
+                        f"from={transition.previous_state} to={transition.next_state} "
+                        f"reason={transition.reason}",
+                        flush=True,
+                    )
+                    continue
+
                 cur.execute("""
                     update execution_intents
                     set
-                        updated_at = now(),
-                        intent_state = %s,
                         executed_qty = case
                             when %s > 0 then %s
                             else executed_qty
@@ -109,17 +126,14 @@ def main() -> int:
                         avg_execution_price = case
                             when %s > 0 then %s
                             else avg_execution_price
-                        end,
-                        reason = %s
+                        end
                     where id = %s
                 """, (
-                    decision.intent_state,
                     status.filled_qty,
                     status.filled_qty,
                     status.filled_qty,
                     status.avg_price,
                     status.avg_price,
-                    decision.reason,
                     intent_id,
                 ))
 
