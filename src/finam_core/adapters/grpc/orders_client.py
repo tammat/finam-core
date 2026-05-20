@@ -117,6 +117,16 @@ class FinamOrdersClient:
                 return getattr(side_pb2, name)
         raise RuntimeError("orders_side_enum_not_found")
 
+
+    def _valid_before_from_env(self, orders_pb2):
+        """Русский комментарий: срок действия заявки из ENV, по умолчанию до конца дня."""
+        value = os.getenv("REAL_ORDER_VALID_BEFORE", "end_of_day").strip().lower()
+
+        if value in {"gtc", "good_till_cancel", "good_till_cancelled"}:
+            return orders_pb2.VALID_BEFORE_GOOD_TILL_CANCEL
+
+        return orders_pb2.VALID_BEFORE_END_OF_DAY
+
     def _make_client_order_id(self) -> str:
         """Русский комментарий: генерирует короткий client_order_id для Finam Orders API."""
         return f"fc{int(__import__('time').time() * 1000) % 100000000000000000}"
@@ -131,8 +141,8 @@ class FinamOrdersClient:
             side=self._side_value(side),
             type=orders_service_pb2.ORDER_TYPE_MARKET,
             time_in_force=orders_service_pb2.TIME_IN_FORCE_DAY,
-            valid_before=orders_service_pb2.VALID_BEFORE_END_OF_DAY,
-            client_order_id=self._make_client_order_id(),
+            valid_before=self._valid_before_from_env(orders_service_pb2),
+            client_order_id=client_order_id or self._make_client_order_id(),
             comment="finam_core_real_execution",
         )
 
@@ -147,8 +157,8 @@ class FinamOrdersClient:
             type=orders_service_pb2.ORDER_TYPE_LIMIT,
             limit_price=decimal_pb2.Decimal(value=str(float(limit_price))),
             time_in_force=orders_service_pb2.TIME_IN_FORCE_DAY,
-            valid_before=orders_service_pb2.VALID_BEFORE_END_OF_DAY,
-            client_order_id=self._make_client_order_id(),
+            valid_before=self._valid_before_from_env(orders_service_pb2),
+            client_order_id=client_order_id or self._make_client_order_id(),
             comment="finam_core_limit_order",
         )
 
@@ -180,7 +190,7 @@ class FinamOrdersClient:
             else orders_service_pb2.STOP_CONDITION_LAST_UP
         )
         order.time_in_force = orders_service_pb2.TIME_IN_FORCE_DAY
-        order.valid_before = orders_service_pb2.VALID_BEFORE_END_OF_DAY
+        order.valid_before = self._valid_before_from_env(orders_service_pb2)
         order.client_order_id = client_order_id or self._make_client_order_id()
         order.comment = "finam_core_trailing_stop"
         return order
@@ -509,7 +519,7 @@ class FinamOrdersClient:
                 side=side,
                 qty=qty,
                 stop_price=stop_price,
-                client_order_id=self._make_client_order_id(),
+                client_order_id=client_order_id or self._make_client_order_id(),
             )
             self._assert_real_execution_safety(order)
             resp = self._stub_for_orders().PlaceOrder(
@@ -556,7 +566,7 @@ class FinamOrdersClient:
             }
 
 
-    def place_limit_order(self, symbol: str, side: str, qty: float, limit_price: float) -> dict:
+    def place_limit_order(self, symbol: str, side: str, qty: float, limit_price: float, client_order_id: str | None = None) -> dict:
         """Русский комментарий: постановка лимитной заявки; без подтверждения работает как dry-run."""
         err = self._validate(symbol, side, qty)
         if err:
