@@ -13,27 +13,32 @@ def main() -> int:
 
     symbol = os.getenv("PROTECTIVE_SYMBOL", "SBER@MISX").strip().upper()
     qty = float(os.getenv("PROTECTIVE_PROBE_QTY", "1"))
+    side = os.getenv("PROTECTIVE_PROBE_SIDE", "SELL").strip().upper()
     stop_price = float(os.getenv("PROTECTIVE_PROBE_STOP_PRICE", "0"))
 
     if qty <= 0 or stop_price <= 0:
         print(f"PROTECTIVE_STOP_REAL_SEND_PROBE_INVALID_INPUT qty={qty} stop={stop_price}")
         return 0
 
+    if side not in {"BUY", "SELL"}:
+        print(f"PROTECTIVE_STOP_REAL_SEND_PROBE_INVALID_SIDE side={side}")
+        return 0
+
     client_order_id = build_client_order_id(
         strategy="protective_probe",
         symbol=symbol,
-        side="SELL",
+        side=side,
     )
 
     print(
         f"PROTECTIVE_STOP_REAL_SEND_PROBE_BEGIN "
-        f"symbol={symbol} qty={qty} stop={stop_price} client_order_id={client_order_id}",
+        f"symbol={symbol} side={side} qty={qty} stop={stop_price} client_order_id={client_order_id}",
         flush=True,
     )
 
     response = FinamOrdersClient().place_stop_order(
         symbol=symbol,
-        side="SELL",
+        side=side,
         qty=qty,
         stop_price=stop_price,
         client_order_id=client_order_id,
