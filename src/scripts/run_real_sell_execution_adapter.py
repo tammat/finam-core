@@ -123,11 +123,22 @@ def main() -> int:
                 ))
 
                 client = build_finam_order_client()
-                order_result = FinamOrderClientAdapter(client).place_sell_limit(
-                    symbol=str(symbol),
-                    qty=float(qty or 0),
-                    price=float(planned_price or 0),
-                )
+                if str(os.getenv("REAL_SELL_ORDER_TYPE", "limit")).lower() == "market":
+                    if os.getenv("REAL_SELL_MARKET_ENABLED", "0") != "1":
+                        raise RuntimeError("REAL_SELL_MARKET_ENABLED is not enabled")
+
+                    order_result = FinamOrderClientAdapter(client).place_sell_market(
+                        symbol=str(symbol),
+                        qty=float(qty or 0),
+                        client_order_id=client_order_id,
+                    )
+                else:
+                    order_result = FinamOrderClientAdapter(client).place_sell_limit(
+                        symbol=str(symbol),
+                        qty=float(qty or 0),
+                        price=float(planned_price or 0),
+                        client_order_id=client_order_id,
+                    )
 
                 print(
                     f"FINAM_SELL_RAW_RESULT type={type(order_result)} result={order_result}",

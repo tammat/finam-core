@@ -183,6 +183,7 @@ def main() -> int:
                         order_result = FinamOrderClientAdapter(client).place_buy_market(
                             symbol=str(symbol),
                             qty=float(qty or 0),
+                            client_order_id=client_order_id,
                         )
                     except TimeoutError as exc:
                         cur.execute("""
@@ -213,6 +214,7 @@ def main() -> int:
                         symbol=str(symbol),
                         qty=float(qty or 0),
                         price=float(planned_price or 0),
+                        client_order_id=client_order_id,
                     )
 
                 if not order_result.ok:

@@ -23,6 +23,7 @@ class FinamOrderClientAdapter:
         symbol: str,
         qty: float,
         price: float,
+        client_order_id: str | None = None,
     ) -> FinamOrderResult:
         if qty <= 0:
             return FinamOrderResult(False, None, "qty<=0")
@@ -36,6 +37,7 @@ class FinamOrderClientAdapter:
                 side="BUY",
                 qty=qty,
                 limit_price=price,
+                client_order_id=client_order_id,
             )
         elif hasattr(self.client, "place_order"):
             result = self.client.place_order(
@@ -83,6 +85,7 @@ class FinamOrderClientAdapter:
         symbol: str,
         qty: float,
         price: float,
+        client_order_id: str | None = None,
     ) -> FinamOrderResult:
         """Русский комментарий: отправляет лимитную SELL-заявку через существующий Finam client."""
         if qty <= 0:
@@ -97,6 +100,7 @@ class FinamOrderClientAdapter:
                 side="SELL",
                 qty=qty,
                 limit_price=price,
+                client_order_id=client_order_id,
             )
         elif hasattr(self.client, "place_order"):
             result = self.client.place_order(
@@ -143,6 +147,7 @@ class FinamOrderClientAdapter:
         *,
         symbol: str,
         qty: float,
+        client_order_id: str | None = None,
     ) -> FinamOrderResult:
         """Русский комментарий: отправляет рыночную BUY-заявку через существующий Finam client."""
         if qty <= 0:
@@ -154,6 +159,7 @@ class FinamOrderClientAdapter:
                 side="BUY",
                 qty=qty,
                 price=None,
+                client_order_id=client_order_id,
             )
         elif hasattr(self.client, "place_order"):
             result = self.client.place_order(
@@ -161,6 +167,61 @@ class FinamOrderClientAdapter:
                 side="BUY",
                 quantity=qty,
                 order_type="MARKET",
+            )
+        else:
+            return FinamOrderResult(False, None, "client_has_no_market_order_method")
+
+        print(f"FINAM_MARKET_ORDER_RAW_RESULT type={type(result)} result={result}", flush=True)
+
+        broker_order_id = None
+
+        if isinstance(result, dict):
+            status = str(result.get("status") or "").upper()
+            reason = str(result.get("reason") or "")
+
+            broker_order_id = (
+                result.get("order_id")
+                or result.get("broker_order_id")
+                or result.get("transaction_id")
+            )
+
+            if status in {"REJECTED", "FAILED", "ERROR"}:
+                return FinamOrderResult(False, None, reason or status)
+        else:
+            broker_order_id = str(result) if result is not None else None
+
+        return FinamOrderResult(
+            ok=bool(broker_order_id),
+            broker_order_id=broker_order_id,
+            reason="order_sent" if broker_order_id else "empty_order_id",
+        )
+
+    def place_sell_market(
+        self,
+        *,
+        symbol: str,
+        qty: float,
+        client_order_id: str | None = None,
+    ) -> FinamOrderResult:
+        """Русский комментарий: отправляет рыночную SELL-заявку через существующий Finam client."""
+        if qty <= 0:
+            return FinamOrderResult(False, None, "qty<=0")
+
+        if hasattr(self.client, "place_market_order"):
+            result = self.client.place_market_order(
+                symbol=symbol,
+                side="SELL",
+                qty=qty,
+                price=None,
+                client_order_id=client_order_id,
+            )
+        elif hasattr(self.client, "place_order"):
+            result = self.client.place_order(
+                symbol=symbol,
+                side="SELL",
+                quantity=qty,
+                order_type="MARKET",
+                client_order_id=client_order_id,
             )
         else:
             return FinamOrderResult(False, None, "client_has_no_market_order_method")
