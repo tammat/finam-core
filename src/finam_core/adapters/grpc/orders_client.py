@@ -131,7 +131,7 @@ class FinamOrdersClient:
         """Русский комментарий: генерирует короткий client_order_id для Finam Orders API."""
         return f"fc{int(__import__('time').time() * 1000) % 100000000000000000}"
 
-    def _build_market_order(self, symbol: str, side: str, qty: float):
+    def _build_market_order(self, symbol: str, side: str, qty: float, client_order_id: str | None = None):
         """Русский комментарий: строит Order для OrdersService.PlaceOrder."""
         orders_service_pb2, _, _ = self._load_orders_grpc()
         return orders_service_pb2.Order(
