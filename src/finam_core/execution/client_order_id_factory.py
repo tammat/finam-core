@@ -11,9 +11,13 @@ class ClientOrderIdFactory:
 
 
 def build_client_order_id(*, strategy: str, symbol: str, side: str) -> str:
-    """Русский комментарий: совместимая функция для генерации client_order_id в execution scripts."""
-    safe_strategy = str(strategy or "exec").lower().replace(" ", "_")
-    safe_symbol = str(symbol or "UNKNOWN").replace("@", "_").replace("/", "_")
-    safe_side = str(side or "NA").upper()
-    base = ClientOrderIdFactory().build(intent_id=0)
-    return f"{base}_{safe_strategy}_{safe_symbol}_{safe_side}"
+    """Русский комментарий: генерирует client_order_id длиной не более 20 символов для Finam."""
+    import time
+
+    safe_side = str(side or "X").upper()[:1]
+    safe_strategy = str(strategy or "x").lower()[:2]
+    # Finam ограничивает client_order_id 20 символами.
+    # Формат: fc + 12 цифр времени + сторона + 2 символа стратегии = 17 символов.
+    millis_tail = str(int(time.time() * 1000))[-12:]
+    return f"fc{millis_tail}{safe_side}{safe_strategy}"[:20]
+
