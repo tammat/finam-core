@@ -6,6 +6,7 @@ import psycopg2
 from finam_core.execution.real_buy_execution_adapter import RealBuyExecutionAdapter
 from finam_core.execution.finam_order_client_adapter import FinamOrderClientAdapter
 from finam_core.execution.execution_intent_transition_service import ExecutionIntentTransitionService
+from finam_core.execution.client_order_id_factory import ClientOrderIdFactory
 
 
 
@@ -146,12 +147,23 @@ def main() -> int:
                     if os.getenv("REAL_BUY_MARKET_ENABLED", "0") != "1":
                         raise RuntimeError("REAL_BUY_MARKET_ENABLED is not enabled")
 
+                    client_order_id = ClientOrderIdFactory().build(intent_id=int(intent_id))
+
                     transition_service.transition(
                         cur,
                         intent_id=int(intent_id),
                         next_state="SENDING",
                         reason="real_buy_market_pre_persist_before_broker_call",
                     )
+
+                    cur.execute("""
+                        update execution_intents
+                        set client_order_id = %s
+                        where id = %s
+                    """, (
+                        client_order_id,
+                        intent_id,
+                    ))
 
                     print(
                         f"REAL_BUY_MARKET_PRE_PERSIST intent_id={intent_id} "

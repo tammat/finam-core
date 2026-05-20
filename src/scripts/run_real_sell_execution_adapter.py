@@ -104,6 +104,24 @@ def main() -> int:
                         "set REAL_SELL_CLIENT_WIRING_CONFIRMED=1 only after final method check."
                     )
 
+                client_order_id = ClientOrderIdFactory().build(intent_id=int(intent_id))
+
+                transition_service.transition(
+                    cur,
+                    intent_id=int(intent_id),
+                    next_state="SENDING",
+                    reason="real_sell_pre_persist_before_broker_call",
+                )
+
+                cur.execute("""
+                    update execution_intents
+                    set client_order_id = %s
+                    where id = %s
+                """, (
+                    client_order_id,
+                    intent_id,
+                ))
+
                 client = build_finam_order_client()
                 order_result = FinamOrderClientAdapter(client).place_sell_limit(
                     symbol=str(symbol),
