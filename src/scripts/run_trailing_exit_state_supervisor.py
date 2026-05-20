@@ -12,6 +12,8 @@ def main() -> int:
     enabled = os.getenv("TRAILING_EXIT_ENABLED", "0") == "1"
     symbol = os.getenv("TRAILING_EXIT_SYMBOL", "SBER@MISX")
     trail_pct = float(os.getenv("TRAILING_EXIT_PCT", "0.01"))
+    max_qty = float(os.getenv("TRAILING_EXIT_MAX_QTY", "1"))
+    max_position_age_sec = int(os.getenv("TRAILING_EXIT_MAX_POSITION_AGE_SEC", "300"))
     live_dry_run = os.getenv("TRAILING_EXIT_LIVE_DRY_RUN", "1") == "1"
     real_armed = os.getenv("TRAILING_EXIT_REAL_ARMED", "0") == "1"
 
@@ -38,7 +40,7 @@ def main() -> int:
             """)
 
             cur.execute("""
-                select symbol, qty, avg_price, current_price
+                select symbol, qty, avg_price, current_price, updated_at
                 from real_portfolio_positions
                 where symbol=%s and coalesce(qty,0) > 0
                 limit 1
@@ -49,10 +51,33 @@ def main() -> int:
                 print(f"TRAILING_EXIT_NO_LONG_POSITION symbol={symbol}")
                 return 0
 
-            symbol, qty, avg_price, current_price = row
+            symbol, qty, avg_price, current_price, position_updated_at = row
             qty = float(qty or 0)
             avg_price = float(avg_price or 0)
             current_price = float(current_price or 0)
+
+            if max_qty <= 0:
+                print(f"TRAILING_EXIT_INVALID_MAX_QTY max_qty={max_qty}", flush=True)
+                return 0
+
+            exit_qty = min(qty, max_qty)
+
+            cur.execute("""
+                select extract(epoch from (now() - %s::timestamptz))
+            """, (position_updated_at,))
+
+            position_age_sec = float(cur.fetchone()[0] or 0)
+
+            if position_age_sec > max_position_age_sec:
+                print(
+                    f"TRAILING_EXIT_STALE_POSITION_BLOCKED "
+                    f"symbol={symbol} qty={qty} current={current_price} "
+                    f"position_updated_at={position_updated_at} "
+                    f"age_sec={round(position_age_sec, 2)} "
+                    f"max_age_sec={max_position_age_sec}",
+                    flush=True,
+                )
+                return 0
 
             cur.execute("""
                 insert into trailing_exit_state (
@@ -87,7 +112,7 @@ def main() -> int:
                 returning highest_price_since_entry, trailing_stop_price
             """, (
                 symbol,
-                qty,
+                exit_qty,
                 avg_price,
                 current_price,
                 round(current_price * (1 - trail_pct), 4),
@@ -99,7 +124,7 @@ def main() -> int:
             stop = float(stop)
 
             print(
-                f"TRAILING_EXIT_STATE symbol={symbol} qty={qty} "
+                f"TRAILING_EXIT_STATE symbol={symbol} qty={exit_qty} raw_qty={qty} "
                 f"current={current_price} high={high} stop={stop}",
                 flush=True,
             )
@@ -111,7 +136,7 @@ def main() -> int:
             if live_dry_run:
                 print(
                     f"TRAILING_EXIT_LIVE_DRY_RUN_WOULD_CREATE_SELL "
-                    f"symbol={symbol} qty={qty} stop={stop} high={high} current={current_price}",
+                    f"symbol={symbol} qty={exit_qty} raw_qty={qty} stop={stop} high={high} current={current_price}",
                     flush=True,
                 )
                 print("TRAILING_EXIT_STATE_SUPERVISOR_OK created=0 live_dry_run=1", flush=True)
@@ -120,7 +145,7 @@ def main() -> int:
             if not real_armed:
                 print(
                     f"TRAILING_EXIT_REAL_NOT_ARMED_WOULD_CREATE_SELL "
-                    f"symbol={symbol} qty={qty} stop={stop} high={high} current={current_price}",
+                    f"symbol={symbol} qty={exit_qty} raw_qty={qty} stop={stop} high={high} current={current_price}",
                     flush=True,
                 )
                 print("TRAILING_EXIT_STATE_SUPERVISOR_OK created=0 real_armed=0", flush=True)
@@ -161,10 +186,10 @@ def main() -> int:
                         'trail_pct',%s
                     )
                 )
-            """, (symbol, qty, qty, stop, high, trail_pct))
+            """, (symbol, exit_qty, exit_qty, stop, high, trail_pct))
 
             created = 1
-            print(f"TRAILING_EXIT_INTENT_CREATED symbol={symbol} qty={qty} stop={stop}")
+            print(f"TRAILING_EXIT_INTENT_CREATED symbol={symbol} qty={exit_qty} raw_qty={qty} stop={stop}")
 
     print(
         f"TRAILING_EXIT_STATE_SUPERVISOR_OK created={created} "
