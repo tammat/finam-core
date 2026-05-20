@@ -25,6 +25,8 @@ def main() -> int:
     max_qty = float(os.getenv("REAL_SELL_MAX_QTY", "1"))
 
     conn = psycopg2.connect(dsn)
+
+    transition_service = ExecutionIntentTransitionService()
     adapter = RealSellExecutionAdapter()
 
     processed = 0
@@ -118,17 +120,12 @@ def main() -> int:
 
                     blocked += 1
 
-                    cur.execute("""
-                        update execution_intents
-                        set
-                            updated_at = now(),
-                            intent_state = 'REJECTED',
-                            reason = %s
-                        where id = %s
-                    """, (
-                        f"real_sell_rejected:{order_result.reason}",
-                        intent_id,
-                    ))
+                    transition_service.transition(
+                        cur,
+                        intent_id=int(intent_id),
+                        next_state="REJECTED",
+                        reason=f"real_sell_rejected:{order_result.reason}",
+                    )
 
                     print(
                         f"REAL_SELL_REJECTED intent_id={intent_id} "
