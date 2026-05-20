@@ -23,6 +23,8 @@ def main() -> int:
         print("PROTECTIVE_REAL_EXECUTION_DISABLED reason=REAL_SELL_STOP_ENABLED")
         return 0
 
+    dry_run = os.getenv("PROTECTIVE_REAL_DRY_RUN", "1") == "1"
+
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL is empty")
@@ -104,6 +106,36 @@ def main() -> int:
                     flush=True,
                 )
 
+                if dry_run:
+                    cur.execute("""
+                        update execution_intents
+                        set
+                            intent_state='RESERVED',
+                            updated_at=now(),
+                            raw_json = coalesce(raw_json, '{}'::jsonb) ||
+                                jsonb_build_object(
+                                    'protective_real_dry_run', true,
+                                    'dry_run_client_order_id', %s,
+                                    'dry_run_stop_price', %s,
+                                    'dry_run_qty', %s
+                                )
+                        where id=%s
+                    """, (
+                        client_order_id,
+                        stop_price,
+                        qty,
+                        intent_id,
+                    ))
+
+                    print(
+                        f"PROTECTIVE_REAL_DRY_RUN_WOULD_SEND "
+                        f"intent_id={intent_id} symbol={symbol} "
+                        f"qty={qty} stop={stop_price} client_order_id={client_order_id}",
+                        flush=True,
+                    )
+
+                    continue
+
                 try:
                     response = client.place_stop_order(
                         symbol=symbol,
@@ -171,7 +203,7 @@ def main() -> int:
 
     print(
         f"PROTECTIVE_STOP_REAL_EXECUTION_ADAPTER_OK "
-        f"processed={processed} sent={sent}",
+        f"processed={processed} sent={sent} dry_run={int(dry_run)}",
         flush=True,
     )
 
