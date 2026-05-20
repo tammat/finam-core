@@ -18,6 +18,7 @@ def main() -> int:
         for step_name, script_name in (
             ("real_portfolio_position_sync", "src/scripts/run_real_portfolio_position_sync.py"),
             ("real_portfolio_price_sync", "src/scripts/run_real_portfolio_price_sync.py"),
+            ("synthetic_protective_trigger", "src/scripts/run_synthetic_protective_trigger.py"),
             ("trailing_exit_state_supervisor", "src/scripts/run_trailing_exit_state_supervisor.py"),
         ):
             print(f"TRAILING_EXIT_LOOP_STEP_BEGIN name={step_name}", flush=True)
