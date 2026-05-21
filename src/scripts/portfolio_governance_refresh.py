@@ -80,6 +80,23 @@ def main() -> int:
                 f"symbol={symbol} rc={rc}",
                 flush=True,
             )
+            continue
+
+        alert_rc = run([
+            sys.executable,
+            "src/scripts/send_runtime_governance_alert.py",
+            "--symbol",
+            symbol,
+            "--timeframe",
+            timeframe,
+        ])
+
+        if alert_rc != 0:
+            print(
+                "PORTFOLIO_GOVERNANCE_ALERT_FAILED "
+                f"symbol={symbol} rc={alert_rc}",
+                flush=True,
+            )
 
     print(
         "PORTFOLIO_GOVERNANCE_REFRESH_OK "
