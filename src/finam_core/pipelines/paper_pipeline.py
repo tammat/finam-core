@@ -7,6 +7,7 @@ from __future__ import annotations
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
 from finam_core.runtime.portfolio_governance_advisor import PortfolioGovernanceAdvisor
+from finam_core.runtime.portfolio_governance_repository import PortfolioGovernanceRepository
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
@@ -6364,6 +6365,19 @@ def log_portfolio_governance_advisory(
             f"portfolio_risk_multiplier={decision.portfolio_risk_multiplier} "
             f"exit_policy={decision.exit_policy} "
             f"allow_new_entries={decision.allow_new_entries} "
+            f"mode={decision.governance_mode}",
+            flush=True,
+        )
+
+        repo = PortfolioGovernanceRepository(database_url)
+        repo.migrate()
+        repo.save(timeframe=timeframe, decision=decision)
+
+        print(
+            "PORTFOLIO_GOVERNANCE_EVENT_SAVED "
+            f"symbol={decision.symbol} "
+            f"strategy={decision.strategy} "
+            f"timeframe={timeframe} "
             f"mode={decision.governance_mode}",
             flush=True,
         )
