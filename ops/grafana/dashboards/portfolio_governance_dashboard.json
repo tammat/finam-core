@@ -1,0 +1,107 @@
+{
+  "uid": "portfolio-governance-ru",
+  "title": "Управление портфелем: Governance",
+  "tags": ["finam", "portfolio", "governance", "ru"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Текущий перегрев портфеля",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Время\" AS time, \"Перегрев портфеля\" FROM grafana_portfolio_governance ORDER BY \"Время\" DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Множитель риска",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Время\" AS time, \"Множитель риска\" FROM grafana_portfolio_governance ORDER BY \"Время\" DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Новые входы",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Время\" AS time, \"Новые входы\" FROM grafana_portfolio_governance ORDER BY \"Время\" DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Режим governance",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Время\" AS time, \"Режим governance\" FROM grafana_portfolio_governance ORDER BY \"Время\" DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "История множителя риска",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Время\" AS time, \"Множитель риска\" FROM grafana_portfolio_governance ORDER BY \"Время\"",
+          "format": "time_series"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "История governance-решений",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT * FROM grafana_portfolio_governance ORDER BY \"Время\" DESC LIMIT 100",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "Распределение политик выхода",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 7},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Политика выхода\", COUNT(*) AS \"Количество\" FROM grafana_portfolio_governance GROUP BY \"Политика выхода\" ORDER BY \"Количество\" DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "Распределение уровней перегрева",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 7},
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "PA307F635E60F1294"},
+          "rawSql": "SELECT \"Перегрев портфеля\", COUNT(*) AS \"Количество\" FROM grafana_portfolio_governance GROUP BY \"Перегрев портфеля\" ORDER BY \"Количество\" DESC",
+          "format": "table"
+        }
+      ]
+    }
+  ]
+}
