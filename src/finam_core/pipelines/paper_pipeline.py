@@ -6436,6 +6436,8 @@ def log_runtime_governance_decision(
             f"allow_new_entries={decision.allow_new_entries} "
             f"allow_execution={decision.allow_execution} "
             f"watch_only={decision.watch_only} "
+            f"lifecycle_action={decision.lifecycle_action} "
+            f"lifecycle_severity={decision.lifecycle_severity} "
             f"reason={decision.reason}",
             flush=True,
         )

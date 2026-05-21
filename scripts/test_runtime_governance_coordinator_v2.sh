@@ -18,6 +18,8 @@ d = RuntimeGovernanceDecisionV2(
     allow_new_entries=True,
     allow_execution=True,
     watch_only=False,
+    lifecycle_action="NO_ACTION",
+    lifecycle_severity="INFO",
     reason="portfolio_heat_high_reduce_risk",
 )
 

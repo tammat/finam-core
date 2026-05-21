@@ -1,6 +1,9 @@
 from __future__ import annotations
+import os
+import os
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import psycopg
 
@@ -16,6 +19,8 @@ class RuntimeGovernanceDecisionV2:
     allow_new_entries: bool
     allow_execution: bool
     watch_only: bool
+    lifecycle_action: str
+    lifecycle_severity: str
     reason: str
 
 
@@ -59,6 +64,8 @@ class RuntimeGovernanceCoordinatorV2:
                 allow_new_entries=True,
                 allow_execution=True,
                 watch_only=False,
+                lifecycle_action="NO_ACTION",
+                lifecycle_severity="INFO",
                 reason="governance_event_not_found",
             )
 
@@ -69,6 +76,7 @@ class RuntimeGovernanceCoordinatorV2:
 
         allow_execution = True
         watch_only = False
+        lifecycle_action, lifecycle_severity, lifecycle_block = self._load_latest_lifecycle_advice(symbol)
         reason = "governance_advisory_normal"
 
         if heat_status in {"CRITICAL", "EXTREME"}:
@@ -88,6 +96,10 @@ class RuntimeGovernanceCoordinatorV2:
             watch_only = False
             reason = "portfolio_heat_elevated_soft_reduce"
 
+        if lifecycle_block:
+            allow_new_entries = False
+            reason = f"{reason};lifecycle_block:{lifecycle_action}"
+
         return RuntimeGovernanceDecisionV2(
             symbol=symbol,
             strategy=strategy,
@@ -98,8 +110,58 @@ class RuntimeGovernanceCoordinatorV2:
             allow_new_entries=allow_new_entries,
             allow_execution=allow_execution,
             watch_only=watch_only,
+            lifecycle_action=lifecycle_action,
+            lifecycle_severity=lifecycle_severity,
             reason=reason,
         )
+
+
+    def _load_latest_lifecycle_advice(self, symbol: str) -> tuple[str, str, bool]:
+        sql = """
+        SELECT
+            action,
+            severity,
+            block_new_entries,
+            created_at
+        FROM lifecycle_stale_position_advice_events
+        WHERE symbol = %s
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+
+        try:
+            with psycopg.connect(self.database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (symbol,))
+                    row = cur.fetchone()
+        except Exception:
+            return "NO_ACTION", "INFO", False
+
+        if row is None:
+            return "NO_ACTION", "INFO", False
+
+        created_at = row[3]
+
+        freshness_sec = float(
+            os.getenv(
+                "RUNTIME_LIFECYCLE_ADVICE_MAX_AGE_SEC",
+                "600",
+            )
+        )
+
+        age_sec = (
+            datetime.now(timezone.utc) - created_at
+        ).total_seconds()
+
+        if age_sec > freshness_sec:
+            return (
+                "STALE_ADVICE_EXPIRED",
+                "INFO",
+                False,
+            )
+
+        return str(row[0]), str(row[1]), bool(row[2])
+
 
     def _load_latest_event(
         self,
