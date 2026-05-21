@@ -8,7 +8,7 @@ from finam_core.analytics.incremental_exit_intelligence import (
     build_incremental_exit_advice,
 )
 from finam_core.analytics.statistics_repository import build_psycopg_url
-from finam_core.analytics.symbol_strategy_mapper import map_symbol_to_strategy
+from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
 
 def main() -> int:
@@ -18,8 +18,8 @@ def main() -> int:
     parser.add_argument("--current-price", type=float, required=True)
     args = parser.parse_args()
 
-    strategy = map_symbol_to_strategy(args.symbol)
     database_url = build_psycopg_url()
+    strategy = SymbolStrategyResolver(database_url).resolve(args.symbol)
 
     sql = """
     SELECT

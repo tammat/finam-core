@@ -8,7 +8,7 @@ import time
 import psycopg
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
-from finam_core.analytics.symbol_strategy_mapper import map_symbol_to_strategy
+from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
 
 def load_symbols_with_new_trades(database_url: str, last_seen_id: int) -> tuple[int, list[str]]:
@@ -44,7 +44,7 @@ def load_symbols_with_new_trades(database_url: str, last_seen_id: int) -> tuple[
 
 
 def run_refresh(symbol: str, timeframe: str, commission: str) -> int:
-    strategy = map_symbol_to_strategy(symbol)
+    strategy = SymbolStrategyResolver(build_psycopg_url()).resolve(symbol)
 
     cmd = [
         "./scripts/analytics_refresh_all.sh",
