@@ -29,7 +29,7 @@ def main() -> int:
     for i in range(120):
         ts = now - timedelta(minutes=(120 - i) * 5)
 
-        drift = i * 0.03
+        drift = i * 0.20
 
         open_price = price + drift
         close_price = open_price + 0.05
