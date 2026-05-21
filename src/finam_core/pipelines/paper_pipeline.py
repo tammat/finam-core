@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
+from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
@@ -495,6 +496,10 @@ class PaperTradingPipeline:
             symbol=self.br_breakout_symbol,
             strategy="br_conservative_breakout",
             timeframe=os.getenv("BR_BREAKOUT_TIMEFRAME", "M5").strip().upper(),
+        )
+
+        log_portfolio_heat_advisory(
+            database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or "",
         )
         self.finam_limits_adapter = FinamLimitsAdapter()
         self.regime_policy = RegimePolicy()
@@ -6279,6 +6284,40 @@ def log_incremental_exit_advice(
         print(
             "INCREMENTAL_EXIT_ADVICE_ERROR "
             f"symbol={symbol} "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+
+
+
+def log_portfolio_heat_advisory(*, database_url: str) -> None:
+    """
+    Русский комментарий:
+    Portfolio Heat advisory-only лог.
+    Не меняет RiskStack, execution, заявки и позиции.
+    """
+
+    try:
+        advisor = RuntimePortfolioHeatAdvisor(database_url)
+        advice = advisor.get_latest_advice()
+
+        if advice is None:
+            print("PORTFOLIO_HEAT_ADVISORY_EMPTY", flush=True)
+            return
+
+        print(
+            "PORTFOLIO_HEAT_ADVISORY_APPLIED "
+            f"status={advice.status} "
+            f"heat={advice.heat} "
+            f"risk_multiplier={advice.risk_multiplier} "
+            f"allow_new_entries={advice.allow_new_entries} "
+            f"reason={advice.reason}",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(
+            "PORTFOLIO_HEAT_ADVISORY_ERROR "
             f"error={type(exc).__name__}:{exc}",
             flush=True,
         )
