@@ -6,6 +6,7 @@ from finam_core.analytics.statistics_repository import build_psycopg_url
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 from finam_core.contracts.instrument_display_name_resolver import InstrumentDisplayNameResolver
 from finam_core.notifications.telegram_signal_dispatcher import TelegramSignalDispatcher
+from finam_core.notifications.telegram_alert_deduplication import TelegramAlertDeduplicator
 from finam_core.notifications.telegram_signal_taxonomy import TelegramSignalMessage
 from finam_core.runtime.runtime_governance_coordinator_v2 import RuntimeGovernanceCoordinatorV2
 
@@ -56,6 +57,38 @@ def main() -> int:
         f"Режим: {decision.mode}."
     )
 
+    alert_status = (
+        decision.lifecycle_action
+        if decision.lifecycle_severity in {"HIGH", "CRITICAL"}
+        else decision.heat_status
+    )
+
+    alert_key = (
+        f"runtime_governance:"
+        f"{args.symbol}:"
+        f"{decision.heat_status}:"
+        f"{decision.lifecycle_action}"
+    )
+
+    dedup = TelegramAlertDeduplicator(database_url)
+    dedup.migrate()
+
+    dedup_decision = dedup.should_send(
+        alert_key=alert_key,
+        status=alert_status,
+        cooldown_sec=1800,
+    )
+
+    if not dedup_decision.should_send:
+        print(
+            "RUNTIME_GOVERNANCE_ALERT_DEDUP_SKIPPED "
+            f"symbol={args.symbol} "
+            f"alert_key={alert_key} "
+            f"reason={dedup_decision.reason}",
+            flush=True,
+        )
+        return 0
+
     message = TelegramSignalMessage(
         channel_type="RISK",
         symbol=args.symbol,
@@ -71,12 +104,19 @@ def main() -> int:
 
     result = TelegramSignalDispatcher().dispatch(message)
 
+    if result.status in {"SENT", "SKIPPED"}:
+        dedup.mark_sent(
+            alert_key=alert_key,
+            status=alert_status,
+        )
+
     print(
         "RUNTIME_GOVERNANCE_ALERT_RESULT "
         f"symbol={args.symbol} "
         f"status={result.status} "
         f"channel={result.channel_type} "
         f"target_env={result.target_env} "
+        f"alert_key={alert_key} "
         f"reason={result.reason}",
         flush=True,
     )
