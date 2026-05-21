@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
+from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 
 from finam_core.runtime.trend_gate_service import TrendGateService
 
@@ -460,6 +461,22 @@ class PaperTradingPipeline:
         self._broker_orders_by_symbol = {}
         self._broker_orders_sync_ts = 0.0
         self._broker_position_avg_by_symbol = {}
+
+        # Русский комментарий:
+        # Rate-limit для Incremental Exit Intelligence advisory,
+        # чтобы не спамить лог на каждом quote/tick.
+        self._last_incremental_exit_advice_by_symbol = {}
+        self._incremental_exit_advice_every_sec = float(
+            os.getenv("INCREMENTAL_EXIT_ADVICE_EVERY_SEC", "60")
+        )
+
+        # Русский комментарий:
+        # Rate-limit для Incremental Exit Intelligence advisory,
+        # чтобы не спамить лог на каждом quote/tick.
+        self._last_incremental_exit_advice_by_symbol = {}
+        self._incremental_exit_advice_every_sec = float(
+            os.getenv("INCREMENTAL_EXIT_ADVICE_EVERY_SEC", "60")
+        )
         self._broker_position_sync_ts = 0.0
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT работает только в PAPER и только как генератор сигналов.
         self.br_breakout_enabled = (
@@ -6201,6 +6218,66 @@ def log_exit_policy_advisory(
             f"symbol={symbol} "
             f"strategy={strategy} "
             f"timeframe={timeframe} "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+
+
+
+def log_incremental_exit_advice(
+    *,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+    side: str,
+    entry_price: float,
+    current_price: float,
+    qty: float,
+    take_distance: float,
+    stop_distance: float,
+) -> None:
+    """
+    Русский комментарий:
+    Incremental Exit Intelligence в режиме advisory-only.
+    Не меняет заявки, RiskEngine, stop/take и execution.
+    """
+
+    try:
+        advice = build_incremental_exit_advice(
+            IncrementalExitInput(
+                symbol=symbol,
+                strategy=strategy,
+                timeframe=timeframe,
+                side=side,
+                entry_price=entry_price,
+                current_price=current_price,
+                qty=qty,
+                take_distance=take_distance,
+                stop_distance=stop_distance,
+            )
+        )
+
+        print(
+            "INCREMENTAL_EXIT_ADVICE "
+            f"symbol={advice.symbol} "
+            f"strategy={advice.strategy} "
+            f"timeframe={advice.timeframe} "
+            f"side={advice.side} "
+            f"entry={entry_price} "
+            f"current={current_price} "
+            f"take_price={advice.take_price} "
+            f"stop_price={advice.stop_price} "
+            f"distance_to_take={advice.distance_to_take} "
+            f"distance_to_stop={advice.distance_to_stop} "
+            f"action={advice.action} "
+            f"reason={advice.reason}",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(
+            "INCREMENTAL_EXIT_ADVICE_ERROR "
+            f"symbol={symbol} "
             f"error={type(exc).__name__}:{exc}",
             flush=True,
         )
