@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
+from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
 from finam_core.runtime.trend_gate_service import TrendGateService
 
