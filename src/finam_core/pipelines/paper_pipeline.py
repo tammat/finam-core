@@ -8,6 +8,7 @@ from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
 from finam_core.runtime.portfolio_governance_advisor import PortfolioGovernanceAdvisor
 from finam_core.runtime.portfolio_governance_repository import PortfolioGovernanceRepository
+from finam_core.runtime.runtime_governance_coordinator_v2 import RuntimeGovernanceCoordinatorV2
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
@@ -505,6 +506,15 @@ class PaperTradingPipeline:
         )
 
         log_portfolio_governance_advisory(
+            database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or "",
+            symbol=self.br_breakout_symbol,
+            strategy=SymbolStrategyResolver(
+                os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or ""
+            ).resolve(self.br_breakout_symbol),
+            timeframe=os.getenv("BR_BREAKOUT_TIMEFRAME", "M5").strip().upper(),
+        )
+
+        log_runtime_governance_decision(
             database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or "",
             symbol=self.br_breakout_symbol,
             strategy=SymbolStrategyResolver(
@@ -6385,6 +6395,54 @@ def log_portfolio_governance_advisory(
     except Exception as exc:
         print(
             "PORTFOLIO_GOVERNANCE_ADVISORY_ERROR "
+            f"symbol={symbol} "
+            f"strategy={strategy} "
+            f"timeframe={timeframe} "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+
+
+
+def log_runtime_governance_decision(
+    *,
+    database_url: str,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+) -> None:
+    """
+    Русский комментарий:
+    Runtime Governance Coordinator v2 startup-log.
+    Только advisory/log. Не меняет execution, RiskStack и заявки.
+    """
+
+    try:
+        coordinator = RuntimeGovernanceCoordinatorV2(database_url)
+        decision = coordinator.decide(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+        )
+
+        print(
+            "RUNTIME_GOVERNANCE_DECISION "
+            f"symbol={decision.symbol} "
+            f"strategy={decision.strategy} "
+            f"timeframe={decision.timeframe} "
+            f"mode={decision.mode} "
+            f"heat_status={decision.heat_status} "
+            f"risk_multiplier={decision.risk_multiplier} "
+            f"allow_new_entries={decision.allow_new_entries} "
+            f"allow_execution={decision.allow_execution} "
+            f"watch_only={decision.watch_only} "
+            f"reason={decision.reason}",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(
+            "RUNTIME_GOVERNANCE_DECISION_ERROR "
             f"symbol={symbol} "
             f"strategy={strategy} "
             f"timeframe={timeframe} "
