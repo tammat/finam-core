@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
+from finam_core.runtime.portfolio_governance_advisor import PortfolioGovernanceAdvisor
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
 
@@ -500,6 +501,15 @@ class PaperTradingPipeline:
 
         log_portfolio_heat_advisory(
             database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or "",
+        )
+
+        log_portfolio_governance_advisory(
+            database_url=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or "",
+            symbol=self.br_breakout_symbol,
+            strategy=SymbolStrategyResolver(
+                os.getenv("DATABASE_URL") or os.getenv("POSTGRES_DSN") or ""
+            ).resolve(self.br_breakout_symbol),
+            timeframe=os.getenv("BR_BREAKOUT_TIMEFRAME", "M5").strip().upper(),
         )
         self.finam_limits_adapter = FinamLimitsAdapter()
         self.regime_policy = RegimePolicy()
@@ -6318,6 +6328,52 @@ def log_portfolio_heat_advisory(*, database_url: str) -> None:
     except Exception as exc:
         print(
             "PORTFOLIO_HEAT_ADVISORY_ERROR "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+
+
+
+def log_portfolio_governance_advisory(
+    *,
+    database_url: str,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+) -> None:
+    """
+    Русский комментарий:
+    Единый Portfolio Governance advisory-log.
+    Не меняет RiskStack, execution, заявки и позиции.
+    """
+
+    try:
+        advisor = PortfolioGovernanceAdvisor(database_url)
+        decision = advisor.build(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+        )
+
+        print(
+            "PORTFOLIO_GOVERNANCE_ADVISORY_APPLIED "
+            f"symbol={decision.symbol} "
+            f"strategy={decision.strategy} "
+            f"timeframe={timeframe} "
+            f"heat_status={decision.portfolio_heat_status} "
+            f"portfolio_risk_multiplier={decision.portfolio_risk_multiplier} "
+            f"exit_policy={decision.exit_policy} "
+            f"allow_new_entries={decision.allow_new_entries} "
+            f"mode={decision.governance_mode}",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(
+            "PORTFOLIO_GOVERNANCE_ADVISORY_ERROR "
+            f"symbol={symbol} "
+            f"strategy={strategy} "
+            f"timeframe={timeframe} "
             f"error={type(exc).__name__}:{exc}",
             flush=True,
         )
