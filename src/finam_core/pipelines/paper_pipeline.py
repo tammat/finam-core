@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
+
 from finam_core.runtime.trend_gate_service import TrendGateService
 
 from finam_core.runtime.regime_runtime_control_service import RegimeRuntimeControlService
@@ -466,6 +468,16 @@ class PaperTradingPipeline:
         )
         self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
         self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
+
+        # Русский комментарий:
+        # Advisory-only лог выбранной exit policy для BR breakout.
+        # Не влияет на заявки, RiskEngine, stop/take и execution.
+        log_exit_policy_advisory(
+            database_url=os.getenv('DATABASE_URL') or os.getenv('POSTGRES_DSN') or '',
+            symbol=self.br_breakout_symbol,
+            strategy="br_conservative_breakout",
+            timeframe=os.getenv("BR_BREAKOUT_TIMEFRAME", "M5").strip().upper(),
+        )
         self.finam_limits_adapter = FinamLimitsAdapter()
         self.regime_policy = RegimePolicy()
         self.symbol_drawdown_guard = SymbolDrawdownGuard()
@@ -6129,3 +6141,66 @@ class PaperTradingPipeline:
         if bucket <= 0:
             return round(value, 4)
         return round(round(value / bucket) * bucket, 4)
+
+
+
+def log_exit_policy_advisory(
+    *,
+    database_url: str,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+) -> None:
+    """
+    Русский комментарий:
+    Advisory-only лог выбранного exit policy.
+
+    Важно:
+    - не меняет stop/take;
+    - не отправляет заявки;
+    - не влияет на RiskEngine;
+    - только пишет диагностический лог.
+    """
+
+    try:
+        advisor = RuntimeExitPolicyAdvisor(database_url)
+        advice = advisor.get_advice(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+        )
+
+        if advice is None:
+            print(
+                "EXIT_POLICY_ADVISORY_EMPTY "
+                f"symbol={symbol} "
+                f"strategy={strategy} "
+                f"timeframe={timeframe}",
+                flush=True,
+            )
+            return
+
+        print(
+            "EXIT_POLICY_ADVISORY_APPLIED "
+            f"symbol={advice.symbol} "
+            f"strategy={advice.strategy} "
+            f"timeframe={advice.timeframe} "
+            f"policy={advice.policy} "
+            f"take_distance={advice.take_distance} "
+            f"stop_distance={advice.stop_distance} "
+            f"profit_factor={advice.profit_factor} "
+            f"net_pnl={advice.net_pnl} "
+            f"max_drawdown={advice.max_drawdown} "
+            f"winrate={advice.winrate}",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(
+            "EXIT_POLICY_ADVISORY_ERROR "
+            f"symbol={symbol} "
+            f"strategy={strategy} "
+            f"timeframe={timeframe} "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
