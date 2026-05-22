@@ -73,15 +73,30 @@ class ClosedTradeReconstructionV2Repository:
             side,
             qty,
             price,
-            COALESCE(payload->>'strategy', '') AS strategy,
-            COALESCE(payload->>'timeframe', payload->>'tf', '') AS timeframe,
+            COALESCE(
+                payload->>'strategy',
+                CASE
+                    WHEN symbol LIKE 'NG%%' THEN 'ng_volatility_breakout'
+                    WHEN symbol LIKE 'BR%%' THEN 'br_conservative_breakout'
+                    ELSE ''
+                END
+            ) AS strategy,
+            COALESCE(
+                payload->>'timeframe',
+                payload->>'tf',
+                CASE
+                    WHEN symbol LIKE 'NG%%' THEN 'M5'
+                    WHEN symbol LIKE 'BR%%' THEN 'M5'
+                    ELSE ''
+                END
+            ) AS timeframe,
             COALESCE(trade_source, '') AS trade_source,
             COALESCE(origin, '') AS origin,
             COALESCE(fill_id, '') AS fill_id
         FROM trades
         WHERE symbol = %s
           AND COALESCE(trade_source, '') = %s
-          AND COALESCE(origin, '') = %s
+          AND COALESCE(origin, '') NOT IN ('backtest', 'replay')
           AND qty IS NOT NULL
           AND price IS NOT NULL
           AND side IS NOT NULL
@@ -91,7 +106,7 @@ class ClosedTradeReconstructionV2Repository:
 
         with psycopg.connect(self.database_url) as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (symbol, trade_source, trade_source, limit))
+                cur.execute(sql, (symbol, trade_source, limit))
                 rows = cur.fetchall()
 
         return [

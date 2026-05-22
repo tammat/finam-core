@@ -56,6 +56,7 @@ class TradeFillQualityAuditRepository:
         FROM trades
         WHERE symbol = %s
           AND COALESCE(trade_source, '') = %s
+          AND COALESCE(is_invalid, FALSE) = FALSE
         """
 
         with psycopg.connect(self.database_url) as conn:
