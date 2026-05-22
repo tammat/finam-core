@@ -37,6 +37,68 @@ class StrategyPromotionEngineDecision:
     reason: str
 
 
+def apply_futures_regime_promotion_gate(
+    decision: StrategyPromotionEngineDecision,
+) -> StrategyPromotionEngineDecision:
+    """
+    Русский комментарий:
+    Futures regime gate для promotion engine.
+    Если futures-regime запрещает paper/runtime, не даём стратегии перейти в PAPER.
+    """
+    import psycopg
+    from finam_core.analytics.statistics_repository import build_psycopg_url
+
+    with psycopg.connect(build_psycopg_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT allow_paper, allow_runtime, reason
+                FROM futures_regime_governance
+                WHERE symbol = %s
+                LIMIT 1
+                """,
+                (decision.symbol,),
+            )
+            row = cur.fetchone()
+
+    if not row:
+        return decision
+
+    allow_paper = bool(row[0])
+    allow_runtime = bool(row[1])
+    reason = str(row[2] or "")
+
+    if not allow_paper:
+        return StrategyPromotionEngineDecision(
+            symbol=decision.symbol,
+            strategy=decision.strategy,
+            timeframe=decision.timeframe,
+            trade_source=decision.trade_source,
+            decision="KEEP_RESEARCH",
+            target_lifecycle_state="RESEARCH",
+            allow_runtime=False,
+            allow_radar=False,
+            allow_research=True,
+            reason=f"futures_regime_gate:{reason}",
+        )
+
+    if not allow_runtime and decision.allow_runtime:
+        return StrategyPromotionEngineDecision(
+            symbol=decision.symbol,
+            strategy=decision.strategy,
+            timeframe=decision.timeframe,
+            trade_source=decision.trade_source,
+            decision="DEMOTE_TO_RADAR",
+            target_lifecycle_state="RADAR",
+            allow_runtime=False,
+            allow_radar=True,
+            allow_research=True,
+            reason=f"futures_runtime_gate:{reason}",
+        )
+
+    return decision
+
+
 def decide_strategy_promotion_v1(
     item: StrategyPromotionEngineInput,
 ) -> StrategyPromotionEngineDecision:
@@ -96,17 +158,19 @@ def decide_strategy_promotion_v1(
         and item.quality_full_ratio > 0
         and item.risk_context_weak_ratio <= 0.25
     ):
-        return StrategyPromotionEngineDecision(
-            symbol=item.symbol,
-            strategy=item.strategy,
-            timeframe=item.timeframe,
-            trade_source=item.trade_source,
-            decision="PROMOTE_TO_PAPER",
-            target_lifecycle_state="PAPER",
-            allow_runtime=True,
-            allow_radar=True,
-            allow_research=True,
-            reason="стратегия_допущена_к_paper_по_статистике",
+        return apply_futures_regime_promotion_gate(
+            StrategyPromotionEngineDecision(
+                symbol=item.symbol,
+                strategy=item.strategy,
+                timeframe=item.timeframe,
+                trade_source=item.trade_source,
+                decision="PROMOTE_TO_PAPER",
+                target_lifecycle_state="PAPER",
+                allow_runtime=True,
+                allow_radar=True,
+                allow_research=True,
+                reason="стратегия_допущена_к_paper_по_статистике",
+            )
         )
 
     if item.profit_factor >= 1.0 and item.expectancy >= 0:
