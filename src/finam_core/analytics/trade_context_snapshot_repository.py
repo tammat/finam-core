@@ -83,9 +83,9 @@ class TradeContextSnapshotRepository:
             c.entry_ts,
             c.exit_ts,
 
-            'unknown' AS regime,
-            'unknown' AS trend,
-            'unknown' AS volatility,
+            COALESCE(rs.regime, 'unknown') AS regime,
+            COALESCE(rs.trend, 'unknown') AS trend,
+            COALESCE(rs.volatility, 'unknown') AS volatility,
 
             COALESCE(a.heat_status, 'unknown') AS heat_status,
             COALESCE(a.risk_multiplier, 1.0) AS portfolio_risk_multiplier,
@@ -103,6 +103,20 @@ class TradeContextSnapshotRepository:
           ON l.symbol = c.symbol
          AND l.strategy = c.strategy
          AND l.timeframe = c.timeframe
+        LEFT JOIN LATERAL (
+            SELECT regime, trend, volatility
+            FROM regime_snapshots rs
+            WHERE rs.symbol = c.symbol
+              AND rs.timeframe = c.timeframe
+            ORDER BY
+              CASE
+                WHEN rs.ts <= COALESCE(c.entry_ts, c.exit_ts, now()) THEN 0
+                ELSE 1
+              END,
+              ABS(EXTRACT(EPOCH FROM (rs.ts - COALESCE(c.entry_ts, c.exit_ts, now())))),
+              rs.ts DESC
+            LIMIT 1
+        ) rs ON TRUE
         WHERE c.symbol = %s
           AND COALESCE(c.strategy, '') <> ''
           AND COALESCE(c.timeframe, '') <> ''
