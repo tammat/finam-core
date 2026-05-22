@@ -12,5 +12,6 @@ grep -q "_ACTIVE" src/scripts/run_research_runtime_supervisor.py
 grep -q "_RESEARCH" src/scripts/run_research_runtime_supervisor.py
 grep -q "resolve_active_contract" src/scripts/run_research_runtime_supervisor.py
 grep -q "resolve_research_contracts" src/scripts/run_research_runtime_supervisor.py
+grep -q "FUTURES_RESEARCH_MODE_ACTIVE" src/scripts/run_research_runtime_supervisor.py
 
 echo "TEST_RESEARCH_RUNTIME_SUPERVISOR_FUTURES_TOKENS_OK"

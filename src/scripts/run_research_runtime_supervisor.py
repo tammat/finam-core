@@ -60,7 +60,21 @@ def main() -> int:
     parser.add_argument("--no-sync-universe", action="store_true")
     args = parser.parse_args()
 
-    symbols = expand_symbol_tokens([x.strip() for x in args.symbols.split(",") if x.strip()])
+    raw_symbols = [x.strip() for x in args.symbols.split(",") if x.strip()]
+    symbols = expand_symbol_tokens(raw_symbols)
+
+    research_tokens = [
+        x for x in raw_symbols
+        if x.upper().endswith("_RESEARCH")
+    ]
+
+    if research_tokens:
+        print(
+            "FUTURES_RESEARCH_MODE_ACTIVE "
+            f"tokens={','.join(research_tokens)} "
+            f"expanded={','.join(symbols)}",
+            flush=True,
+        )
 
     supervisor = ResearchRuntimeSupervisor(
         ResearchRuntimeSupervisorConfig(
