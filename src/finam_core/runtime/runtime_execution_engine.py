@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Callable, Iterable, Optional
 
 from finam_core.runtime.runtime_state import RuntimeWorkerState
+from finam_core.runtime.runtime_strategy_selection_provider import RuntimeStrategySelectionProvider
+from finam_core.runtime.runtime_active_strategy_provider import RuntimeActiveStrategyProvider
 from finam_core.runtime.runtime_telemetry import RuntimeTelemetry
 
 
@@ -38,6 +40,9 @@ class RuntimeExecutionEngine:
         self.shutdown_requested = False
         self.workers: dict[str, object] = {}
         self.worker_states: dict[str, RuntimeWorkerState] = {}
+        # Русский комментарий: runtime gate по результатам strategy research/ranking.
+        self.strategy_selection_provider = RuntimeStrategySelectionProvider()
+        self.active_strategy_provider = RuntimeActiveStrategyProvider()
         self.last_rebalance_at: Optional[float] = None
 
     def install_signal_handlers(self) -> None:
@@ -89,6 +94,57 @@ class RuntimeExecutionEngine:
             if symbol in self.workers:
                 continue
 
+            active_strategy = self.active_strategy_provider.resolve(symbol)
+            strategy = active_strategy.strategy
+            timeframe = active_strategy.timeframe
+
+            if not strategy or not timeframe:
+                print(
+                    "RUNTIME_STRATEGY_SELECTION_BLOCK "
+                    f"symbol={symbol} "
+                    "strategy=UNKNOWN "
+                    "timeframe=UNKNOWN "
+                    "mode=NO_ACTIVE_STRATEGY",
+                    flush=True,
+                )
+                self.worker_states[symbol] = RuntimeWorkerState(
+                    symbol=symbol,
+                    status="blocked",
+                    started_at=datetime.utcnow(),
+                    stopped_at=datetime.utcnow(),
+                    last_heartbeat_at=datetime.utcnow(),
+                    last_error="strategy_selection_block:NO_ACTIVE_STRATEGY",
+                )
+                continue
+
+            if not self.strategy_selection_provider.allow_worker(
+                symbol=symbol,
+                strategy=strategy,
+                timeframe=timeframe,
+            ):
+                mode = self.strategy_selection_provider.get_mode(
+                    symbol=symbol,
+                    strategy=strategy,
+                    timeframe=timeframe,
+                )
+                print(
+                    "RUNTIME_STRATEGY_SELECTION_BLOCK "
+                    f"symbol={symbol} "
+                    f"strategy={strategy} "
+                    f"timeframe={timeframe} "
+                    f"mode={mode}",
+                    flush=True,
+                )
+                self.worker_states[symbol] = RuntimeWorkerState(
+                    symbol=symbol,
+                    status="blocked",
+                    started_at=datetime.utcnow(),
+                    stopped_at=datetime.utcnow(),
+                    last_heartbeat_at=datetime.utcnow(),
+                    last_error=f"strategy_selection_block:{mode}",
+                )
+                continue
+
             worker = self.worker_runner(symbol) if self.worker_runner else None
             self.workers[symbol] = worker
             self.worker_states[symbol] = RuntimeWorkerState(
@@ -100,6 +156,7 @@ class RuntimeExecutionEngine:
             )
 
             print(f"RUNTIME_WORKER_STARTED symbol={symbol}", flush=True)
+
 
     def stop_disabled_workers(self, active_symbols: set[str]) -> None:
         for symbol in sorted(list(self.workers.keys())):
