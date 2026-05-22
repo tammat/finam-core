@@ -87,8 +87,8 @@ class TradeContextSnapshotRepository:
             COALESCE(rs.trend, 'unknown') AS trend,
             COALESCE(rs.volatility, 'unknown') AS volatility,
 
-            COALESCE(a.heat_status, 'unknown') AS heat_status,
-            COALESCE(a.risk_multiplier, 1.0) AS portfolio_risk_multiplier,
+            COALESCE(rc.heat_status, 'unknown') AS heat_status,
+            COALESCE(rc.risk_multiplier, 1.0) AS portfolio_risk_multiplier,
 
             COALESCE(a.exit_policy, '') AS exit_policy,
             COALESCE(l.lifecycle_state, 'UNKNOWN') AS lifecycle_state,
@@ -99,6 +99,8 @@ class TradeContextSnapshotRepository:
         FROM closed_trade_chains_v2 c
         LEFT JOIN trade_attribution_v2 a
           ON a.closed_trade_id = c.id
+        LEFT JOIN trade_risk_context rc
+          ON rc.closed_trade_id = c.id
         LEFT JOIN strategy_lifecycle_state l
           ON l.symbol = c.symbol
          AND l.strategy = c.strategy

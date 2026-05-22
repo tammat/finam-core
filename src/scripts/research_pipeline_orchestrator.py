@@ -82,6 +82,12 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--limit", str(limit),
         ],
         [
+            py, "src/scripts/build_trade_risk_context.py",
+            "--migrate", "--save",
+            "--symbol", symbol,
+            "--limit", str(limit),
+        ],
+        [
             py, "src/scripts/build_trade_context_snapshots.py",
             "--migrate", "--save",
             "--symbol", symbol,
