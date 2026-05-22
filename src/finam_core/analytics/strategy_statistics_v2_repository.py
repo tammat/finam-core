@@ -67,6 +67,8 @@ class StrategyStatisticsV2Repository:
             lifecycle_action
         FROM trade_attribution_v2
         WHERE symbol = %s
+          AND COALESCE(strategy, '') <> ''
+          AND COALESCE(timeframe, '') <> ''
         ORDER BY strategy, timeframe, trade_source
         """
 

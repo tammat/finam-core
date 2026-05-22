@@ -13,6 +13,9 @@ class StrategyPromotionEngineInput:
     profit_factor: float
     expectancy: float
     winrate: float
+    quality_full_ratio: float
+    quality_partial_ratio: float
+    risk_context_weak_ratio: float
     score: float
     rank_status: str
     fill_quality_status: str
@@ -86,7 +89,13 @@ def decide_strategy_promotion_v1(
             reason=f"слабый_rank_status:{item.rank_status}",
         )
 
-    if item.profit_factor >= 1.3 and item.expectancy > 0 and item.score >= 25:
+    if (
+        item.profit_factor >= 1.3
+        and item.expectancy > 0
+        and item.score >= 25
+        and item.quality_full_ratio > 0
+        and item.risk_context_weak_ratio <= 0.25
+    ):
         return StrategyPromotionEngineDecision(
             symbol=item.symbol,
             strategy=item.strategy,

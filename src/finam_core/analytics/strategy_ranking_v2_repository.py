@@ -48,8 +48,10 @@ class StrategyRankingV2Repository:
         params: tuple = ()
 
         if symbol:
-            where = "WHERE symbol = %s"
+            where = "WHERE symbol = %s AND COALESCE(strategy, '') <> '' AND COALESCE(timeframe, '') <> ''"
             params = (symbol,)
+        else:
+            where = "WHERE COALESCE(strategy, '') <> '' AND COALESCE(timeframe, '') <> ''"
 
         sql = f"""
         SELECT
@@ -68,6 +70,8 @@ class StrategyRankingV2Repository:
             status
         FROM strategy_statistics_v2
         {where}
+          AND COALESCE(strategy, '') <> ''
+          AND COALESCE(timeframe, '') <> ''
         """
 
         items: list[StrategyRankingDecisionV2] = []
