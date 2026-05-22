@@ -147,3 +147,109 @@ def replay_exit_alpha_policy(
         delta_profit_factor=round(new_pf - old_pf, 6),
         policy_name=policy.policy_name,
     )
+
+
+@dataclass(frozen=True)
+class MarketBarForExitReplay:
+    """Русский комментарий: минимальная свеча для bar-by-bar replay выхода."""
+
+    ts: object
+    high: float
+    low: float
+    close: float
+
+
+@dataclass(frozen=True)
+class BarByBarExitReplayTrade:
+    """Русский комментарий: результат пересчёта одной сделки по реальным барам."""
+
+    old_pnl: float
+    new_pnl: float
+    exit_reason: str
+    bars_used: int
+
+
+def _pf(pnls: list[float]) -> float:
+    gp = sum(x for x in pnls if x > 0)
+    gl = abs(sum(x for x in pnls if x < 0))
+    if gl == 0:
+        return 999.0 if gp > 0 else 0.0
+    return gp / gl
+
+
+def replay_single_trade_bar_by_bar(
+    *,
+    side: str,
+    entry_price: float,
+    original_exit_price: float,
+    qty: float,
+    policy: ExitAlphaPolicy,
+    bars: list[MarketBarForExitReplay],
+) -> BarByBarExitReplayTrade:
+    side = str(side or "BUY").upper()
+    qty = float(qty or 0.0)
+    entry = float(entry_price)
+    original_exit = float(original_exit_price)
+
+    old_pnl = (original_exit - entry) * qty if side == "BUY" else (entry - original_exit) * qty
+
+    if not bars:
+        return BarByBarExitReplayTrade(round(old_pnl, 6), round(old_pnl, 6), "NO_BARS", 0)
+
+    atr = max(
+        sum(abs(float(b.high) - float(b.low)) for b in bars[: min(len(bars), 14)])
+        / max(1, min(len(bars), 14)),
+        0.000001,
+    )
+
+    exit_price = original_exit
+    reason = "ORIGINAL_EXIT"
+
+    if side == "SELL":
+        stop = entry + policy.stop_atr * atr
+        take = entry - policy.take_atr * atr
+        best = entry
+
+        for i, b in enumerate(bars, start=1):
+            best = min(best, float(b.low))
+            trail = best + policy.trail_atr * atr
+
+            if float(b.high) >= stop:
+                exit_price, reason = stop, "STOP_ATR"
+                break
+            if float(b.low) <= take:
+                exit_price, reason = take, "TAKE_ATR"
+                break
+            if best < entry and float(b.high) >= trail:
+                exit_price, reason = trail, "TRAIL_ATR"
+                break
+            if i >= policy.max_bars_held:
+                exit_price, reason = float(b.close), "TIME_STOP"
+                break
+
+        new_pnl = (entry - exit_price) * qty
+        return BarByBarExitReplayTrade(round(old_pnl, 6), round(new_pnl, 6), reason, i)
+
+    stop = entry - policy.stop_atr * atr
+    take = entry + policy.take_atr * atr
+    best = entry
+
+    for i, b in enumerate(bars, start=1):
+        best = max(best, float(b.high))
+        trail = best - policy.trail_atr * atr
+
+        if float(b.low) <= stop:
+            exit_price, reason = stop, "STOP_ATR"
+            break
+        if float(b.high) >= take:
+            exit_price, reason = take, "TAKE_ATR"
+            break
+        if best > entry and float(b.low) <= trail:
+            exit_price, reason = trail, "TRAIL_ATR"
+            break
+        if i >= policy.max_bars_held:
+            exit_price, reason = float(b.close), "TIME_STOP"
+            break
+
+    new_pnl = (exit_price - entry) * qty
+    return BarByBarExitReplayTrade(round(old_pnl, 6), round(new_pnl, 6), reason, i)

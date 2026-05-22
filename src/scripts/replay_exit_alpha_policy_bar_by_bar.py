@@ -6,7 +6,6 @@ import json
 import psycopg
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
-from finam_core.research.exit_alpha_grid import build_exit_alpha_parameter_grid_v1
 from finam_core.research.exit_alpha_policy import (
     ExitAlphaPolicy,
     MarketBarForExitReplay,
@@ -31,20 +30,16 @@ def migrate() -> None:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS strategy_exit_alpha_grid_results (
+                CREATE TABLE IF NOT EXISTS strategy_exit_alpha_bar_replay (
                     id BIGSERIAL PRIMARY KEY,
                     symbol TEXT NOT NULL,
                     strategy TEXT NOT NULL,
                     timeframe TEXT NOT NULL,
                     trade_source TEXT NOT NULL,
                     policy_name TEXT NOT NULL,
-                    stop_atr NUMERIC NOT NULL,
-                    take_atr NUMERIC NOT NULL,
-                    trail_atr NUMERIC NOT NULL,
-                    max_bars_held INTEGER NOT NULL,
                     trades INTEGER NOT NULL,
-                    evaluated_trades INTEGER NOT NULL,
-                    no_bars_trades INTEGER NOT NULL,
+                    evaluated_trades INTEGER NOT NULL DEFAULT 0,
+                    no_bars_trades INTEGER NOT NULL DEFAULT 0,
                     session_closed_trades INTEGER NOT NULL DEFAULT 0,
                     old_profit_factor NUMERIC NOT NULL,
                     new_profit_factor NUMERIC NOT NULL,
@@ -56,7 +51,7 @@ def migrate() -> None:
                     UNIQUE(symbol, strategy, timeframe, trade_source, policy_name)
                 );
 
-                ALTER TABLE strategy_exit_alpha_grid_results
+                ALTER TABLE strategy_exit_alpha_bar_replay
                 ADD COLUMN IF NOT EXISTS session_closed_trades INTEGER NOT NULL DEFAULT 0;
             """)
         conn.commit()
@@ -87,48 +82,53 @@ def load_bars(cur, *, symbol: str, timeframe: str, entry_ts, exit_ts, tf_minutes
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", required=True)
-    parser.add_argument("--strategy", required=True)
-    parser.add_argument("--timeframe", required=True)
     parser.add_argument("--trade-source", default="paper")
     parser.add_argument("--bar-timeframe", default="M5")
     args = parser.parse_args()
 
-    symbol = args.symbol
-    strategy = args.strategy.upper()
-    timeframe = args.timeframe.upper()
-    trade_source = args.trade_source
     bar_tf = args.bar_timeframe.upper()
     tf_minutes = timeframe_minutes(bar_tf)
-
     calendar = MarketSessionCalendar()
-    grid = build_exit_alpha_parameter_grid_v1()
 
     migrate()
 
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT entry_ts, exit_ts, side, entry_price, exit_price, qty, pnl
-                FROM closed_trade_chains_v2
+                SELECT symbol, strategy, timeframe, trade_source,
+                       policy_name, stop_atr, take_atr, trail_atr, max_bars_held
+                FROM strategy_exit_alpha_policy
                 WHERE symbol=%s
                   AND trade_source=%s
-                  AND UPPER(strategy)=UPPER(%s)
-                  AND UPPER(timeframe)=UPPER(%s)
-                ORDER BY exit_ts
-            """, (symbol, trade_source, strategy, timeframe))
+                ORDER BY strategy, timeframe
+            """, (args.symbol, args.trade_source))
 
-            trades = cur.fetchall()
+            policies = cur.fetchall()
 
-            for candidate in grid:
+            for row in policies:
+                symbol, strategy, timeframe, source, policy_name, stop_atr, take_atr, trail_atr, max_bars_held = row
+
                 policy = ExitAlphaPolicy(
                     strategy=strategy,
                     timeframe=timeframe,
-                    stop_atr=float(candidate.stop_atr),
-                    take_atr=float(candidate.take_atr),
-                    trail_atr=float(candidate.trail_atr),
-                    max_bars_held=int(candidate.max_bars_held),
-                    policy_name=candidate.policy_name,
+                    stop_atr=float(stop_atr),
+                    take_atr=float(take_atr),
+                    trail_atr=float(trail_atr),
+                    max_bars_held=int(max_bars_held),
+                    policy_name=policy_name,
                 )
+
+                cur.execute("""
+                    SELECT entry_ts, exit_ts, side, entry_price, exit_price, qty, pnl
+                    FROM closed_trade_chains_v2
+                    WHERE symbol=%s
+                      AND trade_source=%s
+                      AND UPPER(strategy)=UPPER(%s)
+                      AND UPPER(timeframe)=UPPER(%s)
+                    ORDER BY exit_ts
+                """, (symbol, source, strategy, timeframe))
+
+                trades = cur.fetchall()
 
                 old_pnls: list[float] = []
                 new_pnls: list[float] = []
@@ -180,21 +180,16 @@ def main() -> int:
                 new_pf = _pf(new_pnls) if evaluated else 0.0
 
                 cur.execute("""
-                    INSERT INTO strategy_exit_alpha_grid_results (
-                        symbol, strategy, timeframe, trade_source,
-                        policy_name, stop_atr, take_atr, trail_atr, max_bars_held,
+                    INSERT INTO strategy_exit_alpha_bar_replay (
+                        symbol, strategy, timeframe, trade_source, policy_name,
                         trades, evaluated_trades, no_bars_trades, session_closed_trades,
                         old_profit_factor, new_profit_factor,
                         old_expectancy, new_expectancy, delta_expectancy,
                         exit_reason_breakdown, calculated_at
                     )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
                     ON CONFLICT (symbol, strategy, timeframe, trade_source, policy_name)
                     DO UPDATE SET
-                        stop_atr=EXCLUDED.stop_atr,
-                        take_atr=EXCLUDED.take_atr,
-                        trail_atr=EXCLUDED.trail_atr,
-                        max_bars_held=EXCLUDED.max_bars_held,
                         trades=EXCLUDED.trades,
                         evaluated_trades=EXCLUDED.evaluated_trades,
                         no_bars_trades=EXCLUDED.no_bars_trades,
@@ -210,12 +205,8 @@ def main() -> int:
                     symbol,
                     strategy,
                     timeframe,
-                    trade_source,
-                    candidate.policy_name,
-                    candidate.stop_atr,
-                    candidate.take_atr,
-                    candidate.trail_atr,
-                    candidate.max_bars_held,
+                    source,
+                    policy_name,
                     len(trades),
                     evaluated,
                     no_bars,
@@ -228,14 +219,19 @@ def main() -> int:
                     json.dumps(reasons, ensure_ascii=False),
                 ))
 
+                print(
+                    "EXIT_ALPHA_BAR_REPLAY "
+                    f"symbol={symbol} strategy={strategy} timeframe={timeframe} "
+                    f"bar_tf={bar_tf} trades={len(trades)} evaluated={evaluated} "
+                    f"no_bars={no_bars} session_closed={session_closed} "
+                    f"old_pf={round(old_pf, 6)} new_pf={round(new_pf, 6)} "
+                    f"old_exp={round(old_exp, 6)} new_exp={round(new_exp, 6)} "
+                    f"reasons={reasons}",
+                    flush=True,
+                )
+
         conn.commit()
 
-    print(
-        "EXIT_ALPHA_GRID_SUMMARY "
-        f"symbol={symbol} strategy={strategy} timeframe={timeframe} "
-        f"policies={len(grid)} trades={len(trades)}",
-        flush=True,
-    )
     return 0
 
 

@@ -1,0 +1,21 @@
+{
+  "title": "Finam Core — Exit Alpha Radar",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "table",
+      "title": "Exit Alpha Radar Candidates",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT symbol AS \"Инструмент\", strategy AS \"Стратегия\", timeframe AS \"TF\", policy_name AS \"Exit policy\", radar_enabled AS \"Radar\", runtime_enabled AS \"Runtime\", raw_profit_factor AS \"Raw PF\", exit_alpha_pf AS \"Exit PF\", raw_expectancy AS \"Raw Exp\", exit_alpha_expectancy AS \"Exit Exp\", evaluated_trades AS \"Оценено\", no_bars_trades AS \"Без баров\", bias_alignment AS \"MTF\", volatility_state AS \"Vol\", reason AS \"Причина\" FROM v_exit_alpha_radar_dashboard ORDER BY exit_alpha_pf DESC, exit_alpha_expectancy DESC;",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
