@@ -50,8 +50,18 @@ class TradeFillQualityAuditRepository:
             COUNT(*) AS total_fills,
             SUM(CASE WHEN UPPER(COALESCE(side, '')) = 'BUY' THEN 1 ELSE 0 END) AS buy_fills,
             SUM(CASE WHEN UPPER(COALESCE(side, '')) = 'SELL' THEN 1 ELSE 0 END) AS sell_fills,
-            SUM(CASE WHEN COALESCE(payload->>'strategy', '') = '' THEN 1 ELSE 0 END) AS missing_strategy,
-            SUM(CASE WHEN COALESCE(payload->>'timeframe', payload->>'tf', '') = '' THEN 1 ELSE 0 END) AS missing_timeframe,
+            SUM(
+                CASE
+                    WHEN COALESCE(strategy, payload->>'strategy', '') = '' THEN 1
+                    ELSE 0
+                END
+            ) AS missing_strategy,
+            SUM(
+                CASE
+                    WHEN COALESCE(timeframe, payload->>'timeframe', payload->>'tf', '') = '' THEN 1
+                    ELSE 0
+                END
+            ) AS missing_timeframe,
             SUM(CASE WHEN COALESCE(origin, '') LIKE 'backfill%%' THEN 1 ELSE 0 END) AS backfill_fills
         FROM trades
         WHERE symbol = %s
