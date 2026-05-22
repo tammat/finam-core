@@ -4,6 +4,8 @@ import argparse
 from datetime import datetime, timedelta, timezone
 
 import psycopg
+import grpc
+import time
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
 from finam_core.ingestion.bars_client import FinamBarsClient
@@ -142,14 +144,39 @@ def main() -> int:
 
     try:
         for symbol in symbols:
-            resp = client.get_bars(
-                symbol=symbol,
-                timeframe=args.timeframe,
-                start=start,
-                end=end,
-            )
+            bars = []
+            last_error = ""
 
-            bars = list(getattr(resp, "bars", []) or [])
+            for attempt in range(1, 4):
+                try:
+                    resp = client.get_bars(
+                        symbol=symbol,
+                        timeframe=args.timeframe,
+                        start=start,
+                        end=end,
+                    )
+                    bars = list(getattr(resp, "bars", []) or [])
+                    last_error = ""
+                    break
+                except grpc.RpcError as exc:
+                    last_error = f"{exc.code()}:{exc.details()}"
+                    print(
+                        "FINAM_FUTURES_MARKET_BARS_RETRY "
+                        f"symbol={symbol} timeframe={args.timeframe} "
+                        f"attempt={attempt} error={last_error}",
+                        flush=True,
+                    )
+                    time.sleep(1.5 * attempt)
+
+            if last_error:
+                print(
+                    "FINAM_FUTURES_MARKET_BARS_FAILED "
+                    f"symbol={symbol} timeframe={args.timeframe} "
+                    f"error={last_error}",
+                    flush=True,
+                )
+                continue
+
             saved = save_bars(symbol, args.timeframe, bars)
             total += saved
 
