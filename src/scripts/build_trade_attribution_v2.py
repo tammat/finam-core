@@ -21,30 +21,49 @@ def main() -> int:
     if args.migrate or args.save:
         repo.migrate()
 
-    items = repo.build(symbol=args.symbol, limit=args.limit)
+    items = repo.build(
+        symbol=args.symbol,
+        limit=args.limit,
+    )
 
     saved = 0
     if args.save:
         saved = repo.save(items)
 
-    full = sum(1 for x in items if x.attribution_quality == "FULL")
-    partial = sum(1 for x in items if x.attribution_quality == "PARTIAL")
-    weak = sum(1 for x in items if x.attribution_quality == "RISK_CONTEXT_WEAK")
+    def item_quality(item) -> str:
+        return str(
+            getattr(item, "quality", None)
+            or getattr(item, "attribution_quality", None)
+            or getattr(item, "quality_status", None)
+            or ""
+        )
 
-    for item in items[:20]:
+    full = sum(1 for item in items if item_quality(item) == "FULL")
+    partial = sum(1 for item in items if item_quality(item) == "PARTIAL")
+    risk_context_weak = sum(
+        1 for item in items if item_quality(item) == "RISK_CONTEXT_WEAK"
+    )
+
+    preview_limit = 3
+
+    for item in items[:preview_limit]:
         print(
-            "TRADE_ATTRIBUTION_V2 "
+            "TRADE_ATTRIBUTION_V2_PREVIEW "
             f"closed_trade_id={item.closed_trade_id} "
             f"symbol={item.symbol} "
             f"strategy={item.strategy} "
             f"timeframe={item.timeframe} "
-            f"pnl={round(item.pnl, 6)} "
-            f"heat_status={item.heat_status} "
-            f"risk_multiplier={item.risk_multiplier} "
-            f"lifecycle_action={item.lifecycle_action} "
-            f"exit_policy={item.exit_policy} "
-            f"quality={item.attribution_quality} "
+            f"pnl={item.pnl} "
+            f"quality={item_quality(item)} "
             f"reason={item.reason}",
+            flush=True,
+        )
+
+    hidden = max(len(items) - preview_limit, 0)
+
+    if hidden:
+        print(
+            f"TRADE_ATTRIBUTION_V2_PREVIEW_HIDDEN count={hidden}",
             flush=True,
         )
 
@@ -54,7 +73,7 @@ def main() -> int:
         f"total={len(items)} "
         f"full={full} "
         f"partial={partial} "
-        f"risk_context_weak={weak} "
+        f"risk_context_weak={risk_context_weak} "
         f"saved={saved}",
         flush=True,
     )
