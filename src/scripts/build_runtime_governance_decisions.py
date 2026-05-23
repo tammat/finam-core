@@ -50,7 +50,18 @@ def main() -> int:
 
                     COALESCE(sp.session_bucket, 'UNKNOWN') AS session_bucket,
                     COALESCE(sp.allow_runtime, true) AS session_allow_runtime,
-                    COALESCE(sp.reason, 'session_policy_missing_default_allow') AS session_reason
+                    COALESCE(sp.reason, 'session_policy_missing_default_allow') AS session_reason,
+
+                    CASE
+                        WHEN rs.symbol LIKE 'NG%%'
+                         AND rs.strategy = 'NG_CONSERVATIVE_BREAKOUT_M1'
+                         AND rs.timeframe = 'M1'
+                        THEN true
+                        ELSE false
+                    END AS ng_m1_policy_required,
+
+                    COALESCE(ngp.allow_runtime, false) AS ng_m1_policy_allow_runtime,
+                    COALESCE(ngp.reason, 'ng_m1_policy_missing_or_not_allowed') AS ng_m1_policy_reason
 
                 FROM runtime_strategy_selection rs
 
@@ -68,6 +79,17 @@ def main() -> int:
                     ORDER BY p.allow_runtime DESC, p.calculated_at DESC
                     LIMIT 1
                 ) sp ON TRUE
+
+                LEFT JOIN LATERAL (
+                    SELECT p.*
+                    FROM ng_m1_runtime_policy p
+                    WHERE p.symbol = rs.symbol
+                      AND p.strategy = rs.strategy
+                      AND p.timeframe = rs.timeframe
+                      AND p.allow_runtime = true
+                    ORDER BY p.profit_factor DESC, p.expectancy DESC, p.trades DESC
+                    LIMIT 1
+                ) ngp ON TRUE
 
                 WHERE rs.symbol LIKE %s
                 ORDER BY rs.symbol, rs.strategy, rs.timeframe
@@ -92,6 +114,9 @@ def main() -> int:
                         session_bucket=str(row[10]),
                         session_allow_runtime=bool(row[11]),
                         session_reason=str(row[12]),
+                        ng_m1_policy_required=bool(row[13]),
+                        ng_m1_policy_allow_runtime=bool(row[14]),
+                        ng_m1_policy_reason=str(row[15]),
                     )
                 )
 

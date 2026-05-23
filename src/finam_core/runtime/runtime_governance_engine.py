@@ -22,6 +22,10 @@ class RuntimeGovernanceInput:
     session_allow_runtime: bool = True
     session_reason: str = "session_разрешена"
 
+    ng_m1_policy_required: bool = False
+    ng_m1_policy_allow_runtime: bool = True
+    ng_m1_policy_reason: str = "ng_m1_policy_not_required"
+
 
 @dataclass(frozen=True)
 class RuntimeGovernanceDecision:
@@ -75,6 +79,17 @@ class RuntimeGovernanceEngine:
                 allow_runtime=False,
                 risk_multiplier=0.0,
                 reason=item.session_reason,
+            )
+
+        if item.ng_m1_policy_required and not item.ng_m1_policy_allow_runtime:
+            return RuntimeGovernanceDecision(
+                symbol=item.symbol,
+                strategy=item.strategy,
+                timeframe=item.timeframe,
+                decision="BLOCK_NG_M1_REGIME_POLICY",
+                allow_runtime=False,
+                risk_multiplier=0.0,
+                reason=item.ng_m1_policy_reason,
             )
 
         risk_multiplier = min(

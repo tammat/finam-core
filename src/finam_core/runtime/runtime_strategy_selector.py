@@ -36,7 +36,7 @@ def select_runtime_strategy(
 
     action = item.runtime_action.upper().strip()
 
-    if action == "PROMOTE" and item.allow_paper_signal:
+    if action in ("PROMOTE", "PAPER_RUNTIME_CANDIDATE") and item.allow_paper_signal:
         return RuntimeStrategySelection(
             symbol=item.symbol,
             strategy=item.strategy,
