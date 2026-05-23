@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+import time
+
+
+def run_backfill(symbols: str, timeframe: str, lookback_hours: int) -> bool:
+    cmd = [
+        sys.executable,
+        "src/scripts/backfill_finam_futures_market_bars.py",
+        "--symbols", symbols,
+        "--timeframe", timeframe,
+        "--lookback-hours", str(lookback_hours),
+    ]
+
+    print("MARKET_BARS_INGESTION_STEP_START", " ".join(cmd), flush=True)
+    result = subprocess.run(cmd)
+    ok = result.returncode == 0
+    print(
+        f"MARKET_BARS_INGESTION_STEP_DONE ok={ok} code={result.returncode} timeframe={timeframe}",
+        flush=True,
+    )
+    return ok
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--symbols", default="NGM6@RTSX")
+    parser.add_argument("--timeframes", default="M1,M5")
+    parser.add_argument("--lookback-hours", type=int, default=2)
+    parser.add_argument("--interval-sec", type=int, default=60)
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+
+    timeframes = [x.strip() for x in args.timeframes.split(",") if x.strip()]
+    cycle = 0
+
+    while True:
+        cycle += 1
+        print(f"MARKET_BARS_INGESTION_CYCLE_START cycle={cycle}", flush=True)
+
+        ok_all = True
+        for tf in timeframes:
+            ok_all = run_backfill(args.symbols, tf, args.lookback_hours) and ok_all
+
+        print(f"MARKET_BARS_INGESTION_CYCLE_DONE cycle={cycle} ok={ok_all}", flush=True)
+
+        if args.once:
+            return 0 if ok_all else 1
+
+        time.sleep(max(10, args.interval_sec))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
