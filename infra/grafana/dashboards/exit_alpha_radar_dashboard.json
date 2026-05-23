@@ -1,5 +1,5 @@
 {
-  "title": "Finam Core — Exit Alpha Radar",
+  "title": "Finam Core — Радар Exit Alpha",
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
@@ -7,15 +7,27 @@
   "panels": [
     {
       "type": "table",
-      "title": "Exit Alpha Radar Candidates",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+      "title": "Радар Exit Alpha — лучшие стратегии и сессии",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 14
+      },
       "targets": [
         {
           "format": "table",
-          "rawSql": "SELECT symbol AS \"Инструмент\", strategy AS \"Стратегия\", timeframe AS \"TF\", policy_name AS \"Exit policy\", radar_enabled AS \"Radar\", runtime_enabled AS \"Runtime\", raw_profit_factor AS \"Raw PF\", exit_alpha_pf AS \"Exit PF\", raw_expectancy AS \"Raw Exp\", exit_alpha_expectancy AS \"Exit Exp\", evaluated_trades AS \"Оценено\", no_bars_trades AS \"Без баров\", bias_alignment AS \"MTF\", volatility_state AS \"Vol\", reason AS \"Причина\" FROM v_exit_alpha_radar_dashboard ORDER BY exit_alpha_pf DESC, exit_alpha_expectancy DESC;",
+          "rawSql": "\nSELECT\n    symbol AS \"Инструмент\",\n    strategy AS \"Стратегия\",\n    timeframe AS \"ТФ\",\n    policy_name AS \"Политика выхода\",\n    exit_alpha_pf AS \"PF Exit Alpha\",\n    exit_alpha_expectancy AS \"Матожидание Exit Alpha\",\n    raw_profit_factor AS \"Исходный PF\",\n    raw_expectancy AS \"Исходное матожидание\",\n    evaluated_trades AS \"Проверено сделок\",\n    best_session_bucket AS \"Лучшая сессия\",\n    session_pf AS \"PF лучшей сессии\",\n    session_expectancy AS \"Матожидание сессии\",\n    session_trades AS \"Сделок в сессии\",\n    exit_alpha_quality AS \"Качество\",\n    radar_enabled AS \"Радар\",\n    runtime_enabled AS \"Runtime\",\n    reason AS \"Причина\"\nFROM v_exit_alpha_radar_dashboard\nORDER BY exit_alpha_pf DESC;\n",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
     }
   ]
 }
