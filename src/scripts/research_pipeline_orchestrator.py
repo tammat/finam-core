@@ -101,6 +101,11 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--limit", str(limit),
         ],
         [
+            py, "src/scripts/features/enrich_trade_context_from_feature_snapshots.py",
+            "--symbol", symbol,
+            "--limit", str(limit),
+        ],
+        [
             py, "src/scripts/build_strategy_statistics_v2.py",
             "--migrate", "--save",
             "--symbol", symbol,
