@@ -25,7 +25,7 @@ def load_watch_symbols() -> str:
 def run_backfill(symbols: str, timeframe: str, lookback_hours: int) -> bool:
     cmd = [
         sys.executable,
-        "src/scripts/backfill_finam_futures_market_bars.py",
+        "src/scripts/ingestion/backfill_finam_futures_market_bars.py",
         "--symbols", symbols,
         "--timeframe", timeframe,
         "--lookback-hours", str(lookback_hours),

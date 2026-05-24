@@ -25,7 +25,7 @@ def main() -> int:
 
         run([
             sys.executable,
-            "src/scripts/backfill_finam_futures_market_bars.py",
+            "src/scripts/ingestion/backfill_finam_futures_market_bars.py",
             "--roots", "NG",
             "--timeframe", "M5",
             "--max-contracts", "7",
