@@ -33,7 +33,8 @@ def main() -> None:
         cooldown_sec,
         stop_take_profile,
         source_recommendation,
-        reason
+        reason,
+        is_default_policy
     )
     VALUES (
         %(strategy)s,
@@ -46,7 +47,8 @@ def main() -> None:
         %(cooldown_sec)s,
         %(stop_take_profile)s,
         %(source_recommendation)s,
-        %(reason)s
+        %(reason)s,
+        %(is_default_policy)s
     )
     ON CONFLICT (strategy, root_symbol, regime)
     DO UPDATE SET
@@ -58,6 +60,7 @@ def main() -> None:
         stop_take_profile = EXCLUDED.stop_take_profile,
         source_recommendation = EXCLUDED.source_recommendation,
         reason = EXCLUDED.reason,
+        is_default_policy = EXCLUDED.is_default_policy,
         created_at = now();
     """
 
@@ -91,6 +94,7 @@ def main() -> None:
                         "stop_take_profile": override.stop_take_profile,
                         "source_recommendation": recommendation,
                         "reason": override.reason,
+                        "is_default_policy": override.runtime_action == "NEUTRAL",
                     },
                 )
                 saved += 1
