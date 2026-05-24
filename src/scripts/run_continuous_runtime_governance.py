@@ -13,6 +13,7 @@ STEPS = [
     ["src/scripts/build_ng_active_edge_resolver.py"],
     ["src/scripts/build_ng_live_runtime_state.py"],
     ["src/scripts/sync_runtime_active_universe_from_ng_live_state.py"],
+    ["src/scripts/build_runtime_capital_allocator.py"],
     ["src/scripts/collect_runtime_observations.py"],
 ]
 

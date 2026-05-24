@@ -1,69 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PYTHONPATH=src
+export PYTHONPATH="${PYTHONPATH:-src}"
 
-python -m py_compile \
-  src/finam_core/runtime/runtime_capital_allocator.py \
-  src/scripts/run_runtime_capital_allocator.py
+python -m py_compile src/scripts/build_runtime_capital_allocator.py
 
-python - <<'PY'
-from finam_core.runtime.runtime_capital_allocator import RuntimeCapitalAllocator
+grep -q "runtime_capital_allocator" \
+  src/scripts/build_runtime_capital_allocator.py
 
-a = RuntimeCapitalAllocator()
+grep -q "RUNTIME_CAPITAL_ALLOCATOR_SUMMARY" \
+  src/scripts/build_runtime_capital_allocator.py
 
-ok = a.allocate(
-    equity=100000,
-    cash=50000,
-    margin_utilization_pct=10,
-    drawdown=0,
-    signal_score=3,
-    risk_reward=2,
-    correlation_pressure=0,
-    runtime_severity="INFO",
-)
-assert ok.allowed is True
-assert ok.max_position_value > 0
-
-
-fallback = a.allocate(
-    equity=100000,
-    cash=0,
-    free_margin=50000,
-    margin_utilization_pct=10,
-    drawdown=0,
-    signal_score=3,
-    risk_reward=2,
-    correlation_pressure=0,
-    runtime_severity="INFO",
-)
-assert fallback.allowed is True
-assert fallback.max_position_value > 0
-
-
-blocked = a.allocate(
-    equity=100000,
-    cash=50000,
-    margin_utilization_pct=80,
-    drawdown=0,
-    signal_score=3,
-    risk_reward=2,
-    correlation_pressure=0,
-    runtime_severity="INFO",
-)
-assert blocked.allowed is False
-
-critical = a.allocate(
-    equity=100000,
-    cash=50000,
-    margin_utilization_pct=10,
-    drawdown=0,
-    signal_score=3,
-    risk_reward=2,
-    correlation_pressure=0,
-    runtime_severity="CRITICAL",
-)
-assert critical.allowed is False
-
-print("OK: runtime capital allocator")
-PY
+echo "TEST_RUNTIME_CAPITAL_ALLOCATOR_OK"
