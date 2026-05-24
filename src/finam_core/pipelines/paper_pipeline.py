@@ -95,6 +95,7 @@ from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.strategy.futures.ng_conservative_breakout_m1 import NgConservativeBreakoutM1
+from finam_core.research.runtime_selection_gate import RuntimeSelectionGate
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
 from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
@@ -158,6 +159,44 @@ def _coerce_mtf_ts(ts):
         return ts.replace(tzinfo=timezone.utc)
     return ts
 
+
+def _selection_gate_allowed(pipeline, *, strategy: str, symbol: str, regime: str) -> bool:
+    """Русский комментарий: проверяет допуск strategy + root_symbol + regime перед RiskEngine."""
+    gate = getattr(pipeline, "runtime_selection_gate", None)
+
+    if gate is None:
+        gate = RuntimeSelectionGate()
+        pipeline.runtime_selection_gate = gate
+
+    decision = gate.is_allowed(
+        strategy=strategy,
+        symbol=symbol,
+        regime=regime,
+    )
+
+    if decision.allowed:
+        print(
+            "PIPE_SELECTION_GATE_ACCEPTED "
+            f"strategy={strategy} "
+            f"symbol={symbol} "
+            f"root_symbol={decision.root_symbol} "
+            f"regime={regime}",
+            flush=True,
+        )
+        return True
+
+    print(
+        "PIPE_SELECTION_GATE_REJECTED "
+        f"strategy={strategy} "
+        f"symbol={symbol} "
+        f"root_symbol={decision.root_symbol} "
+        f"regime={regime} "
+        f"reason={decision.reason}",
+        flush=True,
+    )
+    return False
+
+
 class RealPositionQtyProvider:
     """Русский комментарий: provider broker/local qty для финального hard block перед real PlaceOrder."""
 
@@ -216,6 +255,8 @@ class PaperTradingPipeline:
         self.portfolio = portfolio
         self.pm = position_manager
         self.risk = risk
+        # Русский комментарий: runtime selection gate включается перед RiskEngine.
+        self.runtime_selection_gate = RuntimeSelectionGate()
         self.paper = paper
         # Русский комментарий: единый режим исполнения. real_dry_run не отправляет заявки брокеру.
         self.execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
@@ -2823,12 +2864,19 @@ class PaperTradingPipeline:
                         heartbeat_sec=300,
                     )
 
-                self._log_dedup(
-                    f"PIPE_SESSION_BLOCK:{session.get('phase')}",
-                    f"PIPE_SESSION_BLOCK phase={session.get('phase')}",
-                    heartbeat_sec=float(os.getenv("SESSION_BLOCK_LOG_SEC", "300")),
-                )
-                return
+                if os.getenv("FINAM_CORE_FEED") == "sim":
+                    self._log_dedup(
+                        f"PIPE_SESSION_BYPASS:{session.get('phase')}",
+                        f"PIPE_SESSION_BYPASS feed=sim phase={session.get('phase')}",
+                        heartbeat_sec=float(os.getenv("SESSION_OVERRIDE_LOG_SEC", "30")),
+                    )
+                else:
+                    self._log_dedup(
+                        f"PIPE_SESSION_BLOCK:{session.get('phase')}",
+                        f"PIPE_SESSION_BLOCK phase={session.get('phase')}",
+                        heartbeat_sec=float(os.getenv("SESSION_BLOCK_LOG_SEC", "300")),
+                    )
+                    return
 
 
         # === FIX CRITICAL (GLOBAL PRICE) ===
@@ -6095,6 +6143,27 @@ class PaperTradingPipeline:
             return
 
         qty = float(os.getenv("NG_M1_BREAKOUT_QTY", "1"))
+
+        # Русский комментарий: обычная NG-стратегия допускается к RiskEngine только через Selection Layer.
+        ng_payload = getattr(ng_signal, "payload", None) or getattr(ng_signal, "features", None) or {}
+        if isinstance(ng_payload, dict):
+            ng_regime = str(ng_payload.get("regime") or ng_payload.get("market_regime") or "unknown")
+        else:
+            ng_regime = str(getattr(ng_signal, "regime", "unknown") or "unknown")
+
+        if not _selection_gate_allowed(
+            self,
+            strategy="NG_CONSERVATIVE_BREAKOUT",
+            symbol=str(getattr(ng_signal, "symbol", "")),
+            regime=ng_regime,
+        ):
+            self._log_br_risk_event(
+                br_signal=ng_signal,
+                qty=qty,
+                accepted=False,
+                reason="selection_gate_rejected",
+            )
+            return
 
         risk_accepted, risk_reason = self._risk_check_br_signal(ng_signal, qty)
         signal_status = "risk_accepted" if risk_accepted else "risk_rejected"

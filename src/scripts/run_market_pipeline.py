@@ -417,6 +417,7 @@ def main() -> None:
     if args.feed == "sim":
         from finam_core.market.sim_feed import SimFeed
         md = SimFeed(symbol=symbol, event_bus=bus)
+        os.environ["FINAM_CORE_FEED"] = "sim"
         print("SIM FEED ENABLED", flush=True)
     else:
         try:
