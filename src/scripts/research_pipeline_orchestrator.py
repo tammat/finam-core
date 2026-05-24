@@ -95,6 +95,12 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--lookback-n", "12",
         ],
         [
+            py, "src/scripts/build_trade_exit_policy_context.py",
+            "--migrate", "--save",
+            "--symbol", symbol,
+            "--limit", str(limit),
+        ],
+        [
             py, "src/scripts/build_trade_context_snapshots.py",
             "--migrate", "--save",
             "--symbol", symbol,
