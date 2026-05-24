@@ -71,6 +71,19 @@ def build_strategy_promotion_decision(
             reason="малая_выборка_только_research",
         )
 
+    if status == "WATCH_DIVERGENCE":
+        return StrategyPromotionDecision(
+            symbol=item.symbol,
+            strategy=item.strategy,
+            timeframe=item.timeframe,
+            trade_source=item.trade_source,
+            runtime_action="RESEARCH_WATCH",
+            allow_paper_signal=False,
+            allow_radar_signal=True,
+            allow_real_suggestion=False,
+            reason="research_watch_divergence",
+        )
+
     if status in {"REJECT", "WEAK", "NO_TRADES"}:
         return StrategyPromotionDecision(
             symbol=item.symbol,
