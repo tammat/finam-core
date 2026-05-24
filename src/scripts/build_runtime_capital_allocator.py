@@ -50,29 +50,46 @@ def main() -> int:
             cur.execute("""
                 SELECT
                     r.symbol,
-                    COALESCE(u.strategy, 'UNKNOWN'),
-                    COALESCE(u.timeframe, r.timeframe),
+                    COALESCE(m.strategy, u.strategy, 'UNKNOWN'),
+                    COALESCE(m.timeframe, u.timeframe, r.timeframe),
                     COALESCE(s.runtime_state, 'DISABLED'),
                     COALESCE(r.edge_score, 0),
-                    COALESCE(st.profit_factor, 0),
-                    COALESCE(st.expectancy, 0),
-                    COALESCE(st.winrate, 0),
+                    COALESCE(rs.profit_factor, st.profit_factor, 0),
+                    COALESCE(rs.expectancy, st.expectancy, 0),
+                    COALESCE(rs.winrate, st.winrate, 0),
                     COALESCE(r.candidate_rank, 999999)
                 FROM market_radar_candidates r
+                LEFT JOIN market_radar_strategy_mapping m
+                    ON m.symbol = r.symbol
+                   AND m.is_enabled = true
                 LEFT JOIN runtime_active_universe u
                     ON u.symbol = r.symbol
+                   AND (
+                        m.strategy IS NULL
+                        OR u.strategy = m.strategy
+                   )
                 LEFT JOIN ng_live_runtime_state s
-                    ON s.symbol = u.symbol
-                   AND s.strategy = u.strategy
-                   AND s.timeframe = u.timeframe
+                    ON s.symbol = COALESCE(u.symbol, r.symbol)
+                   AND s.strategy = COALESCE(m.strategy, u.strategy)
+                   AND s.timeframe = COALESCE(m.timeframe, u.timeframe, r.timeframe)
                 LEFT JOIN strategy_statistics_v2 st
-                    ON st.symbol = u.symbol
-                   AND st.strategy = u.strategy
-                   AND st.timeframe = u.timeframe
+                    ON st.symbol = r.symbol
+                   AND st.strategy = COALESCE(m.strategy, u.strategy)
+                   AND st.timeframe = COALESCE(m.timeframe, u.timeframe, r.timeframe)
+                LEFT JOIN runtime_rolling_strategy_stats rs
+                    ON rs.symbol = r.symbol
+                   AND rs.strategy = COALESCE(m.strategy, u.strategy)
+                   AND rs.timeframe = COALESCE(m.timeframe, u.timeframe, r.timeframe)
                 WHERE r.symbol IS NOT NULL
+                  AND COALESCE(m.strategy, u.strategy, 'UNKNOWN') <> 'UNKNOWN'
             """)
 
             rows = cur.fetchall()
+
+            # Русский комментарий:
+            # Allocator пересобирается как snapshot.
+            # Удаляем старые строки, чтобы не оставались UNKNOWN и устаревшие mappings.
+            cur.execute("DELETE FROM runtime_capital_allocator")
 
             scored = []
 

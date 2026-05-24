@@ -9,11 +9,39 @@ from finam_core.runtime.runtime_strategy_selector import (
     RuntimeStrategyCandidate,
     select_runtime_strategy,
 )
-
 from finam_core.runtime.runtime_strategy_selection_repository import (
     RuntimeStrategySelectionRepository,
     RuntimeStrategySelectionRecord,
 )
+
+
+def load_event_risk(cur, *, symbol: str, strategy: str, timeframe: str, trade_source: str):
+    cur.execute("""
+        SELECT event_status, allow_runtime, risk_multiplier, reason
+        FROM strategy_event_risk_context
+        WHERE symbol=%s
+          AND strategy=%s
+          AND timeframe=%s
+          AND trade_source=%s
+        LIMIT 1
+    """, (symbol, strategy, timeframe, trade_source))
+
+    row = cur.fetchone()
+
+    if not row:
+        return {
+            "event_status": "NORMAL",
+            "allow_runtime": True,
+            "risk_multiplier": 1.0,
+            "reason": "event_risk_context_missing_default_allow",
+        }
+
+    return {
+        "event_status": str(row[0]),
+        "allow_runtime": bool(row[1]),
+        "risk_multiplier": float(row[2]),
+        "reason": str(row[3]),
+    }
 
 
 def main() -> int:
@@ -54,21 +82,49 @@ def main() -> int:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, tuple(params))
+
             for row in cur.fetchall():
-                selections.append(
-                    select_runtime_strategy(
-                        RuntimeStrategyCandidate(
-                            symbol=str(row[0]),
-                            strategy=str(row[1]),
-                            timeframe=str(row[2]),
-                            trade_source=str(row[3]),
-                            runtime_action=str(row[4]),
-                            allow_paper_signal=bool(row[5]),
-                            allow_radar_signal=bool(row[6]),
-                            allow_real_suggestion=bool(row[7]),
-                        )
-                    )
+                candidate = RuntimeStrategyCandidate(
+                    symbol=str(row[0]),
+                    strategy=str(row[1]),
+                    timeframe=str(row[2]),
+                    trade_source=str(row[3]),
+                    runtime_action=str(row[4]),
+                    allow_paper_signal=bool(row[5]),
+                    allow_radar_signal=bool(row[6]),
+                    allow_real_suggestion=bool(row[7]),
                 )
+
+                item = select_runtime_strategy(candidate)
+
+                event_risk = load_event_risk(
+                    cur,
+                    symbol=candidate.symbol,
+                    strategy=candidate.strategy,
+                    timeframe=candidate.timeframe,
+                    trade_source=candidate.trade_source,
+                )
+
+                if item.enabled and not event_risk["allow_runtime"]:
+                    item = type(item)(
+                        symbol=item.symbol,
+                        strategy=item.strategy,
+                        timeframe=item.timeframe,
+                        mode="EVENT_BLOCKED",
+                        enabled=False,
+                        reason=f"event_risk_block: {event_risk['reason']}",
+                    )
+                elif event_risk["event_status"] != "NORMAL":
+                    item = type(item)(
+                        symbol=item.symbol,
+                        strategy=item.strategy,
+                        timeframe=item.timeframe,
+                        mode=item.mode,
+                        enabled=item.enabled,
+                        reason=f"{item.reason} | event_risk={event_risk['event_status']}: {event_risk['reason']}",
+                    )
+
+                selections.append(item)
 
     for item in selections:
         repo.save(
