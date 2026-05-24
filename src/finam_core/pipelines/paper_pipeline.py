@@ -25,6 +25,7 @@ from finam_core.signals.strategy_intent_adapter import StrategyIntentAdapter
 from finam_core.pipelines.pipeline_orchestrator import PipelineOrchestrator, QuoteEventContext
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
+from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.risk.context_builders import build_risk_context
 import json
@@ -335,6 +336,7 @@ class PaperTradingPipeline:
         self.strategy_runtime = StrategyRuntime()
         self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
         self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
+        self.runtime_config = RuntimeConfig()
         self.signal_intent_router = SignalIntentRouter()
         # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
         self.signal_intent_router = SignalIntentRouter()
@@ -529,7 +531,7 @@ class PaperTradingPipeline:
         self._broker_position_sync_ts = 0.0
         # Русский комментарий: BR_CONSERVATIVE_BREAKOUT работает только в PAPER и только как генератор сигналов.
         self.br_breakout_enabled = (
-            os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
+            self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
             and os.getenv("ENABLE_BR_CONSERVATIVE_BREAKOUT", "0") == "1"
         )
         self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
@@ -537,7 +539,7 @@ class PaperTradingPipeline:
 
         # Русский комментарий: NG_CONSERVATIVE_BREAKOUT_M1 работает только в PAPER и только как генератор M1-сигналов.
         self.ng_m1_breakout_enabled = (
-            os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
+            self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
             and os.getenv("ENABLE_NG_CONSERVATIVE_BREAKOUT_M1", "0") == "1"
         )
         self.ng_m1_breakout_symbol = os.getenv("NG_M1_BREAKOUT_SYMBOL", "NGM6@RTSX")
@@ -2841,7 +2843,7 @@ class PaperTradingPipeline:
 
         # === SESSION FILTER (FIX: do not block in SIM/OVERRIDE) ===
         if not session.get("allow_entries", False):
-            if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
+            if os.getenv("SESSION_OVERRIDE", "0") == "1" or self.runtime_config.get_bool("SIMULATE_MARKET", False):
                 self._log_dedup(
                     "PIPE_SESSION_BYPASS",
                     "PIPE_SESSION_BYPASS (override/sim)",
@@ -2976,7 +2978,7 @@ class PaperTradingPipeline:
                     )
                     return
 
-                if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
+                if not self.runtime_config.get_bool("ENABLE_PAPER_FILLS", True):
                     self._log_dedup("PIPE_PAPER_FILL_BLOCKED:exit_engine", "PIPE_PAPER_FILL_BLOCKED source=exit_engine")
                     return
                 raw_fill = self.paper.execute(intent, st)
@@ -3078,7 +3080,7 @@ class PaperTradingPipeline:
             )
 
         # === SIMULATION MOVE (CRITICAL) ===
-        if os.getenv("SIMULATE_MARKET", "0") == "1":
+        if self.runtime_config.get_bool("SIMULATE_MARKET", False):
             import random
             price = price * (1 + random.uniform(-0.002, 0.002))
             st["last"] = price
@@ -3251,7 +3253,7 @@ class PaperTradingPipeline:
 
             # === 1. Слабая волатильность → нет сделки
             replay_accumulation_mode = (
-                os.getenv("SIMULATE_MARKET", "0") == "1"
+                self.runtime_config.get_bool("SIMULATE_MARKET", False)
                 and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
             )
 
@@ -3608,7 +3610,7 @@ class PaperTradingPipeline:
             session = self.session.get_regime(sym)
 
             if not session.get("allow_entries", False):
-                if os.getenv("SESSION_OVERRIDE", "0") == "1" or os.getenv("SIMULATE_MARKET", "0") == "1":
+                if os.getenv("SESSION_OVERRIDE", "0") == "1" or self.runtime_config.get_bool("SIMULATE_MARKET", False):
                     self._log_dedup(
                         "PIPE_SESSION_BYPASS_AFTER_ROUTER",
                         "PIPE_SESSION_BYPASS_AFTER_ROUTER",
@@ -3759,7 +3761,7 @@ class PaperTradingPipeline:
 
                 return
 
-            if os.getenv("EXECUTION_MODE", "paper").lower() == "real":
+            if self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "real":
                 recon_allowed, recon_reason = self._reconciliation_allows_real_order(sym, current_qty)
                 if not recon_allowed:
                     print(
@@ -4194,7 +4196,7 @@ class PaperTradingPipeline:
             )
             return
 
-        if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
+        if not self.runtime_config.get_bool("ENABLE_PAPER_FILLS", True):
             self._log_dedup("PIPE_PAPER_FILL_BLOCKED:main_execution", "PIPE_PAPER_FILL_BLOCKED source=main_execution")
             return
 
@@ -4233,7 +4235,7 @@ class PaperTradingPipeline:
                     )
 
                     replay_accumulation_mode = (
-                        os.getenv("SIMULATE_MARKET", "0") == "1"
+                        self.runtime_config.get_bool("SIMULATE_MARKET", False)
                         and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
                     )
 
@@ -4336,7 +4338,7 @@ class PaperTradingPipeline:
             return None
 
         replay_accumulation_mode = (
-            os.getenv("SIMULATE_MARKET", "0") == "1"
+            self.runtime_config.get_bool("SIMULATE_MARKET", False)
             and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
         )
 
@@ -5995,7 +5997,7 @@ class PaperTradingPipeline:
 
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
         """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
-        if os.getenv("EXECUTION_MODE", "paper").lower() != "paper":
+        if self.runtime_config.get("EXECUTION_MODE", "paper").lower() != "paper":
             return False, "SKIPPED_NOT_PAPER_MODE"
 
         if not hasattr(self, "paper") or self.paper is None:
@@ -6088,7 +6090,7 @@ class PaperTradingPipeline:
         )
 
         replay_accumulation_mode = (
-            os.getenv("SIMULATE_MARKET", "0") == "1"
+            self.runtime_config.get_bool("SIMULATE_MARKET", False)
             and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
         )
 
@@ -6136,7 +6138,7 @@ class PaperTradingPipeline:
             paper_reason = "PAPER_ENGINE_NO_COMPATIBLE_METHOD"
 
             if hasattr(self.paper, "execute"):
-                if os.getenv("ENABLE_PAPER_FILLS", "1") != "1":
+                if not self.runtime_config.get_bool("ENABLE_PAPER_FILLS", True):
                     self._log_dedup("PIPE_PAPER_FILL_BLOCKED:br_paper_signal", "PIPE_PAPER_FILL_BLOCKED source=br_paper_signal")
                     return False, "PAPER_FILLS_DISABLED"
                 fill = self.paper.execute(
