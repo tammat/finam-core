@@ -36,6 +36,44 @@ class StrategyResearchVerdictRepository:
 
     def build_for_symbol(self, *, symbol: str, trade_source: str = "paper") -> list[StrategyResearchVerdict]:
         sql = """
+        WITH walkforward_best AS (
+            SELECT DISTINCT ON (strategy, symbol, timeframe, regime, trade_source)
+                strategy,
+                symbol,
+                timeframe,
+                regime,
+                trade_source,
+                status,
+                test_pf,
+                test_expectancy,
+                test_trades,
+                computed_at
+            FROM strategy_walkforward_results
+            WHERE symbol = %s
+              AND trade_source = %s
+            ORDER BY
+                strategy, symbol, timeframe, regime, trade_source,
+                computed_at DESC
+        ),
+        regime_best AS (
+            SELECT DISTINCT ON (strategy, symbol, timeframe, regime, trade_source)
+                strategy,
+                symbol,
+                timeframe,
+                regime,
+                trade_source,
+                status,
+                profit_factor,
+                expectancy,
+                trades
+            FROM strategy_regime_performance
+            WHERE symbol = %s
+              AND trade_source = %s
+            ORDER BY
+                strategy, symbol, timeframe, regime, trade_source,
+                trades DESC,
+                profit_factor DESC
+        )
         SELECT
             p.strategy,
             p.symbol,
@@ -58,13 +96,13 @@ class StrategyResearchVerdictRepository:
             COALESCE(p.trades, 0)::int AS trades,
             COALESCE(w.test_trades, 0)::int AS oos_trades
         FROM strategy_performance p
-        LEFT JOIN strategy_walkforward_results w
+        LEFT JOIN walkforward_best w
           ON w.strategy = p.strategy
          AND w.symbol = p.symbol
          AND w.timeframe = p.timeframe
          AND w.regime = p.regime
          AND w.trade_source = p.trade_source
-        LEFT JOIN strategy_regime_performance r
+        LEFT JOIN regime_best r
           ON r.strategy = p.strategy
          AND r.symbol = p.symbol
          AND r.timeframe = p.timeframe
@@ -78,7 +116,7 @@ class StrategyResearchVerdictRepository:
 
         with psycopg.connect(self.database_url) as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (symbol, trade_source))
+                cur.execute(sql, (symbol, trade_source, symbol, trade_source, symbol, trade_source))
                 for row in cur.fetchall():
                     verdict, confidence, reason = self._decide(
                         performance_status=str(row[5] or "UNKNOWN"),
