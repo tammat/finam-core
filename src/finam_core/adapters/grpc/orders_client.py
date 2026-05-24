@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from finam_core.config.runtime_config import RuntimeConfig
 from dataclasses import dataclass
 from finam_core.auth.token_manager import FinamTokenManager
 from finam_core.execution.real_execution_safety import RealExecutionSafetyLayer
@@ -41,15 +42,16 @@ class FinamOrdersClient:
     def __init__(self, position_qty_provider=None) -> None:
         self._subscribe_orders_last_error_log_ts = 0.0
         self._subscribe_orders_cooldown_until_ts = 0.0
+        self.runtime_config = RuntimeConfig()
         self.account_id = (
-            os.getenv("FINAM_ACCOUNT_ID")
-            or os.getenv("ACCOUNT_ID")
-            or os.getenv("FINAM_ACCOUNT")
+            self.runtime_config.get("FINAM_ACCOUNT_ID")
+            or self.runtime_config.get("ACCOUNT_ID")
+            or self.runtime_config.get("FINAM_ACCOUNT")
             or ""
         ).strip()
-        self.token = os.getenv("FINAM_TOKEN", "").strip()
+        self.token = self.runtime_config.get("FINAM_TOKEN", "").strip()
         self.token_manager = FinamTokenManager()
-        self.endpoint = os.getenv("FINAM_GRPC_ENDPOINT", "api.finam.ru:443").strip()
+        self.endpoint = self.runtime_config.get("FINAM_GRPC_ENDPOINT", "api.finam.ru:443").strip()
         self._channel: Any | None = None
         self._stub: Any | None = None
         self.order_ack_logger = OrderAckLogger()
@@ -469,7 +471,7 @@ class FinamOrdersClient:
         if not order_id:
             return {"status": "REJECTED", "reason": "empty_order_id"}
 
-        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1" or os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+        if not self.runtime_config.get_bool("REAL_EXECUTION_ENABLED", False) or not self.runtime_config.get_bool("REAL_ORDER_CONFIRM", False):
             return {"status": "DRY_RUN_CANCEL", "order_id": order_id, "reason": "real_order_confirm_disabled"}
 
         try:
@@ -509,7 +511,7 @@ class FinamOrdersClient:
         if stop_price <= 0:
             return {"status": "REJECTED", "reason": "invalid_stop_price"}
 
-        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1" or os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+        if not self.runtime_config.get_bool("REAL_EXECUTION_ENABLED", False) or not self.runtime_config.get_bool("REAL_ORDER_CONFIRM", False):
             return {
                 "status": "DRY_RUN_ACCEPTED",
                 "symbol": symbol,
@@ -587,7 +589,7 @@ class FinamOrdersClient:
         if limit_price <= 0:
             return {"status": "REJECTED", "reason": "invalid_limit_price"}
 
-        if os.getenv("REAL_EXECUTION_ENABLED", "0") != "1" or os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+        if not self.runtime_config.get_bool("REAL_EXECUTION_ENABLED", False) or not self.runtime_config.get_bool("REAL_ORDER_CONFIRM", False):
             return {
                 "status": "DRY_RUN_ACCEPTED",
                 "symbol": symbol,
@@ -674,7 +676,7 @@ class FinamOrdersClient:
                 reason=reason,
             )
 
-        if os.getenv("REAL_ORDER_CONFIRM", "0") != "1":
+        if not self.runtime_config.get_bool("REAL_ORDER_CONFIRM", False):
             ack = OrderAck(
                 accepted=True,
                 symbol=symbol,
