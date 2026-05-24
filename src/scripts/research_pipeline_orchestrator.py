@@ -130,6 +130,12 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--save",
         ],
         [
+            py, "src/scripts/research/build_strategy_research_verdict.py",
+            "--symbol", symbol,
+            "--trade-source", trade_source,
+            "--save",
+        ],
+        [
             py, "src/scripts/analytics/build_strategy_regime_matrix.py",
             "--symbol", symbol,
             "--trade-source", trade_source,
