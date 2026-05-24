@@ -57,19 +57,21 @@ class StrategyStatisticsV2Repository:
     def build_for_symbol(self, *, symbol: str) -> list[StrategyStatisticsV2]:
         sql = """
         SELECT
-            symbol,
-            strategy,
-            timeframe,
-            trade_source,
-            pnl,
-            attribution_quality,
-            heat_status,
-            lifecycle_action
-        FROM trade_attribution_v2
-        WHERE symbol = %s
-          AND COALESCE(strategy, '') <> ''
-          AND COALESCE(timeframe, '') <> ''
-        ORDER BY strategy, timeframe, trade_source
+            a.symbol,
+            a.strategy,
+            a.timeframe,
+            a.trade_source,
+            a.pnl,
+            COALESCE(tcs.context_quality, a.attribution_quality) AS attribution_quality,
+            a.heat_status,
+            a.lifecycle_action
+        FROM trade_attribution_v2 a
+        LEFT JOIN trade_context_snapshots tcs
+          ON tcs.closed_trade_id = a.closed_trade_id
+        WHERE a.symbol = %s
+          AND COALESCE(a.strategy, '') <> ''
+          AND COALESCE(a.timeframe, '') <> ''
+        ORDER BY a.strategy, a.timeframe, a.trade_source
         """
 
         grouped: dict[tuple[str, str, str, str], list[StrategyTradeSampleV2]] = {}
