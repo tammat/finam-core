@@ -262,7 +262,7 @@ class PaperTradingPipeline:
         self.runtime_selection_gate = RuntimeSelectionGate()
         self.paper = paper
         # Русский комментарий: единый режим исполнения. real_dry_run не отправляет заявки брокеру.
-        self.execution_mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
+        self.execution_mode = self.runtime_config.get("EXECUTION_MODE", "paper").strip().lower()
         self.orders_client = FinamOrdersClient(position_qty_provider=RealPositionQtyProvider(self))
         self.real_execution = RealExecutionEngine(orders_client=self.orders_client)
         # Русский комментарий: менеджер безопасной замены защитных стоп-заявок.
@@ -4681,7 +4681,7 @@ class PaperTradingPipeline:
             "accepted": accepted,
             "reason": reason,
             "paper_only": True,
-            "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+            "execution_mode": self.runtime_config.get("EXECUTION_MODE", "paper"),
         }
 
         try:
@@ -6285,7 +6285,7 @@ class PaperTradingPipeline:
             "take": ng_signal.take,
             "reason": ng_signal.reason,
             "ts": ng_signal.ts.isoformat(),
-            "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+            "execution_mode": self.runtime_config.get("EXECUTION_MODE", "paper"),
             "paper_only": True,
             "source": "paper_pipeline_ng_m1_closed_bar",
             "risk_accepted": risk_accepted,
@@ -6356,7 +6356,7 @@ class PaperTradingPipeline:
             "take": br_signal.take,
             "reason": br_signal.reason,
             "ts": br_signal.ts.isoformat(),
-            "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+            "execution_mode": self.runtime_config.get("EXECUTION_MODE", "paper"),
             "paper_only": True,
             "source": "paper_pipeline_closed_bar",
             "risk_accepted": risk_accepted,
