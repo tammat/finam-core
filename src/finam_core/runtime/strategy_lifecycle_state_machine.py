@@ -59,6 +59,18 @@ def decide_strategy_lifecycle(item: StrategyLifecycleInput) -> StrategyLifecycle
             reason="стратегия_только_для_наблюдения",
         )
 
+    if action == "RESEARCH_WATCH":
+        return StrategyLifecycleDecision(
+            symbol=item.symbol,
+            strategy=item.strategy,
+            timeframe=item.timeframe,
+            lifecycle_state="RESEARCH_WATCH",
+            allow_runtime=False,
+            allow_radar=True,
+            allow_research=True,
+            reason="стратегия_в_research_watch_без_runtime",
+        )
+
     if action == "RESEARCH_ONLY":
         return StrategyLifecycleDecision(
             symbol=item.symbol,

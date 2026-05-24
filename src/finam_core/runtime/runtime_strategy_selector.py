@@ -56,6 +56,16 @@ def select_runtime_strategy(
             reason="стратегия_только_для_наблюдения",
         )
 
+    if action == "RESEARCH_WATCH" and item.allow_radar_signal:
+        return RuntimeStrategySelection(
+            symbol=item.symbol,
+            strategy=item.strategy,
+            timeframe=item.timeframe,
+            mode="RESEARCH_WATCH",
+            enabled=False,
+            reason="стратегия_в_research_watch_без_runtime",
+        )
+
     if action == "RESEARCH_ONLY":
         return RuntimeStrategySelection(
             symbol=item.symbol,
