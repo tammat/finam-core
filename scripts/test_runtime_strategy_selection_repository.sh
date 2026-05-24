@@ -16,4 +16,4 @@ PY
 
 python -m py_compile \
   src/finam_core/runtime/runtime_strategy_selection_repository.py \
-  src/scripts/build_runtime_strategy_selection.py
+  src/scripts/runtime/build_runtime_strategy_selection.py

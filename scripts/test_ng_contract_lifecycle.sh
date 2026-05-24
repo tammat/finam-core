@@ -5,7 +5,7 @@ export PYTHONPATH="${PYTHONPATH:-src}"
 
 python -m py_compile \
   src/finam_core/research/ng_contract_lifecycle.py \
-  src/scripts/backfill_ng_lifecycle_bars.py
+  src/scripts/ingestion/backfill_ng_lifecycle_bars.py
 
 python - <<'PY'
 from finam_core.research.ng_contract_lifecycle import get_ng_symbols, get_ng_contract_window

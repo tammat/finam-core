@@ -5,7 +5,7 @@ export PYTHONPATH="${PYTHONPATH:-src}"
 
 python -m py_compile \
   src/finam_core/research/market_event_risk.py \
-  src/scripts/build_strategy_event_risk_context.py
+  src/scripts/research/build_strategy_event_risk_context.py
 
 python - <<'PY'
 from datetime import datetime, timezone, timedelta

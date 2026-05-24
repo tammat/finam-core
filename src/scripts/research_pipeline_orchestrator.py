@@ -111,7 +111,7 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--limit", "50",
         ],
         [
-            py, "src/scripts/build_runtime_strategy_selection.py",
+            py, "src/scripts/runtime/build_runtime_strategy_selection.py",
             "--symbol", symbol,
             "--limit", "50",
         ],
