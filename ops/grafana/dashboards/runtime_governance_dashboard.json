@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "panels": [
+    {
+      "type": "table",
+      "title": "Finam Core — Runtime Governance",
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT symbol AS \"Инструмент\", strategy AS \"Стратегия\", timeframe AS \"ТФ\", runtime_mode AS \"Runtime режим\", runtime_enabled AS \"Runtime enabled\", event_status AS \"Event status\", event_allow_runtime AS \"Event allow\", session_bucket AS \"Session\", session_allow_runtime AS \"Session allow\", governance_decision AS \"Governance decision\", governance_reason AS \"Причина\" FROM v_runtime_governance_dashboard ORDER BY symbol, strategy;",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": [
+    "runtime",
+    "governance",
+    "risk"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Finam Core — Runtime Governance",
+  "version": 1
+}
