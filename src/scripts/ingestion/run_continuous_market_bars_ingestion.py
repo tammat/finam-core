@@ -51,7 +51,6 @@ def main() -> int:
     args = parser.parse_args()
 
     symbols = args.symbols.strip() or load_watch_symbols()
-    symbols = args.symbols.strip() or load_watch_symbols()
     timeframes = [x.strip() for x in args.timeframes.split(",") if x.strip()]
     cycle = 0
 
