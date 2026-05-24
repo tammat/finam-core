@@ -7,6 +7,7 @@ import time
 
 
 STEPS = [
+    ["src/scripts/build_market_radar_candidates.py"],
     ["src/scripts/build_runtime_governance_decisions.py", "--symbol-like", "NG%@RTSX"],
     ["src/scripts/build_ng_runtime_telemetry.py"],
     ["src/scripts/build_ng_active_edge_resolver.py"],
