@@ -248,6 +248,7 @@ def main() -> int:
         [sys.executable, "src/scripts/runtime/sync_runtime_strategy_scores_from_selection.py"],
         [sys.executable, "src/scripts/runtime/apply_intermarket_selection_modifier.py"],
         [sys.executable, "src/scripts/runtime/apply_context_runtime_filter.py"],
+        [sys.executable, "src/scripts/runtime/apply_regime_matrix_runtime_modifier.py"],
         [sys.executable, "src/scripts/runtime/apply_active_contract_lifecycle_filter.py"],
     ]
 
