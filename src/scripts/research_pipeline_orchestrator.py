@@ -215,6 +215,25 @@ def main() -> int:
         if rc != 0:
             failed += 1
 
+    post_steps = [
+        [sys.executable, "src/scripts/research/build_intermarket_regime_snapshot.py"],
+        [sys.executable, "src/scripts/runtime/sync_runtime_strategy_scores_from_selection.py"],
+        [sys.executable, "src/scripts/runtime/apply_intermarket_selection_modifier.py"],
+        [sys.executable, "src/scripts/runtime/apply_active_contract_lifecycle_filter.py"],
+    ]
+
+    for step in post_steps:
+        step_name = step[1].split("/")[-1] if len(step) > 1 else "unknown"
+        rc = run_step(
+            step,
+            run_log=run_log,
+            run_id=run_id,
+            symbol="GLOBAL",
+            step_name=step_name,
+        )
+        if rc != 0:
+            failed += 1
+
     final_status = "OK" if failed == 0 else "FAILED"
     run_log.finish_run(
         run_id=run_id,
