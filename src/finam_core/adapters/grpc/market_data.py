@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+from finam_core.config.runtime_config import RuntimeConfig
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional
@@ -45,12 +46,12 @@ class FinamMarketDataClient:
         self.heartbeat_sec = float(heartbeat_sec)
 
         # Русский коммент: grace до первого валидного тика.
-        self.first_quote_grace_sec = float(os.getenv("MD_FIRST_QUOTE_GRACE_SEC", "60"))
+        self.first_quote_grace_sec = float(self.runtime_config.get_float("MD_FIRST_QUOTE_GRACE_SEC", 60.0))
         self._subscribed_ts = 0.0
         self._got_first_valid_quote = False
 
         # Русский коммент: soft/hard watchdog.
-        self.watchdog_mode = (os.getenv("MD_WATCHDOG_MODE") or "soft").strip().lower()
+        self.watchdog_mode = self.runtime_config.get("MD_WATCHDOG_MODE", "soft").strip().lower()
         if self.watchdog_mode not in ("soft", "hard"):
             self.watchdog_mode = "soft"
 
@@ -76,8 +77,8 @@ class FinamMarketDataClient:
             self.tm = FinamTokenManager()
 
         # Русский коммент: параметры reconnect без правки кода.
-        self.reconnect_initial_sec = float(os.getenv("MD_RECONNECT_INITIAL_SEC", "0.5"))
-        self.reconnect_max_sec = float(os.getenv("MD_RECONNECT_MAX_SEC", "30.0"))
+        self.reconnect_initial_sec = float(self.runtime_config.get_float("MD_RECONNECT_INITIAL_SEC", 0.5))
+        self.reconnect_max_sec = float(self.runtime_config.get_float("MD_RECONNECT_MAX_SEC", 30.0))
 
         # Русский коммент: канал/стаб переиспользуем, reconnect делаем на уровне stream call.
         # Русский коммент: keepalive для 24/7 — помогает не терять idle соединение (NAT/провайдер).
@@ -205,7 +206,7 @@ class FinamMarketDataClient:
                 if self.watchdog_mode == "soft":
                     # Русский коммент: quiet-soft — по умолчанию молчим, чтобы не засорять логи в нерабочее время.
                     # Пишем предупреждение только при MD_DEBUG=1 и не чаще, чем раз в MD_WATCHDOG_WARN_EVERY_SEC.
-                    if os.getenv("MD_DEBUG") == "1" and (now - self._wd_last_warn_ts) >= self._wd_warn_every_sec:
+                    if self.runtime_config.get_bool("MD_DEBUG", False) and (now - self._wd_last_warn_ts) >= self._wd_warn_every_sec:
                         self._wd_last_warn_ts = now
                         LOG.warning(
                             "MarketData heartbeat timeout — no ticks (soft watchdog). idle=%.1fs",
@@ -253,7 +254,7 @@ class FinamMarketDataClient:
                 self._start_watchdog()
 
                 LOG.info("MarketData SubscribeQuote opened: symbols=%s", active_symbols)
-                if os.getenv("MD_DEBUG") == "1":
+                if self.runtime_config.get_bool("MD_DEBUG", False):
                     LOG.debug("MarketData subscribed debug: %s", active_symbols)
 
                 backoff = self.reconnect_initial_sec
@@ -265,7 +266,7 @@ class FinamMarketDataClient:
                 # Русский коммент: CANCELLED ожидаем в режиме hard, когда watchdog отменяет call.
                 # Русский коммент: в soft режиме ошибки на тишине не должны появляться; если появились — это сеть/сервер.
                 LOG.warning("MarketData reconnect after RpcError: %s", e)
-                if os.getenv("MD_DEBUG") == "1":
+                if self.runtime_config.get_bool("MD_DEBUG", False):
                     LOG.debug("MarketData reconnect debug", exc_info=True)
                 LOG.warning("MarketData reconnect in %.1fs", backoff)
                 time.sleep(backoff)
@@ -314,7 +315,7 @@ class FinamMarketDataClient:
         for msg in stream:
             if self._debug_msg_count < 3:
                 self._debug_msg_count += 1
-            if os.getenv("MD_DEBUG") == "1":
+            if self.runtime_config.get_bool("MD_DEBUG", False):
                 LOG.debug("MarketData raw stream msg=%s", msg)
             if self._stop.is_set():
                 return
@@ -323,7 +324,7 @@ class FinamMarketDataClient:
             self.last_msg_ts = time.time()
 
             quotes = self._iter_quotes(msg)
-            if os.getenv("MD_DEBUG") == "1":
+            if self.runtime_config.get_bool("MD_DEBUG", False):
                 LOG.debug("MarketData parsed quotes count=%s", len(quotes))
             if not quotes:
                 continue
@@ -362,10 +363,10 @@ class FinamMarketDataClient:
                     "close": state.get("close"),
                 }
 
-                if os.getenv("MD_DEBUG") == "1":
+                if self.runtime_config.get_bool("MD_DEBUG", False):
                     LOG.debug("MD->BUS QUOTE %s last=%s", symbol, event.get("last"))
 
-                if os.getenv("MD_DEBUG") == "1":
+                if self.runtime_config.get_bool("MD_DEBUG", False):
                     LOG.debug("MarketData publish QUOTE event=%s", event)
                 try:
                     self.event_bus.publish(event)

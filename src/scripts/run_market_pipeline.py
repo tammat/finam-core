@@ -14,6 +14,7 @@ from finam_core.data.runtime_universe_provider import RuntimeUniverseProvider
 from finam_core.storage.postgres_logger import PostgresLogger
 
 import os
+from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.real_stock_safety_gate import RealStockSafetyGate
 import time
 import argparse
@@ -47,6 +48,9 @@ from dotenv import load_dotenv
 from finam_core.reconciliation.startup_recovery_gate import StartupRecoveryGate
 # Русский комментарий: systemd использует deploy/env/.env; корневой .env может быть закрыт правами.
 load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
+
+runtime_config = RuntimeConfig()
+
 
 def parse_args():
     import argparse
@@ -85,13 +89,13 @@ def parse_args():
     parser.add_argument("--portfolio-snapshot-path", default=os.getenv("PORTFOLIO_SNAPSHOT_PATH") or "")
     parser.add_argument("--portfolio-refresh-sec", type=float, default=float(os.getenv("PORTFOLIO_REFRESH_SEC") or "0"))
     parser.add_argument("--md-heartbeat-sec", type=float, default=float(os.getenv("MD_HEARTBEAT_SEC") or "10"))
-    parser.add_argument("--md-first-quote-grace-sec", type=float, default=float(os.getenv("MD_FIRST_QUOTE_GRACE_SEC") or "60"))
+    parser.add_argument("--md-first-quote-grace-sec", type=float, default=runtime_config.get_float("MD_FIRST_QUOTE_GRACE_SEC", 60.0))
 
     parser.add_argument("--risk-soft", action="store_true", default=(os.getenv("RISK_SOFT") == "1"))
     parser.add_argument("--exit-on-fill", action="store_true", default=(os.getenv("EXIT_ON_FILL", "1") == "1"))
 
     parser.add_argument("--quote-log-every", type=float, default=float(os.getenv("QUOTE_LOG_EVERY") or "0"))
-    parser.add_argument("--debug", action="store_true", default=(os.getenv("MD_DEBUG") == "1"))
+    parser.add_argument("--debug", action="store_true", default=runtime_config.get_bool("MD_DEBUG", False))
 
     parser.add_argument("--enable-filter-engine", action="store_true", default=(os.getenv("ENABLE_FILTER_ENGINE") == "1"))
     parser.add_argument("--filter-profile", default=os.getenv("FILTER_PROFILE") or "")
@@ -166,7 +170,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--portfolio-snapshot-path", default=os.getenv("PORTFOLIO_SNAPSHOT_PATH") or "")
     p.add_argument("--portfolio-refresh-sec", type=float, default=float(os.getenv("PORTFOLIO_REFRESH_SEC") or "0"))
     p.add_argument("--md-heartbeat-sec", type=float, default=float(os.getenv("MD_HEARTBEAT_SEC") or "10"))
-    p.add_argument("--md-first-quote-grace-sec", type=float, default=float(os.getenv("MD_FIRST_QUOTE_GRACE_SEC") or "60"))
+    p.add_argument("--md-first-quote-grace-sec", type=float, default=runtime_config.get_float("MD_FIRST_QUOTE_GRACE_SEC", 60.0))
 
     # Русский коммент: режимы управления (можно и env)
     p.add_argument("--risk-soft", action="store_true", default=(os.getenv("RISK_SOFT") == "1"))
@@ -176,7 +180,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--quote-log-every", type=float, default=float(os.getenv("QUOTE_LOG_EVERY") or "0"))
 
     # Русский коммент: debug включает MD_DEBUG=1 (и всё отладочное в MarketData)
-    p.add_argument("--debug", action="store_true", default=(os.getenv("MD_DEBUG") == "1"))
+    p.add_argument("--debug", action="store_true", default=runtime_config.get_bool("MD_DEBUG", False))
 
     p.add_argument("--enable-filter-engine", action="store_true", default=(os.getenv("ENABLE_FILTER_ENGINE") == "1"))
     p.add_argument("--filter-profile", default=os.getenv("FILTER_PROFILE") or "")
