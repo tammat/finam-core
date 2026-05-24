@@ -68,10 +68,10 @@ def main() -> None:
         profit_factor,
         max_drawdown,
         score_reason,
-        COALESCE(runtime_action, 'UNKNOWN') AS runtime_action,
+        runtime_action,
         COALESCE(score_adjustment, 0) AS score_adjustment,
         COALESCE(confidence_adjustment, 0) AS confidence_adjustment,
-        COALESCE(matrix_reason, 'no_regime_matrix_match') AS matrix_reason
+        matrix_reason
     FROM matched;
     """
 
@@ -132,6 +132,12 @@ def main() -> None:
                     confidence_adjustment,
                     matrix_reason,
                 ) = row
+
+                # Русский комментарий:
+                # Если regime matrix для стратегии отсутствует —
+                # runtime modifier не применяем.
+                if not runtime_action:
+                    continue
 
                 decision = build_regime_matrix_runtime_decision(
                     runtime_action=str(runtime_action),
