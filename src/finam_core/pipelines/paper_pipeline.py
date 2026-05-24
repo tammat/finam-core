@@ -4666,6 +4666,13 @@ class PaperTradingPipeline:
             return False, f"RISK_EXCEPTION:{type(exc).__name__}:{exc}"
 
     def _log_br_risk_event(self, br_signal, qty: float, accepted: bool, reason: str) -> None:
+        # Русский комментарий: replay и live могут передавать разные формы сигнала,
+        # поэтому strategy берём из сигнала с безопасным fallback.
+        br_strategy = (
+            getattr(br_signal, "strategy", None)
+            or getattr(br_signal, "strategy_name", None)
+            or "BR_CONSERVATIVE_BREAKOUT"
+        )
         """Русский комментарий: логируем результат risk gate без отправки реальных заявок."""
         if not hasattr(self, "pg_logger") or self.pg_logger is None:
             return
@@ -6311,6 +6318,8 @@ class PaperTradingPipeline:
             )
 
     def _process_br_closed_bar_for_paper_signal(self, bar) -> None:
+        # Русский комментарий: единое имя BR-стратегии для live/replay логов, risk events и paper fills.
+        br_strategy = "BR_CONSERVATIVE_BREAKOUT"
         """Русский комментарий: единая обработка закрытых M5/M15 баров BR для live и historical replay."""
         if not (self.br_breakout_enabled and self.br_breakout is not None):
             return

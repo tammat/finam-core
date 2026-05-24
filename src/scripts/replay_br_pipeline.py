@@ -209,24 +209,13 @@ def parse_ts(value: str | None):
     return ts.astimezone(timezone.utc)
 
 
-# Helper: get columns in market_data table
-def get_market_data_columns(conn) -> set[str]:
-    """Русский комментарий: определяем фактические колонки market_data на текущей БД."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'market_data'
-            """
-        )
-        return {str(row[0]) for row in cur.fetchall()}
-
-
-
 def load_bars(symbols: list[str], from_ts=None, to_ts=None) -> list[ReplayBar]:
-    """Русский комментарий: загружаем M15 и M5 бары; если OHLC нет, строим их из close_price."""
-    where = ["symbol = ANY(%s)", "timeframe IN ('M15', 'M5')"]
+    """Русский комментарий: replay читает нормализованный OHLCV-источник market_bars."""
+    where = [
+        "symbol = ANY(%s)",
+        "timeframe IN ('M15', 'M5')",
+        "source = 'finam_grpc_bars_v1'",
+    ]
     params: list[object] = [symbols]
 
     if from_ts is not None:
@@ -238,25 +227,17 @@ def load_bars(symbols: list[str], from_ts=None, to_ts=None) -> list[ReplayBar]:
 
     rows: list[ReplayBar] = []
     with psycopg2.connect(dsn()) as conn:
-        columns = get_market_data_columns(conn)
-
-        close_col = "close_price" if "close_price" in columns else "close"
-        open_expr = "open_price" if "open_price" in columns else close_col
-        high_expr = "high_price" if "high_price" in columns else close_col
-        low_expr = "low_price" if "low_price" in columns else close_col
-        volume_expr = "volume" if "volume" in columns else "0.0"
-
         sql = f"""
             SELECT
                 symbol,
                 timeframe,
                 ts,
-                {open_expr} AS open_value,
-                {high_expr} AS high_value,
-                {low_expr} AS low_value,
-                {close_col} AS close_value,
-                {volume_expr} AS volume_value
-            FROM market_data
+                open,
+                high,
+                low,
+                close,
+                volume
+            FROM market_bars
             WHERE {' AND '.join(where)}
             ORDER BY ts ASC,
                      CASE WHEN timeframe = 'M15' THEN 0 WHEN timeframe = 'M5' THEN 1 ELSE 2 END ASC
@@ -293,6 +274,13 @@ def build_replay_pipeline(symbol: str, run_id: str, portfolio_guard_state: dict)
     pipeline.risk = None
     pipeline.run_id = run_id
     pipeline.portfolio_guard_state = portfolio_guard_state
+    # Русский комментарий: replay создаёт pipeline без __init__, поэтому runtime_config задаётся вручную.
+    pipeline.runtime_config = {
+        "EXECUTION_MODE": os.getenv("EXECUTION_MODE", "paper"),
+        "ENABLE_PAPER_FILLS": os.getenv("ENABLE_PAPER_FILLS", "1"),
+        "REAL_EXECUTION_ENABLED": "0",
+        "REAL_ORDER_CONFIRM": "0",
+    }
     pipeline.finam_limits_adapter = FinamLimitsAdapter()
     return pipeline
 
