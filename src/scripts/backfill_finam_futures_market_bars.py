@@ -125,20 +125,31 @@ def save_bars(symbol: str, timeframe: str, bars) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--roots", default="BR,NG,USD")
+    parser.add_argument("--symbols", default="")
     parser.add_argument("--timeframe", default="M5")
     parser.add_argument("--max-contracts", type=int, default=3)
     parser.add_argument("--lookback-hours", type=int, default=72)
+    parser.add_argument("--start-date", default="")
+    parser.add_argument("--end-date", default="")
     args = parser.parse_args()
 
     roots = [x.strip() for x in args.roots.split(",") if x.strip()]
 
     migrate_market_bars()
 
-    symbols = load_contracts(roots, args.max_contracts)
+    if args.symbols:
+        symbols = [x.strip() for x in args.symbols.split(",") if x.strip()]
+    else:
+        symbols = load_contracts(roots, args.max_contracts)
+
     client = FinamBarsClient()
 
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(hours=args.lookback_hours)
+    if args.start_date and args.end_date:
+        start = datetime.fromisoformat(args.start_date).replace(tzinfo=timezone.utc)
+        end = datetime.fromisoformat(args.end_date).replace(tzinfo=timezone.utc)
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=args.lookback_hours)
 
     total = 0
 

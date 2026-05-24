@@ -5,6 +5,22 @@ import subprocess
 import sys
 import time
 
+import psycopg
+
+from finam_core.analytics.statistics_repository import build_psycopg_url
+
+
+def load_watch_symbols() -> str:
+    with psycopg.connect(build_psycopg_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT symbol
+                FROM market_data_watch_universe
+                WHERE is_enabled = true
+                ORDER BY asset_group, symbol
+            """)
+            rows = [str(r[0]) for r in cur.fetchall()]
+    return ",".join(rows)
 
 def run_backfill(symbols: str, timeframe: str, lookback_hours: int) -> bool:
     cmd = [
@@ -27,13 +43,15 @@ def run_backfill(symbols: str, timeframe: str, lookback_hours: int) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--symbols", default="NGM6@RTSX")
+    parser.add_argument("--symbols", default="")
     parser.add_argument("--timeframes", default="M1,M5")
     parser.add_argument("--lookback-hours", type=int, default=2)
     parser.add_argument("--interval-sec", type=int, default=60)
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
 
+    symbols = args.symbols.strip() or load_watch_symbols()
+    symbols = args.symbols.strip() or load_watch_symbols()
     timeframes = [x.strip() for x in args.timeframes.split(",") if x.strip()]
     cycle = 0
 
@@ -43,7 +61,7 @@ def main() -> int:
 
         ok_all = True
         for tf in timeframes:
-            ok_all = run_backfill(args.symbols, tf, args.lookback_hours) and ok_all
+            ok_all = run_backfill(symbols, tf, args.lookback_hours) and ok_all
 
         print(f"MARKET_BARS_INGESTION_CYCLE_DONE cycle={cycle} ok={ok_all}", flush=True)
 

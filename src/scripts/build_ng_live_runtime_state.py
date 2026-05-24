@@ -13,7 +13,7 @@ from finam_core.runtime.ng_live_runtime_state_machine import (
 
 def main() -> int:
     now = datetime.now(timezone.utc)
-    freshness_cutoff = now - timedelta(minutes=3)
+    freshness_cutoff = now - timedelta(minutes=10)
     machine = NgLiveRuntimeStateMachine()
 
     with psycopg.connect(build_psycopg_url()) as conn:
