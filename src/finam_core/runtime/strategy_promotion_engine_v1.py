@@ -123,6 +123,20 @@ def decide_strategy_promotion_v1(
             reason=f"качество_fill_не_позволяет_reconstruction:{item.fill_quality_status}",
         )
 
+    if item.lifecycle_state == "RESEARCH_WATCH" or item.rank_status == "WATCH_DIVERGENCE":
+        return StrategyPromotionEngineDecision(
+            symbol=item.symbol,
+            strategy=item.strategy,
+            timeframe=item.timeframe,
+            trade_source=item.trade_source,
+            decision="KEEP_RESEARCH_WATCH",
+            target_lifecycle_state="RESEARCH_WATCH",
+            allow_runtime=False,
+            allow_radar=True,
+            allow_research=True,
+            reason="research_watch_divergence",
+        )
+
     if item.trades < 20:
         return StrategyPromotionEngineDecision(
             symbol=item.symbol,
