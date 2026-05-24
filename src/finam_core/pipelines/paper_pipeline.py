@@ -4586,7 +4586,7 @@ class PaperTradingPipeline:
                     "price": br_signal.price,
                     "stop": br_signal.stop,
                     "take": br_signal.take,
-                    "strategy": "BR_CONSERVATIVE_BREAKOUT",
+                    "strategy": br_strategy,
                     "source": "paper_pipeline_closed_bar",
                 }
                 decision = self.risk.evaluate(candidate)
@@ -4611,7 +4611,7 @@ class PaperTradingPipeline:
             "price": br_signal.price,
             "stop": br_signal.stop,
             "take": br_signal.take,
-            "strategy": "BR_CONSERVATIVE_BREAKOUT",
+            "strategy": br_strategy,
             "accepted": accepted,
             "reason": reason,
             "paper_only": True,
@@ -4646,7 +4646,7 @@ class PaperTradingPipeline:
             "run_id": run_id,
             "paper_only": True,
             "execution_type": paper_reason,
-            "strategy": "BR_CONSERVATIVE_BREAKOUT",
+            "strategy": br_strategy,
             "horizon": "INTRADAY",
             "timeframe": "M5",
             "reason": getattr(br_signal, "reason", None),
@@ -5938,7 +5938,7 @@ class PaperTradingPipeline:
         runtime_allowed, runtime_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
             br_signal.symbol,
             qty,
-            strategy="BR_CONSERVATIVE_BREAKOUT",
+            strategy=br_strategy,
         )
 
         replay_accumulation_mode = (
@@ -5970,7 +5970,7 @@ class PaperTradingPipeline:
             "price": br_signal.price,
             "stop": br_signal.stop,
             "take": br_signal.take,
-            "strategy": "BR_CONSERVATIVE_BREAKOUT",
+            "strategy": br_strategy,
             "source": "paper_pipeline_closed_bar",
             "paper_only": True,
         }
@@ -6156,7 +6156,7 @@ class PaperTradingPipeline:
 
         self.pg_logger.log_signal(
             symbol=br_signal.symbol,
-            strategy="BR_CONSERVATIVE_BREAKOUT",
+            strategy=br_strategy,
             side=br_signal.side,
             qty=qty,
             status=signal_status,
