@@ -94,6 +94,7 @@ from finam_core.regime.regime_engine import RegimeEngine
 from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
+from finam_core.strategy.futures.ng_conservative_breakout_m1 import NgConservativeBreakoutM1
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
 from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
@@ -491,6 +492,18 @@ class PaperTradingPipeline:
         self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
         self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
 
+        # Русский комментарий: NG_CONSERVATIVE_BREAKOUT_M1 работает только в PAPER и только как генератор M1-сигналов.
+        self.ng_m1_breakout_enabled = (
+            os.getenv("EXECUTION_MODE", "paper").lower() == "paper"
+            and os.getenv("ENABLE_NG_CONSERVATIVE_BREAKOUT_M1", "0") == "1"
+        )
+        self.ng_m1_breakout_symbol = os.getenv("NG_M1_BREAKOUT_SYMBOL", "NGM6@RTSX")
+        self.ng_m1_breakout = (
+            NgConservativeBreakoutM1(symbol=self.ng_m1_breakout_symbol)
+            if self.ng_m1_breakout_enabled
+            else None
+        )
+
         # Русский комментарий:
         # Advisory-only лог выбранной exit policy для BR breakout.
         # Не влияет на заявки, RiskEngine, stop/take и execution.
@@ -577,6 +590,7 @@ class PaperTradingPipeline:
                     volume=bar.volume,
                 )
                 self._process_br_closed_bar_for_paper_signal(bar)
+                self._process_ng_m1_closed_bar_for_paper_signal(bar)
                 LOG.info(
                     "PIPE_MTF_BAR_CLOSED symbol=%s tf=%s ts=%s close=%s volume=%s",
                     bar.symbol,
@@ -6055,6 +6069,81 @@ class PaperTradingPipeline:
         except Exception as exc:
             print(f"PIPE_BR_PAPER_EXEC_ERROR type={type(exc).__name__} error={exc}", flush=True)
             return False, f"PAPER_EXCEPTION:{type(exc).__name__}:{exc}"
+
+    def _process_ng_m1_closed_bar_for_paper_signal(self, bar) -> None:
+        """Русский комментарий: обработка закрытых M1 баров NG для live paper runtime."""
+        if not (self.ng_m1_breakout_enabled and self.ng_m1_breakout is not None):
+            return
+
+        if bar.symbol != self.ng_m1_breakout_symbol:
+            return
+
+        timeframe = str(bar.timeframe).upper()
+        if timeframe != "M1":
+            return
+
+        ng_signal = self.ng_m1_breakout.on_signal_bar(
+            ts=bar.ts,
+            open_=float(bar.open),
+            high=float(bar.high),
+            low=float(bar.low),
+            close=float(bar.close_price),
+            volume=float(bar.volume or 0.0),
+        )
+
+        if ng_signal is None:
+            return
+
+        qty = float(os.getenv("NG_M1_BREAKOUT_QTY", "1"))
+
+        risk_accepted, risk_reason = self._risk_check_br_signal(ng_signal, qty)
+        signal_status = "risk_accepted" if risk_accepted else "risk_rejected"
+
+        self._log_br_risk_event(
+            br_signal=ng_signal,
+            qty=qty,
+            accepted=risk_accepted,
+            reason=risk_reason,
+        )
+
+        if not risk_accepted:
+            return
+
+        paper_executed, paper_reason = self._execute_br_signal_in_paper(
+            br_signal=ng_signal,
+            qty=qty,
+        )
+
+        payload = {
+            "price": ng_signal.price,
+            "stop": ng_signal.stop,
+            "take": ng_signal.take,
+            "reason": ng_signal.reason,
+            "ts": ng_signal.ts.isoformat(),
+            "execution_mode": os.getenv("EXECUTION_MODE", "paper"),
+            "paper_only": True,
+            "source": "paper_pipeline_ng_m1_closed_bar",
+            "risk_accepted": risk_accepted,
+            "risk_reason": risk_reason,
+            "paper_executed": paper_executed,
+            "paper_reason": paper_reason,
+            "run_id": getattr(self, "run_id", "unknown"),
+        }
+
+        try:
+            self.pg_logger.log_signal(
+                symbol=ng_signal.symbol,
+                strategy=self._strategy_name_for_symbol(ng_signal.symbol),
+                side=ng_signal.side,
+                qty=qty,
+                status=signal_status,
+                payload=payload,
+            )
+        except Exception as exc:
+            print(
+                f"PIPE_NG_M1_SIGNAL_LOG_ERROR type={type(exc).__name__} error={exc}",
+                flush=True,
+            )
 
     def _process_br_closed_bar_for_paper_signal(self, bar) -> None:
         """Русский комментарий: единая обработка закрытых M5/M15 баров BR для live и historical replay."""
