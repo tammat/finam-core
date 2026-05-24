@@ -55,23 +55,31 @@ class StrategyRankingV2Repository:
 
         sql = f"""
         SELECT
-            symbol,
-            strategy,
-            timeframe,
-            trade_source,
-            trades,
-            profit_factor,
-            winrate,
-            expectancy,
-            quality_full_ratio,
-            risk_context_weak_ratio,
-            high_heat_ratio,
-            lifecycle_problem_ratio,
-            status
-        FROM strategy_statistics_v2
-        {where}
-          AND COALESCE(strategy, '') <> ''
-          AND COALESCE(timeframe, '') <> ''
+            s.symbol,
+            s.strategy,
+            s.timeframe,
+            s.trade_source,
+            s.trades,
+            s.profit_factor,
+            s.winrate,
+            s.expectancy,
+            s.quality_full_ratio,
+            s.risk_context_weak_ratio,
+            s.high_heat_ratio,
+            s.lifecycle_problem_ratio,
+            s.status,
+            COALESCE(v.verdict, '') AS research_verdict,
+            COALESCE(v.confidence, 0)::float AS research_confidence,
+            COALESCE(v.reason, '') AS research_reason
+        FROM strategy_statistics_v2 s
+        LEFT JOIN strategy_research_verdicts v
+          ON v.symbol = s.symbol
+         AND v.strategy = s.strategy
+         AND v.timeframe = s.timeframe
+         AND v.trade_source = s.trade_source
+        {where.replace("symbol", "s.symbol").replace("strategy", "s.strategy").replace("timeframe", "s.timeframe")}
+          AND COALESCE(s.strategy, '') <> ''
+          AND COALESCE(s.timeframe, '') <> ''
         """
 
         items: list[StrategyRankingDecisionV2] = []
@@ -99,6 +107,24 @@ class StrategyRankingV2Repository:
                     status=str(row[12] or ""),
                 )
             )
+
+            research_verdict = str(row[13] or "")
+            research_confidence = float(row[14] or 0.0)
+            research_reason = str(row[15] or "")
+
+            # Русский комментарий: WATCH_DIVERGENCE не допускает стратегию в runtime,
+            # но запрещает терять положительный OOS-сигнал внутри жёсткого REJECT.
+            if decision.rank_status == "REJECT" and research_verdict == "WATCH_DIVERGENCE":
+                decision = StrategyRankingDecisionV2(
+                    symbol=decision.symbol,
+                    strategy=decision.strategy,
+                    timeframe=decision.timeframe,
+                    trade_source=decision.trade_source,
+                    score=max(float(decision.score), 35.0),
+                    rank_status="WATCH_DIVERGENCE",
+                    reason=f"research_verdict:{research_verdict};{research_reason};confidence={round(research_confidence, 4)}",
+                )
+
             items.append(decision)
 
         return sorted(items, key=lambda x: x.score, reverse=True)
