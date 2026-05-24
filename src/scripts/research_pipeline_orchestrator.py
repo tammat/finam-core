@@ -88,6 +88,13 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--limit", str(limit),
         ],
         [
+            py, "src/scripts/features/build_market_feature_snapshots.py",
+            "--symbols", symbol,
+            "--timeframe", "M5",
+            "--limit", str(limit),
+            "--lookback-n", "12",
+        ],
+        [
             py, "src/scripts/build_trade_context_snapshots.py",
             "--migrate", "--save",
             "--symbol", symbol,
