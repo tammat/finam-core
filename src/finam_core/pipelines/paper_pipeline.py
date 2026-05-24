@@ -89,6 +89,8 @@ from finam_core.risk.correlation_risk import CorrelationRiskEngine
 from finam_core.risk.unified_decision import UnifiedRiskDecision, RiskDecisionRecorder
 from finam_core.risk.risk_router import RiskRouteInput, RiskRouter
 from finam_core.signals.signal_router import SignalRouter as SignalIntentRouter
+from finam_core.runtime.regime_runtime_override_repository import RuntimeRegimeOverrideRepository
+from finam_core.risk.runtime_override_gate import apply_runtime_override_gate
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
 from finam_core.data.mtf_aggregator import MTFBarAggregator
@@ -5909,6 +5911,88 @@ class PaperTradingPipeline:
         )
         return decision
 
+    def _runtime_override_gate_allows_paper_signal(self, br_signal, qty: float, strategy: str) -> tuple[bool, float, str]:
+        """Русский комментарий: применяет runtime_regime_overrides перед PaperExecution."""
+        database_url = os.getenv("DATABASE_URL", "")
+        if not database_url:
+            return True, float(qty), "runtime_override_no_database_url"
+
+        symbol = str(getattr(br_signal, "symbol", "") or "")
+        payload = getattr(br_signal, "payload", None) or getattr(br_signal, "features", None) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        timeframe = str(
+            getattr(br_signal, "timeframe", "")
+            or payload.get("timeframe")
+            or payload.get("regime")
+            or payload.get("market_regime")
+            or ""
+        ).upper()
+
+        if not timeframe:
+            if symbol.startswith("NG"):
+                timeframe = "M1"
+            elif symbol.startswith("BR"):
+                timeframe = "M5"
+            else:
+                timeframe = "LIVE"
+
+        root_symbol = symbol
+        if symbol.startswith("BR"):
+            root_symbol = "BR"
+        elif symbol.startswith("NG"):
+            root_symbol = "NG"
+        elif symbol.startswith("USDRUB"):
+            root_symbol = "USDRUB"
+        elif symbol.startswith("CNY"):
+            root_symbol = "CNY"
+
+        # Русский комментарий: для NG M1 используем точное имя стратегии из runtime override layer.
+        if symbol.startswith("NG") and timeframe == "M1":
+            strategy = "NG_CONSERVATIVE_BREAKOUT_M1"
+
+        try:
+            override = RuntimeRegimeOverrideRepository(database_url).get_override(
+                strategy=strategy,
+                root_symbol=root_symbol,
+                regime=timeframe,
+            )
+            gate = apply_runtime_override_gate(
+                requested_quantity=float(qty),
+                execution_mode="paper",
+                override=override,
+            )
+        except Exception as exc:
+            print(
+                "RUNTIME_OVERRIDE_GATE_ERROR "
+                f"symbol={symbol} strategy={strategy} regime={timeframe} "
+                f"type={type(exc).__name__} error={exc}",
+                flush=True,
+            )
+            return True, float(qty), "runtime_override_error_fail_open"
+
+        if not gate.allowed:
+            print(
+                "RUNTIME_OVERRIDE_GATE_BLOCK "
+                f"symbol={symbol} strategy={strategy} regime={timeframe} "
+                f"reason={gate.reason}",
+                flush=True,
+            )
+            return False, 0.0, gate.reason
+
+        if float(gate.adjusted_quantity) != float(qty):
+            print(
+                "RUNTIME_OVERRIDE_GATE_ADJUST "
+                f"symbol={symbol} strategy={strategy} regime={timeframe} "
+                f"qty={qty} adjusted_qty={gate.adjusted_quantity} "
+                f"risk_multiplier={gate.risk_multiplier} "
+                f"profile={gate.stop_take_profile} reason={gate.reason}",
+                flush=True,
+            )
+
+        return True, float(gate.adjusted_quantity), gate.reason
+
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
         """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
         if os.getenv("EXECUTION_MODE", "paper").lower() != "paper":
@@ -6024,6 +6108,16 @@ class PaperTradingPipeline:
                 return False, runtime_reason
 
         qty = runtime_qty
+
+        runtime_override_allowed, runtime_override_qty, runtime_override_reason = self._runtime_override_gate_allows_paper_signal(
+            br_signal=br_signal,
+            qty=qty,
+            strategy=br_strategy,
+        )
+        if not runtime_override_allowed:
+            return False, runtime_override_reason
+
+        qty = runtime_override_qty
 
         order = {
             "symbol": br_signal.symbol,
