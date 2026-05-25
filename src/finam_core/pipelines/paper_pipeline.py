@@ -5842,6 +5842,25 @@ class PaperTradingPipeline:
         slope_m5 = float(features.get("slope_m5", 0.0) or 0.0)
         slope_m15 = float(features.get("slope_m15", 0.0) or 0.0)
         compression_ratio = float(features.get("compression_ratio", 0.0) or 0.0)
+
+        # Русский комментарий: replay-бар не всегда содержит feature payload.
+        # В этом случае используем уже прогретое состояние BR-стратегии,
+        # иначе BRRegimeLayer получает atr_pct=0 и ошибочно блокирует сигнал как invalid_atr.
+        br_state = getattr(self, "br_breakout", None)
+        if br_state is not None:
+            if float(features.get("atr_pct", 0.0) or 0.0) <= 0:
+                features["atr_pct"] = float(getattr(br_state, "regime_atr_pct", 0.0) or 0.0)
+
+            if slope_m15 == 0.0:
+                direction = int(getattr(br_state, "regime_direction", 0) or 0)
+                strength = float(getattr(br_state, "regime_strength", 0.0) or 0.0)
+                slope_m15 = strength * direction
+
+            if slope_m5 == 0.0:
+                slope_m5 = slope_m15
+
+            if compression_ratio <= 0.0:
+                compression_ratio = 1.0
         atr_short = float(features.get("atr_short", 0.0) or 0.0)
         atr_long = float(features.get("atr_long", 0.0) or 0.0)
 
