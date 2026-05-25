@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PYTHONPATH=src
+
+python -m py_compile src/scripts/research/build_br_duration_session_interaction_v1.py
+
+grep -q "SCALP_LT_5M" src/scripts/research/build_br_duration_session_interaction_v1.py
+grep -q "LONG_GT_4H" src/scripts/research/build_br_duration_session_interaction_v1.py
+grep -q "EDGE_CONCENTRATED_WITH_TOXIC_BUCKETS" src/scripts/research/build_br_duration_session_interaction_v1.py
+grep -q "BR_DURATION_SESSION_INTERACTION_V1_OK" src/scripts/research/build_br_duration_session_interaction_v1.py
+
+echo "BR_DURATION_SESSION_INTERACTION_V1_TEST_OK"
