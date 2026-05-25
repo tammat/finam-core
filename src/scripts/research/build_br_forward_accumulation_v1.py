@@ -51,19 +51,26 @@ def classify_status(
 
 def build_message(old_status: str, new_status: str, payload: dict) -> str:
     return (
-        "📊 BR FORWARD ACCUMULATION UPDATE\n"
+        "📊 Изменение статуса стратегии BR\n"
+        f"Инструмент: {payload['symbol']}\n"
+        f"Стратегия: {payload['strategy']}\n"
+        f"Таймфрейм: {payload['timeframe']}\n"
         f"Статус: {old_status} → {new_status}\n"
-        f"PF: {payload['pf']:.6f}\n"
-        f"Expectancy: {payload['expectancy']:.6f}\n"
-        f"Trades: {payload['trades']}\n"
-        f"Repeatability: {str(payload['repeatability_confirmed']).lower()}\n"
-        f"Contamination: {payload['contamination']}\n"
+        f"Сделок: {payload['trades']}\n"
+        f"Profit Factor: {payload['pf']:.6f}\n"
+        f"Ожидание на сделку: {payload['expectancy']:.6f}\n"
+        f"Повторяемость подтверждена: {'да' if payload['repeatability_confirmed'] else 'нет'}\n"
+        f"Концентрация/загрязнение выборки: {payload['contamination']}\n"
+        "Решение: runtime не включается, стратегия остаётся в research-watch.\n"
     )
 
 
 def send_telegram(message: str) -> None:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    # Русский комментарий: используем единый TG_AI_TOKEN, отдельный TELEGRAM_BOT_TOKEN не плодим.
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TG_AI_TOKEN", "")
+    # Русский комментарий: для канала статусов стратегий приоритетно используем отдельный chat_id канала.
+    chat_id = os.environ.get("TG_STRATEGY_STATUS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
+    proxy = os.environ.get("TELEGRAM_PROXY") or os.environ.get("TG_PROXY", "")
 
     if not token or not chat_id:
         print("TELEGRAM_DISABLED")
@@ -73,6 +80,13 @@ def send_telegram(message: str) -> None:
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
+    # Русский комментарий: защищаемся от ошибочно склеенных строк .env.
+    for marker in ("TG_STRATEGY_STATUS_CHAT_ID=", "TELEGRAM_CHAT_ID=", "\n", "\r"):
+        if marker in proxy:
+            proxy = proxy.split(marker, 1)[0].strip()
+
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+
     response = requests.post(
         url,
         json={
@@ -80,10 +94,11 @@ def send_telegram(message: str) -> None:
             "text": message,
         },
         timeout=15,
+        proxies=proxies,
     )
 
     print(
-        f"TELEGRAM_NOTIFY status_code={response.status_code}",
+        f"TELEGRAM_NOTIFY status_code={response.status_code} body={response.text[:300]}",
         flush=True,
     )
 
