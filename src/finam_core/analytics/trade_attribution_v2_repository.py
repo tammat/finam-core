@@ -93,6 +93,7 @@ class TradeAttributionV2Repository:
             FROM lifecycle_stale_position_advice_events l
             WHERE l.symbol = c.symbol
               AND l.created_at <= c.exit_ts
+              AND COALESCE(l.action, '') <> 'SYNC_LIFECYCLE_QTY'
             ORDER BY l.created_at DESC
             LIMIT 1
         ) l ON TRUE
