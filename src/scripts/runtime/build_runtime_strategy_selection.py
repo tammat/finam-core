@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from finam_core.common.strategy_names import normalize_strategy_name
+
 import argparse
 
 import psycopg
@@ -86,7 +88,7 @@ def main() -> int:
             for row in cur.fetchall():
                 candidate = RuntimeStrategyCandidate(
                     symbol=str(row[0]),
-                    strategy=str(row[1]),
+                    strategy=normalize_strategy_name(str(row[1])),
                     timeframe=str(row[2]),
                     trade_source=str(row[3]),
                     runtime_action=str(row[4]),

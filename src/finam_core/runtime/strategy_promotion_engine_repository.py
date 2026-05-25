@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from finam_core.common.strategy_names import normalize_strategy_name
+
 import psycopg
 
 from finam_core.runtime.strategy_promotion_engine_v1 import (
@@ -98,7 +100,7 @@ class StrategyPromotionEngineRepository:
                 decide_strategy_promotion_v1(
                     StrategyPromotionEngineInput(
                         symbol=str(row[0]),
-                        strategy=str(row[1]),
+                        strategy=normalize_strategy_name(str(row[1])),
                         timeframe=str(row[2]),
                         trade_source=str(row[3]),
                         trades=int(row[4] or 0),

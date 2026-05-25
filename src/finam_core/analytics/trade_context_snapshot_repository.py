@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from finam_core.common.strategy_names import normalize_strategy_name
+
 import psycopg
 
 from finam_core.analytics.trade_context_snapshot import TradeContextSnapshot
@@ -157,7 +159,7 @@ class TradeContextSnapshotRepository:
                 TradeContextSnapshot(
                     closed_trade_id=int(row[0]),
                     symbol=str(row[1]),
-                    strategy=str(row[2]),
+                    strategy=normalize_strategy_name(str(row[2])),
                     timeframe=str(row[3]),
                     trade_source=str(row[4]),
                     entry_ts=row[5],

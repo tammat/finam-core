@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from finam_core.common.strategy_names import normalize_strategy_name
+
 from dataclasses import dataclass
 
 import psycopg
@@ -134,7 +136,7 @@ class StrategyResearchVerdictRepository:
 
                     items.append(
                         StrategyResearchVerdict(
-                            strategy=str(row[0] or ""),
+                            strategy=normalize_strategy_name(str(row[0] or "")),
                             symbol=str(row[1] or ""),
                             timeframe=str(row[2] or ""),
                             regime=str(row[3] or "unknown"),
