@@ -58,7 +58,7 @@ class TradeAttributionV2Repository:
         SELECT
             c.id,
             c.symbol,
-            c.strategy,
+            CASE WHEN lower(trim(c.strategy))='br_conservative_breakout' THEN 'BR_CONSERVATIVE_BREAKOUT' ELSE c.strategy END,
             c.timeframe,
             c.trade_source,
             c.pnl,

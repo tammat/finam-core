@@ -65,6 +65,46 @@ class NullNotifier:
         return None
 
 
+class ReplayRuntimeConfig:
+    """Русский комментарий: минимальный runtime_config adapter для replay без запуска полного pipeline.__init__."""
+
+    def __init__(self) -> None:
+        self.values = {
+            "EXECUTION_MODE": os.getenv("EXECUTION_MODE", "paper"),
+            "ENABLE_PAPER_FILLS": os.getenv("ENABLE_PAPER_FILLS", "1"),
+            "SIMULATE_MARKET": os.getenv("SIMULATE_MARKET", "0"),
+            "REAL_EXECUTION_ENABLED": "0",
+            "REAL_ORDER_CONFIRM": "0",
+        }
+
+    def get(self, key: str, default=None):
+        return self.values.get(key, default)
+
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        value = self.values.get(key, None)
+        if value is None:
+            return default
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        value = self.values.get(key, None)
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def get_int(self, key: str, default: int = 0) -> int:
+        value = self.values.get(key, None)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+
 # CountingLogger wrapper for PostgresLogger
 class CountingLogger:
     """Русский комментарий: обёртка над PostgresLogger для подсчёта сигналов."""
@@ -275,12 +315,7 @@ def build_replay_pipeline(symbol: str, run_id: str, portfolio_guard_state: dict)
     pipeline.run_id = run_id
     pipeline.portfolio_guard_state = portfolio_guard_state
     # Русский комментарий: replay создаёт pipeline без __init__, поэтому runtime_config задаётся вручную.
-    pipeline.runtime_config = {
-        "EXECUTION_MODE": os.getenv("EXECUTION_MODE", "paper"),
-        "ENABLE_PAPER_FILLS": os.getenv("ENABLE_PAPER_FILLS", "1"),
-        "REAL_EXECUTION_ENABLED": "0",
-        "REAL_ORDER_CONFIRM": "0",
-    }
+    pipeline.runtime_config = ReplayRuntimeConfig()
     pipeline.finam_limits_adapter = FinamLimitsAdapter()
     return pipeline
 

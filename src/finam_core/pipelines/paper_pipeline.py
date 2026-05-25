@@ -4703,6 +4703,9 @@ class PaperTradingPipeline:
             pass
 
     def _log_br_paper_fill(self, br_signal, qty: float, fill, paper_reason: str) -> None:
+        # Русский комментарий: strategy нужна для корректной записи replay/paper fill в trades.
+        br_symbol = str(getattr(br_signal, "symbol", "") or "")
+        br_strategy = "BR_CONSERVATIVE_BREAKOUT"
         """Русский комментарий: PaperExecutionEngine возвращает PaperFill; здесь явно пишем его в trades."""
         if not hasattr(self, "pg_logger") or self.pg_logger is None:
             return
@@ -5848,8 +5851,9 @@ class PaperTradingPipeline:
         # иначе BRRegimeLayer получает atr_pct=0 и ошибочно блокирует сигнал как invalid_atr.
         br_state = getattr(self, "br_breakout", None)
         if br_state is not None:
-            if float(features.get("atr_pct", 0.0) or 0.0) <= 0:
-                features["atr_pct"] = float(getattr(br_state, "regime_atr_pct", 0.0) or 0.0)
+            if atr_pct <= 0:
+                atr_pct = float(getattr(br_state, "regime_atr_pct", 0.0) or 0.0)
+                features["atr_pct"] = atr_pct
 
             if slope_m15 == 0.0:
                 direction = int(getattr(br_state, "regime_direction", 0) or 0)
@@ -6022,6 +6026,9 @@ class PaperTradingPipeline:
         return True, float(gate.adjusted_quantity), gate.reason
 
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
+        # Русский комментарий: strategy нужна внутри метода для order payload и replay trade metadata.
+        br_symbol = str(getattr(br_signal, "symbol", "") or "")
+        br_strategy = self._strategy_name_for_symbol(br_symbol)
         """Русский комментарий: исполняем risk_accepted BR-сигнал только через PAPER-движок, без real orders."""
         if self.runtime_config.get("EXECUTION_MODE", "paper").lower() != "paper":
             return False, "SKIPPED_NOT_PAPER_MODE"
@@ -6109,11 +6116,16 @@ class PaperTradingPipeline:
             flush=True,
         )
 
-        runtime_allowed, runtime_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
-            br_signal.symbol,
-            qty,
-            strategy=br_strategy,
-        )
+        # Русский комментарий: исторический replay должен проверять стратегию без runtime governance,
+        # иначе старое состояние strategy_runtime_control блокирует генерацию paper-сделок для исследования.
+        if os.getenv("REPLAY_DISABLE_RUNTIME_CONTROL", "0") == "1":
+            runtime_allowed, runtime_qty, runtime_reason = True, qty, "REPLAY_RUNTIME_CONTROL_DISABLED"
+        else:
+            runtime_allowed, runtime_qty, runtime_reason = self._strategy_runtime_control_allows_paper(
+                br_signal.symbol,
+                qty,
+                strategy=br_strategy,
+            )
 
         replay_accumulation_mode = (
             self.runtime_config.get_bool("SIMULATE_MARKET", False)

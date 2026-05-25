@@ -5,7 +5,7 @@ def map_symbol_to_strategy(symbol: str) -> str:
     value = str(symbol).strip().upper()
 
     if value.startswith("BR"):
-        return "br_conservative_breakout"
+        return "BR_CONSERVATIVE_BREAKOUT"
 
     if value.startswith("NG"):
         return "ng_volatility_breakout"

@@ -77,7 +77,7 @@ class ClosedTradeReconstructionV2Repository:
                 payload->>'strategy',
                 CASE
                     WHEN symbol LIKE 'NG%%' THEN 'ng_volatility_breakout'
-                    WHEN symbol LIKE 'BR%%' THEN 'br_conservative_breakout'
+                    WHEN symbol LIKE 'BR%%' THEN 'BR_CONSERVATIVE_BREAKOUT'
                     ELSE ''
                 END
             ) AS strategy,
