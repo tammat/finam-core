@@ -65,3 +65,4 @@ logs*
 __pycache__/
 *.pyc
 reports/
+runtime_state/
