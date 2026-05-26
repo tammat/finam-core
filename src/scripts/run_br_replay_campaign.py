@@ -94,12 +94,94 @@ def parse_pnl_summary(output: str) -> dict[str, str]:
     return result
 
 
+
+
+def save_campaign_window(
+    database_url: str,
+    campaign_id: str,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+    window_index: int,
+    from_ts: datetime,
+    to_ts: datetime,
+    replay_stats: dict[str, str],
+    pnl_stats: dict[str, str],
+    min_id: str,
+    max_id: str,
+) -> None:
+    import psycopg
+
+    sql = """
+    insert into replay_campaign_runs (
+        campaign_id, replay_id, symbol, strategy, timeframe, status,
+        started_at, finished_at, duration_sec, return_code, command, raw_json,
+        from_ts, to_ts, window_index,
+        signals, paper_orders, trades_logged,
+        min_trade_id, max_trade_id,
+        closed_trades, net_pnl, winrate
+    )
+    values (
+        %(campaign_id)s, %(replay_id)s, %(symbol)s, %(strategy)s, %(timeframe)s, %(status)s,
+        %(started_at)s, %(finished_at)s, %(duration_sec)s, %(return_code)s, %(command)s, %(raw_json)s,
+        %(from_ts)s, %(to_ts)s, %(window_index)s,
+        %(signals)s, %(paper_orders)s, %(trades_logged)s,
+        %(min_trade_id)s, %(max_trade_id)s,
+        %(closed_trades)s, %(net_pnl)s, %(winrate)s
+    )
+    on conflict (campaign_id, symbol, window_index)
+    do update set
+        signals = excluded.signals,
+        paper_orders = excluded.paper_orders,
+        trades_logged = excluded.trades_logged,
+        min_trade_id = excluded.min_trade_id,
+        max_trade_id = excluded.max_trade_id,
+        closed_trades = excluded.closed_trades,
+        net_pnl = excluded.net_pnl,
+        winrate = excluded.winrate,
+        from_ts = excluded.from_ts,
+        to_ts = excluded.to_ts;
+    """
+
+    params = {
+        "campaign_id": campaign_id,
+        "replay_id": f"{campaign_id}_{symbol}_{window_index}",
+        "status": "OK",
+        "started_at": from_ts,
+        "finished_at": to_ts,
+        "duration_sec": max((to_ts - from_ts).total_seconds(), 0.0),
+        "return_code": 0,
+        "command": "run_br_replay_campaign.py",
+        "raw_json": "{}",
+        "symbol": symbol,
+        "strategy": strategy,
+        "timeframe": timeframe,
+        "from_ts": from_ts,
+        "to_ts": to_ts,
+        "window_index": window_index,
+        "signals": int(replay_stats.get("signals_generated", "0") or "0"),
+        "paper_orders": int(replay_stats.get("paper_orders", "0") or "0"),
+        "trades_logged": int(replay_stats.get("trades_logged", "0") or "0"),
+        "min_trade_id": int(min_id) if min_id else None,
+        "max_trade_id": int(max_id) if max_id else None,
+        "closed_trades": int(pnl_stats.get("closed", "0") or "0"),
+        "net_pnl": float(pnl_stats.get("net", "0") or "0"),
+        "winrate": float(pnl_stats.get("winrate", "0") or "0"),
+    }
+
+    with psycopg.connect(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+        conn.commit()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--from-ts", required=True)
     parser.add_argument("--to-ts", required=True)
     parser.add_argument("--window-days", type=int, default=3)
+    parser.add_argument("--campaign-id", default="br_replay_campaign")
     parser.add_argument("--disable-runtime-control", action="store_true", default=True)
     args = parser.parse_args()
 
@@ -129,6 +211,7 @@ def main() -> None:
         env = os.environ.copy()
         env["PYTHONPATH"] = "src"
         env["REPLAY_DISABLE_RUNTIME_CONTROL"] = "1"
+        env["REPLAY_CAMPAIGN_ID"] = args.campaign_id
 
         replay_out = run_cmd(
             [
@@ -166,6 +249,21 @@ def main() -> None:
         net = float(pnl_stats.get("net", "0") or "0")
         total_trades += closed
         total_net += net
+
+        save_campaign_window(
+            database_url=database_url,
+            campaign_id=args.campaign_id,
+            symbol=args.symbol,
+            strategy="BR_CONSERVATIVE_BREAKOUT",
+            timeframe="M5",
+            window_index=window.index,
+            from_ts=window.from_ts,
+            to_ts=window.to_ts,
+            replay_stats=replay_stats,
+            pnl_stats=pnl_stats,
+            min_id=min_id,
+            max_id=max_id,
+        )
 
         print(
             "BR_REPLAY_CAMPAIGN_WINDOW",
