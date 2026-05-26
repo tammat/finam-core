@@ -1,4 +1,6 @@
-CREATE OR REPLACE VIEW regime_scorecard_v1 AS
+DROP VIEW IF EXISTS regime_scorecard_v1;
+
+CREATE VIEW regime_scorecard_v1 AS
 WITH enriched AS (
     SELECT
         t.continuous_symbol,
@@ -7,13 +9,41 @@ WITH enriched AS (
         t.timeframe,
         t.trade_source,
 
-        lower(COALESCE(
-            NULLIF(t.raw_json->'entry_payload'->'market'->>'regime_direction', ''),
-            NULLIF(t.raw_json->'entry_payload'->>'regime_direction', ''),
-            NULLIF(t.raw_json->'entry_payload'->>'regime', ''),
-            NULLIF(t.raw_json->'entry_payload'->>'regime_label', ''),
-            'unknown'
-        )) AS regime_direction,
+        lower(
+            CASE
+                WHEN COALESCE(
+                    NULLIF(t.raw_json->'entry_payload'->'market'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_label', ''),
+                    'unknown'
+                ) IN ('1', '1.0') THEN 'trend_up'
+
+                WHEN COALESCE(
+                    NULLIF(t.raw_json->'entry_payload'->'market'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_label', ''),
+                    'unknown'
+                ) IN ('-1', '-1.0') THEN 'trend_down'
+
+                WHEN COALESCE(
+                    NULLIF(t.raw_json->'entry_payload'->'market'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_label', ''),
+                    'unknown'
+                ) IN ('0', '0.0') THEN 'flat'
+
+                ELSE COALESCE(
+                    NULLIF(t.raw_json->'entry_payload'->'market'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_direction', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime', ''),
+                    NULLIF(t.raw_json->'entry_payload'->>'regime_label', ''),
+                    'unknown'
+                )
+            END
+        ) AS regime_direction,
 
         CASE
             WHEN NULLIF(t.raw_json->'entry_payload'->'market'->>'regime_direction', '') IS NOT NULL THEN 'snapshot.market.regime_direction'
