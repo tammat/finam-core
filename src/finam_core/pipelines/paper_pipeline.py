@@ -244,6 +244,76 @@ class RealPositionQtyProvider:
         return 0.0
 
 
+
+
+def _edge_gate_enrich_payload_for_paper(payload, signal_like=None):
+    # Русский комментарий: soft telemetry для статистического edge-gate.
+    # Функция не блокирует исполнение и не меняет решение Risk/Execution.
+    import os
+    from datetime import UTC, datetime
+
+    from finam_core.execution.edge_execution_gate import evaluate_edge_execution_gate
+    from finam_core.execution.edge_telemetry import (
+        build_edge_telemetry_snapshot,
+        merge_edge_telemetry,
+    )
+
+    result = dict(payload or {})
+
+    if os.environ.get("EDGE_GATE_SOFT", "1") != "1":
+        return result
+
+    signal_obj = signal_like if signal_like is not None else result
+
+    # Русский комментарий: если signal не содержит strategy/timeframe,
+    # используем сам payload как источник атрибуции.
+    signal_dict = {
+        "symbol": getattr(signal_obj, "symbol", None) or result.get("symbol"),
+        "strategy": (
+            getattr(signal_obj, "strategy", None)
+            or result.get("strategy")
+            or result.get("source")
+        ),
+        "timeframe": (
+            getattr(signal_obj, "timeframe", None)
+            or result.get("timeframe")
+            or result.get("horizon")
+        ),
+    }
+
+    ts = datetime.now(UTC)
+    decision = evaluate_edge_execution_gate(signal_dict, ts=ts)
+
+    telemetry = build_edge_telemetry_snapshot(
+        decision=decision,
+        ts=ts,
+        mode="soft",
+    )
+
+    enriched = merge_edge_telemetry(result, telemetry)
+
+    label = "EDGE_ALLOWED" if decision.allowed else "EDGE_REJECTED"
+    print(
+        label,
+        f"symbol={decision.symbol}",
+        f"strategy={decision.strategy}",
+        f"timeframe={decision.timeframe}",
+        f"hour={decision.hour_utc}",
+        f"reason={decision.reason}",
+        flush=True,
+    )
+
+    if not decision.allowed:
+        print(
+            "EDGE_GATE_SOFT_BYPASS",
+            f"symbol={decision.symbol}",
+            f"reason={decision.reason}",
+            flush=True,
+        )
+
+    return enriched
+
+
 class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
 
@@ -4602,6 +4672,10 @@ class PaperTradingPipeline:
                     payload.setdefault("replay_strategy", os.getenv("REPLAY_STRATEGY"))
                     payload.setdefault("dataset_source", "replay_campaign")
 
+                payload = _edge_gate_enrich_payload_for_paper(
+                    payload=payload,
+                    signal_like=payload,
+                )
                 persist_result = service.persist_fill(fill, execution_type="paper", payload=payload)
                 print(f"PIPE_FILL_PERSISTED result={persist_result} payload={payload}", flush=True)
             else:
@@ -6431,6 +6505,10 @@ class PaperTradingPipeline:
         payload["portfolio_open_abs_position"] = self._br_total_open_abs_position()
         payload["portfolio_paper_orders_count"] = self._paper_orders_count_for_portfolio_guard()
         payload["run_id"] = getattr(self, "run_id", "unknown")
+        payload = _edge_gate_enrich_payload_for_paper(
+            payload=payload,
+            signal_like=br_signal,
+        )
 
         # Русский комментарий: разделяем причины отказа execution-gate для replay-аналитики.
         if not paper_executed:
