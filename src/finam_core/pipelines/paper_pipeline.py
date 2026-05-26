@@ -340,6 +340,8 @@ class PaperTradingPipeline:
         # Русский комментарий: runtime selection gate включается перед RiskEngine.
         self.runtime_selection_gate = RuntimeSelectionGate()
         self.paper = paper
+        # Русский комментарий: runtime_config должен быть создан до первого обращения к EXECUTION_MODE.
+        self.runtime_config = RuntimeConfig()
         # Русский комментарий: единый режим исполнения. real_dry_run не отправляет заявки брокеру.
         self.execution_mode = self.runtime_config.get("EXECUTION_MODE", "paper").strip().lower()
         self.orders_client = FinamOrdersClient(position_qty_provider=RealPositionQtyProvider(self))
@@ -415,7 +417,6 @@ class PaperTradingPipeline:
         self.strategy_runtime = StrategyRuntime()
         self.quote_signal_processor = QuoteSignalProcessor(self.strategy_runtime)
         self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
-        self.runtime_config = RuntimeConfig()
         self.signal_intent_router = SignalIntentRouter()
         # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
         self.signal_intent_router = SignalIntentRouter()

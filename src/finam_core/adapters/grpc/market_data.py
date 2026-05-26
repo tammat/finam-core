@@ -41,6 +41,8 @@ class FinamMarketDataClient:
         host: str = "api.finam.ru:443",
         heartbeat_sec: float = 10.0,
     ):
+        # Русский комментарий: runtime_config нужен до первого чтения MD_* параметров.
+        self.runtime_config = RuntimeConfig()
         self.event_bus = event_bus
         self.host = host
         self.heartbeat_sec = float(heartbeat_sec)

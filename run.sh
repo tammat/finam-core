@@ -13,8 +13,8 @@ source .venv/bin/activate
 export PYTHONPATH=src
 
 python -u src/scripts/run_market_pipeline.py \
-  --symbol "${SYMBOL:-BRM6@RTSX}" \
-  --symbols "${SYMBOLS:-${SYMBOL:-BRM6@RTSX}}" \
+  --symbol "${SYMBOL:-BRN6@RTSX}" \
+  --symbols "${SYMBOLS:-${SYMBOL:-BRN6@RTSX}}" \
   --strategy "${PIPELINE_STRATEGY:-vwap_bands_mr}" \
   --run-secs "${RUN_SECS:-0}" \
   --quote-log-every "${QUOTE_LOG_EVERY:-30}" \
