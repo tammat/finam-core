@@ -12,13 +12,24 @@ from finam_core.analytics.regime_attribution import derive_regime_label, is_know
 
 
 def _enrich_regime_payload(payload: dict) -> dict:
-    """Русский комментарий: v1.1 outcomes получают regime even если старый trade payload был неполным."""
-    enriched = dict(payload or {})
+    """Русский комментарий: v1.2 разворачивает вложенный payload и сохраняет regime attribution в outcomes."""
+    base = dict(payload or {})
+    nested = base.get("payload") if isinstance(base.get("payload"), dict) else {}
+
+    enriched = dict(base)
+    for key, value in nested.items():
+        if key not in enriched or enriched.get(key) in (None, "", {}, []):
+            enriched[key] = value
+
     current = enriched.get("regime") or enriched.get("regime_label")
     if not is_known_regime(current):
         derived = derive_regime_label(enriched)
         enriched["regime"] = derived
         enriched["regime_label"] = derived
+
+    if "payload" in enriched:
+        enriched["_nested_payload_unwrapped"] = True
+
     return enriched
 
 
