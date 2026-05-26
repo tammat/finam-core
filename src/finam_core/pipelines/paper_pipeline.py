@@ -342,6 +342,7 @@ def _save_trade_context_snapshot_for_paper_trade(
             TradeContextSnapshot,
             TradeContextSnapshotRepository,
         )
+        from finam_core.contracts.continuous_contract_resolver import ContinuousContractResolver
 
         database_url = os.environ.get("DATABASE_URL")
         if not database_url:
@@ -384,6 +385,12 @@ def _save_trade_context_snapshot_for_paper_trade(
                 db_trade_id=int(db_trade_id) if db_trade_id is not None else None,
                 run_id=str(payload.get("run_id") or ""),
                 symbol=str(payload.get("symbol") or ""),
+                continuous_symbol=str(
+                    payload.get("continuous_symbol")
+                    or ContinuousContractResolver.resolve(str(payload.get("symbol") or ""))
+                    if str(payload.get("symbol") or "")
+                    else ""
+                ),
                 strategy=str(payload.get("strategy") or "UNKNOWN"),
                 timeframe=str(payload.get("timeframe") or "UNKNOWN"),
                 side=str(payload.get("side") or ""),
@@ -1039,6 +1046,7 @@ class PaperTradingPipeline:
             run_id = str(getattr(self, "run_id", "live-paper"))
             payload = {
                 "run_id": run_id,
+            "continuous_symbol": continuous_symbol,
                 "paper_only": True,
                 "reason": reason,
                 "fill_id": str(getattr(fill, "fill_id", "") or ""),
@@ -4883,6 +4891,12 @@ class PaperTradingPipeline:
         fill_id_raw = str(getattr(fill, "fill_id", f"paper_br_{int(br_signal.ts.timestamp())}"))
         fill_id = f"{run_id}_{fill_id_raw}"
 
+        try:
+            from finam_core.contracts.continuous_contract_resolver import ContinuousContractResolver
+            continuous_symbol = ContinuousContractResolver.resolve(br_signal.symbol)
+        except Exception:
+            continuous_symbol = br_signal.symbol
+
         trade_payload = {
             "symbol": br_signal.symbol,
             "side": br_signal.side,
@@ -4926,6 +4940,7 @@ class PaperTradingPipeline:
                 run_id=run_id,
                 strategy=trade_payload.get("strategy"),
                 timeframe=trade_payload.get("timeframe"),
+                continuous_symbol=trade_payload.get("continuous_symbol"),
                 payload=trade_payload,
             )
             db_trade_id = log_result.get("id") if isinstance(log_result, dict) else None

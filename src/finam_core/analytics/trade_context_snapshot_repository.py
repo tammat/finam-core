@@ -15,6 +15,7 @@ class TradeContextSnapshot:
     strategy: str
     timeframe: str
     event_type: str = "paper_trade"
+    continuous_symbol: str | None = None
     db_trade_id: int | None = None
     run_id: str | None = None
     side: str | None = None
@@ -41,14 +42,14 @@ class TradeContextSnapshotRepository:
         sql = """
         INSERT INTO trade_context_snapshots (
             trade_id, db_trade_id, run_id,
-            symbol, strategy, timeframe, trade_source,
+            symbol, continuous_symbol, strategy, timeframe, trade_source,
             side, qty, price,
             reason, source, event_type, ts,
             snapshot
         )
         VALUES (
             %(trade_id)s, %(db_trade_id)s, %(run_id)s,
-            %(symbol)s, %(strategy)s, %(timeframe)s, %(trade_source)s,
+            %(symbol)s, %(continuous_symbol)s, %(strategy)s, %(timeframe)s, %(trade_source)s,
             %(side)s, %(qty)s, %(price)s,
             %(reason)s, %(source)s, %(event_type)s, %(ts)s,
             %(snapshot)s
@@ -58,6 +59,7 @@ class TradeContextSnapshotRepository:
             db_trade_id = EXCLUDED.db_trade_id,
             run_id = EXCLUDED.run_id,
             symbol = EXCLUDED.symbol,
+            continuous_symbol = EXCLUDED.continuous_symbol,
             strategy = EXCLUDED.strategy,
             timeframe = EXCLUDED.timeframe,
             side = EXCLUDED.side,
@@ -75,6 +77,7 @@ class TradeContextSnapshotRepository:
             "db_trade_id": item.db_trade_id,
             "run_id": item.run_id,
             "symbol": item.symbol,
+            "continuous_symbol": item.continuous_symbol,
             "strategy": item.strategy,
             "timeframe": item.timeframe,
             "trade_source": "paper",

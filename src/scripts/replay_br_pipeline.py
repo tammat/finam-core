@@ -179,14 +179,27 @@ class CountingLogger:
             or nested_payload.get("timeframe")
             or ""
         )
+        continuous_symbol = (
+            trade.get("continuous_symbol")
+            or raw_json.get("continuous_symbol")
+            or payload.get("continuous_symbol")
+            or nested_payload.get("continuous_symbol")
+            or ""
+        )
+        if not continuous_symbol and symbol:
+            try:
+                from finam_core.contracts.continuous_contract_resolver import ContinuousContractResolver
+                continuous_symbol = ContinuousContractResolver.resolve(symbol)
+            except Exception:
+                continuous_symbol = ""
 
         with psycopg2.connect(dsn()) as conn:
             with conn.cursor() as cur:
                 # Русский комментарий: replay/paper сделки явно маркируются trade_source='paper'.
                 cur.execute(
                     """
-                    INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source, strategy, timeframe)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, now(), %s, %s, %s)
+                    INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source, strategy, timeframe, continuous_symbol)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, now(), %s, %s, %s, %s)
                     """,
                     (
                         symbol,
@@ -200,6 +213,7 @@ class CountingLogger:
                         "paper",
                         strategy,
                         timeframe,
+                        continuous_symbol,
                     ),
                 )
 

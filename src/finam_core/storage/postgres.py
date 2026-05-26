@@ -193,6 +193,12 @@ class PostgresStorage:
         )
 
         symbol = data.get("symbol") or payload.get("symbol") or nested_payload.get("symbol")
+        continuous_symbol = (
+            data.get("continuous_symbol")
+            or payload.get("continuous_symbol")
+            or nested_payload.get("continuous_symbol")
+            or ""
+        )
         side = data.get("side") or payload.get("side") or nested_payload.get("side")
         qty = data.get("qty")
         if qty is None:
@@ -222,9 +228,10 @@ class PostgresStorage:
                     ts,
                     trade_source,
                     strategy,
-                    timeframe
+                    timeframe,
+                    continuous_symbol
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, NOW()), %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, NOW()), %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -240,6 +247,7 @@ class PostgresStorage:
                     _normalize(trade_source),
                     _normalize(strategy),
                     _normalize(timeframe),
+                    _normalize(continuous_symbol),
                 ),
             )
             row = cur.fetchone()
