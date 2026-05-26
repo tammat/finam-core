@@ -270,21 +270,21 @@ def _edge_gate_enrich_payload_for_paper(payload, signal_like=None):
     # используем top-level payload и вложенный payload.payload как источник атрибуции.
     signal_dict = {
         "symbol": (
-            getattr(signal_obj, "symbol", None)
-            or result.get("symbol")
+            result.get("symbol")
             or nested_payload.get("symbol")
+            or getattr(signal_obj, "symbol", None)
         ),
         "strategy": (
-            getattr(signal_obj, "strategy", None)
-            or result.get("strategy")
+            result.get("strategy")
             or nested_payload.get("strategy")
+            or getattr(signal_obj, "strategy", None)
             or result.get("source")
             or nested_payload.get("source")
         ),
         "timeframe": (
-            getattr(signal_obj, "timeframe", None)
-            or result.get("timeframe")
+            result.get("timeframe")
             or nested_payload.get("timeframe")
+            or getattr(signal_obj, "timeframe", None)
             or result.get("horizon")
             or nested_payload.get("horizon")
         ),
@@ -4803,6 +4803,10 @@ class PaperTradingPipeline:
         fill_id = f"{run_id}_{fill_id_raw}"
 
         trade_payload = {
+            "symbol": br_signal.symbol,
+            "side": br_signal.side,
+            "qty": abs(fill_qty),
+            "price": fill_price,
             "run_id": run_id,
             "paper_only": True,
             "execution_type": paper_reason,
@@ -4823,6 +4827,11 @@ class PaperTradingPipeline:
             "replay_strategy": os.getenv("REPLAY_STRATEGY"),
             "dataset_source": "replay_campaign" if os.getenv("REPLAY_CAMPAIGN_ID") else "runtime",
         }
+
+        trade_payload = _edge_gate_enrich_payload_for_paper(
+            payload=trade_payload,
+            signal_like=trade_payload,
+        )
 
         try:
             self.pg_logger.log_trade(
