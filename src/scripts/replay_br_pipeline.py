@@ -162,13 +162,31 @@ class CountingLogger:
         raw_json.setdefault("execution_type", trade.get("execution_type", "paper_replay"))
         raw_json.setdefault("paper_only", True)
 
+        payload = raw_json.get("payload") if isinstance(raw_json.get("payload"), dict) else {}
+        nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+
+        strategy = (
+            trade.get("strategy")
+            or raw_json.get("strategy")
+            or payload.get("strategy")
+            or nested_payload.get("strategy")
+            or ""
+        )
+        timeframe = (
+            trade.get("timeframe")
+            or raw_json.get("timeframe")
+            or payload.get("timeframe")
+            or nested_payload.get("timeframe")
+            or ""
+        )
+
         with psycopg2.connect(dsn()) as conn:
             with conn.cursor() as cur:
                 # Русский комментарий: replay/paper сделки явно маркируются trade_source='paper'.
                 cur.execute(
                     """
-                    INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, now(), %s)
+                    INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source, strategy, timeframe)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, now(), %s, %s, %s)
                     """,
                     (
                         symbol,
@@ -180,6 +198,8 @@ class CountingLogger:
                         "replay_br_pipeline",
                         json.dumps(raw_json, ensure_ascii=False, default=str),
                         "paper",
+                        strategy,
+                        timeframe,
                     ),
                 )
 

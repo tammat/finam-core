@@ -4894,6 +4894,7 @@ class PaperTradingPipeline:
             "strategy": br_strategy,
             "horizon": "INTRADAY",
             "timeframe": "M5",
+            "source": "paper_pipeline_br",
             "reason": getattr(br_signal, "reason", None),
             "stop_loss": getattr(br_signal, "stop", None),
             "take_profit": getattr(br_signal, "take", None),
@@ -4923,6 +4924,8 @@ class PaperTradingPipeline:
                 trade_id=fill_id,
                 execution_type=paper_reason,
                 run_id=run_id,
+                strategy=trade_payload.get("strategy"),
+                timeframe=trade_payload.get("timeframe"),
                 payload=trade_payload,
             )
             db_trade_id = log_result.get("id") if isinstance(log_result, dict) else None

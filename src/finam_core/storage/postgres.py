@@ -143,26 +143,113 @@ class PostgresStorage:
 
     # ---------------- TRADES ----------------
 
-    def log_trade(self, trade):
+    def log_trade(self, trade=None, **kwargs):
+        """Русский комментарий: универсальная запись trade с attribution в колонки trades."""
+        import json
+
+        data = {}
+
+        if trade is not None:
+            if isinstance(trade, dict):
+                data.update(trade)
+            else:
+                data.update(
+                    {
+                        "symbol": getattr(trade, "symbol", None),
+                        "side": getattr(trade, "side", None),
+                        "qty": getattr(trade, "qty", None),
+                        "quantity": getattr(trade, "quantity", None),
+                        "price": getattr(trade, "price", None),
+                        "trade_id": getattr(trade, "trade_id", None),
+                        "fill_id": getattr(trade, "fill_id", None),
+                        "run_id": getattr(trade, "run_id", None),
+                        "strategy": getattr(trade, "strategy", None),
+                        "timeframe": getattr(trade, "timeframe", None),
+                        "payload": getattr(trade, "payload", None),
+                        "ts": getattr(trade, "ts", None),
+                    }
+                )
+
+        data.update(kwargs)
+
+        payload = data.get("payload") or data.get("raw_json") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+
+        strategy = (
+            data.get("strategy")
+            or payload.get("strategy")
+            or nested_payload.get("strategy")
+            or ""
+        )
+
+        timeframe = (
+            data.get("timeframe")
+            or payload.get("timeframe")
+            or nested_payload.get("timeframe")
+            or ""
+        )
+
+        symbol = data.get("symbol") or payload.get("symbol") or nested_payload.get("symbol")
+        side = data.get("side") or payload.get("side") or nested_payload.get("side")
+        qty = data.get("qty")
+        if qty is None:
+            qty = data.get("quantity")
+        if qty is None:
+            qty = payload.get("qty") or payload.get("quantity")
+
+        price = data.get("price") or payload.get("price")
+        fill_id = data.get("fill_id") or data.get("trade_id") or payload.get("trade_id")
+        trade_source = data.get("trade_source") or payload.get("trade_source") or "paper"
+
+        if not payload:
+            payload = dict(data)
+
         with self.conn.cursor() as cur:
-            # Русский комментарий: запись paper-сделки должна соответствовать текущей схеме trades и содержать trade_source.
             cur.execute(
                 """
-                INSERT INTO trades (symbol, side, qty, price, commission, fill_id, origin, payload, ts, trade_source)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, '{}'::jsonb, NOW(), %s)
+                INSERT INTO trades (
+                    symbol,
+                    side,
+                    qty,
+                    price,
+                    commission,
+                    fill_id,
+                    origin,
+                    payload,
+                    ts,
+                    trade_source,
+                    strategy,
+                    timeframe
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, NOW()), %s, %s, %s)
+                RETURNING id
                 """,
                 (
-                    _normalize(trade.symbol),
-                    _normalize(trade.side),
-                    _normalize(trade.quantity),
-                    _normalize(trade.price),
-                    0.0,
-                    None,
+                    _normalize(symbol),
+                    _normalize(side),
+                    _normalize(qty),
+                    _normalize(price),
+                    float(data.get("commission") or 0.0),
+                    _normalize(fill_id),
                     "postgres_storage",
-                    "paper",
+                    json.dumps(payload, ensure_ascii=False),
+                    data.get("ts"),
+                    _normalize(trade_source),
+                    _normalize(strategy),
+                    _normalize(timeframe),
                 ),
             )
+            row = cur.fetchone()
+
         self.conn.commit()
+
+        if row:
+            return {"id": row[0]}
+        return {"id": None}
+
 
     # ---------------- CLOSE ----------------
 
