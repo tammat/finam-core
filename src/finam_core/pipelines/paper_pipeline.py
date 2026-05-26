@@ -264,20 +264,29 @@ def _edge_gate_enrich_payload_for_paper(payload, signal_like=None):
         return result
 
     signal_obj = signal_like if signal_like is not None else result
+    nested_payload = result.get("payload") if isinstance(result.get("payload"), dict) else {}
 
     # Русский комментарий: если signal не содержит strategy/timeframe,
-    # используем сам payload как источник атрибуции.
+    # используем top-level payload и вложенный payload.payload как источник атрибуции.
     signal_dict = {
-        "symbol": getattr(signal_obj, "symbol", None) or result.get("symbol"),
+        "symbol": (
+            getattr(signal_obj, "symbol", None)
+            or result.get("symbol")
+            or nested_payload.get("symbol")
+        ),
         "strategy": (
             getattr(signal_obj, "strategy", None)
             or result.get("strategy")
+            or nested_payload.get("strategy")
             or result.get("source")
+            or nested_payload.get("source")
         ),
         "timeframe": (
             getattr(signal_obj, "timeframe", None)
             or result.get("timeframe")
+            or nested_payload.get("timeframe")
             or result.get("horizon")
+            or nested_payload.get("horizon")
         ),
     }
 
