@@ -4897,6 +4897,8 @@ class PaperTradingPipeline:
         except Exception:
             continuous_symbol = br_signal.symbol
 
+        from finam_core.analytics.regime_attribution import derive_regime_label
+
         trade_payload = {
             "symbol": br_signal.symbol,
             "side": br_signal.side,
@@ -4909,6 +4911,16 @@ class PaperTradingPipeline:
             "horizon": "INTRADAY",
             "timeframe": "M5",
             "source": "paper_pipeline_br",
+            "regime": derive_regime_label({
+                "regime_direction": locals().get("regime_direction"),
+                "regime_atr_pct": locals().get("regime_atr_pct"),
+                "regime_strength": locals().get("regime_strength"),
+            }),
+            "regime_label": derive_regime_label({
+                "regime_direction": locals().get("regime_direction"),
+                "regime_atr_pct": locals().get("regime_atr_pct"),
+                "regime_strength": locals().get("regime_strength"),
+            }),
             "reason": getattr(br_signal, "reason", None),
             "stop_loss": getattr(br_signal, "stop", None),
             "take_profit": getattr(br_signal, "take", None),

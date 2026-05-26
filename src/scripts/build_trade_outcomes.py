@@ -7,6 +7,19 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from finam_core.analytics.trade_outcome_engine import TradeFill, TradeOutcomeEngine
+from finam_core.analytics.regime_attribution import derive_regime_label, is_known_regime
+
+
+
+def _enrich_regime_payload(payload: dict) -> dict:
+    """Русский комментарий: v1.1 outcomes получают regime even если старый trade payload был неполным."""
+    enriched = dict(payload or {})
+    current = enriched.get("regime") or enriched.get("regime_label")
+    if not is_known_regime(current):
+        derived = derive_regime_label(enriched)
+        enriched["regime"] = derived
+        enriched["regime_label"] = derived
+    return enriched
 
 
 def main() -> None:
@@ -104,7 +117,7 @@ def main() -> None:
                 strategy=r["strategy"],
                 timeframe=r["timeframe"],
                 continuous_symbol=r["continuous_symbol"],
-                payload=r["payload"] if isinstance(r["payload"], dict) else {},
+                payload=_enrich_regime_payload(r["payload"] if isinstance(r["payload"], dict) else {}),
             )
             for r in rows
         ]
