@@ -4912,11 +4912,13 @@ class PaperTradingPipeline:
             "timeframe": "M5",
             "source": "paper_pipeline_br",
             "regime": derive_regime_label({
+                "reason": getattr(br_signal, "reason", None),
                 "regime_direction": locals().get("regime_direction"),
                 "regime_atr_pct": locals().get("regime_atr_pct"),
                 "regime_strength": locals().get("regime_strength"),
             }),
             "regime_label": derive_regime_label({
+                "reason": getattr(br_signal, "reason", None),
                 "regime_direction": locals().get("regime_direction"),
                 "regime_atr_pct": locals().get("regime_atr_pct"),
                 "regime_strength": locals().get("regime_strength"),

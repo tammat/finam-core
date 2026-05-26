@@ -15,6 +15,8 @@ assert derive_regime_label({"regime": "trend_up_high_vol"}) == "trend_up_high_vo
 assert derive_regime_label({"regime_direction": 1, "regime_atr_pct": 0.004}) == "trend_up_high_vol"
 assert derive_regime_label({"regime_direction": -1, "regime_atr_pct": 0.004}) == "trend_down_high_vol"
 assert derive_regime_label({"regime_direction": 0, "regime_atr_pct": 0.001}) == "flat_normal_vol"
+assert derive_regime_label({"reason": "BR_M5_BREAKOUT_UP_trend_high_vol_HIGH_VOL_TREND_PRESET"}) == "trend_up_high_vol"
+assert derive_regime_label({"reason": "BR_M5_BREAKOUT_DOWN_trend_high_vol_HIGH_VOL_TREND_PRESET"}) == "trend_down_high_vol"
 
 print("REGIME_ATTRIBUTION_V2_UNIT_OK")
 PY

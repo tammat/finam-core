@@ -29,6 +29,35 @@ def derive_regime_label(payload: dict[str, Any] | None) -> str:
         if is_known_regime(value):
             return str(value).lower()
 
+    # Русский комментарий: fallback для BR strategy, когда regime не передан численно,
+    # но направление/волатильность зашиты в reason сигнала.
+    reason = str(
+        payload.get("reason")
+        or payload.get("signal_reason")
+        or payload.get("strategy_reason")
+        or ""
+    ).lower()
+
+    if reason:
+        if "breakout_up" in reason or "_up_" in reason:
+            trend = "trend_up"
+        elif "breakout_down" in reason or "_down_" in reason:
+            trend = "trend_down"
+        else:
+            trend = ""
+
+        if "high_vol" in reason or "trend_high_vol" in reason:
+            vol = "high_vol"
+        elif "low_vol" in reason:
+            vol = "low_vol"
+        elif trend:
+            vol = "normal_vol"
+        else:
+            vol = ""
+
+        if trend and vol:
+            return f"{trend}_{vol}"
+
     market = payload.get("market") if isinstance(payload.get("market"), dict) else {}
     snapshot = payload.get("trade_context_snapshot") if isinstance(payload.get("trade_context_snapshot"), dict) else {}
     snapshot_market = snapshot.get("market") if isinstance(snapshot.get("market"), dict) else {}
