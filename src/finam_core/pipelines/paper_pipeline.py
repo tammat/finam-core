@@ -323,6 +323,87 @@ def _edge_gate_enrich_payload_for_paper(payload, signal_like=None):
     return enriched
 
 
+
+
+def _save_trade_context_snapshot_for_paper_trade(
+    trade_id: str,
+    db_trade_id,
+    trade_payload: dict,
+) -> None:
+    # Русский комментарий: explainability snapshot сохраняется только как observability.
+    # Он не влияет на Risk, Execution и Accounting.
+    import os
+
+    if os.getenv("TRADE_CONTEXT_SNAPSHOT_ENABLED", "1") != "1":
+        return
+
+    try:
+        from finam_core.analytics.trade_context_snapshot_repository import (
+            TradeContextSnapshot,
+            TradeContextSnapshotRepository,
+        )
+
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            return
+
+        payload = dict(trade_payload or {})
+        snapshot = {
+            "market": {
+                "regime_direction": payload.get("regime_direction"),
+                "regime_atr_pct": payload.get("regime_atr_pct"),
+                "regime_strength": payload.get("regime_strength"),
+            },
+            "strategy": {
+                "reason": payload.get("reason"),
+                "entry_price": payload.get("entry_price"),
+                "stop_loss": payload.get("stop_loss"),
+                "take_profit": payload.get("take_profit"),
+                "horizon": payload.get("horizon"),
+            },
+            "execution": {
+                "execution_type": payload.get("execution_type"),
+                "paper_only": payload.get("paper_only"),
+                "run_id": payload.get("run_id"),
+            },
+            "risk": {
+                "edge_gate": (
+                    payload.get("trade_context_snapshot", {})
+                    .get("edge_gate")
+                    if isinstance(payload.get("trade_context_snapshot"), dict)
+                    else None
+                ),
+            },
+            "raw_payload": payload,
+        }
+
+        repo = TradeContextSnapshotRepository(database_url)
+        repo.save(
+            TradeContextSnapshot(
+                trade_id=str(trade_id),
+                db_trade_id=int(db_trade_id) if db_trade_id is not None else None,
+                run_id=str(payload.get("run_id") or ""),
+                symbol=str(payload.get("symbol") or ""),
+                strategy=str(payload.get("strategy") or "UNKNOWN"),
+                timeframe=str(payload.get("timeframe") or "UNKNOWN"),
+                side=str(payload.get("side") or ""),
+                qty=float(payload.get("qty")) if payload.get("qty") is not None else None,
+                price=float(payload.get("price")) if payload.get("price") is not None else None,
+                reason=str(payload.get("reason") or ""),
+                source=str(payload.get("source") or "paper_pipeline"),
+                event_type="paper_trade",
+                snapshot=snapshot,
+            )
+        )
+        print(f"TRADE_CONTEXT_SNAPSHOT_SAVED trade_id={trade_id}", flush=True)
+
+    except Exception as exc:
+        print(
+            f"TRADE_CONTEXT_SNAPSHOT_SAVE_FAILED trade_id={trade_id} error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+
+
 class PaperTradingPipeline:
     """MarketData → Strategy → Risk → PaperExecution → publish(FILL) → PM.apply_fill"""
 
@@ -4834,7 +4915,7 @@ class PaperTradingPipeline:
         )
 
         try:
-            self.pg_logger.log_trade(
+            log_result = self.pg_logger.log_trade(
                 symbol=br_signal.symbol,
                 side=br_signal.side,
                 qty=abs(fill_qty),
@@ -4843,6 +4924,12 @@ class PaperTradingPipeline:
                 execution_type=paper_reason,
                 run_id=run_id,
                 payload=trade_payload,
+            )
+            db_trade_id = log_result.get("id") if isinstance(log_result, dict) else None
+            _save_trade_context_snapshot_for_paper_trade(
+                trade_id=fill_id,
+                db_trade_id=db_trade_id,
+                trade_payload=trade_payload,
             )
         except TypeError:
             trade = {
@@ -4862,7 +4949,13 @@ class PaperTradingPipeline:
                 "timeframe": trade_payload.get("timeframe"),
                 "reason": trade_payload.get("reason"),
             }
-            self.pg_logger.log_trade(trade)
+            log_result = self.pg_logger.log_trade(trade)
+            db_trade_id = log_result.get("id") if isinstance(log_result, dict) else None
+            _save_trade_context_snapshot_for_paper_trade(
+                trade_id=fill_id,
+                db_trade_id=db_trade_id,
+                trade_payload=trade_payload,
+            )
 
 
 
@@ -6242,11 +6335,21 @@ class PaperTradingPipeline:
 
         qty = runtime_qty
 
-        runtime_override_allowed, runtime_override_qty, runtime_override_reason = self._runtime_override_gate_allows_paper_signal(
-            br_signal=br_signal,
-            qty=qty,
-            strategy=br_strategy,
-        )
+        # Русский комментарий: в replay/smoke режиме runtime override не должен блокировать paper execution,
+        # иначе невозможно проверить replay, trade logging и explainability snapshots.
+        if (
+            os.getenv("REPLAY_DISABLE_RUNTIME_CONTROL", "0") == "1"
+            or os.getenv("RUNTIME_OVERRIDE_GATE_ENABLED", "1") == "0"
+        ):
+            runtime_override_allowed = True
+            runtime_override_qty = qty
+            runtime_override_reason = "runtime_override_bypassed_for_replay"
+        else:
+            runtime_override_allowed, runtime_override_qty, runtime_override_reason = self._runtime_override_gate_allows_paper_signal(
+                br_signal=br_signal,
+                qty=qty,
+                strategy=br_strategy,
+            )
         if not runtime_override_allowed:
             return False, runtime_override_reason
 
