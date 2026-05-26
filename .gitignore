@@ -66,3 +66,6 @@ __pycache__/
 *.pyc
 reports/
 runtime_state/
+
+# Local WIP snapshots
+_wip/
