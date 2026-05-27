@@ -22,7 +22,7 @@ def load_watch_symbols() -> str:
             rows = [str(r[0]) for r in cur.fetchall()]
     return ",".join(rows)
 
-def run_backfill(symbols: str, timeframe: str, lookback_hours: int) -> bool:
+def run_backfill(symbols: str, timeframe: str, lookback_hours: int, step_timeout_sec: int) -> bool:
     cmd = [
         sys.executable,
         "src/scripts/ingestion/backfill_finam_futures_market_bars.py",
@@ -32,7 +32,14 @@ def run_backfill(symbols: str, timeframe: str, lookback_hours: int) -> bool:
     ]
 
     print("MARKET_BARS_INGESTION_STEP_START", " ".join(cmd), flush=True)
-    result = subprocess.run(cmd)
+    try:
+        result = subprocess.run(cmd, timeout=step_timeout_sec)
+    except subprocess.TimeoutExpired:
+        print(
+            f"MARKET_BARS_INGESTION_STEP_TIMEOUT timeframe={timeframe} timeout_sec={step_timeout_sec}",
+            flush=True,
+        )
+        return False
     ok = result.returncode == 0
     print(
         f"MARKET_BARS_INGESTION_STEP_DONE ok={ok} code={result.returncode} timeframe={timeframe}",
@@ -60,7 +67,7 @@ def main() -> int:
 
         ok_all = True
         for tf in timeframes:
-            ok_all = run_backfill(symbols, tf, args.lookback_hours) and ok_all
+            ok_all = run_backfill(symbols, tf, args.lookback_hours, args.step_timeout_sec) and ok_all
 
         print(f"MARKET_BARS_INGESTION_CYCLE_DONE cycle={cycle} ok={ok_all}", flush=True)
 
