@@ -13,7 +13,7 @@ SELECT
     avg_price_after::numeric AS avg_price_after,
     trade_pnl::numeric AS trade_pnl
 FROM analytics_intraday_pnl
-WHERE trade_date = CURRENT_DATE
+WHERE trade_date = (now() AT TIME ZONE 'Europe/Moscow')::date
 ORDER BY ts;
 
 CREATE VIEW v_today_trades_ru AS
@@ -39,9 +39,9 @@ ORDER BY p.ts DESC;
 CREATE VIEW v_today_pnl_summary_ru AS
 SELECT
     now() AS "Время",
-    CURRENT_DATE AS "Дата",
+    (now() AT TIME ZONE 'Europe/Moscow')::date AS "Дата",
     round(COALESCE(sum(trade_pnl), 0)::numeric, 2) AS "P&L за день",
     count(*) AS "Сделок",
     count(DISTINCT symbol) AS "Инструментов"
 FROM analytics_intraday_pnl
-WHERE trade_date = CURRENT_DATE;
+WHERE trade_date = (now() AT TIME ZONE 'Europe/Moscow')::date;

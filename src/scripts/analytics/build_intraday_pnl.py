@@ -123,7 +123,7 @@ def load_trades(conn: psycopg.Connection, trade_date: date) -> list[dict[str, An
             """
             SELECT id, ts, symbol, upper(side) AS side, qty, price
             FROM trades
-            WHERE ts::date = %s
+            WHERE (ts AT TIME ZONE 'Europe/Moscow')::date = %s
               AND is_invalid = false
             ORDER BY symbol, ts, id
             """,
