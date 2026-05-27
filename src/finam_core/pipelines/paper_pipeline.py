@@ -3425,7 +3425,33 @@ class PaperTradingPipeline:
                 and os.getenv("REPLAY_ACCUMULATION_MODE", "0") == "1"
             )
 
-            if (not is_exit_intent) and (not is_force_intent) and atr_pct < float(os.getenv("ATR_MIN_PCT","0.002")):
+            static_atr_threshold = float(os.getenv("ATR_MIN_PCT", "0.002"))
+
+            if os.getenv("BR_ADAPTIVE_VOL_GATE_ENABLED", "1") == "1":
+                from finam_core.risk.br_adaptive_volatility_gate import BrAdaptiveVolatilityGate
+
+                if not hasattr(self, "br_adaptive_volatility_gate"):
+                    self.br_adaptive_volatility_gate = BrAdaptiveVolatilityGate(
+                        min_threshold=float(os.getenv("BR_ADAPTIVE_VOL_MIN_THRESHOLD", "0.0008")),
+                        max_threshold=float(os.getenv("BR_ADAPTIVE_VOL_MAX_THRESHOLD", "0.0025")),
+                    )
+
+                vol_decision = self.br_adaptive_volatility_gate.decide(
+                    atr_pct=float(atr_pct or 0.0),
+                    static_threshold=static_atr_threshold,
+                    regime_volatility=str(getattr(regime, "volatility", "") or ""),
+                )
+                low_vol_block = not vol_decision.allowed
+                effective_atr_threshold = vol_decision.threshold
+                vol_gate_mode = vol_decision.mode
+                vol_gate_reason = vol_decision.reason
+            else:
+                low_vol_block = float(atr_pct or 0.0) < static_atr_threshold
+                effective_atr_threshold = static_atr_threshold
+                vol_gate_mode = "static"
+                vol_gate_reason = "static_atr_min"
+
+            if (not is_exit_intent) and (not is_force_intent) and low_vol_block:
                 if replay_accumulation_mode:
                     self._log_dedup(
                         "PIPE_VOL_LOW_BYPASS_REPLAY_ACCUMULATION",
@@ -3441,7 +3467,10 @@ class PaperTradingPipeline:
                         print(
                             "PIPE_VOL_LOW_BLOCK",
                             f"atr_pct={round(float(atr_pct or 0.0), 6)}",
-                            f"threshold={float(os.getenv('ATR_MIN_PCT', '0.002'))}",
+                            f"threshold={round(float(effective_atr_threshold or 0.0), 6)}",
+                            f"static_threshold={round(float(static_atr_threshold or 0.0), 6)}",
+                            f"mode={vol_gate_mode}",
+                            f"reason={vol_gate_reason}",
                             f"atr={round(float(getattr(regime, 'atr', 0.0) or 0.0), 6)}",
                             f"price={round(float(price or 0.0), 6)}",
                             flush=True,
