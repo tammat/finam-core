@@ -3493,6 +3493,35 @@ class PaperTradingPipeline:
                             f"price={round(float(price or 0.0), 6)}",
                             flush=True,
                         )
+
+                    if os.getenv("BR_COMPRESSION_WATCH_ENABLED", "1") == "1":
+                        from finam_core.risk.br_compression_watch import BrCompressionWatch
+
+                        if not hasattr(self, "br_compression_watch"):
+                            self.br_compression_watch = BrCompressionWatch(
+                                activation_ratio=float(os.getenv("BR_COMPRESSION_WATCH_RATIO", "0.65"))
+                            )
+
+                        compression_decision = self.br_compression_watch.decide(
+                            atr_pct=float(atr_pct or 0.0),
+                            threshold=float(effective_atr_threshold or 0.0),
+                        )
+
+                        if compression_decision.active:
+                            compression_log_every_sec = float(os.getenv("PIPE_BR_COMPRESSION_WATCH_LOG_EVERY_SEC", "120"))
+                            if (now_ts - float(getattr(self, "_last_br_compression_watch_log_ts", 0.0) or 0.0)) >= compression_log_every_sec:
+                                self._last_br_compression_watch_log_ts = now_ts
+                                print(
+                                    "PIPE_BR_COMPRESSION_WATCH",
+                                    f"atr_pct={round(compression_decision.atr_pct, 6)}",
+                                    f"threshold={round(compression_decision.threshold, 6)}",
+                                    f"compression_ratio={round(compression_decision.compression_ratio, 4)}",
+                                    f"reason={compression_decision.reason}",
+                                    f"mode={vol_gate_mode}",
+                                    f"price={round(float(price or 0.0), 6)}",
+                                    flush=True,
+                                )
+
                     return
 
             # === 2. Слишком высокая вола → шум
