@@ -3,43 +3,40 @@ from __future__ import annotations
 import os
 import argparse
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
-class ResearchMetrics:
-    strategy: str
+class UnifiedResearchSnapshot:
     symbol: str
+    strategy: str
+    timeframe: str
+
+    production_status: str
+    projection_lag: int
+    dlq_unresolved: int
+
+    research_supervisor_status: str
+    research_last_error: str
+
     trades: int
+    profit_factor: float
     winrate: float
-    avg_pnl: float
-    max_drawdown: float
-    walkforward_pass_rate: float
-    regime_pass_rate: float
-    session_pass_rate: float
-    forward_decay: float
-    live_replay_gap: float
-    data_source: str
+    expectancy: float
+    strategy_status: str
 
+    promotion_decision: str
+    lifecycle_state: str
+    allow_runtime: bool
+    allow_research: bool
+    reason: str
 
-@dataclass(frozen=True)
-class ResearchTelemetryVerdict:
-    strategy: str
-    symbol: str
-    strategy_health: str
-    edge_stability: str
-    walkforward_consistency: str
-    regime_quality: str
-    session_quality: str
-    forward_decay: str
-    live_vs_replay_divergence: str
     final_verdict: str
-    data_source: str
 
 
 def _connect(database_url: str):
     # Русский комментарий:
-    # Research-отчет работает только на чтение.
-    # autocommit нужен, чтобы один неудачный SELECT не ломал все последующие запросы.
+    # Отчет только читает PostgreSQL. autocommit защищает от зависших транзакций после ошибочного SELECT.
     try:
         import psycopg
         conn = psycopg.connect(database_url)
@@ -52,249 +49,337 @@ def _connect(database_url: str):
         return conn
 
 
-def _table_exists(conn, table_name: str) -> bool:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            select exists (
-                select 1
-                from information_schema.tables
-                where table_schema = 'public'
-                  and table_name = %s
-            )
-            """,
-            (table_name,),
-        )
-        return bool(cur.fetchone()[0])
-
-
-def _safe_rollback(conn) -> None:
+def _safe_row(conn, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any]:
     # Русский комментарий:
-    # Защита от состояния InFailedSqlTransaction после неудачного SQL.
-    try:
-        conn.rollback()
-    except Exception:
-        pass
-
-
-def _scalar(conn, sql: str, params: tuple, default):
+    # Универсальный безопасный SELECT одной строки. При ошибке возвращает пустой словарь.
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             row = cur.fetchone()
-            if not row or row[0] is None:
-                return default
-            return row[0]
+            if row is None:
+                return {}
+            columns = [d[0] for d in cur.description]
+            return dict(zip(columns, row))
     except Exception:
-        _safe_rollback(conn)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return {}
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
         return default
 
 
-def load_metrics_from_postgres(strategy: str, symbol: str) -> ResearchMetrics:
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _to_bool(value: Any) -> bool:
+    return bool(value)
+
+
+def load_snapshot_from_postgres(symbol: str, strategy: str, timeframe: str) -> UnifiedResearchSnapshot:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        return ResearchMetrics(strategy, symbol, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, "NO_DATABASE_URL")
-
-    conn = _connect(database_url)
-
-    try:
-        # Базовый источник — trades. Он уже есть в системе и используется для paper attribution.
-        if _table_exists(conn, "trades"):
-            trades = int(_scalar(
-                conn,
-                """
-                select count(*)
-                from trades
-                where symbol = %s
-                  and strategy = %s
-                  and is_invalid = false
-                """,
-                (symbol, strategy),
-                0,
-            ))
-
-            avg_pnl = float(_scalar(
-                conn,
-                """
-                select avg(coalesce((payload->>'pnl')::numeric, 0))
-                from trades
-                where symbol = %s
-                  and strategy = %s
-                  and is_invalid = false
-                """,
-                (symbol, strategy),
-                0.0,
-            ))
-
-            wins = int(_scalar(
-                conn,
-                """
-                select count(*)
-                from trades
-                where symbol = %s
-                  and strategy = %s
-                  and is_invalid = false
-                  and coalesce((payload->>'pnl')::numeric, 0) > 0
-                """,
-                (symbol, strategy),
-                0,
-            ))
-
-            winrate = wins / trades if trades else 0.0
-        else:
-            trades, avg_pnl, winrate = 0, 0.0, 0.0
-
-        # Research-таблицы подключаем мягко: если схемы нет — не падаем.
-        walkforward_pass_rate = float(_scalar(
-            conn,
-            """
-            select avg(case when final_verdict in ('OK','PASS','PROMOTION_CANDIDATE') then 1.0 else 0.0 end)
-            from replay_campaign_results
-            where symbol = %s and strategy = %s
-            """,
-            (symbol, strategy),
-            0.0,
-        )) if _table_exists(conn, "replay_campaign_results") else -1.0
-
-        regime_pass_rate = float(_scalar(
-            conn,
-            """
-            select avg(case when verdict in ('OK','PASS','TRADEABLE') then 1.0 else 0.0 end)
-            from regime_scorecard
-            where symbol = %s and strategy = %s
-            """,
-            (symbol, strategy),
-            0.0,
-        )) if _table_exists(conn, "regime_scorecard") else -1.0
-
-        session_pass_rate = float(_scalar(
-            conn,
-            """
-            select avg(case when verdict in ('OK','PASS','TRADEABLE') then 1.0 else 0.0 end)
-            from session_scorecard
-            where symbol = %s and strategy = %s
-            """,
-            (symbol, strategy),
-            0.0,
-        )) if _table_exists(conn, "session_scorecard") else -1.0
-
-        forward_decay = float(_scalar(
-            conn,
-            """
-            select coalesce(avg(decay), 1.0)
-            from forward_accumulation
-            where symbol = %s and strategy = %s
-            """,
-            (symbol, strategy),
-            1.0,
-        )) if _table_exists(conn, "forward_accumulation") else -1.0
-
-        return ResearchMetrics(
-            strategy=strategy,
+        return UnifiedResearchSnapshot(
             symbol=symbol,
-            trades=trades,
-            winrate=winrate,
-            avg_pnl=avg_pnl,
-            max_drawdown=0.0,
-            walkforward_pass_rate=walkforward_pass_rate,
-            regime_pass_rate=regime_pass_rate,
-            session_pass_rate=session_pass_rate,
-            forward_decay=forward_decay,
-            live_replay_gap=0.0,
-            data_source="POSTGRESQL",
+            strategy=strategy,
+            timeframe=timeframe,
+            production_status="NO_DATABASE_URL",
+            projection_lag=-1,
+            dlq_unresolved=-1,
+            research_supervisor_status="NO_DATABASE_URL",
+            research_last_error="NO_DATABASE_URL",
+            trades=0,
+            profit_factor=0.0,
+            winrate=0.0,
+            expectancy=0.0,
+            strategy_status="NO_DATA",
+            promotion_decision="NO_DATA",
+            lifecycle_state="NO_DATA",
+            allow_runtime=False,
+            allow_research=False,
+            reason="DATABASE_URL не задан",
+            final_verdict="RESEARCH_NO_DATA",
         )
 
+    conn = _connect(database_url)
+    try:
+        health = _safe_row(
+            conn,
+            """
+            select projection_lag, dlq_unresolved
+            from v_production_health
+            limit 1
+            """,
+        )
+
+        projection_lag = _to_int(health.get("projection_lag"), -1)
+        dlq_unresolved = _to_int(health.get("dlq_unresolved"), -1)
+
+        production_status = (
+            "OK"
+            if projection_lag == 0 and dlq_unresolved == 0
+            else "DEGRADED"
+        )
+
+        research = _safe_row(
+            conn,
+            """
+            select "Статус", "Последняя ошибка"
+            from v_research_runtime_state_grafana
+            limit 1
+            """,
+        )
+
+        research_status = str(research.get("Статус", "NO_DATA"))
+        research_error = str(research.get("Последняя ошибка", ""))
+
+        stats = _safe_row(
+            conn,
+            """
+            select
+                "Сделок",
+                "PF",
+                "Winrate",
+                "Expectancy",
+                "Статус стратегии"
+            from v_strategy_statistics_futures_grafana
+            where "Контракт" = %s
+              and "Стратегия" = %s
+              and "Таймфрейм" = %s
+            order by "Обновлено" desc
+            limit 1
+            """,
+            (symbol, strategy, timeframe),
+        )
+
+        promotion = _safe_row(
+            conn,
+            """
+            select
+                "Решение",
+                "Разрешён runtime",
+                "Разрешён research",
+                "Причина"
+            from v_strategy_promotion_decisions_grafana
+            where "Инструмент" = %s
+              and "Стратегия" = %s
+              and "Таймфрейм" = %s
+            order by "Время решения" desc
+            limit 1
+            """,
+            (symbol, strategy, timeframe),
+        )
+
+        lifecycle = _safe_row(
+            conn,
+            """
+            select
+                "Состояние",
+                "Разрешён runtime",
+                "Разрешён research",
+                "Причина"
+            from v_strategy_lifecycle_grafana
+            where "Инструмент" = %s
+              and "Стратегия" = %s
+              and "Таймфрейм" = %s
+            order by "Обновлено" desc
+            limit 1
+            """,
+            (symbol, strategy, timeframe),
+        )
+
+        trades = _to_int(stats.get("Сделок"), 0)
+        pf = _to_float(stats.get("PF"), 0.0)
+        winrate = _to_float(stats.get("Winrate"), 0.0)
+        expectancy = _to_float(stats.get("Expectancy"), 0.0)
+        strategy_status = str(stats.get("Статус стратегии", "NO_DATA"))
+
+        promotion_decision = str(promotion.get("Решение", "NO_DATA"))
+        lifecycle_state = str(lifecycle.get("Состояние", "NO_DATA"))
+
+        allow_runtime = _to_bool(lifecycle.get("Разрешён runtime", promotion.get("Разрешён runtime", False)))
+        allow_research = _to_bool(lifecycle.get("Разрешён research", promotion.get("Разрешён research", False)))
+
+        reason = str(
+            lifecycle.get("Причина")
+            or promotion.get("Причина")
+            or "нет причины / нет данных"
+        )
+
+        final_verdict = build_final_verdict(
+            production_status=production_status,
+            research_status=research_status,
+            strategy_status=strategy_status,
+            lifecycle_state=lifecycle_state,
+            allow_runtime=allow_runtime,
+            allow_research=allow_research,
+            expectancy=expectancy,
+            pf=pf,
+            trades=trades,
+        )
+
+        return UnifiedResearchSnapshot(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+            production_status=production_status,
+            projection_lag=projection_lag,
+            dlq_unresolved=dlq_unresolved,
+            research_supervisor_status=research_status,
+            research_last_error=research_error,
+            trades=trades,
+            profit_factor=pf,
+            winrate=winrate,
+            expectancy=expectancy,
+            strategy_status=strategy_status,
+            promotion_decision=promotion_decision,
+            lifecycle_state=lifecycle_state,
+            allow_runtime=allow_runtime,
+            allow_research=allow_research,
+            reason=reason,
+            final_verdict=final_verdict,
+        )
     finally:
         conn.close()
 
 
-def build_unified_research_telemetry(metrics: ResearchMetrics) -> ResearchTelemetryVerdict:
-    strategy_health = "OK" if metrics.trades >= 30 and metrics.avg_pnl > 0 else "WATCH"
-    edge_stability = "OK" if metrics.winrate >= 0.45 and metrics.avg_pnl > 0 else "WEAK"
-    walkforward_consistency = "NO_TABLE" if metrics.walkforward_pass_rate < 0 else ("OK" if metrics.walkforward_pass_rate >= 0.60 else "WEAK")
-    regime_quality = "NO_TABLE" if metrics.regime_pass_rate < 0 else ("OK" if metrics.regime_pass_rate >= 0.60 else "WEAK")
-    session_quality = "NO_TABLE" if metrics.session_pass_rate < 0 else ("OK" if metrics.session_pass_rate >= 0.60 else "WEAK")
-    forward_decay_state = "NO_TABLE" if metrics.forward_decay < 0 else ("OK" if metrics.forward_decay <= 0.35 else "HIGH_DECAY")
-    live_vs_replay_divergence = "OK" if metrics.live_replay_gap <= 0.30 else "DIVERGENCE"
+def build_final_verdict(
+    production_status: str,
+    research_status: str,
+    strategy_status: str,
+    lifecycle_state: str,
+    allow_runtime: bool,
+    allow_research: bool,
+    expectancy: float,
+    pf: float,
+    trades: int,
+) -> str:
+    # Русский комментарий:
+    # Итоговый статус разделяет здоровье ядра, состояние research supervisor и качество стратегии.
+    if production_status != "OK":
+        return "СИСТЕМА_ТРЕБУЕТ_ВНИМАНИЯ"
 
-    flags = {
-        edge_stability,
-        walkforward_consistency,
-        regime_quality,
-        session_quality,
-        forward_decay_state,
-        live_vs_replay_divergence,
-    }
+    if research_status == "FAILED":
+        return "RESEARCH_SUPERVISOR_FAILED"
 
-    final_verdict = "RESEARCH_WATCH" if {"WEAK", "HIGH_DECAY", "DIVERGENCE"} & flags else "PROMOTION_CANDIDATE"
+    if lifecycle_state == "BLOCKED" or not allow_research:
+        return "СТРАТЕГИЯ_ЗАБЛОКИРОВАНА"
 
-    if metrics.data_source in {"NO_DATABASE_URL"}:
-        final_verdict = "RESEARCH_NO_DATA"
+    if trades < 30:
+        return "МАЛАЯ_ВЫБОРКА_ОСТАВИТЬ_RESEARCH"
 
-    return ResearchTelemetryVerdict(
-        strategy=metrics.strategy,
-        symbol=metrics.symbol,
-        strategy_health=strategy_health,
-        edge_stability=edge_stability,
-        walkforward_consistency=walkforward_consistency,
-        regime_quality=regime_quality,
-        session_quality=session_quality,
-        forward_decay=forward_decay_state,
-        live_vs_replay_divergence=live_vs_replay_divergence,
-        final_verdict=final_verdict,
-        data_source=metrics.data_source,
-    )
+    if strategy_status in {"WEAK", "LOW_SAMPLE"} or expectancy <= 0 or pf < 1.0:
+        return "СЛАБАЯ_СТАТИСТИКА_ОСТАВИТЬ_RESEARCH"
+
+    if allow_runtime:
+        return "КАНДИДАТ_В_RUNTIME"
+
+    return "RESEARCH_OK_RUNTIME_НЕ_РАЗРЕШЕН"
 
 
-def render_report(v: ResearchTelemetryVerdict) -> str:
+def render_report(s: UnifiedResearchSnapshot) -> str:
     return f"""
 ========================================
  FINAM_CORE — ЕДИНАЯ RESEARCH-ТЕЛЕМЕТРИЯ
 ========================================
 
-Источник данных          : {v.data_source}
-Стратегия                : {v.strategy}
-Инструмент               : {v.symbol}
+Инструмент                  : {s.symbol}
+Стратегия                   : {s.strategy}
+Таймфрейм                   : {s.timeframe}
 
-Здоровье стратегии       : {v.strategy_health}
-Стабильность edge        : {v.edge_stability}
-Walkforward              : {v.walkforward_consistency}
-Качество режимов         : {v.regime_quality}
-Качество сессий          : {v.session_quality}
-Forward decay            : {v.forward_decay}
-Live vs Replay           : {v.live_vs_replay_divergence}
+----------------------------------------
+ЗДОРОВЬЕ СИСТЕМЫ
+----------------------------------------
 
-ИТОГ                     : {v.final_verdict}
+Production health            : {s.production_status}
+Projection lag               : {s.projection_lag}
+DLQ unresolved               : {s.dlq_unresolved}
+
+----------------------------------------
+RESEARCH RUNTIME
+----------------------------------------
+
+Research supervisor          : {s.research_supervisor_status}
+Последняя ошибка             : {s.research_last_error}
+
+----------------------------------------
+СТАТИСТИКА СТРАТЕГИИ
+----------------------------------------
+
+Сделок                       : {s.trades}
+Profit Factor                : {s.profit_factor:.4f}
+Winrate                      : {s.winrate:.4f}
+Expectancy                   : {s.expectancy:.6f}
+Статус стратегии             : {s.strategy_status}
+
+----------------------------------------
+ЖИЗНЕННЫЙ ЦИКЛ
+----------------------------------------
+
+Promotion decision           : {s.promotion_decision}
+Lifecycle state              : {s.lifecycle_state}
+Разрешён runtime             : {s.allow_runtime}
+Разрешён research            : {s.allow_research}
+Причина                      : {s.reason}
+
+----------------------------------------
+ИТОГ
+----------------------------------------
+
+{s.final_verdict}
+
 ========================================
 """.strip()
 
 
-def demo_metrics() -> ResearchMetrics:
-    return ResearchMetrics(
-        strategy="br_conservative_breakout",
-        symbol="BRN6@RTSX",
-        trades=38,
-        winrate=0.50,
-        avg_pnl=120.0,
-        max_drawdown=-3500.0,
-        walkforward_pass_rate=0.65,
-        regime_pass_rate=0.70,
-        session_pass_rate=0.62,
-        forward_decay=0.25,
-        live_replay_gap=0.18,
-        data_source="DEMO",
+def demo_snapshot() -> UnifiedResearchSnapshot:
+    return UnifiedResearchSnapshot(
+        symbol="BRM6@RTSX",
+        strategy="BR_CONSERVATIVE_BREAKOUT",
+        timeframe="M5",
+        production_status="OK",
+        projection_lag=0,
+        dlq_unresolved=0,
+        research_supervisor_status="FAILED",
+        research_last_error="orchestrator_failed",
+        trades=119,
+        profit_factor=0.9525,
+        winrate=0.3613,
+        expectancy=-0.140871,
+        strategy_status="WEAK",
+        promotion_decision="BLOCK",
+        lifecycle_state="BLOCKED",
+        allow_runtime=False,
+        allow_research=False,
+        reason="слабый_rank_status:REJECT",
+        final_verdict="RESEARCH_SUPERVISOR_FAILED",
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--strategy", default="br_conservative_breakout")
-    parser.add_argument("--symbol", default="BRN6@RTSX")
+    parser.add_argument("--symbol", default=os.getenv("SYMBOL", "BRM6@RTSX"))
+    parser.add_argument("--strategy", default=os.getenv("STRATEGY", "BR_CONSERVATIVE_BREAKOUT"))
+    parser.add_argument("--timeframe", default=os.getenv("TIMEFRAME", "M5"))
     parser.add_argument("--demo", action="store_true")
     args = parser.parse_args()
 
-    metrics = demo_metrics() if args.demo else load_metrics_from_postgres(args.strategy, args.symbol)
-    print(render_report(build_unified_research_telemetry(metrics)))
+    snapshot = demo_snapshot() if args.demo else load_snapshot_from_postgres(
+        symbol=args.symbol,
+        strategy=args.strategy,
+        timeframe=args.timeframe,
+    )
+    print(render_report(snapshot))
 
 
 if __name__ == "__main__":
