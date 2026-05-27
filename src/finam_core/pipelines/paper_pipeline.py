@@ -3414,7 +3414,6 @@ class PaperTradingPipeline:
 
         is_exit_intent = isinstance(raw_intent, dict) and raw_intent.get("intent_type") == "EXIT"
         is_force_intent = isinstance(raw_intent, dict) and raw_intent.get("strategy") == "force_once_buy"
-        is_force_intent = isinstance(raw_intent, dict) and raw_intent.get("strategy") == "force_once_buy"
 
         # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
         try:
@@ -3439,7 +3438,14 @@ class PaperTradingPipeline:
                     log_every_sec = float(os.getenv("PIPE_VOL_LOW_BLOCK_LOG_EVERY_SEC", "60"))
                     if (now_ts - float(getattr(self, "_last_vol_low_block_log_ts", 0.0) or 0.0)) >= log_every_sec:
                         self._last_vol_low_block_log_ts = now_ts
-                        print("PIPE_VOL_LOW_BLOCK", flush=True)
+                        print(
+                            "PIPE_VOL_LOW_BLOCK",
+                            f"atr_pct={round(float(atr_pct or 0.0), 6)}",
+                            f"threshold={float(os.getenv('ATR_MIN_PCT', '0.002'))}",
+                            f"atr={round(float(getattr(regime, 'atr', 0.0) or 0.0), 6)}",
+                            f"price={round(float(price or 0.0), 6)}",
+                            flush=True,
+                        )
                     return
 
             # === 2. Слишком высокая вола → шум
