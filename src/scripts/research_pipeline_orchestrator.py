@@ -289,6 +289,16 @@ def main() -> int:
         ],
         [
             sys.executable,
+            "src/scripts/analytics/build_regime_aware_edge_v1.py",
+            "--date",
+            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
+            "--migrate",
+            "--save",
+        ],
+
+
+        [
+            sys.executable,
             "src/scripts/analytics/build_edge_validation_table.py",
             "--date",
             datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
