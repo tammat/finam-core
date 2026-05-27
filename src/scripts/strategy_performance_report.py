@@ -83,6 +83,7 @@ select
   round(sum(coalesce(commission, 0))::numeric, 4) as commission
 from trades
 where ts >= {since_expr}
+  and coalesce(is_invalid, false) = false
 group by 1,2,3,4
 order by trades desc;
 """,
@@ -207,6 +208,7 @@ select
   coalesce(trade_source, 'unknown') as trade_source,
   coalesce(origin, 'unknown') as origin
 from trades
+where coalesce(is_invalid, false) = false
 order by ts desc
 limit 50;
 """,

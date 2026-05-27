@@ -63,6 +63,7 @@ def main() -> None:
     from trades
     where symbol = %(symbol)s
       and trade_source = %(trade_source)s
+      and coalesce(is_invalid, false) = false
       and (%(from_id)s = 0 or id >= %(from_id)s)
       and (%(to_id)s = 0 or id <= %(to_id)s)
     order by coalesce(ts, created_at), id;
