@@ -3415,53 +3415,6 @@ class PaperTradingPipeline:
         is_exit_intent = isinstance(raw_intent, dict) and raw_intent.get("intent_type") == "EXIT"
         is_force_intent = isinstance(raw_intent, dict) and raw_intent.get("strategy") == "force_once_buy"
 
-        if (
-            os.getenv("BR_SHORT_ONLY_DEBUG", "1") == "1"
-            and isinstance(raw_intent, dict)
-            and str(raw_intent.get("symbol", "")).startswith("BR")
-        ):
-            now_ts = time.time()
-            log_every_sec = float(os.getenv("PIPE_BR_SHORT_ONLY_DEBUG_LOG_EVERY_SEC", "60"))
-            if (now_ts - float(getattr(self, "_last_br_short_only_debug_log_ts", 0.0) or 0.0)) >= log_every_sec:
-                self._last_br_short_only_debug_log_ts = now_ts
-                print(
-                    "PIPE_BR_SHORT_ONLY_DEBUG",
-                    f"symbol={raw_intent.get('symbol')}",
-                    f"strategy={raw_intent.get('strategy')}",
-                    f"side={raw_intent.get('side')}",
-                    f"intent_type={raw_intent.get('intent_type')}",
-                    flush=True,
-                )
-
-        # Русский комментарий:
-        # Временный runtime-фильтр: BR short-only режим.
-        # Основание:
-        # trade_outcomes показал полный провал LONG и устойчивый edge у SELL.
-        if (
-            os.getenv("BR_SHORT_ONLY_ENABLED", "1") == "1"
-            and isinstance(raw_intent, dict)
-            and raw_intent.get("strategy") == "BR_CONSERVATIVE_BREAKOUT"
-            and str(raw_intent.get("side", "")).upper() == "BUY"
-        ):
-            now_ts = time.time()
-            log_every_sec = float(os.getenv("PIPE_BR_SHORT_ONLY_LOG_EVERY_SEC", "120"))
-
-            if (
-                now_ts
-                - float(getattr(self, "_last_br_short_only_log_ts", 0.0) or 0.0)
-            ) >= log_every_sec:
-                self._last_br_short_only_log_ts = now_ts
-
-                print(
-                    "PIPE_BR_SHORT_ONLY_BLOCK",
-                    f"symbol={raw_intent.get('symbol')}",
-                    f"strategy={raw_intent.get('strategy')}",
-                    f"side={raw_intent.get('side')}",
-                    flush=True,
-                )
-
-            return
-
         # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
         try:
             atr_pct = abs(regime.atr / price) if price else 0
