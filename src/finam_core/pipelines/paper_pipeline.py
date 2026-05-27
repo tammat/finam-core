@@ -3451,6 +3451,24 @@ class PaperTradingPipeline:
                 vol_gate_mode = "static"
                 vol_gate_reason = "static_atr_min"
 
+            # Русский комментарий: диагностический лог успешного прохождения adaptive volatility gate.
+            if (not is_exit_intent) and (not is_force_intent) and (not low_vol_block):
+                now_ts = time.time()
+                log_every_sec = float(os.getenv("PIPE_VOL_GATE_OK_LOG_EVERY_SEC", "120"))
+                if (now_ts - float(getattr(self, "_last_vol_gate_ok_log_ts", 0.0) or 0.0)) >= log_every_sec:
+                    self._last_vol_gate_ok_log_ts = now_ts
+                    print(
+                        "PIPE_VOL_GATE_OK",
+                        f"atr_pct={round(float(atr_pct or 0.0), 6)}",
+                        f"threshold={round(float(effective_atr_threshold or 0.0), 6)}",
+                        f"static_threshold={round(float(static_atr_threshold or 0.0), 6)}",
+                        f"mode={vol_gate_mode}",
+                        f"reason={vol_gate_reason}",
+                        f"atr={round(float(getattr(regime, 'atr', 0.0) or 0.0), 6)}",
+                        f"price={round(float(price or 0.0), 6)}",
+                        flush=True,
+                    )
+
             if (not is_exit_intent) and (not is_force_intent) and low_vol_block:
                 if replay_accumulation_mode:
                     self._log_dedup(
