@@ -281,6 +281,14 @@ def main() -> int:
         ],
         [
             sys.executable,
+            "src/scripts/analytics/build_trade_context_envelopes.py",
+            "--date",
+            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
+            "--migrate",
+            "--save",
+        ],
+        [
+            sys.executable,
             "src/scripts/analytics/build_edge_validation_table.py",
             "--date",
             datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
