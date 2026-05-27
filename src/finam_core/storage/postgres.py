@@ -210,8 +210,27 @@ class PostgresStorage:
         fill_id = data.get("fill_id") or data.get("trade_id") or payload.get("trade_id")
         trade_source = data.get("trade_source") or payload.get("trade_source") or "paper"
 
+        edge_gate = {}
+        trade_context_snapshot = payload.get("trade_context_snapshot")
+        if not isinstance(trade_context_snapshot, dict):
+            trade_context_snapshot = nested_payload.get("trade_context_snapshot")
+        if isinstance(trade_context_snapshot, dict):
+            edge_gate = trade_context_snapshot.get("edge_gate") or {}
+        if not isinstance(edge_gate, dict):
+            edge_gate = {}
+
+        is_invalid = bool(data.get("is_invalid") or payload.get("is_invalid") or False)
+        invalid_reason = data.get("invalid_reason") or payload.get("invalid_reason") or ""
+
+        if edge_gate.get("allowed") is False:
+            is_invalid = True
+            invalid_reason = invalid_reason or f"edge_gate:{edge_gate.get('reason') or 'not_allowed'}"
+
         if not payload:
             payload = dict(data)
+
+        payload["is_invalid"] = is_invalid
+        payload["invalid_reason"] = invalid_reason
 
         with self.conn.cursor() as cur:
             cur.execute(
@@ -229,9 +248,11 @@ class PostgresStorage:
                     trade_source,
                     strategy,
                     timeframe,
-                    continuous_symbol
+                    continuous_symbol,
+                    is_invalid,
+                    invalid_reason
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, NOW()), %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, COALESCE(%s, NOW()), %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -248,6 +269,8 @@ class PostgresStorage:
                     _normalize(strategy),
                     _normalize(timeframe),
                     _normalize(continuous_symbol),
+                    bool(is_invalid),
+                    _normalize(invalid_reason),
                 ),
             )
             row = cur.fetchone()
