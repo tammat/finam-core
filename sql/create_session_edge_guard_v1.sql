@@ -10,6 +10,7 @@ SELECT
 
     session_bucket,
     hour_utc,
+    hour_msk,
 
     closed_trades,
     wins,
@@ -23,37 +24,37 @@ SELECT
     session_edge_status,
 
     CASE
-        WHEN session_edge_status = 'favorable'
+        WHEN session_edge_status = 'благоприятно'
              AND expectancy > 0
              AND profit_factor >= 1.2
-        THEN 'confirmed'
+        THEN 'подтверждено'
 
-        WHEN session_edge_status = 'unfavorable'
+        WHEN session_edge_status = 'неблагоприятно'
              AND expectancy < 0
-        THEN 'mismatch'
+        THEN 'несоответствие'
 
-        WHEN session_edge_status = 'insufficient_data'
-        THEN 'insufficient_data'
+        WHEN session_edge_status = 'недостаточно_данных'
+        THEN 'недостаточно_данных'
 
-        ELSE 'neutral'
+        ELSE 'нейтрально'
     END AS advisory_status,
 
     CASE
-        WHEN session_edge_status = 'favorable'
+        WHEN session_edge_status = 'благоприятно'
              AND expectancy > 0
              AND profit_factor >= 1.2
-        THEN 'SESSION_EDGE_CONFIRMED'
+        THEN 'СЕССИОННЫЙ_EDGE_ПОДТВЕРЖДЕН'
 
-        WHEN session_edge_status = 'unfavorable'
+        WHEN session_edge_status = 'неблагоприятно'
              AND expectancy < 0
-        THEN 'SESSION_EDGE_MISMATCH'
+        THEN 'СЕССИОННЫЙ_EDGE_НЕСООТВЕТСТВИЕ'
 
-        WHEN session_edge_status = 'insufficient_data'
-        THEN 'SESSION_EDGE_INSUFFICIENT_DATA'
+        WHEN session_edge_status = 'недостаточно_данных'
+        THEN 'СЕССИОННЫЙ_EDGE_НЕДОСТАТОЧНО_ДАННЫХ'
 
-        ELSE 'SESSION_EDGE_NEUTRAL'
+        ELSE 'СЕССИОННЫЙ_EDGE_НЕЙТРАЛЬНО'
     END AS advisory_reason,
 
-    'analytics_only' AS guard_mode
+    'только_аналитика' AS guard_mode
 
 FROM session_scorecard_v1;

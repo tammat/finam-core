@@ -20,7 +20,7 @@ def main() -> None:
         raise SystemExit("DATABASE_URL is not set")
 
     sql = """
-    SELECT session_bucket, hour_utc, closed_trades, wins, losses, winrate,
+    SELECT session_bucket, hour_utc, hour_msk, closed_trades, wins, losses, winrate,
            net_pnl, expectancy, profit_factor, session_edge_status
     FROM session_scorecard_v1
     WHERE (%(continuous_symbol)s = '' OR continuous_symbol = %(continuous_symbol)s)
@@ -46,6 +46,7 @@ def main() -> None:
             "SESSION_ROW",
             f"session={r['session_bucket']}",
             f"hour_utc={r['hour_utc']}",
+            f"hour_msk={r['hour_msk']}",
             f"closed={r['closed_trades']}",
             f"wins={r['wins']}",
             f"losses={r['losses']}",

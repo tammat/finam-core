@@ -28,6 +28,7 @@ def main() -> None:
     SELECT
         session_bucket,
         hour_utc,
+        hour_msk,
         closed_trades,
         expectancy,
         profit_factor,
@@ -75,6 +76,7 @@ def main() -> None:
             "SESSION_EDGE_ROW",
             f"session={r['session_bucket']}",
             f"hour_utc={r['hour_utc']}",
+            f"hour_msk={r['hour_msk']}",
             f"closed={r['closed_trades']}",
             f"expectancy={r['expectancy']}",
             f"profit_factor={r['profit_factor']}",
