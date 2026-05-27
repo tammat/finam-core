@@ -5,6 +5,8 @@ import subprocess
 import sys
 
 from finam_core.analytics.research_pipeline_run_log import ResearchPipelineRunLog
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 def run_step(
@@ -269,6 +271,22 @@ def main() -> int:
         [sys.executable, "src/scripts/runtime/apply_context_runtime_filter.py"],
         [sys.executable, "src/scripts/runtime/apply_regime_matrix_runtime_modifier.py"],
         [sys.executable, "src/scripts/runtime/build_regime_runtime_overrides.py"],
+        [
+            sys.executable,
+            "src/scripts/analytics/build_intraday_pnl.py",
+            "--date",
+            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
+            "--migrate",
+            "--save",
+        ],
+        [
+            sys.executable,
+            "src/scripts/analytics/build_edge_validation_table.py",
+            "--date",
+            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
+            "--migrate",
+            "--save",
+        ],
         [sys.executable, "src/scripts/runtime/apply_active_contract_lifecycle_filter.py"],
     ]
 
