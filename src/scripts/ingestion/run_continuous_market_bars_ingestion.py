@@ -55,6 +55,7 @@ def main() -> int:
     parser.add_argument("--lookback-hours", type=int, default=2)
     parser.add_argument("--interval-sec", type=int, default=60)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--step-timeout-sec", type=int, default=180)
     args = parser.parse_args()
 
     symbols = args.symbols.strip() or load_watch_symbols()
