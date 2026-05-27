@@ -6387,6 +6387,58 @@ class PaperTradingPipeline:
 
         qty = runtime_override_qty
 
+        # Русский комментарий: защитный слой Brent против flip-flop входов.
+        # Работает только в runtime, чтобы не ломать исторические replay/исследования.
+        if os.getenv("REPLAY_DISABLE_RUNTIME_CONTROL", "0") != "1":
+            from finam_core.risk.br_signal_stability_guard import BrSignalStabilityGuard
+
+            if not hasattr(self, "br_signal_stability_guard"):
+                self.br_signal_stability_guard = BrSignalStabilityGuard(
+                    cooldown_minutes=int(os.getenv("BR_SIGNAL_STABILITY_COOLDOWN_MIN", "20"))
+                )
+
+            br_features = getattr(br_signal, "features", {}) or {}
+            if not isinstance(br_features, dict):
+                br_features = {}
+
+            h1_bias = (
+                br_features.get("h1_bias")
+                or br_features.get("h1_trend")
+                or getattr(br_signal, "h1_bias", None)
+                or getattr(self.br_breakout, "h1_bias", None)
+                or getattr(self.br_breakout, "h1_trend", None)
+                or "unknown"
+            )
+
+            stability_decision = self.br_signal_stability_guard.decide(
+                symbol=str(getattr(br_signal, "symbol", "") or ""),
+                side=str(getattr(br_signal, "side", "") or ""),
+                signal_ts=getattr(br_signal, "ts", None),
+                h1_bias=str(h1_bias or "unknown"),
+            )
+
+            if not stability_decision.allowed:
+                print(
+                    "PIPE_BR_STABILITY_BLOCK",
+                    f"symbol={getattr(br_signal, 'symbol', None)}",
+                    f"side={getattr(br_signal, 'side', None)}",
+                    f"h1_bias={stability_decision.h1_bias}",
+                    f"last_side={stability_decision.last_side}",
+                    f"cooldown_active={stability_decision.cooldown_active}",
+                    f"reason={stability_decision.reason}",
+                    flush=True,
+                )
+                return False, f"BR_STABILITY_BLOCK:{stability_decision.reason}"
+
+            print(
+                "PIPE_BR_STABILITY_OK",
+                f"symbol={getattr(br_signal, 'symbol', None)}",
+                f"side={getattr(br_signal, 'side', None)}",
+                f"h1_bias={stability_decision.h1_bias}",
+                f"reason={stability_decision.reason}",
+                flush=True,
+            )
+
         order = {
             "symbol": br_signal.symbol,
             "side": br_signal.side,
