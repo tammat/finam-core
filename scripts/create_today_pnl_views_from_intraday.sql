@@ -1,4 +1,8 @@
-CREATE OR REPLACE VIEW v_today_trade_pnl_calc AS
+DROP VIEW IF EXISTS v_today_pnl_summary_ru;
+DROP VIEW IF EXISTS v_today_trades_ru;
+DROP VIEW IF EXISTS v_today_trade_pnl_calc;
+
+CREATE VIEW v_today_trade_pnl_calc AS
 SELECT
     ts,
     symbol,
@@ -12,7 +16,7 @@ FROM analytics_intraday_pnl
 WHERE trade_date = CURRENT_DATE
 ORDER BY ts;
 
-CREATE OR REPLACE VIEW v_today_trades_ru AS
+CREATE VIEW v_today_trades_ru AS
 SELECT
     p.ts AS "Время",
     COALESCE(NULLIF(i.short_name, ''), NULLIF(i.display_name, ''), p.symbol) AS "Название",
@@ -32,7 +36,7 @@ LEFT JOIN instrument_reference i ON i.symbol = p.symbol
 WHERE p.trade_date = CURRENT_DATE
 ORDER BY p.ts DESC;
 
-CREATE OR REPLACE VIEW v_today_pnl_summary_ru AS
+CREATE VIEW v_today_pnl_summary_ru AS
 SELECT
     now() AS "Время",
     CURRENT_DATE AS "Дата",
