@@ -28,6 +28,7 @@ import os
 from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
+from finam_core.execution.session_side_execution_gate_v1 import SessionSideExecutionGateV1
 from finam_core.risk.context_builders import build_risk_context
 import json
 import logging
@@ -4332,6 +4333,11 @@ class PaperTradingPipeline:
         # === RISK (PRODUCTION MODE)
         # =========================================================
         try:
+            gate_side = self._extract_session_side_gate_side_v1(intent)
+            if gate_side in {'BUY', 'SELL'}:
+                if not self._check_session_side_execution_gate_v1(symbol=str(sym), side=gate_side):
+                    return
+
             decision = self.risk_router.route(
                 RiskRouteInput(
                     symbol=sym,
@@ -7080,6 +7086,87 @@ class PaperTradingPipeline:
             os.getenv("BREAKOUT_LEVEL_BUCKET_DEFAULT", "0"),
         )
         return float(raw or 0.0)
+
+    def _extract_session_side_gate_side_v1(self, intent) -> str:
+        """
+        Русский комментарий:
+        Унифицированное извлечение стороны сделки из dict/dataclass intent.
+        """
+        try:
+            if isinstance(intent, dict):
+                for key in ("side", "direction", "action"):
+                    value = intent.get(key)
+                    if value:
+                        return str(value).upper().strip()
+
+            for key in ("side", "direction", "action"):
+                value = getattr(intent, key, None)
+                if value:
+                    return str(value).upper().strip()
+        except Exception:
+            pass
+
+        return ""
+
+
+    def _check_session_side_execution_gate_v1(
+        self,
+        *,
+        symbol: str,
+        side: str,
+    ) -> bool:
+        """
+        Русский комментарий:
+        Мягкий runtime-фильтр по side/session/hour edge.
+        Блокирует только явные BLOCK-окна. UNKNOWN/INSUFFICIENT пока fail-open.
+        """
+        try:
+            gate = getattr(self, "_session_side_execution_gate_v1", None)
+            if gate is None:
+                gate = SessionSideExecutionGateV1()
+                self._session_side_execution_gate_v1 = gate
+
+            decision = gate.decide(symbol=str(symbol), side=str(side))
+
+            print(
+                "PIPE_SESSION_SIDE_GATE_DECISION",
+                f"symbol={decision.symbol}",
+                f"side={decision.side}",
+                f"hour_msk={decision.hour_msk}",
+                f"session={decision.session_name}",
+                f"action={decision.action}",
+                f"allowed={decision.allowed}",
+                f"reason={decision.reason}",
+                f"matched_symbol={decision.matched_symbol}",
+                f"expectancy={decision.expectancy_points}",
+                f"closed_trades={decision.closed_trades}",
+                flush=True,
+            )
+
+            if not decision.allowed:
+                print(
+                    "PIPE_SESSION_SIDE_GATE_BLOCK",
+                    f"symbol={decision.symbol}",
+                    f"side={decision.side}",
+                    f"hour_msk={decision.hour_msk}",
+                    f"reason={decision.reason}",
+                    flush=True,
+                )
+                return False
+
+            return True
+
+        except Exception as exc:
+            print(
+                "PIPE_SESSION_SIDE_GATE_FAILED_OPEN",
+                f"symbol={symbol}",
+                f"side={side}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            return True
+
+
 
     def _audit_runtime_risk_event_v1(
         self,
