@@ -58,7 +58,7 @@ class StrategyResearchVerdictRepository:
                 computed_at DESC
         ),
         regime_best AS (
-            SELECT DISTINCT ON (strategy, symbol, timeframe, regime, trade_source)
+            SELECT DISTINCT ON (strategy, symbol, timeframe, trade_source)
                 strategy,
                 symbol,
                 timeframe,
@@ -68,11 +68,12 @@ class StrategyResearchVerdictRepository:
                 profit_factor,
                 expectancy,
                 trades
-            FROM strategy_regime_performance
+            FROM strategy_regime_matrix
             WHERE symbol = %s
               AND trade_source = %s
+              AND trades > 0
             ORDER BY
-                strategy, symbol, timeframe, regime, trade_source,
+                strategy, symbol, timeframe, trade_source,
                 trades DESC,
                 profit_factor DESC
         )
@@ -80,7 +81,7 @@ class StrategyResearchVerdictRepository:
             p.strategy,
             p.symbol,
             p.timeframe,
-            p.regime,
+            COALESCE(r.regime, p.regime) AS regime,
             p.trade_source,
 
             COALESCE(p.status, 'UNKNOWN') AS performance_status,
@@ -108,7 +109,6 @@ class StrategyResearchVerdictRepository:
           ON r.strategy = p.strategy
          AND r.symbol = p.symbol
          AND r.timeframe = p.timeframe
-         AND r.regime = p.regime
          AND r.trade_source = p.trade_source
         WHERE p.symbol = %s
           AND p.trade_source = %s;
