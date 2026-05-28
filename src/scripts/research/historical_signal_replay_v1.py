@@ -29,16 +29,42 @@ def migrate(conn):
         """)
 
 
-def load_bars(conn, symbol: str, timeframe: str, date_from: date, date_to: date):
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("""
+
+def load_bars(
+    conn,
+    symbol: str,
+    timeframe: str,
+    date_from: date,
+    date_to: date,
+    source_view: str | None = None,
+):
+    table_name = source_view if source_view else "market_bars"
+
+    if source_view:
+        sql = f"""
+        SELECT ts, symbol, timeframe, open, high, low, close, volume
+        FROM {table_name}
+        WHERE timeframe = %s
+          AND (ts AT TIME ZONE 'Europe/Moscow')::date BETWEEN %s AND %s
+        ORDER BY ts
+        """
+
+        params = (timeframe, date_from, date_to)
+
+    else:
+        sql = """
         SELECT ts, symbol, timeframe, open, high, low, close, volume
         FROM market_bars
         WHERE symbol = %s
           AND timeframe = %s
           AND (ts AT TIME ZONE 'Europe/Moscow')::date BETWEEN %s AND %s
         ORDER BY ts
-        """, (symbol, timeframe, date_from, date_to))
+        """
+
+        params = (symbol, timeframe, date_from, date_to)
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
         return [dict(r) for r in cur.fetchall()]
 
 
@@ -168,6 +194,7 @@ def run_research_for_dates(py: str, date_from: date, date_to: date) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbol", required=True)
+    parser.add_argument("--source-view", default=None)
     parser.add_argument("--timeframe", default="M5")
     parser.add_argument("--from-date", required=True)
     parser.add_argument("--to-date", required=True)
@@ -192,7 +219,7 @@ def main() -> int:
             ON CONFLICT (run_id) DO NOTHING
             """, (args.run_id, args.symbol, args.strategy, args.timeframe, date_from, date_to))
 
-        bars = load_bars(conn, args.symbol, args.timeframe, date_from, date_to)
+        bars = load_bars(conn, args.symbol, args.timeframe, date_from, date_to, args.source_view)
 
         inserted = run_simple_breakout_replay(
             conn,
