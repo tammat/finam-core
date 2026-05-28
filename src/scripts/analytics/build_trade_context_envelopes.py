@@ -106,6 +106,47 @@ def _latest_json(conn: psycopg.Connection, table: str, symbol: str) -> dict[str,
         return dict(row["payload"]) if row and isinstance(row["payload"], dict) else {}
 
 
+def _nearest_regime_snapshot(
+    conn: psycopg.Connection,
+    symbol: str,
+    timeframe: str,
+    ts: Any,
+) -> dict[str, Any]:
+    # Русский комментарий:
+    # Берем ближайший regime snapshot к времени сделки из analytics_regime_snapshots_v2.
+    # Это точнее, чем брать последний общий futures_mtf_regime по символу.
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT to_jsonb(r.*) AS payload
+            FROM analytics_regime_snapshots_v2 r
+            WHERE r.symbol = %s
+              AND r.timeframe = %s
+              AND r.ts <= %s
+            ORDER BY r.ts DESC
+            LIMIT 1
+            """,
+            (symbol, timeframe, ts),
+        )
+        row = cur.fetchone()
+        if row and isinstance(row["payload"], dict):
+            return dict(row["payload"])
+
+        # fallback: если exact timeframe не найден, берем ближайший snapshot по символу.
+        cur.execute(
+            """
+            SELECT to_jsonb(r.*) AS payload
+            FROM analytics_regime_snapshots_v2 r
+            WHERE r.symbol = %s
+              AND r.ts <= %s
+            ORDER BY r.ts DESC
+            LIMIT 1
+            """,
+            (symbol, ts),
+        )
+        row = cur.fetchone()
+        return dict(row["payload"]) if row and isinstance(row["payload"], dict) else {}
+
 def load_trades(conn: psycopg.Connection, trade_date: date) -> list[dict[str, Any]]:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute("""
@@ -136,7 +177,12 @@ def build_payload(conn: psycopg.Connection, row: dict[str, Any]) -> dict[str, An
     runtime = _latest_json(conn, "runtime_strategy_selection", symbol)
     feature_snapshot = _latest_json(conn, "feature_snapshots", symbol)
     exit_policy = _latest_json(conn, "trade_exit_policy_context", symbol)
-    regime = _latest_json(conn, "futures_mtf_regime", symbol)
+    regime = _nearest_regime_snapshot(
+        conn=conn,
+        symbol=symbol,
+        timeframe=str(row.get("timeframe") or "M5"),
+        ts=row["ts"],
+    )
 
     strategy_context = {
         "entry_reason": (row.get("payload") or {}).get("reason") if isinstance(row.get("payload"), dict) else None,
