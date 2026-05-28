@@ -22,6 +22,7 @@ class SignalAlert:
     reason: str = ""
     confidence: Optional[float] = None
     risk_rub: Optional[float] = None
+    profit_rub: Optional[float] = None
 
 
 def _fmt_price(value: float) -> str:
@@ -54,6 +55,9 @@ def format_signal_alert(alert: SignalAlert) -> str:
 
     if alert.risk_rub is not None:
         lines.append(f"Риск: {_fmt_price(alert.risk_rub)} ₽")
+
+    if alert.profit_rub is not None:
+        lines.append(f"Потенциальная прибыль: {_fmt_price(alert.profit_rub)} ₽")
 
     if alert.confidence is not None:
         lines.append(f"Уверенность: {alert.confidence:.2f}")

@@ -82,6 +82,7 @@ def send_signal_alert_from_intent(notifier, intent) -> None:
         reason=str(_get(intent, "reason", "") or ""),
         confidence=_get(intent, "confidence"),
         risk_rub=_get(intent, "risk_rub"),
+        profit_rub=_get(intent, "profit_rub"),
     )
 
     notifier.send(format_signal_alert(alert))
