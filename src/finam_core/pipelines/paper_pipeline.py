@@ -4369,6 +4369,9 @@ class PaperTradingPipeline:
                     decision=decision,
                     severity="CRITICAL" if reject_reason in {"daily_loss_limit", "kill_switch", "portfolio_kill_switch"} else "WARNING",
                     reason=reject_reason,
+                    state=st,
+                    regime=regime,
+                    price=price,
                 )
                 return
 
@@ -7086,6 +7089,9 @@ class PaperTradingPipeline:
         decision,
         severity: str,
         reason: str,
+        state=None,
+        regime=None,
+        price=None,
     ) -> None:
         """
         Русский комментарий:
@@ -7134,6 +7140,13 @@ class PaperTradingPipeline:
                         "source": "paper_pipeline",
                         "hook": "wire_runtime_risk_events_to_audit_v1",
                         "decision_repr": repr(decision),
+                        "regime": str(getattr(regime, "type", None) or getattr(regime, "regime", None) or "UNKNOWN_REGIME"),
+                        "trend": str(getattr(regime, "trend", None) or ""),
+                        "volatility": str(getattr(regime, "volatility", None) or ""),
+                        "atr": float(getattr(regime, "atr", 0.0) or 0.0),
+                        "atr_pct": float((state or {}).get("atr_pct", 0.0) or 0.0) if isinstance(state, dict) else 0.0,
+                        "price": float(price or 0.0),
+                        "tradable": bool(getattr(regime, "tradable", False)),
                     },
                 )
             )
