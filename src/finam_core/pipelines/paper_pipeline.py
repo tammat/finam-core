@@ -4877,6 +4877,9 @@ class PaperTradingPipeline:
         try:
             service = getattr(self, "fill_persistence_service", None)
             if service is not None:
+                # Русский комментарий: протягиваем signal_id из intent в fill/payload до persistence.
+                FillMetadataFactory.attach(fill, intent=intent, raw_fill=fill)
+
                 # Русский комментарий: последний защитный слой metadata перед записью fill/trade.
                 payload = getattr(fill, "payload", None)
                 if not isinstance(payload, dict):
