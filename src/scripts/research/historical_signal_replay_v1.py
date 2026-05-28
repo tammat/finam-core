@@ -69,8 +69,46 @@ def load_bars(
 
 
 def insert_trade(conn, *, ts, symbol, side, qty, price, strategy, timeframe, run_id, reason):
+    # Русский комментарий: единый идентификатор связывает historical signal replay signal и trade.
+    signal_id = f"hist_signal:{run_id}:{symbol}:{timeframe}:{ts.isoformat()}:{side}"
     fill_id = f"hist_replay:{run_id}:{symbol}:{timeframe}:{ts.isoformat()}:{side}"
+
+    payload = {
+        "signal_id": signal_id,
+        "run_id": run_id,
+        "reason": reason,
+        "source": "historical_signal_replay",
+        "strategy": strategy,
+        "timeframe": timeframe,
+        "paper_only": True,
+        "historical_replay": True,
+    }
+
     with conn.cursor() as cur:
+        # Русский комментарий: фиксируем сам сигнал, чтобы аналитика могла связывать signals -> trades.
+        cur.execute("""
+        INSERT INTO signals (
+            ts, symbol, strategy, side, qty, status,
+            payload, timeframe, entry_price, signal_id
+        )
+        VALUES (
+            %(ts)s, %(symbol)s, %(strategy)s, %(side)s, %(qty)s, 'ACCEPTED',
+            %(payload)s, %(timeframe)s, %(entry_price)s, %(signal_id)s
+        )
+        ON CONFLICT (signal_id) DO NOTHING
+        """, {
+            "ts": ts,
+            "symbol": symbol,
+            "strategy": strategy,
+            "side": side,
+            "qty": qty,
+            "payload": Jsonb(payload),
+            "timeframe": timeframe,
+            "entry_price": price,
+            "signal_id": signal_id,
+        })
+
+        # Русский комментарий: trade получает тот же signal_id внутри payload.
         cur.execute("""
         INSERT INTO trades (
             ts, symbol, side, qty, price,
@@ -94,12 +132,7 @@ def insert_trade(conn, *, ts, symbol, side, qty, price, strategy, timeframe, run
             "fill_id": fill_id,
             "strategy": strategy,
             "timeframe": timeframe,
-            "payload": Jsonb({
-                "run_id": run_id,
-                "reason": reason,
-                "paper_only": True,
-                "historical_replay": True,
-            }),
+            "payload": Jsonb(payload),
         })
 
 
