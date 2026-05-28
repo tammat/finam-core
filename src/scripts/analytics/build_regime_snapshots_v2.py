@@ -70,6 +70,86 @@ def load_feature_rows(conn: psycopg.Connection, trade_date: date, symbol: str | 
         return [dict(r) for r in cur.fetchall()]
 
 
+def load_market_view_rows(
+    conn: psycopg.Connection,
+    trade_date: date,
+    output_symbol: str,
+    timeframe: str,
+    source_view: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    # Русский комментарий:
+    # Для rolling continuous режима нет feature_snapshots по синтетическому символу.
+    # Поэтому строим минимальный regime-профиль прямо из OHLC rolling-view.
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(f"""
+        WITH base AS (
+            SELECT
+                ts,
+                %s::text AS symbol,
+                COALESCE(NULLIF(timeframe, ''), %s) AS timeframe,
+                open,
+                high,
+                low,
+                close,
+                volume,
+                lag(close, 12) OVER (ORDER BY ts) AS close_12,
+                avg(high - low) OVER (
+                    ORDER BY ts
+                    ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                ) AS avg_range_20,
+                avg(high - low) OVER (
+                    ORDER BY ts
+                    ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
+                ) AS avg_range_100,
+                EXTRACT(HOUR FROM (ts AT TIME ZONE 'Europe/Moscow'))::int AS hour_msk
+            FROM {source_view}
+            WHERE timeframe = %s
+              AND (ts AT TIME ZONE 'Europe/Moscow')::date = %s
+            ORDER BY ts
+        )
+        SELECT
+            ts,
+            symbol,
+            timeframe,
+            jsonb_build_object(
+                'source', 'market_bars_rolling_view',
+                'quality', 'PARTIAL',
+                'open', open,
+                'high', high,
+                'low', low,
+                'close', close,
+                'volume', volume,
+                'atr_proxy', COALESCE(avg_range_20, 0),
+                'trend_state',
+                    CASE
+                        WHEN close_12 IS NULL THEN 'unknown'
+                        WHEN close > close_12 THEN 'up'
+                        WHEN close < close_12 THEN 'down'
+                        ELSE 'flat'
+                    END,
+                'volatility_state',
+                    CASE
+                        WHEN avg_range_20 IS NULL OR avg_range_100 IS NULL OR avg_range_100 = 0 THEN 'unknown'
+                        WHEN avg_range_20 >= avg_range_100 * 1.20 THEN 'high'
+                        WHEN avg_range_20 <= avg_range_100 * 0.80 THEN 'low'
+                        ELSE 'normal'
+                    END,
+                'range_state',
+                    CASE
+                        WHEN avg_range_20 IS NULL OR avg_range_100 IS NULL OR avg_range_100 = 0 THEN 'unknown'
+                        WHEN avg_range_20 <= avg_range_100 * 0.80 THEN 'compression'
+                        ELSE 'normal'
+                    END
+            ) AS payload,
+            hour_msk
+        FROM base
+        ORDER BY ts DESC
+        LIMIT %s
+        """, (output_symbol, timeframe, timeframe, trade_date, limit))
+        return [dict(r) for r in cur.fetchall()]
+
+
 def load_intermarket_state(conn: psycopg.Connection) -> str:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute("""
@@ -92,8 +172,9 @@ def load_intermarket_state(conn: psycopg.Connection) -> str:
 
 def classify(payload: dict[str, Any]) -> tuple[str, str, str, str, float]:
     # Русский комментарий:
-    # Semantic enrichment строится на фактической схеме feature_snapshots:
-    # volatility_state, trend_state, range_state, atr_proxy, fx_stress_score, commodity_score.
+    # Semantic enrichment строится на фактической схеме feature_snapshots
+    # или на синтетических признаках rolling-view:
+    # volatility_state, trend_state, range_state, atr_proxy.
 
     volatility = _text(payload, "volatility_state", default="unknown")
     trend = _text(payload, "trend_state", default="unknown")
@@ -155,8 +236,25 @@ def build_snapshots(
     trade_date: date,
     symbol: str | None,
     limit: int,
+    timeframe: str = "M5",
+    source_view: str | None = None,
 ) -> list[RegimeSnapshot]:
-    rows = load_feature_rows(conn, trade_date=trade_date, symbol=symbol, limit=limit)
+    if source_view:
+        if not symbol:
+            raise ValueError("--symbol is required when --source-view is used")
+        rows = load_market_view_rows(
+            conn=conn,
+            trade_date=trade_date,
+            output_symbol=symbol,
+            timeframe=timeframe,
+            source_view=source_view,
+            limit=limit,
+        )
+        source = f"market_view:{source_view}"
+    else:
+        rows = load_feature_rows(conn, trade_date=trade_date, symbol=symbol, limit=limit)
+        source = "feature_snapshots"
+
     intermarket_state = load_intermarket_state(conn)
     result: list[RegimeSnapshot] = []
 
@@ -176,7 +274,7 @@ def build_snapshots(
                 intermarket_state=intermarket_state,
                 session_type=_session_from_ts_msk(int(row["hour_msk"] or 0)),
                 confidence=confidence,
-                source="feature_snapshots",
+                source=source,
                 payload=payload,
             )
         )
@@ -188,6 +286,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", required=True)
     parser.add_argument("--symbol", default=None)
+    parser.add_argument("--timeframe", default="M5")
+    parser.add_argument("--source-view", default=None)
     parser.add_argument("--limit", type=int, default=5000)
     parser.add_argument("--migrate", action="store_true")
     parser.add_argument("--save", action="store_true")
@@ -206,6 +306,8 @@ def main() -> int:
             trade_date=trade_date,
             symbol=args.symbol,
             limit=args.limit,
+            timeframe=args.timeframe,
+            source_view=args.source_view,
         )
 
     if args.save:
@@ -213,7 +315,8 @@ def main() -> int:
             repo.save(item)
 
     print(
-        f"REGIME_SNAPSHOTS_V2_OK date={trade_date} symbol={args.symbol or '*'} saved={len(snapshots)}",
+        f"REGIME_SNAPSHOTS_V2_OK date={trade_date} symbol={args.symbol or '*'} "
+        f"source_view={args.source_view or '-'} saved={len(snapshots)}",
         flush=True,
     )
     return 0
