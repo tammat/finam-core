@@ -30,6 +30,7 @@ from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
 from finam_core.execution.session_side_execution_gate_v1 import SessionSideExecutionGateV1
 from finam_core.execution.edge_gate_strict_mode_v1 import EdgeGateStrictModeV1
+from finam_core.execution.runtime_edge_governance_soft_block_v1 import RuntimeEdgeGovernanceSoftBlockV1
 from finam_core.execution.session_side_gate_runtime_audit_v1 import SessionSideGateRuntimeAuditV1
 from finam_core.risk.context_builders import build_risk_context
 import json
@@ -620,6 +621,8 @@ class PaperTradingPipeline:
         self.edge_gate_strict_mode_v1 = EdgeGateStrictModeV1(
             "runtime/edge_gate_strict_mode_v1.json"
         )
+
+        self.runtime_edge_governance_soft_block_v1 = RuntimeEdgeGovernanceSoftBlockV1()
         self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
         self.signal_intent_router = SignalIntentRouter()
         # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
@@ -4341,6 +4344,42 @@ class PaperTradingPipeline:
         try:
             gate_side = self._extract_session_side_gate_side_v1(intent)
             if gate_side in {'BUY', 'SELL'}:
+                try:
+                    phase2_decision = self.runtime_edge_governance_soft_block_v1.decide(
+                        symbol=str(sym),
+                        side=str(gate_side),
+                    )
+                    print(
+                        "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_DECISION",
+                        f"symbol={phase2_decision.symbol}",
+                        f"side={phase2_decision.side}",
+                        f"hour_msk={phase2_decision.hour_msk}",
+                        f"allowed={phase2_decision.allowed}",
+                        f"action={phase2_decision.action}",
+                        f"reason={phase2_decision.reason}",
+                        f"session_action={phase2_decision.session_action}",
+                        f"strict_reason={phase2_decision.strict_reason}",
+                        f"decay_state={phase2_decision.decay_state}",
+                        flush=True,
+                    )
+                    if not phase2_decision.allowed:
+                        print(
+                            "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_SOFT_BLOCK",
+                            f"symbol={phase2_decision.symbol}",
+                            f"side={phase2_decision.side}",
+                            f"reason={phase2_decision.reason}",
+                            flush=True,
+                        )
+                        return
+                except Exception as exc:
+                    print(
+                        "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_FAILED_OPEN",
+                        f"symbol={sym}",
+                        f"side={gate_side}",
+                        f"error={type(exc).__name__}:{exc}",
+                        flush=True,
+                    )
+
                 if not self._check_session_side_execution_gate_v1(symbol=str(sym), side=gate_side):
                     return
 
