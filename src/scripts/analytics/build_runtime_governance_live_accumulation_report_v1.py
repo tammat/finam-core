@@ -9,9 +9,9 @@ from finam_core.analytics.statistics_repository import build_psycopg_url
 
 
 WINDOWS = [
-    ("1h", "1 hour"),
-    ("24h", "24 hours"),
-    ("7d", "7 days"),
+    ("1h", 1),
+    ("24h", 24),
+    ("7d", 24 * 7),
 ]
 
 
@@ -54,7 +54,7 @@ SELECT
 
 FROM runtime_governance_live_accumulation_v1
 
-WHERE created_at >= now() - interval %(window)s;
+WHERE created_at >= now() - (%(window_hours)s * interval '1 hour');
 """
 
 
@@ -80,7 +80,7 @@ SELECT
 
 FROM runtime_governance_live_accumulation_v1
 
-WHERE created_at >= now() - interval %(window)s
+WHERE created_at >= now() - (%(window_hours)s * interval '1 hour')
 
 GROUP BY symbol, side
 
@@ -97,7 +97,7 @@ SELECT
     count(*) AS rows_count
 FROM runtime_governance_live_accumulation_v1
 
-WHERE created_at >= now() - interval %(window)s
+WHERE created_at >= now() - (%(window_hours)s * interval '1 hour')
 
 GROUP BY action, reason
 
@@ -123,11 +123,11 @@ def main() -> int:
     with psycopg.connect(build_psycopg_url(), row_factory=dict_row) as conn:
         with conn.cursor() as cur:
 
-            for window_key, interval_value in WINDOWS:
+            for window_key, window_hours in WINDOWS:
 
                 cur.execute(
                     SUMMARY_SQL,
-                    {"window": interval_value},
+                    {"window_hours": window_hours},
                 )
 
                 summary = dict(cur.fetchone())
@@ -150,7 +150,7 @@ def main() -> int:
 
                 cur.execute(
                     SYMBOL_SQL,
-                    {"window": interval_value},
+                    {"window_hours": window_hours},
                 )
 
                 symbol_rows = cur.fetchall()
@@ -173,7 +173,7 @@ def main() -> int:
 
                 cur.execute(
                     ACTION_SQL,
-                    {"window": interval_value},
+                    {"window_hours": window_hours},
                 )
 
                 action_rows = cur.fetchall()
