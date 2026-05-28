@@ -3936,6 +3936,47 @@ class PaperTradingPipeline:
 
         intent = routed.intent.to_dict()
 
+        # Русский комментарий: SIGNAL SNAPSHOT V1 — сохраняем наблюдаемый контекст сигнала до risk/order gate.
+        try:
+            features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
+            intent["signal_quality_snapshot"] = {
+                "version": "v1",
+                "source": intent.get("source"),
+                "strategy": intent.get("strategy") or features.get("strategy"),
+                "symbol": intent.get("symbol"),
+                "side": intent.get("side"),
+                "entry_price": intent.get("entry_price") or intent.get("price") or intent.get("limit_price"),
+                "stop_loss": intent.get("stop_loss") or features.get("stop"),
+                "take_profit": intent.get("take_profit") or features.get("take"),
+                "rr": intent.get("rr") or features.get("rr"),
+                "qty": intent.get("qty"),
+                "risk_rub": intent.get("risk_rub"),
+                "profit_rub": intent.get("profit_rub"),
+                "commission_rub": intent.get("commission_rub"),
+                "breakout_level": features.get("breakout_level"),
+                "local_high": features.get("local_high"),
+                "local_low": features.get("local_low"),
+                "atr": features.get("atr"),
+                "stop_distance": features.get("stop_distance"),
+                "take_distance": features.get("take_distance"),
+                "regime": intent.get("regime") or features.get("regime"),
+                "volatility_regime": intent.get("volatility_regime") or features.get("volatility_regime"),
+                "session_type": intent.get("session_type") or features.get("session_type"),
+                "confidence": intent.get("confidence") or features.get("confidence") or features.get("regime_confidence"),
+                "policy_version": (
+                    intent.get("br_filtered_policy", {}).get("version")
+                    if isinstance(intent.get("br_filtered_policy"), dict)
+                    else None
+                ),
+                "size_multiplier": (
+                    intent.get("br_filtered_policy", {}).get("size_multiplier")
+                    if isinstance(intent.get("br_filtered_policy"), dict)
+                    else None
+                ),
+            }
+        except Exception as exc:
+            LOG.warning("PIPE_SIGNAL_QUALITY_SNAPSHOT_FAILED error=%s", exc)
+
         # Русский комментарий: сохраняем каждый валидный торговый intent до risk/order gate.
         try:
             if getattr(self, "signal_repository", None) is not None:
