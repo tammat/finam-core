@@ -12,6 +12,7 @@ ExecutionDispatcher — единая точка маршрутизации ис�
 from __future__ import annotations
 
 import os
+import math
 from typing import Any
 
 from finam_core.policy.br_filtered_v1 import BrFilteredV1Policy, BrRegimeContext
@@ -365,6 +366,13 @@ class ExecutionDispatcher:
                 multiplier = float(br_details.get("size_multiplier") or 1.0)
                 original_qty = float(intent.get("qty") or 0.0)
                 adjusted_qty = original_qty * multiplier
+
+                # Русский комментарий:
+                # Для фьючерсов MOEX нельзя отправлять дробное количество контрактов.
+                # size_multiplier трактуем как risk-scaling, но execution qty нормализуем в целые контракты.
+                symbol_upper = str(intent.get("symbol") or "").upper()
+                if "@RTSX" in symbol_upper:
+                    adjusted_qty = max(1.0, float(math.floor(adjusted_qty)))
 
                 if multiplier > 0 and adjusted_qty > 0 and adjusted_qty != original_qty:
                     print(
