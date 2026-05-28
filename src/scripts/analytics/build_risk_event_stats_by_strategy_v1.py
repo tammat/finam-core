@@ -20,6 +20,7 @@ WITH classified AS (
         reason,
         routed,
         channel,
+        skipped_reason,
 
         CASE
             WHEN position('"test"' in raw_json::text) > 0
