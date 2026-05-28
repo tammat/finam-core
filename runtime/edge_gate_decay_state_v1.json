@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "global_expectancy_floor": 0.0,
+  "rolling_window_trades": 25,
+  "disable_on_negative_expectancy": true,
+  "disable_on_negative_pnl": false,
+  "last_updated": null,
+  "runtime_state": {
+    "BR_ROLLING@RTSX|BUY|8": {
+      "expectancy_points": 0.218,
+      "pnl_points": 84.11,
+      "closed_trades": 46
+    },
+    "BR_ROLLING@RTSX|BUY|19": {
+      "expectancy_points": -0.0486,
+      "pnl_points": -92.75,
+      "closed_trades": 86
+    }
+  }
+}
