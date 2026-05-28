@@ -29,6 +29,7 @@ from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
 from finam_core.execution.session_side_execution_gate_v1 import SessionSideExecutionGateV1
+from finam_core.execution.session_side_gate_runtime_audit_v1 import SessionSideGateRuntimeAuditV1
 from finam_core.risk.context_builders import build_risk_context
 import json
 import logging
@@ -7142,6 +7143,38 @@ class PaperTradingPipeline:
                 f"closed_trades={decision.closed_trades}",
                 flush=True,
             )
+
+            try:
+                audit = getattr(self, "_session_side_gate_runtime_audit_v1", None)
+                if audit is None:
+                    audit = SessionSideGateRuntimeAuditV1()
+                    self._session_side_gate_runtime_audit_v1 = audit
+
+                audit.save(
+                    decision=decision,
+                    source="paper_pipeline",
+                    raw={
+                        "hook": "session_side_gate_runtime_audit_v1",
+                        "gate_version": "session_side_execution_gate_v1",
+                    },
+                )
+
+                print(
+                    "PIPE_SESSION_SIDE_GATE_AUDIT_OK",
+                    f"symbol={decision.symbol}",
+                    f"side={decision.side}",
+                    f"action={decision.action}",
+                    flush=True,
+                )
+
+            except Exception as audit_exc:
+                print(
+                    "PIPE_SESSION_SIDE_GATE_AUDIT_FAILED",
+                    f"symbol={decision.symbol}",
+                    f"side={decision.side}",
+                    f"error={type(audit_exc).__name__}:{audit_exc}",
+                    flush=True,
+                )
 
             if not decision.allowed:
                 print(
