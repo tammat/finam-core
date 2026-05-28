@@ -27,6 +27,7 @@ from finam_core.storage.postgres_logger import PostgresLogger
 import os
 from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
+from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
 from finam_core.risk.context_builders import build_risk_context
 import json
 import logging
@@ -4356,10 +4357,18 @@ class PaperTradingPipeline:
                 approved = True
 
             if not approved:
+                reject_reason = str(getattr(decision, 'reason', 'unknown'))
                 print(
-                    f"PIPE_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
+                    f"PIPE_RISK_REJECT reason={reject_reason} "
                     f"value={getattr(getattr(self.risk_router, 'last_context', None), 'trade_value', None)} exposure={getattr(getattr(self.risk_router, 'last_context', None), 'total_exposure', None)}",
                     flush=True,
+                )
+                self._audit_runtime_risk_event_v1(
+                    symbol=str(sym),
+                    intent=intent,
+                    decision=decision,
+                    severity="CRITICAL" if reject_reason in {"daily_loss_limit", "kill_switch", "portfolio_kill_switch"} else "WARNING",
+                    reason=reject_reason,
                 )
                 return
 
@@ -7068,6 +7077,83 @@ class PaperTradingPipeline:
             os.getenv("BREAKOUT_LEVEL_BUCKET_DEFAULT", "0"),
         )
         return float(raw or 0.0)
+
+    def _audit_runtime_risk_event_v1(
+        self,
+        *,
+        symbol: str,
+        intent,
+        decision,
+        severity: str,
+        reason: str,
+    ) -> None:
+        """
+        Русский комментарий:
+        Side-effect only audit/notification hook для runtime risk decisions.
+        Не меняет approved/rejected result и не влияет на execution flow.
+        """
+        try:
+            bridge = getattr(self, "_risk_notification_bridge_v1", None)
+            if bridge is None:
+                bridge = RiskNotificationBridgeV1()
+                self._risk_notification_bridge_v1 = bridge
+
+            strategy_name = "UNKNOWN"
+            try:
+                strategy_name = str(self._strategy_name_for_symbol(str(symbol)))
+            except Exception:
+                strategy_name = str(getattr(intent, "strategy", None) or "UNKNOWN")
+
+            timeframe = "M5"
+            try:
+                timeframe = str(getattr(self, "timeframe", None) or getattr(intent, "timeframe", None) or "M5")
+            except Exception:
+                timeframe = "M5"
+
+            value = None
+            exposure = None
+            try:
+                ctx = getattr(self.risk_router, "last_context", None)
+                value = getattr(ctx, "trade_value", None)
+                exposure = getattr(ctx, "total_exposure", None)
+            except Exception:
+                pass
+
+            bridge.dispatch_risk_event(
+                RiskNotificationInputV1(
+                    symbol=str(symbol),
+                    strategy=str(strategy_name),
+                    timeframe=str(timeframe),
+                    decision=str(getattr(decision, "decision", None) or "REJECT"),
+                    reason=str(reason or getattr(decision, "reason", None) or "runtime_risk_event"),
+                    severity=str(severity),
+                    value=float(value) if value is not None else None,
+                    exposure=float(exposure) if exposure is not None else None,
+                    risk_limit=None,
+                    raw={
+                        "source": "paper_pipeline",
+                        "hook": "wire_runtime_risk_events_to_audit_v1",
+                        "decision_repr": repr(decision),
+                    },
+                )
+            )
+
+            print(
+                "PIPE_RUNTIME_RISK_EVENT_AUDIT_OK",
+                f"symbol={symbol}",
+                f"severity={severity}",
+                f"reason={reason}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(
+                "PIPE_RUNTIME_RISK_EVENT_AUDIT_FAILED",
+                f"symbol={symbol}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
 
     def _breakout_bucketed_level(self, symbol: str, level: float) -> float:
         """Русский комментарий: приводит уровень к bucket, если bucket включён."""
