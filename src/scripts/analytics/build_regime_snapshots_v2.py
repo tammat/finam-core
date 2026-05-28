@@ -91,11 +91,61 @@ def load_intermarket_state(conn: psycopg.Connection) -> str:
 
 
 def classify(payload: dict[str, Any]) -> tuple[str, str, str, str, float]:
-    regime = _text(payload, "regime", "market_regime", "trend_regime", default="unknown")
-    volatility = _text(payload, "volatility_regime", "atr_state", "volatility", default="unknown")
-    trend = _text(payload, "trend_regime", "trend", "trend_state", default="unknown")
-    compression = _text(payload, "compression_state", "compression", "squeeze_state", default="unknown")
-    confidence = _float(payload, "confidence", "regime_confidence", "score", default=0.0)
+    # Русский комментарий:
+    # Semantic enrichment строится на фактической схеме feature_snapshots:
+    # volatility_state, trend_state, range_state, atr_proxy, fx_stress_score, commodity_score.
+
+    volatility = _text(payload, "volatility_state", default="unknown")
+    trend = _text(payload, "trend_state", default="unknown")
+    range_state = _text(payload, "range_state", default="unknown")
+    quality = _text(payload, "quality", default="PARTIAL")
+
+    atr_proxy = _float(payload, "atr_proxy", default=0.0)
+    fx_stress = _float(payload, "fx_stress_score", default=0.0)
+    commodity_score = _float(payload, "commodity_score", default=0.0)
+
+    if volatility == "low" and trend == "flat":
+        compression = "compression"
+    elif volatility == "high" and trend in {"up", "down"}:
+        compression = "expansion"
+    else:
+        compression = "normal"
+
+    if compression == "compression":
+        regime = "compression"
+    elif compression == "expansion" and trend == "up":
+        regime = "trend_up_expansion"
+    elif compression == "expansion" and trend == "down":
+        regime = "trend_down_expansion"
+    elif trend == "up":
+        regime = "trend_up"
+    elif trend == "down":
+        regime = "trend_down"
+    elif range_state not in {"unknown", ""}:
+        regime = f"range_{range_state}"
+    else:
+        regime = "range_unknown"
+
+    confidence = 0.35
+
+    if quality == "FULL":
+        confidence += 0.25
+    elif quality == "PARTIAL":
+        confidence += 0.10
+
+    if volatility != "unknown":
+        confidence += 0.15
+
+    if trend != "unknown":
+        confidence += 0.15
+
+    if atr_proxy > 0:
+        confidence += 0.05
+
+    if abs(fx_stress) > 0 or abs(commodity_score) > 0:
+        confidence += 0.05
+
+    confidence = max(0.0, min(1.0, confidence))
 
     return regime, volatility, trend, compression, confidence
 
