@@ -13,7 +13,9 @@ python src/scripts/analytics/build_manual_position_telegram_advisory_v1.py \
 
 grep -q "MANUAL_POSITION_TELEGRAM_ADVISORY_V1" "$TMP_LOG"
 grep -q "TELEGRAM_ADVISORY_FORMATTED" "$TMP_LOG"
+grep -q "TELEGRAM_ADVISORY_DRY_RUN_SEND" "$TMP_LOG"
 grep -q "MANUAL_POSITION_TELEGRAM_ADVISORY_SUMMARY" "$TMP_LOG"
+grep -q "dry_run_send=" "$TMP_LOG"
 grep -q "MANUAL_POSITION_TELEGRAM_ADVISORY_V1_OK" "$TMP_LOG"
 
 echo "TEST_MANUAL_POSITION_TELEGRAM_ADVISORY_V1_OK"

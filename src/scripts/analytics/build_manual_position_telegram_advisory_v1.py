@@ -7,6 +7,7 @@ from psycopg.rows import dict_row
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
 from finam_core.notifications.telegram_advisory_formatter_v1 import TelegramAdvisoryFormatterV1
+from finam_core.notifications.telegram_advisory_sender_dry_run_v1 import TelegramAdvisorySenderDryRunV1
 
 
 SQL = """
@@ -75,7 +76,11 @@ def build_action(pnl: float) -> str:
 
 def main() -> int:
     database_url = os.getenv("DATABASE_URL") or build_psycopg_url()
+
     formatter = TelegramAdvisoryFormatterV1()
+    sender = TelegramAdvisorySenderDryRunV1(
+        chat_id=os.getenv("TELEGRAM_ADVISORY_DRY_RUN_CHAT_ID", "DRY_RUN_CHAT")
+    )
 
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
@@ -84,6 +89,7 @@ def main() -> int:
 
     futures_count = 0
     review_count = 0
+    dry_run_send_count = 0
 
     print("MANUAL_POSITION_TELEGRAM_ADVISORY_V1", flush=True)
 
@@ -122,6 +128,8 @@ def main() -> int:
             action=action,
         )
 
+        rendered = formatter.render(msg)
+
         print(
             "TELEGRAM_ADVISORY_FORMATTED",
             f"severity={msg.severity}",
@@ -131,11 +139,22 @@ def main() -> int:
             flush=True,
         )
 
+        result = sender.send(
+            symbol=msg.symbol,
+            severity=msg.severity,
+            category=msg.category,
+            text=rendered,
+        )
+
+        if result.dry_run and not result.sent:
+            dry_run_send_count += 1
+
     print(
         "MANUAL_POSITION_TELEGRAM_ADVISORY_SUMMARY",
         f"rows={len(rows)}",
         f"futures={futures_count}",
         f"review_required={review_count}",
+        f"dry_run_send={dry_run_send_count}",
         flush=True,
     )
 
