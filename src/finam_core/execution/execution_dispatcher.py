@@ -360,6 +360,30 @@ class ExecutionDispatcher:
                     "intent": intent,
                 }
 
+            # Русский комментарий: BR_FILTERED_V2 может мягко уменьшить размер заявки до margin/risk/OMS.
+            if br_details.get("policy_version") == "v2" and br_allowed:
+                multiplier = float(br_details.get("size_multiplier") or 1.0)
+                original_qty = float(intent.get("qty") or 0.0)
+                adjusted_qty = original_qty * multiplier
+
+                if multiplier > 0 and adjusted_qty > 0 and adjusted_qty != original_qty:
+                    print(
+                        f"BR_FILTERED_V2_SIZE_ADJUST symbol={intent.get('symbol')} "
+                        f"side={intent.get('side')} qty={original_qty}->{adjusted_qty} "
+                        f"multiplier={multiplier}",
+                        flush=True,
+                    )
+                    intent = dict(intent)
+                    intent["qty"] = adjusted_qty
+                    intent["br_filtered_policy"] = {
+                        "version": "v2",
+                        "reason": br_reason,
+                        "size_multiplier": multiplier,
+                        "original_qty": original_qty,
+                        "adjusted_qty": adjusted_qty,
+                        "details": br_details,
+                    }
+
             margin_guard = self._get_futures_margin_guard()
             margin_decision = margin_guard.check(
                 symbol=str(intent.get("symbol") or ""),
