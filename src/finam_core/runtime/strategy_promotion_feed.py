@@ -32,6 +32,19 @@ def build_strategy_promotion_decision(
 ) -> StrategyPromotionDecision:
     status = item.rank_status.upper().strip()
 
+    if status == "CANDIDATE":
+        return StrategyPromotionDecision(
+            symbol=item.symbol,
+            strategy=item.strategy,
+            timeframe=item.timeframe,
+            trade_source=item.trade_source,
+            runtime_action="PAPER_CANDIDATE",
+            allow_paper_signal=True,
+            allow_radar_signal=True,
+            allow_real_suggestion=False,
+            reason=f"paper_candidate_from_research_verdict:{item.reason}",
+        )
+
     if status == "PROMOTE":
         return StrategyPromotionDecision(
             symbol=item.symbol,
