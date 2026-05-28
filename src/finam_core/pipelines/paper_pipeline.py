@@ -102,6 +102,7 @@ from finam_core.research.runtime_selection_gate import RuntimeSelectionGate
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
 from finam_core.notifications.signal_alert_sender import send_signal_alert_from_intent
+from finam_core.instruments.br_point_value import get_br_rub_per_point
 from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.analytics.closed_trade_attribution_service import ClosedTradeAttributionService
 from finam_core.strategy.strategy_factory import StrategyFactory
@@ -3731,6 +3732,10 @@ class PaperTradingPipeline:
                 "side": entry_side,
                 "qty": qty,
                 "price": curr_price,
+                "entry_price": curr_price,
+                "stop_loss": curr_price - stop_distance if entry_side == "BUY" else curr_price + stop_distance,
+                "take_profit": curr_price + take_distance if entry_side == "BUY" else curr_price - take_distance,
+                "reason": "smart_entry_retest_br_manual_candidate" if str(sym).startswith("BR") else "smart_entry_retest",
                 "strategy": strategy_name,
                 "source": "smart_entry_retest",
                 "signal_id": f"smart-{sym}-{int(time.time() * 1000)}",
@@ -3741,8 +3746,36 @@ class PaperTradingPipeline:
                     "stop": curr_price - stop_distance if entry_side == "BUY" else curr_price + stop_distance,
                     "take": curr_price + take_distance if entry_side == "BUY" else curr_price - take_distance,
                     "rr": rr,
+                    "breakout_level": level,
+                    "atr": atr,
+                    "stop_distance": stop_distance,
+                    "take_distance": take_distance,
                 }
             }
+
+            if str(sym).startswith("BR"):
+                rub_per_point = get_br_rub_per_point(getattr(self, "market_state", None))
+                commission_per_contract = float(os.getenv("BR_COMMISSION_RUB_PER_CONTRACT", "10"))
+                commission_rub = qty * commission_per_contract * 2.0
+
+                gross_risk_rub = abs(raw_intent["entry_price"] - raw_intent["stop_loss"]) * qty * rub_per_point
+                gross_profit_rub = abs(raw_intent["take_profit"] - raw_intent["entry_price"]) * qty * rub_per_point
+
+                raw_intent["risk_rub"] = gross_risk_rub + commission_rub
+                raw_intent["profit_rub"] = gross_profit_rub - commission_rub
+                raw_intent["commission_rub"] = commission_rub
+
+                print(
+                    f"BR_MANUAL_ENTRY_CANDIDATE "
+                    f"symbol={sym} side={entry_side} "
+                    f"entry={curr_price} "
+                    f"stop_loss={raw_intent['features'].get('stop')} "
+                    f"take_profit={raw_intent['features'].get('take')} "
+                    f"rr={rr} qty={qty} "
+                    f"level={level} atr={atr} "
+                    f"stop_distance={stop_distance} take_distance={take_distance}",
+                    flush=True,
+                )
 
             # сброс состояния
             st["pending_breakout"] = None
