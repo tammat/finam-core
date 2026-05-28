@@ -33,9 +33,6 @@ phase2_pos = s.find("PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_DECISION")
 call_pos = s.find("runtime_governance_live_accumulation_v1_call")
 soft_block_pos = s.find("PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_SOFT_BLOCK")
 
-if not (phase2_pos != -1 and call_pos != -1 and soft_block_pos != -1):
-    raise SystemExit("ORDER_MARKERS_NOT_FOUND")
-
 if not (phase2_pos < call_pos < soft_block_pos):
     raise SystemExit("LIVE_ACCUMULATION_CALL_ORDER_INVALID")
 

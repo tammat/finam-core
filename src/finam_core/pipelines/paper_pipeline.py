@@ -31,6 +31,10 @@ from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificatio
 from finam_core.execution.session_side_execution_gate_v1 import SessionSideExecutionGateV1
 from finam_core.execution.edge_gate_strict_mode_v1 import EdgeGateStrictModeV1
 from finam_core.execution.runtime_edge_governance_soft_block_v1 import RuntimeEdgeGovernanceSoftBlockV1
+from finam_core.execution.runtime_governance_live_accumulation_v1 import (
+    RuntimeGovernanceLiveAccumulatorV1,
+    RuntimeGovernanceLiveDecisionV1,
+)
 from finam_core.execution.session_side_gate_runtime_audit_v1 import SessionSideGateRuntimeAuditV1
 from finam_core.risk.context_builders import build_risk_context
 import json
@@ -623,6 +627,7 @@ class PaperTradingPipeline:
         )
 
         self.runtime_edge_governance_soft_block_v1 = RuntimeEdgeGovernanceSoftBlockV1()
+        self.runtime_governance_live_accumulator_v1 = RuntimeGovernanceLiveAccumulatorV1()
         self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
         self.signal_intent_router = SignalIntentRouter()
         # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
@@ -4362,6 +4367,12 @@ class PaperTradingPipeline:
                         f"decay_state={phase2_decision.decay_state}",
                         flush=True,
                     )
+
+                    self._record_runtime_governance_live_accumulation_v1(
+                        sym=sym,
+                        gate_side=gate_side,
+                        phase2_decision=phase2_decision,
+                    )  # runtime_governance_live_accumulation_v1_call
                     if not phase2_decision.allowed:
                         print(
                             "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_SOFT_BLOCK",
@@ -7158,6 +7169,48 @@ class PaperTradingPipeline:
             os.getenv("BREAKOUT_LEVEL_BUCKET_DEFAULT", "0"),
         )
         return float(raw or 0.0)
+
+    def _record_runtime_governance_live_accumulation_v1(
+        self,
+        *,
+        sym,
+        gate_side,
+        phase2_decision,
+    ) -> None:
+        """
+        Русский комментарий:
+        Безопасная запись фактического Phase2 governance-решения.
+        Ошибка записи в PostgreSQL не должна ломать торговый поток.
+        """
+        try:
+            self.runtime_governance_live_accumulator_v1.append(
+                RuntimeGovernanceLiveDecisionV1(
+                    symbol=str(sym),
+                    side=str(gate_side),
+                    hour_msk=int(getattr(phase2_decision, "hour_msk", -1)),
+                    allowed=bool(getattr(phase2_decision, "allowed", False)),
+                    action=str(getattr(phase2_decision, "action", "UNKNOWN")),
+                    reason=str(getattr(phase2_decision, "reason", "UNKNOWN")),
+                    session_action=getattr(phase2_decision, "session_action", None),
+                    strict_reason=getattr(phase2_decision, "strict_reason", None),
+                    decay_state=getattr(phase2_decision, "decay_state", None),
+                    expectancy_points=getattr(phase2_decision, "expectancy_points", None),
+                    closed_trades=getattr(phase2_decision, "closed_trades", None),
+                    raw_json={
+                        "source": "paper_pipeline_phase2_runtime",
+                        "pipeline": "paper_pipeline",
+                        "hook": "runtime_governance_live_accumulation_v1",
+                    },
+                )
+            )
+        except Exception as exc:
+            print(
+                "PIPE_RUNTIME_EDGE_GOVERNANCE_LIVE_ACCUMULATION_FAILED_OPEN",
+                f"symbol={sym}",
+                f"side={gate_side}",
+                f"error={exc}",
+                flush=True,
+            )
 
     def _extract_session_side_gate_side_v1(self, intent) -> str:
         """
