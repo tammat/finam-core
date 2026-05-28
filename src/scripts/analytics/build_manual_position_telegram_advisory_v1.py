@@ -6,6 +6,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
+from finam_core.notifications.telegram_advisory_formatter_v1 import TelegramAdvisoryFormatterV1
 
 
 SQL = """
@@ -72,47 +73,9 @@ def build_action(pnl: float) -> str:
     return "HOLD"
 
 
-def build_message(row: dict) -> str:
-    symbol = str(row["symbol"])
-    qty = float(row["qty"] or 0.0)
-    current_price = float(row["current_price"] or 0.0)
-    pnl = float(row["pnl"] or 0.0)
-
-    asset_class = detect_asset_class(symbol)
-    side = calc_side(qty)
-
-    stop_price = calc_stop_price(
-        side=side,
-        current_price=current_price,
-        asset_class=asset_class,
-    )
-
-    take_price = calc_take_price(
-        side=side,
-        current_price=current_price,
-        asset_class=asset_class,
-    )
-
-    action = build_action(pnl)
-
-    return (
-        "TELEGRAM_POSITION_ADVISORY "
-        f"symbol={symbol} "
-        f"class={asset_class} "
-        f"side={side} "
-        f"qty={qty} "
-        f"entry={row['avg_price']} "
-        f"current={row['current_price']} "
-        f"pnl={row['pnl']} "
-        f"pnl_day={row['pnl_day']} "
-        f"stop={stop_price} "
-        f"take={take_price} "
-        f"action={action}"
-    )
-
-
 def main() -> int:
     database_url = os.getenv("DATABASE_URL") or build_psycopg_url()
+    formatter = TelegramAdvisoryFormatterV1()
 
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
@@ -126,15 +89,47 @@ def main() -> int:
 
     for row in rows:
         symbol = str(row["symbol"])
+        qty = float(row["qty"] or 0.0)
+        avg_price = float(row["avg_price"] or 0.0)
+        current_price = float(row["current_price"] or 0.0)
+        pnl = float(row["pnl"] or 0.0)
+        pnl_day = float(row["pnl_day"] or 0.0)
+
         asset_class = detect_asset_class(symbol)
+        side = calc_side(qty)
+        action = build_action(pnl)
 
         if asset_class == "FUTURES":
             futures_count += 1
 
-        if float(row["pnl"] or 0.0) < -5000:
+        if action == "REVIEW":
             review_count += 1
 
-        print(build_message(row), flush=True)
+        stop_price = calc_stop_price(side, current_price, asset_class)
+        take_price = calc_take_price(side, current_price, asset_class)
+
+        msg = formatter.format_position_advisory(
+            symbol=symbol,
+            asset_class=asset_class,
+            side=side,
+            qty=qty,
+            entry=avg_price,
+            current=current_price,
+            pnl=pnl,
+            pnl_day=pnl_day,
+            stop=stop_price,
+            take=take_price,
+            action=action,
+        )
+
+        print(
+            "TELEGRAM_ADVISORY_FORMATTED",
+            f"severity={msg.severity}",
+            f"category={msg.category}",
+            f"symbol={msg.symbol}",
+            f"title={msg.title}",
+            flush=True,
+        )
 
     print(
         "MANUAL_POSITION_TELEGRAM_ADVISORY_SUMMARY",
