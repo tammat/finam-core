@@ -3983,6 +3983,18 @@ class PaperTradingPipeline:
                 signal_id = self.signal_repository.save_signal(intent)
                 intent["signal_id"] = signal_id
 
+                # Русский комментарий: runtime guard soft-block enrichment — только обогащение features, без блокировки исполнения.
+                try:
+                    soft_block = getattr(self, "runtime_guard_soft_block_mode_v1", None)
+                    if soft_block is None:
+                        from finam_core.analytics.runtime_guard_soft_block_mode_v1 import RuntimeGuardSoftBlockModeV1
+                        soft_block = RuntimeGuardSoftBlockModeV1()
+                        setattr(self, "runtime_guard_soft_block_mode_v1", soft_block)
+
+                    soft_block.apply(intent)
+                except Exception as exc:
+                    print(f"RUNTIME_GUARD_SOFT_BLOCK_FAILED error={exc}", flush=True)
+
                 # Русский комментарий: runtime guard observability — только логирование, без блокировки исполнения.
                 try:
                     hook = getattr(self, "runtime_guard_observability_hook_v1", None)
