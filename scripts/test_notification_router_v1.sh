@@ -13,9 +13,15 @@ from finam_core.notifications.notification_router_v1 import (
     NotificationEventV1,
     NotificationRouterV1,
 )
+from finam_core.notifications.notification_dedup_cache_v1 import NotificationDedupCacheV1
 
 router = NotificationRouterV1(
     quiet_mode=False,
+    dedup_cache=NotificationDedupCacheV1(
+        cooldowns={
+            "WARNING": 300.0,
+        }
+    ),
 )
 
 event = NotificationEventV1(
@@ -26,17 +32,23 @@ event = NotificationEventV1(
     body="Требуется контроль позиции.",
 )
 
-result = router.route(event)
+first = router.route(event)
+second = router.route(event)
 
-assert result.accepted is True
-assert result.routed is True
-assert result.channel == "TELEGRAM"
+assert first.accepted is True
+assert first.routed is True
+assert first.channel == "TELEGRAM"
+
+assert second.accepted is True
+assert second.routed is False
+assert second.skipped_reason == "dedup_cooldown_active"
 
 print("NOTIFICATION_ROUTER_V1_PY_OK")
 PY
 
 grep -q "NOTIFICATION_ROUTER_ROUTE_OK" "$TMP_LOG"
 grep -q "TELEGRAM_NOTIFY_DRY_RUN" "$TMP_LOG"
+grep -q "reason=dedup_cooldown_active" "$TMP_LOG"
 grep -q "NOTIFICATION_ROUTER_V1_PY_OK" "$TMP_LOG"
 
 echo "TEST_NOTIFICATION_ROUTER_V1_OK"

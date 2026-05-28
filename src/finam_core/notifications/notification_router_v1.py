@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from finam_core.notifications.telegram_notifier_v1 import (
-    TelegramNotifierV1,
-    TelegramNotifyResultV1,
-)
+from finam_core.notifications.notification_dedup_cache_v1 import NotificationDedupCacheV1
+from finam_core.notifications.telegram_notifier_v1 import TelegramNotifierV1
 
 
 @dataclass(frozen=True)
@@ -31,13 +29,8 @@ class NotificationRouterResultV1:
 class NotificationRouterV1:
     """
     Русский комментарий:
-    Центральный router уведомлений.
-
-    Задачи:
-    - severity filtering
-    - anti-spam filtering
-    - routing policy
-    - единая точка dispatch
+    Центральный router уведомлений:
+    severity filter, quiet mode, dedup и transport dispatch.
     """
 
     ALLOWED_SEVERITIES = {
@@ -53,9 +46,11 @@ class NotificationRouterV1:
         notifier: TelegramNotifierV1 | None = None,
         allowed_severities: Iterable[str] | None = None,
         quiet_mode: bool = False,
+        dedup_cache: NotificationDedupCacheV1 | None = None,
     ) -> None:
-
         self.notifier = notifier or TelegramNotifierV1()
+        self.dedup_cache = dedup_cache or NotificationDedupCacheV1()
+        self.quiet_mode = quiet_mode
 
         if allowed_severities is None:
             allowed_severities = {
@@ -65,21 +60,16 @@ class NotificationRouterV1:
             }
 
         self.allowed_severities = set(allowed_severities)
-        self.quiet_mode = quiet_mode
 
-    def route(
-        self,
-        event: NotificationEventV1,
-    ) -> NotificationRouterResultV1:
-
+    def route(self, event: NotificationEventV1) -> NotificationRouterResultV1:
         if event.severity not in self.ALLOWED_SEVERITIES:
             print(
                 "NOTIFICATION_ROUTER_SKIP",
-                f"reason=invalid_severity",
+                "reason=invalid_severity",
                 f"severity={event.severity}",
+                f"symbol={event.symbol}",
                 flush=True,
             )
-
             return NotificationRouterResultV1(
                 accepted=False,
                 routed=False,
@@ -89,18 +79,14 @@ class NotificationRouterV1:
                 symbol=event.symbol,
             )
 
-        if self.quiet_mode and event.severity not in {
-            "CRITICAL",
-            "WARNING",
-        }:
+        if self.quiet_mode and event.severity not in {"CRITICAL", "WARNING"}:
             print(
                 "NOTIFICATION_ROUTER_SKIP",
-                f"reason=quiet_mode",
+                "reason=quiet_mode",
                 f"severity={event.severity}",
                 f"symbol={event.symbol}",
                 flush=True,
             )
-
             return NotificationRouterResultV1(
                 accepted=True,
                 routed=False,
@@ -113,16 +99,41 @@ class NotificationRouterV1:
         if event.severity not in self.allowed_severities:
             print(
                 "NOTIFICATION_ROUTER_SKIP",
-                f"reason=severity_filtered",
+                "reason=severity_filtered",
                 f"severity={event.severity}",
                 f"symbol={event.symbol}",
                 flush=True,
             )
-
             return NotificationRouterResultV1(
                 accepted=True,
                 routed=False,
                 skipped_reason="severity_filtered",
+                channel="NONE",
+                severity=event.severity,
+                symbol=event.symbol,
+            )
+
+        dedup_decision = self.dedup_cache.allows(
+            category=event.category,
+            severity=event.severity,
+            symbol=event.symbol,
+            title=event.title,
+        )
+
+        if not dedup_decision.allowed:
+            print(
+                "NOTIFICATION_ROUTER_SKIP",
+                f"reason={dedup_decision.reason}",
+                f"severity={event.severity}",
+                f"symbol={event.symbol}",
+                f"cooldown_sec={dedup_decision.cooldown_sec}",
+                f"elapsed_sec={dedup_decision.elapsed_sec}",
+                flush=True,
+            )
+            return NotificationRouterResultV1(
+                accepted=True,
+                routed=False,
+                skipped_reason=dedup_decision.reason,
                 channel="NONE",
                 severity=event.severity,
                 symbol=event.symbol,
@@ -140,7 +151,7 @@ class NotificationRouterV1:
 
         print(
             "NOTIFICATION_ROUTER_ROUTE_OK",
-            f"channel=TELEGRAM",
+            "channel=TELEGRAM",
             f"severity={event.severity}",
             f"symbol={event.symbol}",
             f"dry_run={notify_result.dry_run}",
