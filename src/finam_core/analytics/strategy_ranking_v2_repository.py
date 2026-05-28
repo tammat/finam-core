@@ -114,9 +114,45 @@ class StrategyRankingV2Repository:
             research_confidence = float(row[14] or 0.0)
             research_reason = str(row[15] or "")
 
-            # Русский комментарий: WATCH_DIVERGENCE не допускает стратегию в runtime,
+            # Русский комментарий:
+            # Research verdict является downstream-фильтром качества edge.
+            # Он не включает runtime напрямую, но корректирует ranking/promotion layer.
+            if research_verdict == "CANDIDATE":
+                decision = StrategyRankingDecisionV2(
+                    symbol=decision.symbol,
+                    strategy=decision.strategy,
+                    timeframe=decision.timeframe,
+                    trade_source=decision.trade_source,
+                    score=max(float(decision.score), 65.0 + 10.0 * research_confidence),
+                    rank_status="CANDIDATE",
+                    reason=f"research_verdict:{research_verdict};{research_reason};confidence={round(research_confidence, 4)}",
+                )
+
+            elif research_verdict == "BLOCK":
+                decision = StrategyRankingDecisionV2(
+                    symbol=decision.symbol,
+                    strategy=decision.strategy,
+                    timeframe=decision.timeframe,
+                    trade_source=decision.trade_source,
+                    score=min(float(decision.score), 10.0),
+                    rank_status="REJECT",
+                    reason=f"research_verdict:{research_verdict};{research_reason};confidence={round(research_confidence, 4)}",
+                )
+
+            elif research_verdict == "RESEARCH_ONLY":
+                decision = StrategyRankingDecisionV2(
+                    symbol=decision.symbol,
+                    strategy=decision.strategy,
+                    timeframe=decision.timeframe,
+                    trade_source=decision.trade_source,
+                    score=min(float(decision.score), 30.0),
+                    rank_status="WATCH_LOW_SAMPLE",
+                    reason=f"research_verdict:{research_verdict};{research_reason};confidence={round(research_confidence, 4)}",
+                )
+
+            # WATCH_DIVERGENCE не допускает стратегию в runtime,
             # но запрещает терять положительный OOS-сигнал внутри жёсткого REJECT.
-            if decision.rank_status == "REJECT" and research_verdict == "WATCH_DIVERGENCE":
+            elif decision.rank_status == "REJECT" and research_verdict == "WATCH_DIVERGENCE":
                 decision = StrategyRankingDecisionV2(
                     symbol=decision.symbol,
                     strategy=decision.strategy,
