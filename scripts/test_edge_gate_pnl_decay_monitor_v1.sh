@@ -20,10 +20,10 @@ monitor = EdgeGatePnlDecayMonitorV1()
 healthy = monitor.evaluate(
     symbol="BR_ROLLING@RTSX",
     side="BUY",
-    hour_msk=8,
-    expectancy_points=0.218,
-    pnl_points=84.11,
-    closed_trades=46,
+    hour_msk=10,
+    expectancy_points=0.0533,
+    pnl_points=6.5559,
+    closed_trades=123,
 )
 
 decay = monitor.evaluate(

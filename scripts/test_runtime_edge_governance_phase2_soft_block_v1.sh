@@ -21,7 +21,7 @@ gov = RuntimeEdgeGovernanceSoftBlockV1()
 allow = gov.decide(
     symbol="BR_ROLLING@RTSX",
     side="BUY",
-    ts=datetime(2026, 5, 28, 8, 0, tzinfo=ZoneInfo("Europe/Moscow")),
+    ts=datetime(2026, 5, 28, 10, 0, tzinfo=ZoneInfo("Europe/Moscow")),
 )
 
 block = gov.decide(

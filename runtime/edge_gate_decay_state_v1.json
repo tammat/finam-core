@@ -6,15 +6,15 @@
   "disable_on_negative_pnl": false,
   "last_updated": null,
   "runtime_state": {
-    "BR_ROLLING@RTSX|BUY|8": {
-      "expectancy_points": 0.218,
-      "pnl_points": 84.11,
-      "closed_trades": 46
-    },
     "BR_ROLLING@RTSX|BUY|19": {
       "expectancy_points": -0.0486,
       "pnl_points": -92.75,
       "closed_trades": 86
+    },
+    "BR_ROLLING@RTSX|BUY|10": {
+      "expectancy_points": 0.0533,
+      "pnl_points": 6.5559,
+      "closed_trades": 123
     }
   }
 }

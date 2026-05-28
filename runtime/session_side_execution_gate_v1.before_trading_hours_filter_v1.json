@@ -9,6 +9,20 @@
       "symbol": "BR_ROLLING@RTSX",
       "strategy": "HISTORICAL_BREAKOUT_V1",
       "timeframe": "M5",
+      "session_name": "утро_мск",
+      "hour_msk": 8,
+      "entry_side": "BUY",
+      "closed_trades": 46,
+      "pnl_points": 10.03,
+      "expectancy_points": 0.218,
+      "wins": 34,
+      "losses": 12,
+      "gate_action": "ALLOW"
+    },
+    {
+      "symbol": "BR_ROLLING@RTSX",
+      "strategy": "HISTORICAL_BREAKOUT_V1",
+      "timeframe": "M5",
       "session_name": "ночь",
       "hour_msk": 23,
       "entry_side": "SELL",
@@ -654,6 +668,20 @@
       "gate_action": "INSUFFICIENT_DATA"
     },
     {
+      "symbol": "BR_ROLLING@RTSX",
+      "strategy": "HISTORICAL_BREAKOUT_V1",
+      "timeframe": "M5",
+      "session_name": "утро_мск",
+      "hour_msk": 8,
+      "entry_side": "SELL",
+      "closed_trades": 3,
+      "pnl_points": -0.43,
+      "expectancy_points": -0.1433,
+      "wins": 1,
+      "losses": 2,
+      "gate_action": "INSUFFICIENT_DATA"
+    },
+    {
       "symbol": "BRN6@RTSX",
       "strategy": "HISTORICAL_BREAKOUT_V1",
       "timeframe": "M5",
@@ -765,13 +793,5 @@
       "losses": 3,
       "gate_action": "INSUFFICIENT_DATA"
     }
-  ],
-  "trading_hours_filter_v1": {
-    "enabled": true,
-    "min_hour_msk": 9,
-    "max_hour_msk": 23,
-    "generated_at": "2026-05-28T17:59:15.498162+00:00",
-    "source": "runtime/session_side_execution_gate_v1.json",
-    "backup": "runtime/session_side_execution_gate_v1.before_trading_hours_filter_v1.json"
-  }
+  ]
 }

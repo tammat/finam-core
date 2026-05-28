@@ -18,7 +18,7 @@ gate = EdgeGateStrictModeV1("runtime/edge_gate_strict_mode_v1.json")
 allow = gate.evaluate(
     symbol="BR_ROLLING@RTSX",
     side="BUY",
-    hour_msk=8,
+    hour_msk=10,
 )
 
 block = gate.evaluate(
