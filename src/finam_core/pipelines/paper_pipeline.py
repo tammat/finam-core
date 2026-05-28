@@ -3991,7 +3991,21 @@ class PaperTradingPipeline:
                         soft_block = RuntimeGuardSoftBlockModeV1()
                         setattr(self, "runtime_guard_soft_block_mode_v1", soft_block)
 
-                    soft_block.apply(intent)
+                    guard_decision = soft_block.apply(intent)
+
+                    # Русский комментарий: сохраняем runtime guard telemetry в PostgreSQL, без влияния на execution.
+                    try:
+                        registry = getattr(self, "runtime_guard_signal_registry_v1", None)
+                        if registry is None:
+                            from finam_core.analytics.runtime_guard_signal_registry_v1 import RuntimeGuardSignalRegistryV1
+                            registry = RuntimeGuardSignalRegistryV1()
+                            registry.migrate()
+                            setattr(self, "runtime_guard_signal_registry_v1", registry)
+
+                        registry.save(signal=intent, decision=guard_decision)
+                    except Exception as registry_exc:
+                        print(f"RUNTIME_GUARD_SIGNAL_REGISTRY_FAILED error={registry_exc}", flush=True)
+
                 except Exception as exc:
                     print(f"RUNTIME_GUARD_SOFT_BLOCK_FAILED error={exc}", flush=True)
 
