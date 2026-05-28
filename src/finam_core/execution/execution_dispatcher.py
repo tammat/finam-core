@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 from typing import Any
+
+from finam_core.policy.br_filtered_v1 import BrFilteredV1Policy, BrRegimeContext
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
 from finam_core.futures.futures_access_gate import FuturesAccessGate
@@ -149,6 +151,70 @@ class ExecutionDispatcher:
             print(f"DISPATCHER_EXECUTION_EVENT_LOG_FAILED event_type={event_type} error={exc}", flush=True)
 
 
+
+    def _apply_br_filtered_v1_gate(self, intent: dict, market_state: dict | None = None) -> tuple[bool, str, dict]:
+        """Русский комментарий: execution-gate для Brent на основе regime/session policy v1."""
+        symbol = str(intent.get("symbol") or "")
+        if not symbol.startswith("BR"):
+            return True, "not_brent", {}
+
+        features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
+        state = market_state or {}
+
+        regime = (
+            intent.get("regime")
+            or features.get("regime")
+            or state.get("regime")
+            or state.get("market_regime")
+            or "unknown"
+        )
+        volatility_regime = (
+            intent.get("volatility_regime")
+            or features.get("volatility_regime")
+            or state.get("volatility_regime")
+            or state.get("volatility")
+            or "unknown"
+        )
+        session_type = (
+            intent.get("session_type")
+            or features.get("session_type")
+            or state.get("session_type")
+            or state.get("session")
+            or "unknown"
+        )
+
+        timeframe = str(
+            intent.get("timeframe")
+            or features.get("timeframe")
+            or state.get("timeframe")
+            or "M5"
+        )
+        side = str(intent.get("side") or "").upper()
+
+        ctx = BrRegimeContext(
+            symbol=symbol,
+            timeframe=timeframe,
+            side=side,
+            regime=str(regime),
+            volatility_regime=str(volatility_regime),
+            session_type=str(session_type),
+        )
+
+        policy = BrFilteredV1Policy()
+        allowed, reason = policy.allow(ctx)
+
+        details = {
+            "symbol": ctx.symbol,
+            "timeframe": ctx.timeframe,
+            "side": ctx.side,
+            "regime": ctx.regime,
+            "volatility_regime": ctx.volatility_regime,
+            "session_type": ctx.session_type,
+            "reason": reason,
+        }
+        return allowed, reason, details
+
+
     def execute(self, intent: dict, market_state: dict | None = None) -> Any:
         """Русский комментарий: основной route для pipeline."""
         mode = os.getenv("EXECUTION_MODE", "paper").strip().lower()
@@ -221,6 +287,39 @@ class ExecutionDispatcher:
                     "intent": intent,
                 }
 
+            # Русский комментарий: BR_FILTERED_V1 блокирует неподтвержденные Brent-сигналы до runtime/risk/OMS.
+            br_allowed, br_reason, br_details = self._apply_br_filtered_v1_gate(intent, market_state or {})
+            if not br_allowed:
+                print(
+                    f"BR_FILTERED_V1_BLOCK symbol={br_details.get('symbol')} "
+                    f"side={br_details.get('side')} "
+                    f"regime={br_details.get('regime')} "
+                    f"volatility={br_details.get('volatility_regime')} "
+                    f"session={br_details.get('session_type')} "
+                    f"reason={br_reason}",
+                    flush=True,
+                )
+                self._append_event_safe(
+                    event_type="BR_FILTERED_V1_BLOCKED",
+                    aggregate_type="order",
+                    aggregate_id=str(intent.get("client_order_id") or intent.get("symbol") or ""),
+                    payload={
+                        "reason": br_reason,
+                        "details": br_details,
+                        "symbol": intent.get("symbol"),
+                        "side": intent.get("side"),
+                        "intent": dict(intent),
+                    },
+                )
+                return {
+                    "status": "REJECTED",
+                    "reason": br_reason,
+                    "policy": "BR_FILTERED_V1",
+                    "details": br_details,
+                    "symbol": intent.get("symbol"),
+                    "intent": intent,
+                }
+
             margin_guard = self._get_futures_margin_guard()
             margin_decision = margin_guard.check(
                 symbol=str(intent.get("symbol") or ""),
@@ -268,6 +367,7 @@ class ExecutionDispatcher:
                     "margin_utilization_after": margin_decision.margin_utilization_after,
                     "intent": intent,
                 }
+
 
             # Русский комментарий: runtime-control может заблокировать стратегию или изменить размер заявки.
             try:
