@@ -108,10 +108,9 @@ def main() -> int:
         in pipeline
     )
 
-    has_decay_monitor = (
-        "EdgeGatePnlDecayMonitorV1"
-        in pipeline
-    )
+    has_decay_monitor = Path(
+        "src/finam_core/analytics/edge_gate_pnl_decay_monitor_v1.py"
+    ).exists()
 
     allow_rows = len(
         session_cfg.get("allow", []) or []
