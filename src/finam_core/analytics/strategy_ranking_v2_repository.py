@@ -74,7 +74,38 @@ class StrategyRankingV2Repository:
             COALESCE(v.confidence, 0)::float AS research_confidence,
             COALESCE(v.reason, '') AS research_reason
         FROM strategy_statistics_v2 s
-        LEFT JOIN strategy_research_verdicts v
+        LEFT JOIN (
+            SELECT DISTINCT ON (symbol, strategy, timeframe, trade_source)
+                symbol,
+                strategy,
+                timeframe,
+                trade_source,
+                regime,
+                verdict,
+                confidence,
+                reason,
+                computed_at
+            FROM strategy_research_verdicts
+            ORDER BY
+                symbol,
+                strategy,
+                timeframe,
+                trade_source,
+                computed_at DESC,
+                CASE
+                    WHEN regime <> 'unknown' THEN 0
+                    ELSE 1
+                END,
+                CASE verdict
+                    WHEN 'CANDIDATE' THEN 0
+                    WHEN 'WATCH' THEN 1
+                    WHEN 'WATCH_DIVERGENCE' THEN 2
+                    WHEN 'RESEARCH_ONLY' THEN 3
+                    WHEN 'BLOCK' THEN 4
+                    ELSE 5
+                END,
+                confidence DESC
+        ) v
           ON v.symbol = s.symbol
          AND v.strategy = s.strategy
          AND v.timeframe = s.timeframe
