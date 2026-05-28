@@ -3494,6 +3494,26 @@ class PaperTradingPipeline:
                             f"price={round(float(price or 0.0), 6)}",
                             flush=True,
                         )
+                        # Русский комментарий: сохраняем pre-signal low-vol block в аудит.
+                        self._save_pre_signal_block_audit_v1(
+                            symbol=str(sym),
+                            strategy=self._strategy_name_for_symbol(str(sym)),
+                            timeframe=str(getattr(self, "timeframe", None) or st.get("timeframe") or "M5"),
+                            block_type="VOL_LOW_BLOCK",
+                            block_reason=str(vol_gate_reason),
+                            price=price,
+                            atr=getattr(regime, "atr", None),
+                            atr_pct=atr_pct,
+                            threshold=effective_atr_threshold,
+                            regime=str(getattr(regime, "type", None) or ""),
+                            trend=str(getattr(regime, "trend", None) or ""),
+                            volatility=str(getattr(regime, "volatility", None) or ""),
+                            payload={
+                                "static_threshold": static_atr_threshold,
+                                "vol_gate_mode": vol_gate_mode,
+                                "source": "paper_pipeline",
+                            },
+                        )
 
                     if os.getenv("BR_COMPRESSION_WATCH_ENABLED", "1") == "1":
                         from finam_core.risk.br_compression_watch import BrCompressionWatch
@@ -3521,6 +3541,26 @@ class PaperTradingPipeline:
                                     f"mode={vol_gate_mode}",
                                     f"price={round(float(price or 0.0), 6)}",
                                     flush=True,
+                                )
+                                # Русский комментарий: сохраняем pre-signal compression watch в аудит.
+                                self._save_pre_signal_block_audit_v1(
+                                    symbol=str(sym),
+                                    strategy=self._strategy_name_for_symbol(str(sym)),
+                                    timeframe=str(getattr(self, "timeframe", None) or st.get("timeframe") or "M5"),
+                                    block_type="COMPRESSION_WATCH",
+                                    block_reason=str(compression_decision.reason),
+                                    price=price,
+                                    atr=getattr(regime, "atr", None),
+                                    atr_pct=compression_decision.atr_pct,
+                                    threshold=compression_decision.threshold,
+                                    compression_ratio=compression_decision.compression_ratio,
+                                    regime=str(getattr(regime, "type", None) or ""),
+                                    trend=str(getattr(regime, "trend", None) or ""),
+                                    volatility=str(getattr(regime, "volatility", None) or ""),
+                                    payload={
+                                        "vol_gate_mode": vol_gate_mode,
+                                        "source": "paper_pipeline",
+                                    },
                                 )
 
                     return
@@ -5826,6 +5866,55 @@ class PaperTradingPipeline:
                 heartbeat_sec=300,
             )
             return current_symbols
+
+    def _save_pre_signal_block_audit_v1(
+        self,
+        *,
+        symbol: str,
+        block_type: str,
+        block_reason: str,
+        strategy: str | None = None,
+        timeframe: str | None = None,
+        price=None,
+        atr=None,
+        atr_pct=None,
+        threshold=None,
+        compression_ratio=None,
+        regime: str | None = None,
+        trend: str | None = None,
+        volatility: str | None = None,
+        payload: dict | None = None,
+    ) -> None:
+        """Русский комментарий: сохраняет pre-signal блокировки без влияния на execution."""
+        try:
+            audit = getattr(self, "runtime_guard_pre_signal_block_audit_v1", None)
+            if audit is None:
+                from finam_core.analytics.runtime_guard_pre_signal_block_audit_v1 import (
+                    RuntimeGuardPreSignalBlockAuditV1,
+                )
+
+                audit = RuntimeGuardPreSignalBlockAuditV1()
+                audit.migrate()
+                setattr(self, "runtime_guard_pre_signal_block_audit_v1", audit)
+
+            audit.save(
+                symbol=symbol,
+                strategy=strategy,
+                timeframe=timeframe,
+                block_type=block_type,
+                block_reason=block_reason,
+                price=price,
+                atr=atr,
+                atr_pct=atr_pct,
+                threshold=threshold,
+                compression_ratio=compression_ratio,
+                regime=regime,
+                trend=trend,
+                volatility=volatility,
+                payload=payload or {},
+            )
+        except Exception as exc:
+            print(f"RUNTIME_GUARD_PRE_SIGNAL_BLOCK_AUDIT_FAILED error={exc}", flush=True)
 
     def _strategy_name_for_symbol(self, symbol: str) -> str:
         """Русский комментарий: возвращает имя стратегии с учётом dynamic_watchlist."""
