@@ -281,6 +281,16 @@ def main() -> int:
         ],
         [
             sys.executable,
+            "src/scripts/analytics/build_regime_snapshots_v2.py",
+            "--date",
+            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
+            "--migrate",
+            "--save",
+        ],
+
+
+        [
+            sys.executable,
             "src/scripts/analytics/build_trade_context_envelopes.py",
             "--date",
             datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
