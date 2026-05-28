@@ -15,6 +15,7 @@ import os
 from typing import Any
 
 from finam_core.policy.br_filtered_v1 import BrFilteredV1Policy, BrRegimeContext
+from finam_core.policy.br_filtered_v2 import BrFilteredV2Policy, BrFilteredV2Context
 from finam_core.storage.postgres_logger import PostgresLogger
 from finam_core.execution.oms_dispatch_guard import OmsDispatchGuard
 from finam_core.futures.futures_access_gate import FuturesAccessGate
@@ -152,8 +153,8 @@ class ExecutionDispatcher:
 
 
 
-    def _apply_br_filtered_v1_gate(self, intent: dict, market_state: dict | None = None) -> tuple[bool, str, dict]:
-        """Русский комментарий: execution-gate для Brent на основе regime/session policy v1."""
+    def _apply_br_filtered_gate(self, intent: dict, market_state: dict | None = None) -> tuple[bool, str, dict]:
+        """Русский комментарий: version-aware execution-gate для Brent."""
         symbol = str(intent.get("symbol") or "")
         if not symbol.startswith("BR"):
             return True, "not_brent", {}
@@ -191,7 +192,47 @@ class ExecutionDispatcher:
         )
         side = str(intent.get("side") or "").upper()
 
-        ctx = BrRegimeContext(
+        version = os.getenv("BR_FILTER_POLICY_VERSION", "v1").strip().lower()
+
+        if version == "v2":
+            confidence_raw = (
+                intent.get("confidence")
+                or features.get("confidence")
+                or features.get("regime_confidence")
+                or state.get("confidence")
+                or state.get("regime_confidence")
+                or 0.0
+            )
+            try:
+                confidence = float(confidence_raw or 0.0)
+            except Exception:
+                confidence = 0.0
+
+            ctx_v2 = BrFilteredV2Context(
+                symbol=symbol,
+                timeframe=timeframe,
+                side=side,
+                regime=str(regime),
+                volatility_regime=str(volatility_regime),
+                session_type=str(session_type),
+                confidence=confidence,
+            )
+            decision = BrFilteredV2Policy().evaluate(ctx_v2)
+            details = {
+                "policy_version": "v2",
+                "symbol": ctx_v2.symbol,
+                "timeframe": ctx_v2.timeframe,
+                "side": ctx_v2.side,
+                "regime": ctx_v2.regime,
+                "volatility_regime": ctx_v2.volatility_regime,
+                "session_type": ctx_v2.session_type,
+                "confidence": ctx_v2.confidence,
+                "size_multiplier": decision.size_multiplier,
+                "reason": decision.reason,
+            }
+            return decision.allowed, decision.reason, details
+
+        ctx_v1 = BrRegimeContext(
             symbol=symbol,
             timeframe=timeframe,
             side=side,
@@ -200,16 +241,15 @@ class ExecutionDispatcher:
             session_type=str(session_type),
         )
 
-        policy = BrFilteredV1Policy()
-        allowed, reason = policy.allow(ctx)
-
+        allowed, reason = BrFilteredV1Policy().allow(ctx_v1)
         details = {
-            "symbol": ctx.symbol,
-            "timeframe": ctx.timeframe,
-            "side": ctx.side,
-            "regime": ctx.regime,
-            "volatility_regime": ctx.volatility_regime,
-            "session_type": ctx.session_type,
+            "policy_version": "v1",
+            "symbol": ctx_v1.symbol,
+            "timeframe": ctx_v1.timeframe,
+            "side": ctx_v1.side,
+            "regime": ctx_v1.regime,
+            "volatility_regime": ctx_v1.volatility_regime,
+            "session_type": ctx_v1.session_type,
             "reason": reason,
         }
         return allowed, reason, details
@@ -288,10 +328,10 @@ class ExecutionDispatcher:
                 }
 
             # Русский комментарий: BR_FILTERED_V1 блокирует неподтвержденные Brent-сигналы до runtime/risk/OMS.
-            br_allowed, br_reason, br_details = self._apply_br_filtered_v1_gate(intent, market_state or {})
+            br_allowed, br_reason, br_details = self._apply_br_filtered_gate(intent, market_state or {})
             if not br_allowed:
                 print(
-                    f"BR_FILTERED_V1_BLOCK symbol={br_details.get('symbol')} "
+                    f"BR_FILTERED_POLICY_BLOCK policy_version={br_details.get('policy_version')} symbol={br_details.get('symbol')} "
                     f"side={br_details.get('side')} "
                     f"regime={br_details.get('regime')} "
                     f"volatility={br_details.get('volatility_regime')} "
@@ -314,7 +354,7 @@ class ExecutionDispatcher:
                 return {
                     "status": "REJECTED",
                     "reason": br_reason,
-                    "policy": "BR_FILTERED_V1",
+                    "policy": f"BR_FILTERED_{str(br_details.get('policy_version', 'v1')).upper()}",
                     "details": br_details,
                     "symbol": intent.get("symbol"),
                     "intent": intent,
