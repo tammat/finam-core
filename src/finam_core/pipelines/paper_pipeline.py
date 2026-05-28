@@ -3982,6 +3982,18 @@ class PaperTradingPipeline:
             if getattr(self, "signal_repository", None) is not None:
                 signal_id = self.signal_repository.save_signal(intent)
                 intent["signal_id"] = signal_id
+
+                # Русский комментарий: runtime guard observability — только логирование, без блокировки исполнения.
+                try:
+                    hook = getattr(self, "runtime_guard_observability_hook_v1", None)
+                    if hook is None:
+                        from finam_core.analytics.runtime_guard_observability_hook_v1 import RuntimeGuardObservabilityHookV1
+                        hook = RuntimeGuardObservabilityHookV1()
+                        setattr(self, "runtime_guard_observability_hook_v1", hook)
+
+                    hook.observe_signal(intent)
+                except Exception as exc:
+                    print(f"RUNTIME_GUARD_OBSERVABILITY_FAILED error={exc}", flush=True)
         except Exception as exc:
             LOG.warning("PIPE_SIGNAL_SAVE_FAILED error=%s", exc)
 
