@@ -8,6 +8,10 @@ from finam_core.notifications.notification_dispatch_service_v1 import (
     NotificationDispatchServiceV1,
 )
 from finam_core.notifications.notification_router_v1 import NotificationEventV1
+from finam_core.notifications.risk_event_audit_storage_v1 import (
+    RiskEventAuditRecordV1,
+    RiskEventAuditStorageV1,
+)
 
 
 @dataclass(frozen=True)
@@ -27,27 +31,39 @@ class RiskNotificationInputV1:
 class RiskNotificationBridgeV1:
     """
     Русский комментарий:
-    Мост RiskDecision/RiskEvent -> NotificationEventV1.
+    Мост RiskDecision/RiskEvent -> NotificationEventV1 -> audit storage.
 
     Не принимает risk decision.
     Не меняет execution flow.
     Не отправляет заявки.
-    Только формирует operational alert и передает его в notification dispatcher.
+    Только формирует operational alert, dispatch result и audit trail.
     """
 
     def __init__(
         self,
         *,
         dispatcher: NotificationDispatchServiceV1 | None = None,
+        audit_storage: RiskEventAuditStorageV1 | None = None,
+        audit_enabled: bool = True,
     ) -> None:
         self.dispatcher = dispatcher or NotificationDispatchServiceV1()
+        self.audit_storage = audit_storage or RiskEventAuditStorageV1()
+        self.audit_enabled = audit_enabled
 
     def dispatch_risk_event(
         self,
         risk_event: RiskNotificationInputV1,
     ) -> NotificationDispatchResultV1:
         event = self.to_notification_event(risk_event)
-        return self.dispatcher.dispatch(event)
+        result = self.dispatcher.dispatch(event)
+
+        if self.audit_enabled:
+            self._save_audit(
+                risk_event=risk_event,
+                dispatch_result=result,
+            )
+
+        return result
 
     def to_notification_event(
         self,
@@ -70,6 +86,54 @@ class RiskNotificationBridgeV1:
             title=title,
             body=body,
         )
+
+    def _save_audit(
+        self,
+        *,
+        risk_event: RiskNotificationInputV1,
+        dispatch_result: NotificationDispatchResultV1,
+    ) -> None:
+        try:
+            self.audit_storage.ensure_schema()
+
+            inserted_id = self.audit_storage.insert_event(
+                RiskEventAuditRecordV1(
+                    category=dispatch_result.category,
+                    severity=dispatch_result.severity,
+                    symbol=risk_event.symbol,
+                    strategy=risk_event.strategy,
+                    timeframe=risk_event.timeframe,
+                    decision=risk_event.decision,
+                    reason=risk_event.reason,
+                    value=risk_event.value,
+                    exposure=risk_event.exposure,
+                    risk_limit=risk_event.risk_limit,
+                    routed=dispatch_result.routed,
+                    channel=dispatch_result.channel,
+                    skipped_reason=dispatch_result.skipped_reason,
+                    raw={
+                        "source": "risk_notification_bridge_v1",
+                        "raw": risk_event.raw or {},
+                    },
+                )
+            )
+
+            print(
+                "RISK_NOTIFICATION_AUDIT_SAVED",
+                f"id={inserted_id}",
+                f"symbol={risk_event.symbol}",
+                f"severity={dispatch_result.severity}",
+                f"routed={dispatch_result.routed}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(
+                "RISK_NOTIFICATION_AUDIT_FAILED",
+                f"error={type(exc).__name__}:{exc}",
+                f"symbol={risk_event.symbol}",
+                flush=True,
+            )
 
     @staticmethod
     def _normalize_severity(severity: str) -> str:
