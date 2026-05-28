@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from finam_core.notifications.notification_dedup_cache_v1 import NotificationDedupCacheV1
+from finam_core.notifications.notification_policy_layer_v1 import NotificationPolicyLayerV1
 from finam_core.notifications.telegram_notifier_v1 import TelegramNotifierV1
 
 
@@ -30,7 +31,7 @@ class NotificationRouterV1:
     """
     Русский комментарий:
     Центральный router уведомлений:
-    severity filter, quiet mode, dedup и transport dispatch.
+    policy, severity filter, quiet mode, dedup и transport dispatch.
     """
 
     ALLOWED_SEVERITIES = {
@@ -47,9 +48,11 @@ class NotificationRouterV1:
         allowed_severities: Iterable[str] | None = None,
         quiet_mode: bool = False,
         dedup_cache: NotificationDedupCacheV1 | None = None,
+        policy_layer: NotificationPolicyLayerV1 | None = None,
     ) -> None:
         self.notifier = notifier or TelegramNotifierV1()
         self.dedup_cache = dedup_cache or NotificationDedupCacheV1()
+        self.policy_layer = policy_layer or NotificationPolicyLayerV1()
         self.quiet_mode = quiet_mode
 
         if allowed_severities is None:
@@ -108,6 +111,30 @@ class NotificationRouterV1:
                 accepted=True,
                 routed=False,
                 skipped_reason="severity_filtered",
+                channel="NONE",
+                severity=event.severity,
+                symbol=event.symbol,
+            )
+
+        policy_decision = self.policy_layer.evaluate(
+            severity=event.severity,
+            category=event.category,
+        )
+
+        if not policy_decision.allowed:
+            print(
+                "NOTIFICATION_ROUTER_SKIP",
+                f"reason={policy_decision.reason}",
+                f"severity={event.severity}",
+                f"symbol={event.symbol}",
+                f"quiet_hours_active={policy_decision.quiet_hours_active}",
+                f"aggregate_only={policy_decision.aggregate_only}",
+                flush=True,
+            )
+            return NotificationRouterResultV1(
+                accepted=True,
+                routed=False,
+                skipped_reason=policy_decision.reason,
                 channel="NONE",
                 severity=event.severity,
                 symbol=event.symbol,
