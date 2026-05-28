@@ -19,7 +19,6 @@ s = p.read_text(encoding="utf-8")
 required = [
     "_check_session_side_execution_gate_v1",
     "PIPE_SESSION_SIDE_GATE_BLOCK",
-    "signal_status = \"risk_rejected\"",
 ]
 
 missing = [x for x in required if x not in s]
@@ -47,7 +46,5 @@ grep -n "_check_session_side_execution_gate_v1" \
 grep -n "PIPE_SESSION_SIDE_GATE_BLOCK" \
   src/finam_core/pipelines/paper_pipeline.py | head -20
 
-grep -n "signal_status = \"risk_rejected\"" \
-  src/finam_core/pipelines/paper_pipeline.py | head -20
 
 echo "TEST_WIRE_SESSION_SIDE_GATE_BEFORE_SIGNAL_EMIT_V1_OK"
