@@ -29,6 +29,7 @@ from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
 from finam_core.execution.session_side_execution_gate_v1 import SessionSideExecutionGateV1
+from finam_core.execution.edge_gate_strict_mode_v1 import EdgeGateStrictModeV1
 from finam_core.execution.session_side_gate_runtime_audit_v1 import SessionSideGateRuntimeAuditV1
 from finam_core.risk.context_builders import build_risk_context
 import json
@@ -615,6 +616,10 @@ class PaperTradingPipeline:
         self.correlation_risk = CorrelationRiskEngine()
         self.risk_recorder = RiskDecisionRecorder(self.pg_logger)
         self.risk_router = RiskRouter(self)
+
+        self.edge_gate_strict_mode_v1 = EdgeGateStrictModeV1(
+            "runtime/edge_gate_strict_mode_v1.json"
+        )
         self.signal_router = QuoteSignalRouter(self.quote_signal_processor)
         self.signal_intent_router = SignalIntentRouter()
         # Русский комментарий: отдельный router валидирует уже сформированный raw_intent.
@@ -4338,6 +4343,33 @@ class PaperTradingPipeline:
             if gate_side in {'BUY', 'SELL'}:
                 if not self._check_session_side_execution_gate_v1(symbol=str(sym), side=gate_side):
                     return
+
+                try:
+                    strict_decision = self.edge_gate_strict_mode_v1.evaluate(
+                        symbol=str(sym),
+                        side=str(gate_side),
+                    )
+                    print(
+                        "PIPE_EDGE_GATE_STRICT_MODE",
+                        f"symbol={sym}",
+                        f"side={gate_side}",
+                        f"allowed={strict_decision.allowed}",
+                        f"reason={strict_decision.reason}",
+                        f"expectancy={strict_decision.expectancy_points}",
+                        f"closed_trades={strict_decision.closed_trades}",
+                        f"matched_symbol={strict_decision.matched_symbol}",
+                        flush=True,
+                    )
+                    if not strict_decision.allowed:
+                        return
+                except Exception as exc:
+                    print(
+                        "PIPE_EDGE_GATE_STRICT_MODE_FAILED_OPEN",
+                        f"symbol={sym}",
+                        f"side={gate_side}",
+                        f"error={type(exc).__name__}:{exc}",
+                        flush=True,
+                    )
 
             decision = self.risk_router.route(
                 RiskRouteInput(

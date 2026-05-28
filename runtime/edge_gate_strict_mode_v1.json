@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "strict_expectancy_threshold": 0.0,
+  "strict_min_closed_trades": 30,
+  "allow_only_positive_edge": true,
+  "sources": [
+    "runtime/session_side_execution_gate_v1.json"
+  ]
+}
