@@ -53,6 +53,41 @@ def _fmt_num(value) -> str:
         return str(value)
 
 
+
+def _payload_explainability(row: dict) -> dict:
+    value = row.get("explainability")
+    return value if isinstance(value, dict) else {}
+
+
+def _основание_из_payload_или_fallback(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("основание_решения")
+    if value:
+        return str(value)
+    return _основание_решения(row)
+
+
+def _статус_выборки_из_payload_или_fallback(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("статус_выборки")
+    if value:
+        return str(value)
+    return _статус_выборки(row)
+
+
+def _решение_из_payload_или_fallback(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("решение")
+    if value:
+        return str(value)
+    return _решение_рус(row)
+
+
+def _версия_объяснения(row: dict) -> str:
+    payload = _payload_explainability(row)
+    return str(payload.get("версия_объяснения") or "fallback_runtime_governance_explainability_v1")
+
+
 def _основание_решения(row: dict) -> str:
     action = str(row.get("action") or "").upper()
     reason = str(row.get("reason") or "")
@@ -122,7 +157,8 @@ select
     count(*) filter (where allowed is false)::int as blocked_rows,
     avg(expectancy_points)::float as avg_expectancy_points,
     min(expectancy_points)::float as min_expectancy_points,
-    max(expectancy_points)::float as max_expectancy_points
+    max(expectancy_points)::float as max_expectancy_points,
+    (jsonb_agg(raw_json->'explainability') filter (where raw_json ? 'explainability'))->0 as explainability
 from runtime_governance_live_accumulation_v1
 where created_at >= now() - (%s::text)::interval
 group by
@@ -152,7 +188,8 @@ select
     count(*)::int as total_rows,
     count(*) filter (where allowed is true)::int as allowed_rows,
     count(*) filter (where allowed is false)::int as blocked_rows,
-    avg(expectancy_points)::float as avg_expectancy_points
+    avg(expectancy_points)::float as avg_expectancy_points,
+    (jsonb_agg(raw_json->'explainability') filter (where raw_json ? 'explainability'))->0 as explainability
 from runtime_governance_live_accumulation_v1
 where created_at >= now() - (%s::text)::interval
 group by
@@ -181,7 +218,8 @@ select
     count(*)::int as total_rows,
     count(*) filter (where allowed is true)::int as allowed_rows,
     count(*) filter (where allowed is false)::int as blocked_rows,
-    avg(expectancy_points)::float as avg_expectancy_points
+    avg(expectancy_points)::float as avg_expectancy_points,
+    (jsonb_agg(raw_json->'explainability') filter (where raw_json ? 'explainability'))->0 as explainability
 from runtime_governance_live_accumulation_v1
 where created_at >= now() - (%s::text)::interval
 group by
@@ -230,9 +268,10 @@ def main() -> int:
             "RUNTIME_GOVERNANCE_EXPLAINABILITY_SUMMARY",
             f"тип={'реальные_события' if row['kind'] == 'real' else 'диагностические_события' if row['kind'] == 'forced' else row['kind']}",
             f"источник={row['source']}",
-            f"решение={_решение_рус(row)}",
-            f"основание={_основание_решения(row)}",
-            f"статус_выборки={_статус_выборки(row)}",
+            f"решение={_решение_из_payload_или_fallback(row)}",
+            f"основание={_основание_из_payload_или_fallback(row)}",
+            f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
+            f"версия_объяснения={_версия_объяснения(row)}",
             f"action={row.get('action')}",
             f"reason={row.get('reason')}",
             f"session_action={row.get('session_action')}",
@@ -255,9 +294,10 @@ def main() -> int:
             f"источник={row['source']}",
             f"час_мск={row.get('hour_msk')}",
             f"сторона={row.get('side')}",
-            f"решение={_решение_рус(row)}",
-            f"основание={_основание_решения(row)}",
-            f"статус_выборки={_статус_выборки(row)}",
+            f"решение={_решение_из_payload_или_fallback(row)}",
+            f"основание={_основание_из_payload_или_fallback(row)}",
+            f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
+            f"версия_объяснения={_версия_объяснения(row)}",
             f"событий={row['total_rows']}",
             f"разрешено={row['allowed_rows']}",
             f"заблокировано={row['blocked_rows']}",
@@ -273,9 +313,10 @@ def main() -> int:
             f"источник={row['source']}",
             f"инструмент={row.get('symbol')}",
             f"сторона={row.get('side')}",
-            f"решение={_решение_рус(row)}",
-            f"основание={_основание_решения(row)}",
-            f"статус_выборки={_статус_выборки(row)}",
+            f"решение={_решение_из_payload_или_fallback(row)}",
+            f"основание={_основание_из_payload_или_fallback(row)}",
+            f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
+            f"версия_объяснения={_версия_объяснения(row)}",
             f"событий={row['total_rows']}",
             f"разрешено={row['allowed_rows']}",
             f"заблокировано={row['blocked_rows']}",
