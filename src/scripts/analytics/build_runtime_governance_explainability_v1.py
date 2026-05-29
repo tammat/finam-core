@@ -161,6 +161,10 @@ select
     (jsonb_agg(raw_json->'explainability') filter (where raw_json ? 'explainability'))->0 as explainability
 from runtime_governance_live_accumulation_v1
 where created_at >= now() - (%s::text)::interval
+  and coalesce(raw_json->>'source', '') in (
+      'paper_pipeline_phase2_runtime',
+      'forced_runtime_governance_observation_v1'
+  )
 group by
     coalesce(raw_json->>'source', 'unknown'),
     kind,
@@ -192,6 +196,10 @@ select
     (jsonb_agg(raw_json->'explainability') filter (where raw_json ? 'explainability'))->0 as explainability
 from runtime_governance_live_accumulation_v1
 where created_at >= now() - (%s::text)::interval
+  and coalesce(raw_json->>'source', '') in (
+      'paper_pipeline_phase2_runtime',
+      'forced_runtime_governance_observation_v1'
+  )
 group by
     coalesce(raw_json->>'source', 'unknown'),
     kind,
@@ -222,6 +230,10 @@ select
     (jsonb_agg(raw_json->'explainability') filter (where raw_json ? 'explainability'))->0 as explainability
 from runtime_governance_live_accumulation_v1
 where created_at >= now() - (%s::text)::interval
+  and coalesce(raw_json->>'source', '') in (
+      'paper_pipeline_phase2_runtime',
+      'forced_runtime_governance_observation_v1'
+  )
 group by
     coalesce(raw_json->>'source', 'unknown'),
     kind,
