@@ -3068,7 +3068,6 @@ class PaperTradingPipeline:
                     )
                     if (
                         os.getenv("RUNTIME_GOVERNANCE_OBSERVATION_BYPASS_SESSION_PREOPEN", "0") == "1"
-                        and str(phase) == "preopen"
                     ):
                         print(
                             "PIPE_SESSION_BLOCK_BYPASS_OBSERVATION",
