@@ -49,6 +49,7 @@ for i in $(seq 1 "${RUNS}"); do
     IMPULSE_MIN=0 \
     PIPE_VOL_GATE_OK_LOG_EVERY_SEC=30 \
     PIPE_VOL_LOW_BLOCK_LOG_EVERY_SEC=30 \
+    RUNTIME_GOVERNANCE_OBSERVATION_BYPASS_SESSION_PREOPEN=1 \
     python src/scripts/run_market_pipeline.py \
       --symbol "${SYMBOL}" \
       --strategy "${STRATEGY}" \

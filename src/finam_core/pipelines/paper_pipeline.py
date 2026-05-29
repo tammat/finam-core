@@ -3066,7 +3066,18 @@ class PaperTradingPipeline:
                         f"PIPE_SESSION_BLOCK phase={session.get('phase')}",
                         heartbeat_sec=float(os.getenv("SESSION_BLOCK_LOG_SEC", "300")),
                     )
-                    return
+                    if (
+                        os.getenv("RUNTIME_GOVERNANCE_OBSERVATION_BYPASS_SESSION_PREOPEN", "0") == "1"
+                        and str(phase) == "preopen"
+                    ):
+                        print(
+                            "PIPE_SESSION_BLOCK_BYPASS_OBSERVATION",
+                            "phase=preopen",
+                            "reason=runtime_governance_population",
+                            flush=True,
+                        )
+                    else:
+                        return
 
 
         # === FIX CRITICAL (GLOBAL PRICE) ===
