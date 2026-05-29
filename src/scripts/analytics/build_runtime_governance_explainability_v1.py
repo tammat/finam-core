@@ -88,6 +88,82 @@ def _версия_объяснения(row: dict) -> str:
     return str(payload.get("версия_объяснения") or "fallback_runtime_governance_explainability_v1")
 
 
+def _причина_понятно(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("причина")
+    if value:
+        return str(value)
+
+    basis = _основание_из_payload_или_fallback(row)
+    if basis == "положительное_матожидание":
+        return "Исторически это окно показывает положительный результат."
+    if basis == "отрицательное_матожидание":
+        return "Исторически это окно показывает отрицательный результат."
+    if basis == "недостаточно_подтвержденного_преимущества":
+        return "Недостаточно статистики для подтверждения преимущества."
+    if basis == "сессионная_блокировка":
+        return "Сессионный фильтр запрещает вход в этом окне."
+    return "Решение принято по правилам Runtime Governance."
+
+
+def _уровень_уверенности(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("уровень_уверенности")
+    if value:
+        return str(value)
+
+    total_rows = int(row.get("total_rows") or 0)
+    if total_rows >= 100:
+        return "высокая"
+    if total_rows >= 30:
+        return "средняя"
+    if total_rows >= 10:
+        return "низкая"
+    return "очень_низкая"
+
+
+def _сила_преимущества(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("сила_преимущества")
+    if value:
+        return str(value)
+
+    expectancy = row.get("avg_expectancy_points")
+    if expectancy is None:
+        return "не_оценено"
+
+    try:
+        exp = float(expectancy)
+    except Exception:
+        return "не_оценено"
+
+    if exp < 0:
+        return "отрицательное"
+    if exp >= 0.10:
+        return "сильное"
+    if exp >= 0.03:
+        return "умеренное"
+    if exp > 0:
+        return "слабое"
+    return "нейтральное"
+
+
+def _доказательства(row: dict) -> str:
+    payload = _payload_explainability(row)
+    evidence = payload.get("доказательства")
+    if isinstance(evidence, dict):
+        closed = evidence.get("закрытых_сделок")
+        expectancy = evidence.get("матожидание_пункты")
+        sample = evidence.get("статус_выборки")
+        return f"закрытых_сделок={closed}; матожидание={_fmt_num(expectancy)}; выборка={sample}"
+
+    return (
+        f"событий={row.get('total_rows')}; "
+        f"матожидание={_fmt_num(row.get('avg_expectancy_points'))}; "
+        f"выборка={_статус_выборки_из_payload_или_fallback(row)}"
+    )
+
+
 def _основание_решения(row: dict) -> str:
     action = str(row.get("action") or "").upper()
     reason = str(row.get("reason") or "")
@@ -284,6 +360,10 @@ def main() -> int:
             f"основание={_основание_из_payload_или_fallback(row)}",
             f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
             f"версия_объяснения={_версия_объяснения(row)}",
+            f"причина={_причина_понятно(row)}",
+            f"уровень_уверенности={_уровень_уверенности(row)}",
+            f"сила_преимущества={_сила_преимущества(row)}",
+            f"доказательства={_доказательства(row)}",
             f"action={row.get('action')}",
             f"reason={row.get('reason')}",
             f"session_action={row.get('session_action')}",
@@ -310,6 +390,10 @@ def main() -> int:
             f"основание={_основание_из_payload_или_fallback(row)}",
             f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
             f"версия_объяснения={_версия_объяснения(row)}",
+            f"причина={_причина_понятно(row)}",
+            f"уровень_уверенности={_уровень_уверенности(row)}",
+            f"сила_преимущества={_сила_преимущества(row)}",
+            f"доказательства={_доказательства(row)}",
             f"событий={row['total_rows']}",
             f"разрешено={row['allowed_rows']}",
             f"заблокировано={row['blocked_rows']}",
@@ -329,6 +413,10 @@ def main() -> int:
             f"основание={_основание_из_payload_или_fallback(row)}",
             f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
             f"версия_объяснения={_версия_объяснения(row)}",
+            f"причина={_причина_понятно(row)}",
+            f"уровень_уверенности={_уровень_уверенности(row)}",
+            f"сила_преимущества={_сила_преимущества(row)}",
+            f"доказательства={_доказательства(row)}",
             f"событий={row['total_rows']}",
             f"разрешено={row['allowed_rows']}",
             f"заблокировано={row['blocked_rows']}",
