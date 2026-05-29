@@ -5994,7 +5994,10 @@ class PaperTradingPipeline:
         except Exception:
             normalized_level = str(level)
 
-        key = f"{symbol}:{str(side).upper()}:{normalized_level}"
+        # Русский комментарий:
+        # v2: dedup по instrument+side, потому что breakout level может "ползти"
+        # на каждом тике и создавать шум без нового торгового смысла.
+        key = f"{symbol}:{str(side).upper()}"
 
         cache = getattr(self, "_breakout_detected_log_cache_v1", None)
         if cache is None:
