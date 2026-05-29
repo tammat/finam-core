@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import logging
 import requests
+from finam_core.notifications.telegram_actionable_filter_v1 import TelegramActionableFilterV1
 
 LOG = logging.getLogger(__name__)
 
@@ -37,6 +38,14 @@ class TradeSignalNotifier:
 
 
     def send_text(self, text: str) -> bool:
+        if not TelegramActionableFilterV1().allows(text):
+            print(
+                "TELEGRAM_ACTIONABLE_FILTER_DROP",
+                f"reason={TelegramActionableFilterV1().reason(text)}",
+                flush=True,
+            )
+            return False
+
         """Русский комментарий: отправляет произвольный текст через отдельного торгового Telegram-бота."""
         if not self.enabled:
             return False

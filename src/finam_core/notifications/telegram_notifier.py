@@ -18,6 +18,7 @@ import time
 from collections import deque
 from dotenv import load_dotenv
 from pathlib import Path
+from finam_core.notifications.telegram_actionable_filter_v1 import TelegramActionableFilterV1
 
 # === LOAD ENV (гарантировано работает везде) ===
 # Русский комментарий: systemd env хранится в deploy/env/.env; корневой .env может быть закрыт правами.
@@ -47,6 +48,14 @@ class TelegramNotifier:
     # =========================
 
     def _is_empty_text(self, text) -> bool:
+        if not TelegramActionableFilterV1().allows(text):
+            print(
+                "TELEGRAM_ACTIONABLE_FILTER_DROP",
+                f"reason={TelegramActionableFilterV1().reason(text)}",
+                flush=True,
+            )
+            return False
+
         """Русский комментарий: защита от пустых Telegram-сообщений на любом уровне отправки."""
         return text is None or not str(text).strip()
     def _is_empty_payload(self, payload: dict) -> bool:
