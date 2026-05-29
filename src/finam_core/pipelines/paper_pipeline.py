@@ -7224,7 +7224,7 @@ class PaperTradingPipeline:
         return float(raw or 0.0)
 
 
-    def _build_runtime_governance_explainability_payload_v1(self, phase2_decision) -> dict:
+    def _build_runtime_governance_explainability_payload_v2(self, phase2_decision) -> dict:
         """Русский комментарий: формирует русскоязычное объяснение решения Runtime Governance."""
         try:
             action = str(getattr(phase2_decision, "action", "") or "").upper()
@@ -7272,24 +7272,74 @@ class PaperTradingPipeline:
             else:
                 статус_выборки = "нет_выборки"
 
+            if closed_trades_int >= 100:
+                уровень_уверенности = "высокая"
+            elif closed_trades_int >= 30:
+                уровень_уверенности = "средняя"
+            elif closed_trades_int >= 10:
+                уровень_уверенности = "низкая"
+            else:
+                уровень_уверенности = "очень_низкая"
+
+            try:
+                expectancy_float = float(expectancy) if expectancy is not None else None
+            except Exception:
+                expectancy_float = None
+
+            if expectancy_float is None:
+                сила_преимущества = "не_оценено"
+            elif expectancy_float < 0:
+                сила_преимущества = "отрицательное"
+            elif expectancy_float >= 0.10:
+                сила_преимущества = "сильное"
+            elif expectancy_float >= 0.03:
+                сила_преимущества = "умеренное"
+            elif expectancy_float > 0:
+                сила_преимущества = "слабое"
+            else:
+                сила_преимущества = "нейтральное"
+
+            if основание == "положительное_матожидание":
+                причина_понятно = "Исторически это окно показывает положительный результат."
+            elif основание == "отрицательное_матожидание":
+                причина_понятно = "Исторически это окно показывает отрицательный результат."
+            elif основание == "недостаточно_подтвержденного_преимущества":
+                причина_понятно = "Недостаточно статистики для подтверждения преимущества."
+            elif основание == "сессионная_блокировка":
+                причина_понятно = "Сессионный фильтр запрещает вход в этом окне."
+            elif основание == "строгий_фильтр_governance":
+                причина_понятно = "Строгий фильтр Governance не подтвердил качество сигнала."
+            else:
+                причина_понятно = "Решение принято по правилам Runtime Governance."
+
             return {
-                "версия_объяснения": "runtime_governance_explainability_payload_v1",
+                "версия_объяснения": "runtime_governance_explainability_payload_v2",
                 "решение": решение,
                 "основание_решения": основание,
+                "причина": причина_понятно,
                 "статус_выборки": статус_выборки,
+                "уровень_уверенности": уровень_уверенности,
+                "сила_преимущества": сила_преимущества,
                 "описание": (
-                    f"{решение}: {основание}; "
-                    f"reason={reason}; session_action={session_action}; "
-                    f"strict_reason={strict_reason}; decay_state={decay_state}"
+                    f"{решение}: {причина_понятно} "
+                    f"Уверенность: {уровень_уверенности}. "
+                    f"Преимущество: {сила_преимущества}."
                 ),
-                "метрики": {
-                    "матожидание_пункты": expectancy,
+                "доказательства": {
                     "закрытых_сделок": closed_trades,
+                    "матожидание_пункты": expectancy,
+                    "статус_выборки": статус_выборки,
+                },
+                "технические_поля": {
+                    "reason": reason,
+                    "session_action": session_action,
+                    "strict_reason": strict_reason,
+                    "decay_state": decay_state,
                 },
             }
         except Exception as exc:
             return {
-                "версия_объяснения": "runtime_governance_explainability_payload_v1",
+                "версия_объяснения": "runtime_governance_explainability_payload_v2",
                 "решение": "НЕ_ОПРЕДЕЛЕНО",
                 "основание_решения": "ошибка_формирования_объяснения",
                 "статус_выборки": "не_определено",
@@ -7327,7 +7377,7 @@ class PaperTradingPipeline:
                         "source": "paper_pipeline_phase2_runtime",
                         "pipeline": "paper_pipeline",
                         "hook": "runtime_governance_live_accumulation_v1",
-                        "explainability": self._build_runtime_governance_explainability_payload_v1(phase2_decision),
+                        "explainability": self._build_runtime_governance_explainability_payload_v2(phase2_decision),
                     },
                 )
             )
