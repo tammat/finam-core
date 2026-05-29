@@ -3761,8 +3761,8 @@ class PaperTradingPipeline:
             # BUY RETEST
             if side == "BUY":
                 if curr_price <= level + atr * 0.2:
-                    if self._pipeline_log_throttle_allow(f"PIPE_SMART_ENTRY:{sym}:BUY", 10):
-                        print("PIPE_SMART_ENTRY BUY", flush=True)
+                    if self._pipeline_log_throttle_allow(f"PIPE_SMART_ENTRY:{sym}:BUY", float(os.getenv("PIPE_SMART_ENTRY_LOG_TTL_SEC", "60"))):
+                        print(f"PIPE_SMART_ENTRY BUY symbol={sym}", flush=True)
                     entry_side = "BUY"
                 else:
                     return
@@ -3770,8 +3770,8 @@ class PaperTradingPipeline:
             # SELL RETEST
             elif side == "SELL":
                 if curr_price >= level - atr * 0.2:
-                    if self._pipeline_log_throttle_allow(f"PIPE_SMART_ENTRY:{sym}:SELL", 10):
-                        print("PIPE_SMART_ENTRY SELL", flush=True)
+                    if self._pipeline_log_throttle_allow(f"PIPE_SMART_ENTRY:{sym}:SELL", float(os.getenv("PIPE_SMART_ENTRY_LOG_TTL_SEC", "60"))):
+                        print(f"PIPE_SMART_ENTRY SELL symbol={sym}", flush=True)
                     entry_side = "SELL"
                 else:
                     return
