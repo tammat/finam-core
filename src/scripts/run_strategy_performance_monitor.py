@@ -155,7 +155,11 @@ def main() -> None:
         print(f"STRATEGY_PERFORMANCE_MONITOR_OK problems=0 control_updates={control_updates} no_telegram=1", flush=True)
         return
 
-    TelegramNotifier().send("\n".join(lines))
+    print(
+        f"STRATEGY_PERFORMANCE_MONITOR_OK problems={problem_count} control_updates={control_updates} no_telegram=1",
+        flush=True,
+    )
+    print("STRATEGY_PERFORMANCE_MONITOR_TELEGRAM_DISABLED", flush=True)
 
     print(f"STRATEGY_PERFORMANCE_MONITOR_OK problems={problem_count} control_updates={control_updates}", flush=True)
 
