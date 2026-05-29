@@ -24,7 +24,7 @@ TIMERS = [
 ]
 
 LOGS = [
-    "/opt/finam-core/logs/finam_radar_chain.log",
+    # "/opt/finam-core/logs/finam_radar_chain.log",  # disabled: radar-chain Telegram noise
     "/opt/finam-core/logs/signal_lifecycle_monitor.log",
 ]
 
