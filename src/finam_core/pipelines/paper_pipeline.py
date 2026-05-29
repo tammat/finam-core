@@ -3721,7 +3721,7 @@ class PaperTradingPipeline:
                 }
                 st["last_breakout_key"] = breakout_key
                 st["last_breakout_ts"] = now_breakout_ts
-                print(f"PIPE_BREAKOUT_DETECTED BUY level={local_high}", flush=True)
+                self._log_breakout_detected_dedup_v1(str(sym), "BUY", local_high)
 
         elif (not is_force_intent) and curr_price < local_low + atr * 0.5:
             now_breakout_ts = time.time()
@@ -3744,7 +3744,7 @@ class PaperTradingPipeline:
                 }
                 st["last_breakout_key"] = breakout_key
                 st["last_breakout_ts"] = now_breakout_ts
-                print(f"PIPE_BREAKOUT_DETECTED SELL level={local_low}", flush=True)
+                self._log_breakout_detected_dedup_v1(str(sym), "SELL", local_low)
 
         # === RETEST ENTRY ===
         pb = st.get("pending_breakout")
@@ -5977,6 +5977,46 @@ class PaperTradingPipeline:
                 heartbeat_sec=300,
             )
             return current_symbols
+
+
+    def _log_breakout_detected_dedup_v1(self, symbol: str, side: str, level, ttl_sec: float | None = None) -> None:
+        """Русский комментарий: подавляет повторный лог одного и того же breakout-кандидата."""
+        import os
+        import time
+
+        try:
+            ttl = float(ttl_sec if ttl_sec is not None else os.getenv("PIPE_BREAKOUT_DEDUP_TTL_SEC", "900"))
+        except Exception:
+            ttl = 900.0
+
+        try:
+            normalized_level = round(float(level), 6)
+        except Exception:
+            normalized_level = str(level)
+
+        key = f"{symbol}:{str(side).upper()}:{normalized_level}"
+
+        cache = getattr(self, "_breakout_detected_log_cache_v1", None)
+        if cache is None:
+            cache = {}
+            self._breakout_detected_log_cache_v1 = cache
+
+        now_ts = time.time()
+        last_ts = float(cache.get(key, 0.0) or 0.0)
+
+        if last_ts and (now_ts - last_ts) < ttl:
+            return
+
+        cache[key] = now_ts
+
+        print(
+            "PIPE_BREAKOUT_DETECTED",
+            str(side).upper(),
+            f"symbol={symbol}",
+            f"level={level}",
+            flush=True,
+        )
+
 
     def _save_pre_signal_block_audit_v1(
         self,
