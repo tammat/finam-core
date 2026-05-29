@@ -164,6 +164,41 @@ def _доказательства(row: dict) -> str:
     )
 
 
+def _вердикт_из_payload_или_fallback(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("вердикт")
+    if value:
+        return str(value)
+    decision = _решение_из_payload_или_fallback(row)
+    if decision == "РАЗРЕШЕНО":
+        return "ВХОД РАЗРЕШЕН"
+    if decision == "ЗАБЛОКИРОВАНО":
+        return "ВХОД ЗАПРЕЩЕН"
+    return "ВЕРДИКТ НЕ ОПРЕДЕЛЕН"
+
+
+def _человеческое_объяснение(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("человеческое_объяснение")
+    if value:
+        return str(value)
+    return _причина_понятно(row)
+
+
+def _источник_решения(row: dict) -> str:
+    payload = _payload_explainability(row)
+    value = payload.get("источник_решения")
+    if value:
+        return str(value)
+
+    reason = str(row.get("reason") or "")
+    if reason == "session_side_gate_block":
+        return "Сессионная статистика по направлению сделки"
+    if reason == "strict_gate_block":
+        return "Строгий фильтр Runtime Governance"
+    return "Runtime Governance"
+
+
 def _основание_решения(row: dict) -> str:
     action = str(row.get("action") or "").upper()
     reason = str(row.get("reason") or "")
@@ -360,10 +395,13 @@ def main() -> int:
             f"основание={_основание_из_payload_или_fallback(row)}",
             f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
             f"версия_объяснения={_версия_объяснения(row)}",
+            f"вердикт={_вердикт_из_payload_или_fallback(row)}",
             f"причина={_причина_понятно(row)}",
             f"уровень_уверенности={_уровень_уверенности(row)}",
             f"сила_преимущества={_сила_преимущества(row)}",
+            f"источник_решения={_источник_решения(row)}",
             f"доказательства={_доказательства(row)}",
+            f"человеческое_объяснение={_человеческое_объяснение(row)}",
             f"action={row.get('action')}",
             f"reason={row.get('reason')}",
             f"session_action={row.get('session_action')}",
@@ -390,10 +428,13 @@ def main() -> int:
             f"основание={_основание_из_payload_или_fallback(row)}",
             f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
             f"версия_объяснения={_версия_объяснения(row)}",
+            f"вердикт={_вердикт_из_payload_или_fallback(row)}",
             f"причина={_причина_понятно(row)}",
             f"уровень_уверенности={_уровень_уверенности(row)}",
             f"сила_преимущества={_сила_преимущества(row)}",
+            f"источник_решения={_источник_решения(row)}",
             f"доказательства={_доказательства(row)}",
+            f"человеческое_объяснение={_человеческое_объяснение(row)}",
             f"событий={row['total_rows']}",
             f"разрешено={row['allowed_rows']}",
             f"заблокировано={row['blocked_rows']}",
@@ -413,10 +454,13 @@ def main() -> int:
             f"основание={_основание_из_payload_или_fallback(row)}",
             f"статус_выборки={_статус_выборки_из_payload_или_fallback(row)}",
             f"версия_объяснения={_версия_объяснения(row)}",
+            f"вердикт={_вердикт_из_payload_или_fallback(row)}",
             f"причина={_причина_понятно(row)}",
             f"уровень_уверенности={_уровень_уверенности(row)}",
             f"сила_преимущества={_сила_преимущества(row)}",
+            f"источник_решения={_источник_решения(row)}",
             f"доказательства={_доказательства(row)}",
+            f"человеческое_объяснение={_человеческое_объяснение(row)}",
             f"событий={row['total_rows']}",
             f"разрешено={row['allowed_rows']}",
             f"заблокировано={row['blocked_rows']}",
