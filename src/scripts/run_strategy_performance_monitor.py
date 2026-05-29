@@ -161,7 +161,6 @@ def main() -> None:
     )
     print("STRATEGY_PERFORMANCE_MONITOR_TELEGRAM_DISABLED", flush=True)
 
-    print(f"STRATEGY_PERFORMANCE_MONITOR_OK problems={problem_count} control_updates={control_updates}", flush=True)
 
 
 if __name__ == "__main__":
