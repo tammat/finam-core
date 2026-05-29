@@ -6,7 +6,7 @@ import os
 import json
 import psycopg2
 
-from finam_core.notifications.telegram_notifier import TelegramNotifier
+# Telegram отключён для strategy performance monitor: это аналитика, не actionable сигнал.
 from finam_core.control.adaptive_strategy_controller import AdaptiveStrategyController
 
 
