@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import argparse
+import subprocess
+from typing import Any
+
+import psycopg
+from psycopg.rows import dict_row
+
+from finam_core.analytics.statistics_repository import build_psycopg_url
+
+
+EDGE_SQL = """
+SELECT
+    symbol,
+    strategy,
+    timeframe,
+    origin,
+    count(*) AS trades,
+    count(*) FILTER (WHERE net_pnl > 0) AS wins,
+    count(*) FILTER (WHERE net_pnl <= 0) AS losses,
+    round((count(*) FILTER (WHERE net_pnl > 0)::numeric / nullif(count(*), 0)), 6) AS winrate,
+    round(sum(net_pnl)::numeric, 6) AS net_pnl,
+    round(avg(net_pnl)::numeric, 6) AS expectancy,
+    round((
+        sum(net_pnl) FILTER (WHERE net_pnl > 0)
+        / nullif(abs(sum(net_pnl) FILTER (WHERE net_pnl < 0)), 0)
+    )::numeric, 6) AS profit_factor,
+    round(max(net_pnl)::numeric, 6) AS best_trade,
+    round(min(net_pnl)::numeric, 6) AS worst_trade,
+    round(avg(holding_seconds)::numeric, 2) AS avg_holding_seconds,
+    min(entry_ts) AS first_entry,
+    max(exit_ts) AS last_exit
+FROM analytics_strategy_trades_v2
+GROUP BY symbol, strategy, timeframe, origin
+ORDER BY trades DESC, net_pnl DESC;
+"""
+
+
+def git_clean() -> bool:
+    result = subprocess.run(
+        ["git", "status", "--short"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() == ""
+
+
+def classify(row: dict[str, Any], min_trades: int, min_pf: float, min_expectancy: float) -> tuple[str, str]:
+    trades = int(row.get("trades") or 0)
+    origin = str(row.get("origin") or "")
+    pf = row.get("profit_factor")
+    expectancy = float(row.get("expectancy") or 0.0)
+    net_pnl = float(row.get("net_pnl") or 0.0)
+
+    if trades < min_trades:
+        return "INSUFFICIENT_SAMPLE", "trades_below_minimum"
+
+    if origin in {"replay_br_pipeline", "historical_signal_replay"}:
+        if pf is not None and float(pf) >= min_pf and expectancy > min_expectancy and net_pnl > 0:
+            return "REPLAY_EDGE_CANDIDATE", "positive_edge_but_replay_only"
+        return "REPLAY_OBSERVE", "replay_source_not_production"
+
+    if pf is not None and float(pf) >= min_pf and expectancy > min_expectancy and net_pnl > 0:
+        return "EDGE_CANDIDATE", "production_like_positive_edge"
+
+    if net_pnl <= 0 or expectancy <= 0:
+        return "NO_EDGE", "non_positive_pnl_or_expectancy"
+
+    return "WEAK_EDGE", "positive_but_below_threshold"
+
+
+def score(row: dict[str, Any]) -> float:
+    trades = float(row.get("trades") or 0)
+    pf = float(row.get("profit_factor") or 0.0)
+    expectancy = float(row.get("expectancy") or 0.0)
+    winrate = float(row.get("winrate") or 0.0)
+
+    # Русский комментарий:
+    # Скоринг нужен только для сортировки кандидатов, не для автоматического execution.
+    sample_score = min(trades / 100.0, 1.0)
+    pf_score = min(pf / 2.0, 1.5)
+    expectancy_score = max(min(expectancy, 5.0), -5.0) / 5.0
+    winrate_score = winrate
+
+    return round((0.35 * sample_score) + (0.30 * pf_score) + (0.25 * expectancy_score) + (0.10 * winrate_score), 6)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--min-trades", type=int, default=30)
+    parser.add_argument("--min-pf", type=float, default=1.20)
+    parser.add_argument("--min-expectancy", type=float, default=0.0)
+    args = parser.parse_args()
+
+    print("EDGE_ENGINE_V2", flush=True)
+    print(
+        "EDGE_ENGINE_V2_CONFIG "
+        f"min_trades={args.min_trades} "
+        f"min_pf={args.min_pf} "
+        f"min_expectancy={args.min_expectancy} "
+        f"git_clean={git_clean()}",
+        flush=True,
+    )
+
+    with psycopg.connect(build_psycopg_url()) as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(EDGE_SQL)
+            rows = [dict(x) for x in cur.fetchall()]
+
+    summary: dict[str, int] = {}
+
+    for row in rows:
+        verdict, reason = classify(
+            row,
+            min_trades=args.min_trades,
+            min_pf=args.min_pf,
+            min_expectancy=args.min_expectancy,
+        )
+        edge_score = score(row)
+        summary[verdict] = summary.get(verdict, 0) + 1
+
+        print(
+            " ".join(
+                ["EDGE_ENGINE_V2_ROW"]
+                + [f"{k}={v}" for k, v in row.items()]
+                + [f"edge_score={edge_score}", f"verdict={verdict}", f"reason={reason}"]
+            ),
+            flush=True,
+        )
+
+    for verdict, count in sorted(summary.items()):
+        print(f"EDGE_ENGINE_V2_SUMMARY verdict={verdict} rows={count}", flush=True)
+
+    print("EDGE_ENGINE_V2_OK", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
