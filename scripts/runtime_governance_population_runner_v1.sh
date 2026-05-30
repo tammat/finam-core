@@ -9,7 +9,7 @@ set -euo pipefail
 cd /opt/finam-core
 export PYTHONPATH=src
 
-SYMBOL="${SYMBOL:-BRN6@RTSX}"
+SYMBOL="${SYMBOL:-BRM6@RTSX}"
 STRATEGY="${STRATEGY:-once_buy}"
 RUNS="${RUNS:-5}"
 RUN_SECS="${RUN_SECS:-60}"
