@@ -4872,7 +4872,25 @@ class PaperTradingPipeline:
                                 f"PIPE_ENTRY_GATE_BLOCK symbol={intent.get('symbol')} gate={gate_decision.gate} reason={gate_decision.reason}",
                                 heartbeat_sec=60,
                             )
-                            return
+
+                            # Русский комментарий:
+                            # В PAPER-режиме разрешаем advisory-only проход через entry gate
+                            # для накопления live-статистики сделок.
+                            entry_gate_advisory_only = (
+                                str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                                and os.getenv("ENTRY_GATE_ADVISORY_ONLY", "0") == "1"
+                            )
+                            if entry_gate_advisory_only:
+                                print(
+                                    "PIPE_ENTRY_GATE_ADVISORY_CONTINUE",
+                                    f"symbol={intent.get('symbol')}",
+                                    f"gate={gate_decision.gate}",
+                                    f"reason={gate_decision.reason}",
+                                    "paper_only=1",
+                                    flush=True,
+                                )
+                            else:
+                                return
 
                     if not (
                         replay_accumulation_mode
