@@ -4413,6 +4413,25 @@ class PaperTradingPipeline:
                             f"reason={phase2_decision.reason}",
                             flush=True,
                         )
+
+                        # Русский комментарий:
+                        # В PAPER-режиме разрешаем advisory-only проход для накопления live-статистики.
+                        # Governance решение сохраняется, но не останавливает PaperExecution.
+                        phase2_advisory_only = (
+                            str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                            and os.getenv("RUNTIME_GOVERNANCE_PHASE2_ADVISORY_ONLY", "0") == "1"
+                        )
+                        if phase2_advisory_only:
+                            print(
+                                "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_ADVISORY_CONTINUE",
+                                f"symbol={phase2_decision.symbol}",
+                                f"side={phase2_decision.side}",
+                                f"reason={phase2_decision.reason}",
+                                "paper_only=1",
+                                flush=True,
+                            )
+                        else:
+                            return
                         return
                 except Exception as exc:
                     print(
