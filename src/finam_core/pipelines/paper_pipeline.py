@@ -6999,6 +6999,196 @@ class PaperTradingPipeline:
             print(f"PIPE_BR_PAPER_EXEC_ERROR type={type(exc).__name__} error={exc}", flush=True)
             return False, f"PAPER_EXCEPTION:{type(exc).__name__}:{exc}"
 
+
+    def _ng_paper_pilot_profile_v1(self, *, side: str, hour_msk: int) -> tuple[int, float | None]:
+        """
+        Русский комментарий:
+        Возвращает профиль NG_CONTINUOUS + side + hour_msk для PAPER-пилота NG.
+        Используется только как фильтр перед PaperExecution, не влияет на real execution.
+        """
+        import os
+        import time
+
+        cache_ttl = float(os.getenv("NG_PAPER_PILOT_PROFILE_CACHE_TTL_SEC", "300"))
+        cache = getattr(self, "_ng_paper_pilot_profile_cache_v1", None)
+        if cache is None:
+            cache = {}
+            self._ng_paper_pilot_profile_cache_v1 = cache
+
+        key = (str(side).upper(), int(hour_msk))
+        now = time.time()
+        cached = cache.get(key)
+        if cached and now - float(cached.get("ts", 0.0)) <= cache_ttl:
+            return int(cached.get("profile_trades") or 0), cached.get("profile_expectancy")
+
+        sql = """
+        with bars as (
+            select
+                symbol,
+                ts,
+                close,
+                high,
+                low,
+                extract(hour from ts + interval '3 hours')::int as hour_msk,
+                max(high) over (
+                    partition by symbol
+                    order by ts
+                    rows between %(lookback)s preceding and 1 preceding
+                ) as prev_high,
+                min(low) over (
+                    partition by symbol
+                    order by ts
+                    rows between %(lookback)s preceding and 1 preceding
+                ) as prev_low,
+                lead(close, %(horizon)s) over (
+                    partition by symbol
+                    order by ts
+                ) as future_close
+            from market_bars
+            where timeframe = %(timeframe)s
+              and symbol like 'NG%%@RTSX'
+        ),
+        signals as (
+            select
+                symbol,
+                ts,
+                hour_msk,
+                close as entry_close,
+                future_close,
+                case
+                    when prev_high is not null and close > prev_high then 'BUY'
+                    when prev_low is not null and close < prev_low then 'SELL'
+                    else null
+                end as side
+            from bars
+        ),
+        outcomes as (
+            select
+                side,
+                hour_msk,
+                case
+                    when side = 'BUY' then future_close - entry_close
+                    when side = 'SELL' then entry_close - future_close
+                    else null
+                end as pnl_points
+            from signals
+            where side is not null
+              and future_close is not null
+        )
+        select
+            count(*)::int as profile_trades,
+            avg(pnl_points)::float as profile_expectancy
+        from outcomes
+        where side = %(side)s
+          and hour_msk = %(hour_msk)s;
+        """
+
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            from finam_core.analytics.statistics_repository import build_psycopg_url
+
+            params = {
+                "side": str(side).upper(),
+                "hour_msk": int(hour_msk),
+                "timeframe": os.getenv("NG_PAPER_PILOT_PROFILE_TIMEFRAME", "M5"),
+                "lookback": int(os.getenv("NG_PAPER_PILOT_LOOKBACK", "20")),
+                "horizon": int(os.getenv("NG_PAPER_PILOT_HORIZON", "24")),
+            }
+
+            with psycopg.connect(build_psycopg_url(), row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    row = dict(cur.fetchone() or {})
+
+            profile_trades = int(row.get("profile_trades") or 0)
+            profile_expectancy = row.get("profile_expectancy")
+
+            cache[key] = {
+                "ts": now,
+                "profile_trades": profile_trades,
+                "profile_expectancy": profile_expectancy,
+            }
+
+            return profile_trades, profile_expectancy
+
+        except Exception as exc:
+            print(
+                "NG_PAPER_GOVERNANCE_PROFILE_ERROR",
+                f"side={side}",
+                f"hour_msk={hour_msk}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            return 0, None
+
+    def _ng_paper_pilot_allows_signal_v1(self, ng_signal) -> bool:
+        """
+        Русский комментарий:
+        PAPER-only gate для NG BUY pilot.
+        Если gate выключен, поведение пайплайна не меняется.
+        """
+        import os
+
+        if os.getenv("ENABLE_NG_PAPER_PILOT_GATE_V1", "0") != "1":
+            return True
+
+        symbol = str(getattr(ng_signal, "symbol", ""))
+        side = str(getattr(ng_signal, "side", "")).upper()
+
+        try:
+            ts = getattr(ng_signal, "ts", None)
+            hour_msk = int((ts.hour + 3) % 24) if ts is not None else -1
+        except Exception:
+            hour_msk = -1
+
+        profile_trades, profile_expectancy = self._ng_paper_pilot_profile_v1(
+            side=side,
+            hour_msk=hour_msk,
+        )
+
+        try:
+            from finam_core.governance.ng_continuous_profile_gate_v1 import NgContinuousProfileGateV1
+
+            gate = NgContinuousProfileGateV1(
+                min_profile_trades=int(os.getenv("NG_PAPER_PILOT_MIN_PROFILE_TRADES", "20")),
+                min_expectancy=float(os.getenv("NG_PAPER_PILOT_MIN_EXPECTANCY", "0.0")),
+            )
+            decision = gate.decide(
+                symbol=symbol,
+                side=side,
+                hour_msk=hour_msk,
+                profile_trades=profile_trades,
+                profile_expectancy=profile_expectancy,
+            )
+        except Exception as exc:
+            print(
+                "NG_PAPER_GOVERNANCE_GATE_ERROR",
+                f"symbol={symbol}",
+                f"side={side}",
+                f"hour_msk={hour_msk}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            return False
+
+        label = "NG_PAPER_GOVERNANCE_ALLOWED" if decision.allowed else "NG_PAPER_GOVERNANCE_BLOCKED"
+        print(
+            label,
+            f"symbol={decision.symbol}",
+            f"side={decision.side}",
+            f"hour_msk={decision.hour_msk}",
+            f"profile=NG_CONTINUOUS_SIDE_HOUR",
+            f"profile_trades={decision.profile_trades}",
+            f"profile_expectancy={decision.profile_expectancy}",
+            f"reason={decision.reason}",
+            "paper_only=1",
+            flush=True,
+        )
+
+        return bool(decision.allowed)
+
+
     def _process_ng_m1_closed_bar_for_paper_signal(self, bar) -> None:
         """Русский комментарий: обработка закрытых M1 баров NG для live paper runtime."""
         if not (self.ng_m1_breakout_enabled and self.ng_m1_breakout is not None):
@@ -7021,6 +7211,9 @@ class PaperTradingPipeline:
         )
 
         if ng_signal is None:
+            return
+
+        if not self._ng_paper_pilot_allows_signal_v1(ng_signal):
             return
 
         qty = float(os.getenv("NG_M1_BREAKOUT_QTY", "1"))
