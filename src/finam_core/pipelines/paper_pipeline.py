@@ -4266,7 +4266,23 @@ class PaperTradingPipeline:
             # === EXTRA IMPULSE FILTER ===
             if (not is_exit_intent) and (not is_force_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
                 print("PIPE_NO_IMPULSE_BLOCK", flush=True)
-                return
+
+                # Русский комментарий:
+                # В PAPER-режиме разрешаем advisory-only проход через impulse filter
+                # для накопления live-статистики сделок.
+                impulse_advisory_only = (
+                    str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                    and os.getenv("IMPULSE_FILTER_ADVISORY_ONLY", "0") == "1"
+                )
+                if impulse_advisory_only:
+                    print(
+                        "PIPE_IMPULSE_ADVISORY_CONTINUE",
+                        f"symbol={sym}",
+                        "paper_only=1",
+                        flush=True,
+                    )
+                else:
+                    return
 
             # === REMOVE DUPLICATE HARD FILTER (it caused over-blocking & loops) ===
             # (intentionally removed redundant conditions)
