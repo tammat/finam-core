@@ -2318,6 +2318,27 @@ class PaperTradingPipeline:
             self._last_reconciliation_mismatch_key = mismatch_key
         return False, self._trading_halt_reason
 
+    def _account_trade_after_fill_v1(self, symbol: str) -> None:
+        """
+        Русский комментарий:
+        Учитывает сделку в runtime trade limit только после успешного создания FILL.
+        Это предотвращает блокировку лимита на rejected/blocked попытках.
+        """
+        try:
+            trade_gate = getattr(self, "trade_gate_service", None)
+            if trade_gate is None:
+                return
+
+            accounted_decision = trade_gate.account_trade(str(symbol))
+            print(f"PIPE_TRADE_LIMIT_ACCOUNTED {accounted_decision.reason}", flush=True)
+        except Exception as exc:
+            print(
+                "PIPE_TRADE_LIMIT_ACCOUNT_ERROR",
+                f"symbol={symbol}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
 
     def _position_intent_allows_order(self, symbol: str, side: str, current_qty: float) -> tuple[bool, str]:
         """Русский комментарий: запрещает добор/наращивание позиции по DB position_intents."""
@@ -4343,8 +4364,9 @@ class PaperTradingPipeline:
                 print(f"PIPE_TRADE_LIMIT_BLOCK_SYMBOL {sym}", flush=True)
             return
 
-        accounted_decision = trade_gate.account_trade(sym)
-        print(f"PIPE_TRADE_LIMIT_ACCOUNTED {accounted_decision.reason}", flush=True)
+        # Русский комментарий:
+        # Лимит сделок здесь только проверяется.
+        # Учет trade_limit выполняется только после успешного FILL.
         # =========================================================
         # === PORTFOLIO KILL-SWITCH (cumulative PnL / max drawdown)
         # =========================================================
@@ -4848,6 +4870,7 @@ class PaperTradingPipeline:
         print(f"PIPE_TRADE_EXEC symbol={intent.get('symbol')} side={intent.get('side')}", flush=True)
 
         self.bus.publish({"type": "FILL", "fill": fill})
+        self._account_trade_after_fill_v1(intent.get("symbol"))
 
     def generate(self, state, regime=None):
 
