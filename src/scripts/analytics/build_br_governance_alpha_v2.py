@@ -158,6 +158,23 @@ def classify_policy(row: dict[str, Any], *, min_closed_trades: int, min_governan
     enough_closed = closed_trades >= min_closed_trades
     enough_gov = governance_rows >= min_governance_rows
 
+    # Русский комментарий:
+    # v2.1: отдельный безопасный флаг риска.
+    # Это НЕ execution block, а только аналитическая маркировка опасного окна.
+    severe_financial_loss = (
+        closed_trades >= 10
+        and net_pnl <= -20.0
+        and avg_net < 0
+        and pf is not None
+        and pf < 0.5
+    )
+
+    if severe_financial_loss and not enough_gov:
+        return "HIGH_RISK_OBSERVE", quality, "financial_loss_severe_but_governance_sample_low"
+
+    if severe_financial_loss and enough_gov and (gov_exp is None or gov_exp < 0):
+        return "HIGH_RISK_OBSERVE", quality, "financial_loss_severe_and_governance_not_positive"
+
     if enough_closed and enough_gov:
         if net_pnl > 0 and avg_net > 0 and (pf is None or pf >= 1.05) and (gov_exp is None or gov_exp > 0):
             return "ALLOW", quality, "financial_edge_positive_and_governance_positive"
@@ -222,9 +239,9 @@ def main() -> int:
         "window_days": args.window_days,
     }
 
-    print("BR_GOVERNANCE_ALPHA_V2", flush=True)
+    print("BR_GOVERNANCE_ALPHA_V2_1", flush=True)
     print(
-        "BR_GOVERNANCE_ALPHA_V2_CONFIG "
+        "BR_GOVERNANCE_ALPHA_V2_1_CONFIG "
         f"window_days={args.window_days} "
         f"min_closed_trades={args.min_closed_trades} "
         f"min_governance_rows={args.min_governance_rows} "
@@ -251,7 +268,7 @@ def main() -> int:
     for action, count in sorted(counters.items()):
         print(f"BR_POLICY_SUMMARY action={action} rows={count}", flush=True)
 
-    print("BR_GOVERNANCE_ALPHA_V2_OK", flush=True)
+    print("BR_GOVERNANCE_ALPHA_V2_1_OK", flush=True)
     return 0
 
 
