@@ -4432,7 +4432,6 @@ class PaperTradingPipeline:
                             )
                         else:
                             return
-                        return
                 except Exception as exc:
                     print(
                         "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_FAILED_OPEN",
