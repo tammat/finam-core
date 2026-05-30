@@ -5182,6 +5182,17 @@ class PaperTradingPipeline:
             f"price={getattr(fill, 'price', None)} id={getattr(fill, 'fill_id', None)}",
             flush=True,
         )
+
+        # Русский комментарий:
+        # Базовый payload должен существовать до любых обращений payload.get(...).
+        payload = getattr(fill, "payload", None)
+        if not isinstance(payload, dict):
+            payload = {}
+        payload.setdefault("symbol", getattr(fill, "symbol", None))
+        payload.setdefault("side", getattr(fill, "side", None))
+        payload.setdefault("qty", getattr(fill, "qty", None))
+        payload.setdefault("price", getattr(fill, "price", None))
+        payload.setdefault("fill_id", getattr(fill, "fill_id", None))
         self._notify_telegram_event(
             f"✅ FILL {getattr(fill, 'symbol', None)}\n"
             f"side={getattr(fill, 'side', None)} qty={getattr(fill, 'qty', None)}\n"
@@ -5216,7 +5227,9 @@ class PaperTradingPipeline:
                 FillMetadataFactory.attach(fill, intent=payload, raw_fill=fill)
 
                 # Русский комментарий: последний защитный слой metadata перед записью fill/trade.
-                payload = getattr(fill, "payload", None)
+                # Русский комментарий:
+                # payload уже инициализирован выше перед первым использованием.
+                # Здесь сохраняем его, а не пересоздаем пустой словарь.
                 if not isinstance(payload, dict):
                     payload = {}
 

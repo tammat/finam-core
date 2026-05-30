@@ -22,6 +22,11 @@ class PaperFill:
     price: float
     commission: float
     fill_id: str
+    currency: str = "RUB"
+    broker_commission_rub: float = 0.0
+    exchange_commission_rub: float = 0.0
+    tax_rub: float = 0.0
+    net_cost_rub: float = 0.0
 
 
 class PaperExecutionEngine:
@@ -100,10 +105,23 @@ class PaperExecutionEngine:
             ts = time.time()
         ts = float(ts) if not isinstance(ts, (int, float)) else ts
 
-        cost = self.cost_model.calculate(price=float(fill_price), qty=float(qty))
-        commission = float(cost.total_commission)
+        tax_base_rub = _get(intent, "tax_base_rub", None)
+        if tax_base_rub is None:
+            tax_base_rub = market_state.get("tax_base_rub", 0.0)
+
+        cost = self.cost_model.calculate(
+            price=float(fill_price),
+            qty=float(qty),
+            tax_base_rub=float(tax_base_rub or 0.0),
+        )
+
+        commission = float(cost.commission_rub)
         if commission == 0.0 and self.commission:
             commission = float(self.commission)
+
+        net_cost_rub = float(cost.net_cost_rub)
+        if net_cost_rub == 0.0 and commission:
+            net_cost_rub = commission
 
         return PaperFill(
             symbol=symbol,
@@ -111,4 +129,9 @@ class PaperExecutionEngine:
             price=float(fill_price),
             commission=commission,
             fill_id=f"paper_{symbol}_{int(ts * 1000)}",
+            currency=cost.currency,
+            broker_commission_rub=float(cost.broker_commission_rub),
+            exchange_commission_rub=float(cost.exchange_commission_rub),
+            tax_rub=float(cost.tax_rub),
+            net_cost_rub=net_cost_rub,
         )
