@@ -4595,42 +4595,54 @@ class PaperTradingPipeline:
                     peak = equity
                     self._equity_peak = equity
 
-                decision = gate.evaluate(
-                    equity=equity,
-                    total_exposure=total_exposure,
-                    symbol_exposure=symbol_exposure,
-                    used_margin=used_margin,
-                    daily_pnl=daily_pnl,
-                    peak_equity=peak,
-                    current_equity=equity,
-                    max_portfolio_heat=float(os.getenv("MAX_PORTFOLIO_HEAT", "0.30")),
-                    max_symbol_heat=float(os.getenv("MAX_SYMBOL_HEAT", "0.10")),
-                    max_margin_utilization=float(os.getenv("MAX_MARGIN_UTILIZATION", "0.65")),
-                    max_daily_loss_pct=float(os.getenv("MAX_DAILY_LOSS_PCT", "0.02")),
-                    max_drawdown_pct=float(os.getenv("MAX_DRAWDOWN_PCT", "0.03")),
-                )
+                if hasattr(gate, "evaluate"):
+                    decision = gate.evaluate(
+                        equity=equity,
+                        total_exposure=total_exposure,
+                        symbol_exposure=symbol_exposure,
+                        used_margin=used_margin,
+                        daily_pnl=daily_pnl,
+                        peak_equity=peak,
+                        current_equity=equity,
+                        max_portfolio_heat=float(os.getenv("MAX_PORTFOLIO_HEAT", "0.30")),
+                        max_symbol_heat=float(os.getenv("MAX_SYMBOL_HEAT", "0.10")),
+                        max_margin_utilization=float(os.getenv("MAX_MARGIN_UTILIZATION", "0.65")),
+                        max_daily_loss_pct=float(os.getenv("MAX_DAILY_LOSS_PCT", "0.02")),
+                        max_drawdown_pct=float(os.getenv("MAX_DRAWDOWN_PCT", "0.03")),
+                    )
+                elif hasattr(gate, "check"):
+                    decision = gate.check(symbol=str(sym))
+                else:
+                    decision = None
+                    print("PIPE_PORTFOLIO_RISK_GATE_SKIP_NO_METHOD", flush=True)
 
-                if not decision.allowed:
+                if decision is not None and not getattr(decision, "allowed", True):
                     print(
-                        f"PIPE_PORTFOLIO_RISK_BLOCK "
-                        f"reason={decision.reason} "
-                        f"heat={decision.portfolio_heat} "
-                        f"symbol_heat={decision.symbol_heat} "
-                        f"margin={decision.margin_utilization} "
-                        f"daily_loss={decision.daily_loss_pct} "
-                        f"drawdown={decision.drawdown_pct}",
+                        "PIPE_PORTFOLIO_RISK_BLOCK",
+                        f"reason={getattr(decision, 'reason', None)}",
+                        f"cluster={getattr(decision, 'cluster_name', None)}",
+                        f"risk_state={getattr(decision, 'risk_state', None)}",
+                        f"heat={getattr(decision, 'portfolio_heat', None)}",
+                        f"symbol_heat={getattr(decision, 'symbol_heat', None)}",
+                        f"margin={getattr(decision, 'margin_utilization', None)}",
+                        f"daily_loss={getattr(decision, 'daily_loss_pct', None)}",
+                        f"drawdown={getattr(decision, 'drawdown_pct', None)}",
                         flush=True,
                     )
                     self._kill_switch_active = True
                     return
 
-                print(
-                    f"PIPE_PORTFOLIO_RISK_OK "
-                    f"heat={decision.portfolio_heat} "
-                    f"symbol_heat={decision.symbol_heat} "
-                    f"margin={decision.margin_utilization}",
-                    flush=True,
-                )
+                if decision is not None:
+                    print(
+                        "PIPE_PORTFOLIO_RISK_OK",
+                        f"reason={getattr(decision, 'reason', None)}",
+                        f"cluster={getattr(decision, 'cluster_name', None)}",
+                        f"risk_state={getattr(decision, 'risk_state', None)}",
+                        f"heat={getattr(decision, 'portfolio_heat', None)}",
+                        f"symbol_heat={getattr(decision, 'symbol_heat', None)}",
+                        f"margin={getattr(decision, 'margin_utilization', None)}",
+                        flush=True,
+                    )
 
             except Exception as e:
                 print(f"PIPE_PORTFOLIO_RISK_ERROR {e}", flush=True)
