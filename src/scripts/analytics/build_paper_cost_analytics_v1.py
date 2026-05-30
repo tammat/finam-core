@@ -40,11 +40,11 @@ def main() -> int:
     print(
         "PAPER_COST_CONFIG",
         f"currency={os.getenv('PAPER_CURRENCY', 'RUB')}",
-        f"broker_rate={os.getenv('PAPER_BROKER_COMMISSION_RATE', '0')}",
-        f"exchange_rate={os.getenv('PAPER_EXCHANGE_COMMISSION_RATE', '0')}",
-        f"min_commission={os.getenv('PAPER_MIN_COMMISSION', '0')}",
-        f"tax_enabled={os.getenv('PAPER_TAX_ENABLED', '0')}",
-        f"tax_rate={os.getenv('PAPER_TAX_RATE', '0')}",
+        f"broker_rate={os.getenv('PAPER_BROKER_COMMISSION_RATE', '0.00108324')}",
+        f"exchange_rate={os.getenv('PAPER_EXCHANGE_COMMISSION_RATE', '0.00050000')}",
+        f"min_commission={os.getenv('PAPER_MIN_COMMISSION', '50')}",
+        f"tax_enabled={os.getenv('PAPER_TAX_ENABLED', '1')}",
+        f"tax_rate={os.getenv('PAPER_TAX_RATE', '0.15')}",
         flush=True,
     )
 
