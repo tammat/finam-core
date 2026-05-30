@@ -3610,7 +3610,24 @@ class PaperTradingPipeline:
                                     },
                                 )
 
-                    return
+                    # Русский комментарий:
+                    # В PAPER-режиме разрешаем advisory-only проход через low-vol filter
+                    # для накопления live-статистики сделок.
+                    vol_low_advisory_only = (
+                        str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                        and os.getenv("VOL_LOW_ADVISORY_ONLY", "0") == "1"
+                    )
+                    if vol_low_advisory_only:
+                        print(
+                            "PIPE_VOL_LOW_ADVISORY_CONTINUE",
+                            f"symbol={sym}",
+                            f"vol={regime.volatility}",
+                            f"trend={regime.trend}",
+                            "paper_only=1",
+                            flush=True,
+                        )
+                    else:
+                        return
 
             # === 2. Слишком высокая вола → шум
             if (not is_exit_intent) and (not is_force_intent) and atr_pct > 0.03:
