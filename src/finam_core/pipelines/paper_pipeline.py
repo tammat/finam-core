@@ -4892,7 +4892,28 @@ class PaperTradingPipeline:
                             else:
                                 return
 
-                    if not (
+                    # Русский комментарий:
+                    # В advisory-only PAPER режиме не даем entry gate занулить qty,
+                    # иначе PaperExecution создает raw_fill qty=0.0 и fill отбрасывается.
+                    entry_gate_advisory_only_qty = (
+                        str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                        and os.getenv("ENTRY_GATE_ADVISORY_ONLY", "0") == "1"
+                        and not gate_decision.allowed
+                        and float(gate_decision.qty or 0.0) <= 0.0
+                    )
+
+                    if entry_gate_advisory_only_qty:
+                        print(
+                            "PIPE_ENTRY_GATE_ADVISORY_KEEP_ORIGINAL_QTY",
+                            f"symbol={intent.get('symbol')}",
+                            f"gate={gate_decision.gate}",
+                            f"reason={gate_decision.reason}",
+                            f"original_qty={intent.get('qty')}",
+                            f"gate_qty={gate_decision.qty}",
+                            "paper_only=1",
+                            flush=True,
+                        )
+                    elif not (
                         replay_accumulation_mode
                         and gate_decision.gate == "runtime_control"
                         and float(gate_decision.qty or 0.0) <= 0.0
