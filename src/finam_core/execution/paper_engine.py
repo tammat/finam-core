@@ -6,6 +6,8 @@ from typing import Any
 
 from finam_core.execution.paper_cost_model import PaperCostModel
 
+from finam_core.execution.paper_cost_model import PaperCostModel
+
 
 def _get(obj: Any, name: str, default=None):
     if isinstance(obj, dict):
