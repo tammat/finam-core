@@ -5189,8 +5189,8 @@ class PaperTradingPipeline:
             f"id={getattr(fill, 'fill_id', None)}"
         )
         self._mark_anti_reentry_entry(
-            str(getattr(fill, "symbol", None) or intent.get("symbol") or ""),
-            str(getattr(fill, "side", None) or intent.get("side") or ""),
+            str(getattr(fill, "symbol", None) or payload.get("symbol") or ""),
+            str(getattr(fill, "side", None) or payload.get("side") or ""),
         )
         # === TELEGRAM: единый сигнал входа ===
         try:
@@ -5213,7 +5213,7 @@ class PaperTradingPipeline:
             service = getattr(self, "fill_persistence_service", None)
             if service is not None:
                 # Русский комментарий: протягиваем signal_id из intent в fill/payload до persistence.
-                FillMetadataFactory.attach(fill, intent=intent, raw_fill=fill)
+                FillMetadataFactory.attach(fill, intent=payload, raw_fill=fill)
 
                 # Русский комментарий: последний защитный слой metadata перед записью fill/trade.
                 payload = getattr(fill, "payload", None)
