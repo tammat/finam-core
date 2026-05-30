@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from finam_core.execution.paper_cost_model import PaperCostModel
+
 
 def _get(obj: Any, name: str, default=None):
     if isinstance(obj, dict):
@@ -35,7 +37,11 @@ class PaperExecutionEngine:
 
     def __init__(self, slippage_coef: float = 0.25, commission: float = 0.0, **_ignored):
         self.slippage_coef = float(slippage_coef)
+        # Русский комментарий:
+        # Старый параметр commission сохраняем для обратной совместимости тестов.
+        # Если env-ставки комиссий не заданы, будет использовано это фиксированное значение.
         self.commission = float(commission)
+        self.cost_model = PaperCostModel()
 
     def execute(self, intent: Any, market_state: dict | None = None) -> PaperFill:
         market_state = market_state or {}
@@ -92,10 +98,15 @@ class PaperExecutionEngine:
             ts = time.time()
         ts = float(ts) if not isinstance(ts, (int, float)) else ts
 
+        cost = self.cost_model.calculate(price=float(fill_price), qty=float(qty))
+        commission = float(cost.total_commission)
+        if commission == 0.0 and self.commission:
+            commission = float(self.commission)
+
         return PaperFill(
             symbol=symbol,
             qty=float(signed_qty),
             price=float(fill_price),
-            commission=float(self.commission),
+            commission=commission,
             fill_id=f"paper_{symbol}_{int(ts * 1000)}",
         )
