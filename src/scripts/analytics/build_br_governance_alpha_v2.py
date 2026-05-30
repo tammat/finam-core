@@ -153,6 +153,11 @@ def classify_policy(row: dict[str, Any], *, min_closed_trades: int, min_governan
     saved_loss = float(row.get("saved_loss_points") or 0.0)
     missed_profit = float(row.get("missed_profit_points") or 0.0)
 
+    # Русский комментарий:
+    # v2.2: временные метки нужны для выявления WINDOW_MISMATCH.
+    last_closed = row.get("last_closed")
+    last_governance_ts = row.get("last_governance_ts")
+
     quality = sample_quality(closed_trades, governance_rows)
 
     enough_closed = closed_trades >= min_closed_trades
@@ -174,6 +179,25 @@ def classify_policy(row: dict[str, Any], *, min_closed_trades: int, min_governan
 
     if severe_financial_loss and enough_gov and (gov_exp is None or gov_exp < 0):
         return "HIGH_RISK_OBSERVE", quality, "financial_loss_severe_and_governance_not_positive"
+
+    # Русский комментарий:
+    # STALE_FINANCIAL_OBSERVE применяем только к ложному конфликту:
+    # финансовая история положительная, governance свежий и отрицательный.
+    if (
+        net_pnl > 0
+        and avg_net > 0
+        and gov_exp is not None
+        and gov_exp < 0
+        and last_closed is not None
+        and last_governance_ts is not None
+        and last_closed < last_governance_ts
+    ):
+        return (
+            "STALE_FINANCIAL_OBSERVE",
+            quality,
+            "financial_history_old_governance_recent",
+        )
+
 
     if enough_closed and enough_gov:
         if net_pnl > 0 and avg_net > 0 and (pf is None or pf >= 1.05) and (gov_exp is None or gov_exp > 0):
@@ -239,9 +263,9 @@ def main() -> int:
         "window_days": args.window_days,
     }
 
-    print("BR_GOVERNANCE_ALPHA_V2_1", flush=True)
+    print("BR_GOVERNANCE_ALPHA_V2_2", flush=True)
     print(
-        "BR_GOVERNANCE_ALPHA_V2_1_CONFIG "
+        "BR_GOVERNANCE_ALPHA_V2_2_CONFIG "
         f"window_days={args.window_days} "
         f"min_closed_trades={args.min_closed_trades} "
         f"min_governance_rows={args.min_governance_rows} "
@@ -268,7 +292,7 @@ def main() -> int:
     for action, count in sorted(counters.items()):
         print(f"BR_POLICY_SUMMARY action={action} rows={count}", flush=True)
 
-    print("BR_GOVERNANCE_ALPHA_V2_1_OK", flush=True)
+    print("BR_GOVERNANCE_ALPHA_V2_2_OK", flush=True)
     return 0
 
 
