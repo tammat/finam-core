@@ -4243,7 +4243,25 @@ class PaperTradingPipeline:
                         f"actual={trend_decision.actual}",
                         heartbeat_sec=60,
                     )
-                    return
+
+                    # Русский комментарий:
+                    # В PAPER-режиме разрешаем advisory-only проход через trend gate,
+                    # чтобы накапливать live-статистику фактических PAPER-сделок.
+                    trend_advisory_only = (
+                        str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                        and os.getenv("TREND_GATE_ADVISORY_ONLY", "0") == "1"
+                    )
+                    if trend_advisory_only:
+                        print(
+                            "PIPE_TREND_ADVISORY_CONTINUE",
+                            f"symbol={sym}",
+                            f"expected={trend_decision.expected}",
+                            f"actual={trend_decision.actual}",
+                            "paper_only=1",
+                            flush=True,
+                        )
+                    else:
+                        return
 
             # === EXTRA IMPULSE FILTER ===
             if (not is_exit_intent) and (not is_force_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
