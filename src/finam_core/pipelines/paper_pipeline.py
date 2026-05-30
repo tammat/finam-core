@@ -4697,6 +4697,9 @@ class PaperTradingPipeline:
         if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             return
+        if not self._usd_paper_pilot_allows_intent_v1(intent):
+            return
+
         if self._execute_routed_order_if_needed(intent, st):
             return
 
@@ -6998,6 +7001,196 @@ class PaperTradingPipeline:
         except Exception as exc:
             print(f"PIPE_BR_PAPER_EXEC_ERROR type={type(exc).__name__} error={exc}", flush=True)
             return False, f"PAPER_EXCEPTION:{type(exc).__name__}:{exc}"
+
+
+
+    def _usd_paper_pilot_profile_v1(self, *, side: str, hour_msk: int) -> tuple[int, float | None]:
+        """
+        Русский комментарий:
+        Возвращает профиль USD_CONTINUOUS + side + hour_msk для PAPER-пилота USD.
+        Используется только как фильтр перед PaperExecution.
+        """
+        import os
+        import time
+
+        cache_ttl = float(os.getenv("USD_PAPER_PILOT_PROFILE_CACHE_TTL_SEC", "300"))
+        cache = getattr(self, "_usd_paper_pilot_profile_cache_v1", None)
+        if cache is None:
+            cache = {}
+            self._usd_paper_pilot_profile_cache_v1 = cache
+
+        key = (str(side).upper(), int(hour_msk))
+        now = time.time()
+        cached = cache.get(key)
+        if cached and now - float(cached.get("ts", 0.0)) <= cache_ttl:
+            return int(cached.get("profile_trades") or 0), cached.get("profile_expectancy")
+
+        sql = """
+        with bars as (
+            select
+                symbol,
+                ts,
+                close,
+                high,
+                low,
+                extract(hour from ts + interval '3 hours')::int as hour_msk,
+                max(high) over (
+                    partition by symbol order by ts rows between %(lookback)s preceding and 1 preceding
+                ) as prev_high,
+                min(low) over (
+                    partition by symbol order by ts rows between %(lookback)s preceding and 1 preceding
+                ) as prev_low,
+                lead(close, %(horizon)s) over (
+                    partition by symbol order by ts
+                ) as future_close
+            from market_bars
+            where timeframe = %(timeframe)s
+              and symbol = 'USDRUBF@RTSX'
+        ),
+        signals as (
+            select
+                hour_msk,
+                close as entry_close,
+                future_close,
+                case
+                    when prev_high is not null and close > prev_high then 'BUY'
+                    when prev_low is not null and close < prev_low then 'SELL'
+                    else null
+                end as side
+            from bars
+        ),
+        outcomes as (
+            select
+                side,
+                hour_msk,
+                case
+                    when side = 'BUY' then future_close - entry_close
+                    when side = 'SELL' then entry_close - future_close
+                    else null
+                end as pnl_points
+            from signals
+            where side is not null
+              and future_close is not null
+        )
+        select
+            count(*)::int as profile_trades,
+            avg(pnl_points)::float as profile_expectancy
+        from outcomes
+        where side = %(side)s
+          and hour_msk = %(hour_msk)s;
+        """
+
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            from finam_core.analytics.statistics_repository import build_psycopg_url
+
+            params = {
+                "side": str(side).upper(),
+                "hour_msk": int(hour_msk),
+                "timeframe": os.getenv("USD_PAPER_PILOT_PROFILE_TIMEFRAME", "M5"),
+                "lookback": int(os.getenv("USD_PAPER_PILOT_LOOKBACK", "20")),
+                "horizon": int(os.getenv("USD_PAPER_PILOT_HORIZON", "24")),
+            }
+
+            with psycopg.connect(build_psycopg_url(), row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    row = dict(cur.fetchone() or {})
+
+            profile_trades = int(row.get("profile_trades") or 0)
+            profile_expectancy = row.get("profile_expectancy")
+
+            cache[key] = {
+                "ts": now,
+                "profile_trades": profile_trades,
+                "profile_expectancy": profile_expectancy,
+            }
+
+            return profile_trades, profile_expectancy
+
+        except Exception as exc:
+            print(
+                "USD_PAPER_GOVERNANCE_PROFILE_ERROR",
+                f"side={side}",
+                f"hour_msk={hour_msk}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            return 0, None
+
+    def _usd_paper_pilot_allows_intent_v1(self, intent: dict) -> bool:
+        """
+        Русский комментарий:
+        PAPER-only gate для USD BUY pilot.
+        Если gate выключен, поведение пайплайна не меняется.
+        """
+        import os
+
+        if os.getenv("ENABLE_USD_PAPER_PILOT_GATE_V1", "0") != "1":
+            return True
+
+        symbol = str(intent.get("symbol") or "")
+        if symbol != "USDRUBF@RTSX":
+            return True
+
+        side = str(intent.get("side") or intent.get("direction") or intent.get("action") or "").upper()
+
+        try:
+            ts = intent.get("ts")
+            if hasattr(ts, "hour"):
+                hour_msk = int((ts.hour + 3) % 24)
+            else:
+                from datetime import datetime
+                hour_msk = int((datetime.utcnow().hour + 3) % 24)
+        except Exception:
+            hour_msk = -1
+
+        profile_trades, profile_expectancy = self._usd_paper_pilot_profile_v1(
+            side=side,
+            hour_msk=hour_msk,
+        )
+
+        try:
+            from finam_core.governance.usd_continuous_profile_gate_v1 import UsdContinuousProfileGateV1
+
+            gate = UsdContinuousProfileGateV1(
+                min_profile_trades=int(os.getenv("USD_PAPER_PILOT_MIN_PROFILE_TRADES", "20")),
+                min_expectancy=float(os.getenv("USD_PAPER_PILOT_MIN_EXPECTANCY", "0.0")),
+            )
+            decision = gate.decide(
+                symbol=symbol,
+                side=side,
+                hour_msk=hour_msk,
+                profile_trades=profile_trades,
+                profile_expectancy=profile_expectancy,
+            )
+        except Exception as exc:
+            print(
+                "USD_PAPER_GOVERNANCE_GATE_ERROR",
+                f"symbol={symbol}",
+                f"side={side}",
+                f"hour_msk={hour_msk}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            return False
+
+        label = "USD_PAPER_GOVERNANCE_ALLOWED" if decision.allowed else "USD_PAPER_GOVERNANCE_BLOCKED"
+        print(
+            label,
+            f"symbol={decision.symbol}",
+            f"side={decision.side}",
+            f"hour_msk={decision.hour_msk}",
+            "profile=USD_CONTINUOUS_SIDE_HOUR",
+            f"profile_trades={decision.profile_trades}",
+            f"profile_expectancy={decision.profile_expectancy}",
+            f"reason={decision.reason}",
+            "paper_only=1",
+            flush=True,
+        )
+
+        return bool(decision.allowed)
 
 
     def _ng_paper_pilot_profile_v1(self, *, side: str, hour_msk: int) -> tuple[int, float | None]:
