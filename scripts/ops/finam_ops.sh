@@ -4,6 +4,22 @@ set -euo pipefail
 cd /opt/finam-core
 export PYTHONPATH=src
 
+if [ -x "/opt/finam-core/.venv/bin/python" ]; then
+  PY_BIN="/opt/finam-core/.venv/bin/python"
+elif [ -x "/opt/finam-core/venv/bin/python" ]; then
+  PY_BIN="/opt/finam-core/venv/bin/python"
+else
+  PY_BIN="python3"
+fi
+
+JOURNALCTL="journalctl"
+if sudo -n true 2>/dev/null; then
+  JOURNALCTL="sudo journalctl"
+fi
+
+TMP_DIR="/var/tmp/finam-core"
+mkdir -p "$TMP_DIR" 2>/dev/null || TMP_DIR="/tmp"
+
 cmd="${1:-menu}"
 
 case "$cmd" in
@@ -39,12 +55,12 @@ case "$cmd" in
     ;;
 
   logs)
-    journalctl -u finam-paper-pipeline.service --since "${2:-30 minutes ago}" --no-pager | \
+    $JOURNALCTL -u finam-paper-pipeline.service --since "${2:-30 minutes ago}" --no-pager | \
     grep -E "PIPE_SESSION_BLOCK|PIPE_NG|PIPE_USD|NG_PAPER|USD_PAPER|PaperExecution|FILL|TRADE|ERROR|Traceback" || true
     ;;
 
   follow)
-    journalctl -u finam-paper-pipeline.service -f --no-pager | \
+    $JOURNALCTL -u finam-paper-pipeline.service -f --no-pager | \
     grep -E "PIPE_SESSION_BLOCK|PIPE_NG|PIPE_USD|NG_PAPER|USD_PAPER|PaperExecution|FILL|TRADE|ERROR|Traceback"
     ;;
 
@@ -60,11 +76,11 @@ case "$cmd" in
     ;;
 
   ng-gate)
-    python src/scripts/runtime/run_ng_paper_pilot_v1.py
+    "$PY_BIN" src/scripts/runtime/run_ng_paper_pilot_v1.py
     ;;
 
   usd-gate)
-    python src/scripts/runtime/run_usd_paper_pilot_v1.py
+    "$PY_BIN" src/scripts/runtime/run_usd_paper_pilot_v1.py
     ;;
 
   trades)
@@ -108,10 +124,10 @@ case "$cmd" in
 
   accumulation)
     echo "=== ACCUMULATION PLAN V1 ==="
-    python src/scripts/analytics/build_accumulation_plan_v1.py | tee /tmp/accumulation_plan_v1.out
+    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py | tee "$TMP_DIR/accumulation_plan_v1.out"
     echo "=== ACCUMULATION SUMMARY ==="
     grep -E "ACCUMULATION_PLAN_SUMMARY|CONTINUE_PAPER_ACCUMULATION|PAPER_CONFIRMATION_REQUIRED" \
-      /tmp/accumulation_plan_v1.out || true
+      "$TMP_DIR/accumulation_plan_v1.out" || true
     ;;
 
   dashboard)
@@ -123,14 +139,14 @@ case "$cmd" in
 
     echo
     echo "=== 2. ОШИБКИ ЗА 60 МИНУТ ==="
-    journalctl -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | \
+    $JOURNALCTL -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | \
       grep -E "ERROR|Traceback|Exception|FAILED" || true
 
     echo
     echo "=== 3. ПЛАН НАКОПЛЕНИЯ СТАТИСТИКИ ==="
-    python src/scripts/analytics/build_accumulation_plan_v1.py | tee /tmp/accumulation_plan_v1.out
+    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py | tee "$TMP_DIR/accumulation_plan_v1.out"
     grep -E "ACCUMULATION_PLAN_SUMMARY|CONTINUE_PAPER_ACCUMULATION|PAPER_CONFIRMATION_REQUIRED" \
-      /tmp/accumulation_plan_v1.out || true
+      "$TMP_DIR/accumulation_plan_v1.out" || true
 
     echo
     echo "=== 4. ПОСЛЕДНИЕ 20 СДЕЛОК ==="
@@ -148,7 +164,7 @@ case "$cmd" in
     echo "=== FAILED ==="
     systemctl --failed || true
     echo "=== RECENT ERRORS ==="
-    journalctl -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | \
+    $JOURNALCTL -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | \
     grep -E "ERROR|Traceback|Exception|FAILED" || true
     ;;
 
