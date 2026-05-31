@@ -70,10 +70,74 @@ def underlying(symbol: str) -> str:
     if base.startswith("BR") or base == "BR_ROLLING":
         return "BRENT"
     if base.startswith("NG"):
-        return "NATGAS"
+        return "NATURAL_GAS"
     if base.startswith("USDRUB") or base.startswith("SI"):
         return "USDRUB"
     return base
+
+
+def required_tracking_rows() -> list[dict[str, Any]]:
+    # Русский комментарий: активные root-инструменты должны быть видны в плане накопления
+    # даже если paired trades ещё не появились в analytics_strategy_trades_v2.
+    return [
+        {
+            "symbol": "BRN6@RTSX",
+            "strategy": "BR_CONSERVATIVE_BREAKOUT",
+            "timeframe": "M5",
+            "origin": "paper",
+            "side": "LONG",
+            "trades": 0,
+            "first_entry": None,
+            "last_exit": None,
+        },
+        {
+            "symbol": "NGN6@RTSX",
+            "strategy": "NG_CONSERVATIVE_BREAKOUT_M1",
+            "timeframe": "M1",
+            "origin": "paper",
+            "side": "LONG",
+            "trades": 0,
+            "first_entry": None,
+            "last_exit": None,
+        },
+        {
+            "symbol": "USDRUBF@RTSX",
+            "strategy": "USD_INTRADAY_REGIME",
+            "timeframe": "M5",
+            "origin": "paper",
+            "side": "LONG",
+            "trades": 0,
+            "first_entry": None,
+            "last_exit": None,
+        },
+    ]
+
+
+def merge_required_tracking_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    existing = {
+        (
+            str(r.get("symbol") or ""),
+            str(r.get("strategy") or ""),
+            str(r.get("timeframe") or ""),
+            str(r.get("origin") or ""),
+            str(r.get("side") or ""),
+        )
+        for r in rows
+    }
+
+    merged = list(rows)
+    for r in required_tracking_rows():
+        key = (
+            r["symbol"],
+            r["strategy"],
+            r["timeframe"],
+            r["origin"],
+            r["side"],
+        )
+        if key not in existing:
+            merged.append(r)
+
+    return merged
 
 
 def source_group(origin: str) -> str:
@@ -140,7 +204,7 @@ def main() -> int:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(EDGE_SQL)
-            rows = [dict(x) for x in cur.fetchall()]
+            rows = merge_required_tracking_rows([dict(x) for x in cur.fetchall()])
 
     summary: dict[str, int] = {}
 
