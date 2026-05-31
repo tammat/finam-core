@@ -184,10 +184,19 @@ case "$cmd" in
       "$TMP_DIR/accumulation_plan_v1.out" || true
 
     echo
-    echo "=== 4. ПОСЛЕДНИЕ 20 СДЕЛОК ==="
+    echo "=== 4. ПОСЛЕДНИЕ 20 PAPER-СДЕЛОК ==="
     psql "$DATABASE_URL" -c "
-    SELECT symbol, side, qty, price, created_at
+    SELECT
+        symbol,
+        side,
+        qty,
+        price,
+        origin,
+        strategy,
+        created_at
     FROM trades
+    WHERE origin = 'paper'
+      AND is_invalid = false
     ORDER BY created_at DESC
     LIMIT 20;
     "
