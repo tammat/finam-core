@@ -3289,12 +3289,21 @@ class PaperTradingPipeline:
                 low=event.get("low"),
             )
             if raw_intent is None:
-                return
-            print(
-                f"PIPE_NG_SIGNAL side={raw_intent.get('side')} "
-                f"price={raw_intent.get('price')} reason={raw_intent.get('reason')}",
-                flush=True,
-            )
+                # Русский комментарий:
+                # Не выходим из обработки NG здесь. Для NG M1 основной сигнал
+                # формируется ниже на закрытом MTF-баре через on_signal_bar().
+                # Ранний return ломал live-контур: replay видел сигналы,
+                # а pipeline не доходил до MTF aggregation.
+                print(
+                    f"PIPE_NG_TICK_ROUTE_NO_INTENT_CONTINUE_MTF symbol={sym}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"PIPE_NG_SIGNAL side={raw_intent.get('side')} "
+                    f"price={raw_intent.get('price')} reason={raw_intent.get('reason')}",
+                    flush=True,
+                )
 
         # === SIMULATION MOVE (CRITICAL) ===
         if self.runtime_config.get_bool("SIMULATE_MARKET", False):
