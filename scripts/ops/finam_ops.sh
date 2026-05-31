@@ -205,6 +205,20 @@ case "$cmd" in
       "$TMP_DIR/accumulation_plan_v1.out" || true
 
     echo
+    echo "=== 4. СВЕЖЕСТЬ БАРОВ BR/NG/USD ==="
+    psql "$DATABASE_URL" -c "
+    SELECT
+      symbol,
+      timeframe,
+      to_char(max(ts) AT TIME ZONE 'Europe/Moscow','DD-MM-YYYY HH24:MI:SS') AS last_bar_msk,
+      round(extract(epoch from (now() - max(ts))) / 60, 2) AS lag_min
+    FROM market_bars
+    WHERE symbol IN ('BRN6@RTSX','NGN6@RTSX','USDRUBF@RTSX')
+      AND timeframe IN ('M1','M5')
+    GROUP BY symbol, timeframe
+    ORDER BY symbol, timeframe;
+    "
+
     echo "=== 4. БЛОКИРОВКИ СИГНАЛОВ ЗА 30 МИНУТ ==="
     blocks_tmp="$(mktemp)"
     journalctl -u finam-paper-pipeline.service --since "30 minutes ago" --no-pager 2>/dev/null | \
