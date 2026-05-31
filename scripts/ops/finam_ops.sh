@@ -188,10 +188,15 @@ case "$cmd" in
 
     echo
     echo "=== 4. БЛОКИРОВКИ СИГНАЛОВ ЗА 30 МИНУТ ==="
+    blocks_tmp="$(mktemp)"
     journalctl -u finam-paper-pipeline.service --since "30 minutes ago" --no-pager 2>/dev/null | \
       grep "RUNTIME_GUARD_PRE_SIGNAL_BLOCK_SAVED" | \
-      sed -E 's/.*symbol=([^ ]+).*block_type=([^ ]+).*/\\1 \\2/' | \
-      sort | uniq -c || true
+      sed -E 's/.*symbol=([^ ]+).*block_type=([^ ]+).*/\1 \2/' | \
+      sort | uniq -c | tee "$blocks_tmp" || true
+
+    blocked_total="$(awk '{s += $1} END {print s + 0}' "$blocks_tmp")"
+    echo "BLOCKED_SIGNALS_TOTAL=${blocked_total}"
+    rm -f "$blocks_tmp"
 
     echo
     echo "=== 5. ПОСЛЕДНИЕ FILL BR/NG ЗА 1 ЧАС ==="
