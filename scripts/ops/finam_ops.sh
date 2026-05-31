@@ -187,7 +187,35 @@ case "$cmd" in
       "$TMP_DIR/accumulation_plan_v1.out" || true
 
     echo
-    echo "=== 4. ПОСЛЕДНИЕ 20 PAPER-СДЕЛОК ==="
+    echo "=== 4. БЛОКИРОВКИ СИГНАЛОВ ЗА 30 МИНУТ ==="
+    journalctl -u finam-paper-pipeline.service --since "30 minutes ago" --no-pager 2>/dev/null | \
+      grep "RUNTIME_GUARD_PRE_SIGNAL_BLOCK_SAVED" | \
+      sed -E 's/.*symbol=([^ ]+).*block_type=([^ ]+).*/\\1 \\2/' | \
+      sort | uniq -c || true
+
+    echo
+    echo "=== 5. ПОСЛЕДНИЕ FILL BR/NG ЗА 1 ЧАС ==="
+    psql "$DATABASE_URL" -c "
+    SELECT
+        symbol,
+        side,
+        qty,
+        price,
+        origin,
+        strategy,
+        timeframe,
+        created_at
+    FROM trades
+    WHERE symbol IN ('BRN6@RTSX','NGN6@RTSX')
+      AND created_at >= now() - interval '1 hour'
+      AND COALESCE(origin, '') = 'paper'
+      AND is_invalid = false
+    ORDER BY created_at DESC
+    LIMIT 20;
+    "
+
+    echo
+    echo "=== 6. ПОСЛЕДНИЕ 20 PAPER-СДЕЛОК ==="
     psql "$DATABASE_URL" -c "
     SELECT
         symbol,
