@@ -32,10 +32,10 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 if [ -z "${DATABASE_URL:-}" ] && [ -r "/opt/finam-core/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . /opt/finam-core/.env
-  set +a
+  DATABASE_URL="$(
+    grep -E '^DATABASE_URL=' /opt/finam-core/.env | tail -n 1 | cut -d= -f2-
+  )"
+  export DATABASE_URL
 fi
 
 if [ -x "/opt/finam-core/.venv/bin/python" ]; then
