@@ -196,10 +196,15 @@ case "$cmd" in
         price,
         origin,
         strategy,
+        timeframe,
         created_at
     FROM trades
     WHERE origin = 'paper'
       AND is_invalid = false
+      AND COALESCE(strategy, '') <> ''
+      AND COALESCE(payload->>'source', '') <> 'moex_external_replay_v3'
+      AND COALESCE(payload->>'regime', '') <> 'MOEX_HISTORY'
+      AND COALESCE(payload->>'paper_only', '') <> 'true'
     ORDER BY created_at DESC
     LIMIT 20;
     "
