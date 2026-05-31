@@ -243,6 +243,9 @@ case "$cmd" in
     ;;
 
   health)
+    echo "=== ДЕЙСТВИЕ: HEALTH ==="
+    echo "Время проверки МСК: $(TZ=Europe/Moscow date '+%d-%m-%Y %H:%M:%S')"
+    echo
     echo "=== SERVICE ==="
     systemctl is-active finam-paper-pipeline.service || true
     echo "=== FAILED ==="
