@@ -4,9 +4,35 @@ set -euo pipefail
 cd /opt/finam-core
 export PYTHONPATH=src
 
-cmd="${1:-help}"
+cmd="${1:-menu}"
 
 case "$cmd" in
+
+  menu)
+    echo "Finam_Core ops menu"
+    echo
+    PS3="Выберите команду: "
+    select item in \
+      "status" \
+      "logs" \
+      "health" \
+      "accumulation" \
+      "trades" \
+      "bars-br" \
+      "bars-ng" \
+      "bars-usd" \
+      "env" \
+      "restart" \
+      "quit"
+    do
+      case "$item" in
+        quit) break ;;
+        "") echo "Неверный выбор" ;;
+        *) "$0" "$item" ;;
+      esac
+      echo
+    done
+    ;;
   status)
     systemctl status finam-paper-pipeline.service --no-pager
     ;;
@@ -114,6 +140,7 @@ Finam_Core ops commands:
   bars-br         - история BR
   accumulation    - план накопления paper-статистики для повторной edge-валидации
   health          - быстрый healthcheck сервиса и ошибок
+  menu            - интерактивное меню ops-команд
 
 Examples:
   ./scripts/ops/finam_ops.sh logs
