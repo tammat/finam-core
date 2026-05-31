@@ -1187,8 +1187,8 @@ class PaperTradingPipeline:
             if snapshot_key != last_snapshot_key or now_log_ts - last_sync_log_ts >= heartbeat_sec:
                 print(
                     f"PIPE_BROKER_POSITION_SYNC_OK count={len(qty_by_symbol)} "
-                    f"BRM6@RTSX={qty_by_symbol.get('BRM6@RTSX', 0.0)} "
-                    f"BRM6_avg={avg_by_symbol.get('BRM6@RTSX', 0.0)}",
+                    f"{self.br_breakout_symbol}={qty_by_symbol.get(self.br_breakout_symbol, 0.0)} "
+                    f"{self.br_breakout_symbol}_avg={avg_by_symbol.get(self.br_breakout_symbol, 0.0)}",
                     flush=True,
                 )
                 self._broker_position_last_snapshot_key = snapshot_key
