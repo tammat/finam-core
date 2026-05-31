@@ -4,6 +4,21 @@ set -euo pipefail
 cd /opt/finam-core
 export PYTHONPATH=src
 
+# Русский комментарий:
+# При запуске через глобальную команду fin окружение sudo может потерять DATABASE_URL.
+# Поэтому подтягиваем переменные из systemd unit/env-file, если они доступны.
+if [ -z "${DATABASE_URL:-}" ]; then
+  ENV_FILES=$(systemctl cat finam-paper-pipeline.service 2>/dev/null | sed -n 's/^EnvironmentFile=-\?//p' || true)
+  for env_file in $ENV_FILES; do
+    if [ -r "$env_file" ]; then
+      set -a
+      # shellcheck disable=SC1090
+      . "$env_file"
+      set +a
+    fi
+  done
+fi
+
 if [ -x "/opt/finam-core/.venv/bin/python" ]; then
   PY_BIN="/opt/finam-core/.venv/bin/python"
 elif [ -x "/opt/finam-core/venv/bin/python" ]; then
@@ -12,13 +27,14 @@ else
   PY_BIN="python3"
 fi
 
-JOURNALCTL="journalctl"
+JOURNALCTL="journalctl -q"
 if sudo -n true 2>/dev/null; then
-  JOURNALCTL="sudo journalctl"
+  JOURNALCTL="sudo journalctl -q"
 fi
 
-TMP_DIR="/var/tmp/finam-core"
-mkdir -p "$TMP_DIR" 2>/dev/null || TMP_DIR="/tmp"
+TMP_DIR="/var/tmp/finam-core-${USER:-unknown}"
+mkdir -p "$TMP_DIR" 2>/dev/null || TMP_DIR="/tmp/finam-core-${USER:-unknown}"
+mkdir -p "$TMP_DIR" 2>/dev/null || true
 
 cmd="${1:-menu}"
 
