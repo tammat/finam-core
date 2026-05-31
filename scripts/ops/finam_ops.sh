@@ -105,9 +105,12 @@ case "$cmd" in
     ;;
 
   restart)
-    sudo systemctl daemon-reload
-    sudo systemctl restart finam-paper-pipeline.service
-    systemctl status finam-paper-pipeline.service --no-pager
+    echo "Перезапуск сервиса требует прав sudo."
+    echo "Выполните из-под пользователя alex:"
+    echo
+    echo "  sudo systemctl daemon-reload"
+    echo "  sudo systemctl restart finam-paper-pipeline.service"
+    echo "  systemctl status finam-paper-pipeline.service --no-pager"
     ;;
 
   ng-gate)
