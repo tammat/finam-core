@@ -6,7 +6,7 @@ export PYTHONPATH=src
 
 # Русский комментарий:
 # При запуске через глобальную команду fin окружение sudo может потерять DATABASE_URL.
-# Поэтому подтягиваем переменные из systemd unit/env-file, если они доступны.
+# Поэтому подтягиваем переменные из systemd unit/env-file и inline Environment=.
 if [ -z "${DATABASE_URL:-}" ]; then
   ENV_FILES=$(systemctl cat finam-paper-pipeline.service 2>/dev/null | sed -n 's/^EnvironmentFile=-\?//p' || true)
   for env_file in $ENV_FILES; do
@@ -17,6 +17,25 @@ if [ -z "${DATABASE_URL:-}" ]; then
       set +a
     fi
   done
+fi
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  while IFS= read -r env_line; do
+    env_line="${env_line#Environment=}"
+    env_line="${env_line%\"}"
+    env_line="${env_line#\"}"
+    case "$env_line" in
+      DATABASE_URL=*) export "$env_line" ;;
+      PG*=*) export "$env_line" ;;
+    esac
+  done < <(systemctl cat finam-paper-pipeline.service 2>/dev/null | grep '^Environment=' || true)
+fi
+
+if [ -z "${DATABASE_URL:-}" ] && [ -r "/opt/finam-core/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /opt/finam-core/.env
+  set +a
 fi
 
 if [ -x "/opt/finam-core/.venv/bin/python" ]; then
