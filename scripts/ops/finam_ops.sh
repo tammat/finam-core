@@ -60,29 +60,40 @@ cmd="${1:-menu}"
 case "$cmd" in
 
   menu)
-    echo "Меню управления Finam_Core"
-    echo
-    PS3="Выберите действие: "
-    select item in \
-      "dashboard" \
-      "status" \
-      "logs" \
-      "health" \
-      "accumulation" \
-      "trades" \
-      "bars-br" \
-      "bars-ng" \
-      "bars-usd" \
-      "env" \
-      "restart" \
-      "выход"
-    do
-      case "$item" in
-        "выход") echo "Выход"; break ;;
-        "") echo "Неверный выбор" ;;
-        *) "$0" "$item" ;;
-      esac
+    while true; do
       echo
+      echo "=== МЕНЮ УПРАВЛЕНИЯ FINAM_CORE ==="
+      echo " 1) dashboard      - общий дашборд"
+      echo " 2) status         - статус сервиса"
+      echo " 3) logs           - ключевые логи"
+      echo " 4) health         - здоровье системы"
+      echo " 5) accumulation   - план накопления статистики"
+      echo " 6) trades         - последние сделки"
+      echo " 7) bars-br        - бары Brent"
+      echo " 8) bars-ng        - бары Natural Gas"
+      echo " 9) bars-usd       - бары USD/RUB"
+      echo "10) env            - параметры systemd/env"
+      echo "11) restart        - безопасный restart"
+      echo " 0) выход"
+      echo
+      read -r -p "Выберите действие: " choice
+      echo
+
+      case "$choice" in
+        1) echo "=== ДЕЙСТВИЕ: DASHBOARD ==="; "$0" dashboard ;;
+        2) echo "=== ДЕЙСТВИЕ: STATUS ==="; "$0" status ;;
+        3) echo "=== ДЕЙСТВИЕ: LOGS ==="; "$0" logs ;;
+        4) echo "=== ДЕЙСТВИЕ: HEALTH ==="; "$0" health ;;
+        5) echo "=== ДЕЙСТВИЕ: ACCUMULATION ==="; "$0" accumulation ;;
+        6) echo "=== ДЕЙСТВИЕ: TRADES ==="; "$0" trades ;;
+        7) echo "=== ДЕЙСТВИЕ: BARS-BR ==="; "$0" bars-br ;;
+        8) echo "=== ДЕЙСТВИЕ: BARS-NG ==="; "$0" bars-ng ;;
+        9) echo "=== ДЕЙСТВИЕ: BARS-USD ==="; "$0" bars-usd ;;
+        10) echo "=== ДЕЙСТВИЕ: ENV ==="; "$0" env ;;
+        11) echo "=== ДЕЙСТВИЕ: RESTART ==="; "$0" restart ;;
+        0) echo "Выход"; exit 0 ;;
+        *) echo "Неверный выбор: $choice" ;;
+      esac
     done
     ;;
   status)
@@ -123,8 +134,16 @@ case "$cmd" in
 
   trades)
     psql "$DATABASE_URL" -c "
-    SELECT symbol, side, qty, price, created_at
+    SELECT
+        symbol,
+        side,
+        qty,
+        round(price::numeric, 4) AS price,
+        to_char(created_at AT TIME ZONE 'Europe/Moscow', 'DD-MM-YYYY HH24:MI:SS') AS created_at_msk
     FROM trades
+    WHERE symbol IN ('BRN6@RTSX','NGN6@RTSX','USDRUBF@RTSX')
+      AND COALESCE(origin, '') = 'paper'
+      AND COALESCE(is_invalid, false) = false
     ORDER BY created_at DESC
     LIMIT 20;
     "
