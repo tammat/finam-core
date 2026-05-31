@@ -25,7 +25,7 @@ def load_active_symbols(database_url: str) -> list[str]:
                 cur.execute(sql)
                 return [str(row[0]) for row in cur.fetchall()]
     except Exception:
-        return ["BRM6@RTSX"]
+        return [os.getenv("BR_BREAKOUT_SYMBOL", os.getenv("ACTIVE_BR_SYMBOL", os.getenv("BR_CONTRACT", "BRN6@RTSX")))]
 
 
 def run(cmd: list[str]) -> int:
