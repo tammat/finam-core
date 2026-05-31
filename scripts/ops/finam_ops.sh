@@ -162,9 +162,8 @@ case "$cmd" in
 
   accumulation)
     echo "=== ACCUMULATION PLAN V1 ==="
-    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py | tee "$TMP_DIR/accumulation_plan_v1.out"
-    echo "=== ACCUMULATION SUMMARY ==="
-    grep -E "ACCUMULATION_PLAN_SUMMARY|CONTINUE_PAPER_ACCUMULATION|PAPER_CONFIRMATION_REQUIRED" \
+    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py > "$TMP_DIR/accumulation_plan_v1.out"
+    grep -E "symbol=(BRN6@RTSX|NGN6@RTSX|USDRUBF@RTSX).*source_group=PAPER|ACCUMULATION_PLAN_SUMMARY" \
       "$TMP_DIR/accumulation_plan_v1.out" || true
     ;;
 
@@ -182,8 +181,8 @@ case "$cmd" in
 
     echo
     echo "=== 3. ПЛАН НАКОПЛЕНИЯ СТАТИСТИКИ ==="
-    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py | tee "$TMP_DIR/accumulation_plan_v1.out"
-    grep -E "ACCUMULATION_PLAN_SUMMARY|CONTINUE_PAPER_ACCUMULATION|PAPER_CONFIRMATION_REQUIRED" \
+    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py > "$TMP_DIR/accumulation_plan_v1.out"
+    grep -E "symbol=(BRN6@RTSX|NGN6@RTSX|USDRUBF@RTSX).*source_group=PAPER|ACCUMULATION_PLAN_SUMMARY" \
       "$TMP_DIR/accumulation_plan_v1.out" || true
 
     echo
