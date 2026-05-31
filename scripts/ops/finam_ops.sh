@@ -79,6 +79,14 @@ case "$cmd" in
     "
     ;;
 
+  accumulation)
+    echo "=== ACCUMULATION PLAN V1 ==="
+    python src/scripts/analytics/build_accumulation_plan_v1.py | tee /tmp/accumulation_plan_v1.out
+    echo "=== ACCUMULATION SUMMARY ==="
+    grep -E "ACCUMULATION_PLAN_SUMMARY|CONTINUE_PAPER_ACCUMULATION|PAPER_CONFIRMATION_REQUIRED" \
+      /tmp/accumulation_plan_v1.out || true
+    ;;
+
   health)
     echo "=== SERVICE ==="
     systemctl is-active finam-paper-pipeline.service || true
@@ -104,6 +112,7 @@ Finam_Core ops commands:
   bars-ng         - история NG
   bars-usd        - история USDRUBF
   bars-br         - история BR
+  accumulation    - план накопления paper-статистики для повторной edge-валидации
   health          - быстрый healthcheck сервиса и ошибок
 
 Examples:
