@@ -182,7 +182,7 @@ case "$cmd" in
   accumulation)
     echo "=== ACCUMULATION PLAN V1 ==="
     "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py > "$TMP_DIR/accumulation_plan_v1.out"
-    grep -E "symbol=(BRN6@RTSX|NGN6@RTSX|USDRUBF@RTSX).*source_group=PAPER|ACCUMULATION_PLAN_SUMMARY" \
+    grep -E "source_group=PAPER|ACCUMULATION_PLAN_SUMMARY" \
       "$TMP_DIR/accumulation_plan_v1.out" || true
     ;;
 
@@ -199,11 +199,10 @@ case "$cmd" in
       grep -E "ERROR|Traceback|Exception|FAILED" || true
 
     echo
-    echo "=== 3. ПЛАН НАКОПЛЕНИЯ СТАТИСТИКИ ==="
-    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py > "$TMP_DIR/accumulation_plan_v1.out"
-    grep -E "symbol=(BRN6@RTSX|NGN6@RTSX|USDRUBF@RTSX).*source_group=PAPER|ACCUMULATION_PLAN_SUMMARY" \
-      "$TMP_DIR/accumulation_plan_v1.out" || true
+    echo "=== 3. ИССЛЕДОВАТЕЛЬСКИЙ КОНТУР ==="
 
+    "$PY_BIN" \
+    src/scripts/observability/build_research_kpi_dashboard_v1.py
     echo
     echo "=== 4. СВЕЖЕСТЬ БАРОВ BR/NG/USD ==="
     psql "$DATABASE_URL" -c "
@@ -229,6 +228,12 @@ case "$cmd" in
     blocked_total="$(awk '{s += $1} END {print s + 0}' "$blocks_tmp")"
     echo "BLOCKED_SIGNALS_TOTAL=${blocked_total}"
     rm -f "$blocks_tmp"
+
+
+    echo
+    echo
+    "$PY_BIN" src/scripts/observability/build_execution_funnel_v2.py
+
 
     echo
     echo "=== 5. ПОСЛЕДНИЕ FILL BR/NG ЗА 1 ЧАС ==="
