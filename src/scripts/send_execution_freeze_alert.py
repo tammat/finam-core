@@ -43,9 +43,7 @@ def main() -> None:
         cur.execute("""
             SELECT MAX(ts)
             FROM trades
-            WHERE COALESCE(raw_json->>'paper_only', payload->>'paper_only') = 'true'
-               OR payload->>'paper_only' = 'true'
-               OR raw_json->>'paper_only' = 'true';
+            WHERE COALESCE(payload->>'paper_only', 'false') = 'true';
         """)
         last_trade_ts = cur.fetchone()[0]
 
