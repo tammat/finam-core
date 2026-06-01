@@ -4521,7 +4521,26 @@ class PaperTradingPipeline:
                         flush=True,
                     )
                     if not strict_decision.allowed:
-                        return
+                        ng_paper_bypass = (
+                            str(sym).startswith("NG")
+                            and self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
+                            and strict_decision.reason == "strict_mode_no_match"
+                            and os.getenv(
+                                "ENABLE_NG_PAPER_ACCUMULATION_BYPASS_V1",
+                                "0",
+                            ) == "1"
+                        )
+
+                        if ng_paper_bypass:
+                            print(
+                                "NG_PAPER_ACCUMULATION_BYPASS",
+                                f"symbol={sym}",
+                                f"side={gate_side}",
+                                f"reason={strict_decision.reason}",
+                                flush=True,
+                            )
+                        else:
+                            return
                 except Exception as exc:
                     print(
                         "PIPE_EDGE_GATE_STRICT_MODE_FAILED_OPEN",
