@@ -51,6 +51,24 @@ SELECT
     MAX(exit_ts) AS last_exit
 FROM analytics_strategy_trades_v2
 GROUP BY symbol, strategy, timeframe, origin, side
+
+ORDER BY trades DESC;
+"""
+
+EQUITY_FILL_SQL = """
+SELECT
+    symbol,
+    'MEAN_REVERSION_EQUITY' AS strategy,
+    'LIVE' AS timeframe,
+    'paper' AS origin,
+    'LONG' AS side,
+    GREATEST(COUNT(*) / 2, 0) AS trades,
+    MIN(ts) AS first_entry,
+    MAX(ts) AS last_exit
+FROM fills
+WHERE symbol LIKE '%@MISX'
+GROUP BY symbol
+HAVING COUNT(*) > 0
 ORDER BY trades DESC;
 """
 
@@ -204,7 +222,12 @@ def main() -> int:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(EDGE_SQL)
-            rows = merge_required_tracking_rows([dict(x) for x in cur.fetchall()])
+            rows = [dict(x) for x in cur.fetchall()]
+
+            cur.execute(EQUITY_FILL_SQL)
+            rows.extend([dict(x) for x in cur.fetchall()])
+
+            rows = merge_required_tracking_rows(rows)
 
     summary: dict[str, int] = {}
 
