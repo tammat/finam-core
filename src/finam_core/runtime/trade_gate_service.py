@@ -32,7 +32,7 @@ class TradeGateService:
         self.max_trades_per_hour = int(max_trades_per_hour)
         self.max_trades_per_symbol = int(max_trades_per_symbol)
 
-        self.last_trade_ts: float = 0.0
+        self.symbol_last_trade_ts: dict[str, float] = {}
         self.trade_timestamps: list[float] = []
         self.symbol_trade_timestamps: dict[str, list[float]] = {}
 
@@ -51,7 +51,9 @@ class TradeGateService:
         except Exception:
             cooldown_sec = self.base_cooldown_sec
 
-        if now_ts - self.last_trade_ts < cooldown_sec:
+        last_trade_ts = self.symbol_last_trade_ts.get(symbol, 0.0)
+
+        if now_ts - last_trade_ts < cooldown_sec:
             return TradeGateDecision(
                 allowed=False,
                 reason=f"cooldown_block:symbol={symbol}:cooldown={round(cooldown_sec, 3)}",
@@ -79,7 +81,7 @@ class TradeGateService:
     def account_trade(self, symbol: str) -> TradeGateDecision:
         now_ts = time.time()
 
-        self.last_trade_ts = now_ts
+        self.symbol_last_trade_ts[symbol] = now_ts
 
         trades = [t for t in self.trade_timestamps if now_ts - t < 3600]
         trades.append(now_ts)
