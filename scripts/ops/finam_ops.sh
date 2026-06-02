@@ -196,13 +196,16 @@ case "$cmd" in
     echo
     echo "=== 2. ОШИБКИ ЗА 60 МИНУТ ==="
     $JOURNALCTL -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | \
-      grep -E "ERROR|Traceback|Exception|FAILED" || true
+      grep -E "ERROR|Traceback|Exception|FAILED" | grep -v "PIPE_SESSION_BLOCK phase=preopen" || true
 
     echo
     echo "=== 3. ИССЛЕДОВАТЕЛЬСКИЙ КОНТУР ==="
 
     "$PY_BIN" \
     src/scripts/observability/build_research_kpi_dashboard_v1.py
+
+    echo
+    "$PY_BIN" src/scripts/observability/build_edge_scorecard_v1.py
     echo
     echo "=== 4. СВЕЖЕСТЬ БАРОВ BR/NG/USD ==="
     psql "$DATABASE_URL" -c "
@@ -288,9 +291,18 @@ case "$cmd" in
     systemctl is-active finam-paper-pipeline.service || true
     echo "=== FAILED ==="
     systemctl --failed || true
+    echo "=== BROKER SYNC ==="
+    broker_sync_errors="$($JOURNALCTL -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | grep -c "PIPE_BROKER_POSITION_SYNC_ERROR" || true)"
+    if [ "$broker_sync_errors" -gt 0 ]; then
+      echo "status=WARN"
+      echo "errors_last_60m=${broker_sync_errors}"
+    else
+      echo "status=OK"
+    fi
+    echo
     echo "=== RECENT ERRORS ==="
     $JOURNALCTL -u finam-paper-pipeline.service --since "60 minutes ago" --no-pager | \
-    grep -E "ERROR|Traceback|Exception|FAILED" || true
+    grep -E "ERROR|Traceback|Exception|FAILED" | grep -v "PIPE_SESSION_BLOCK phase=preopen" || true
     ;;
 
   help|*)
