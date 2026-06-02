@@ -79,17 +79,20 @@ class ExitLifecycleManager:
             abs(float(qty or 0.0)) > 1e-9 or os.getenv("EXIT_ENGINE_DEBUG", "0") == "1"
         ):
             state[qty_key] = now_ts
-            print(
-                f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
-                f"price={round(float(price), 6)} atr_in={atr}",
-                flush=True,
-            )
+            # Русский комментарий: регулярная проверка ExitEngine пишется только в debug-режиме.
+            if os.getenv("RUNTIME_DEBUG_LOGS", "0") == "1":
+                print(
+                    f"PIPE_EXIT_ENGINE_CHECK symbol={symbol} qty={qty} "
+                    f"price={round(float(price), 6)} atr_in={atr}",
+                    flush=True,
+                )
 
         if qty == 0:
             state["bars_held"] = 0
             state["prev_close"] = float(price)
             state["stop_price"] = None
             state["last_qty"] = 0.0
+            state["opened_at_ts"] = None
             try:
                 p.exit_state_machine.on_position(symbol, 0.0)
             except Exception:
@@ -126,6 +129,8 @@ class ExitLifecycleManager:
         if float(state.get("last_qty") or 0.0) == 0.0:
             state["bars_held"] = 0
             state["stop_price"] = None
+            # Русский комментарий: фиксируем момент открытия новой позиции для защиты от мгновенного time_exit.
+            state["opened_at_ts"] = time.time()
 
         state["bars_held"] = int(state.get("bars_held") or 0) + 1
         state["last_qty"] = float(qty)
@@ -162,12 +167,31 @@ class ExitLifecycleManager:
             )
         )
 
+        bars_for_exit = int(state["bars_held"])
+
+        # Русский комментарий: NG в live идёт частыми quote/tick-событиями, поэтому bars_held
+        # не равен количеству M1-баров. Не даём time_exit закрыть свежую NG paper-позицию.
+        if str(symbol).startswith("NG"):
+            min_hold_sec = float(os.getenv("NG_MIN_HOLD_SEC", "300"))
+            opened_at_ts = state.get("opened_at_ts")
+            position_age_sec = time.time() - float(opened_at_ts or time.time())
+
+            if position_age_sec < min_hold_sec:
+                bars_for_exit = 0
+                if p._runtime_log_allowed(f"NG_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
+                    print(
+                        f"PIPE_NG_TIME_EXIT_GUARD symbol={symbol} "
+                        f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
+                        f"raw_bars_held={state['bars_held']}",
+                        flush=True,
+                    )
+
         decision = p._exit_engine_for_symbol(symbol).evaluate(
             side=side,
             entry_price=float(avg_price),
             current_price=float(price),
             atr=effective_atr,
-            bars_held=int(state["bars_held"]),
+            bars_held=bars_for_exit,
             prev_close=state.get("prev_close"),
             current_stop=state.get("stop_price"),
         )
