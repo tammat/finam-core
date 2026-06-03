@@ -5053,6 +5053,32 @@ class PaperTradingPipeline:
         # Русский комментарий: единый PAPER/REAL helper metadata для analytics lineage.
         FillMetadataFactory.attach(fill, intent=intent, market_state=st, raw_fill=raw_fill)
 
+        # Русский комментарий: NG_SIGNAL_ID_PROPAGATION_V1.
+        # Протягиваем исходный signal_id стратегии в fill до публикации FILL.
+        try:
+            source_signal_id = (
+                intent.get("signal_id")
+                or intent.get("id")
+                or intent.get("source_signal_id")
+            )
+            if source_signal_id:
+                setattr(fill, "signal_id", str(source_signal_id))
+                fill_metadata = getattr(fill, "metadata", None)
+                if not isinstance(fill_metadata, dict):
+                    fill_metadata = {}
+                    setattr(fill, "metadata", fill_metadata)
+                fill_metadata["signal_id"] = str(source_signal_id)
+                fill_metadata["source_signal_id"] = str(source_signal_id)
+                fill_metadata.setdefault("source", intent.get("source") or "strategy_signal")
+                if str(intent.get("symbol") or "").startswith("NG"):
+                    print(
+                        f"PIPE_NG_SIGNAL_ID_PROPAGATED symbol={intent.get('symbol')} "
+                        f"signal_id={source_signal_id}",
+                        flush=True,
+                    )
+        except Exception as exc:
+            print(f"PIPE_SIGNAL_ID_PROPAGATION_FAILED error={exc}", flush=True)
+
         # SAFETY: гарантируем корректный fill (также qty > 0)
         if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
             LOG.error("FILL BUILD ERROR: invalid fill, intent=%s raw_fill=%s", intent, raw_fill)
@@ -5102,7 +5128,93 @@ class PaperTradingPipeline:
         if regime.trend in ("up", "down"):
             return self._breakout_logic(state)
 
+    def _update_position_projection_on_fill_v1(self, event: dict) -> None:
+        """Русский комментарий: обновляет position_projection по каждому FILL-событию."""
+        try:
+            database_url = os.getenv("DATABASE_URL", "")
+            if not database_url:
+                return
+
+            fill = event.get("fill") if isinstance(event, dict) else event
+            if fill is None:
+                return
+
+            symbol = str(getattr(fill, "symbol", "") or "")
+            side = str(getattr(fill, "side", "") or "").upper()
+            qty = float(getattr(fill, "qty", 0.0) or 0.0)
+            price = float(getattr(fill, "price", 0.0) or 0.0)
+            fill_id = str(getattr(fill, "fill_id", "") or "")
+
+            if not symbol or qty <= 0 or side not in ("BUY", "SELL"):
+                return
+
+            delta = qty if side == "BUY" else -qty
+
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg.types.json import Jsonb
+
+            with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                with conn.transaction():
+                    row = conn.execute(
+                        """
+                        SELECT state
+                        FROM position_projection
+                        WHERE symbol = %s
+                        FOR UPDATE
+                        """,
+                        (symbol,),
+                    ).fetchone()
+
+                    state = dict(row["state"]) if row and isinstance(row.get("state"), dict) else {}
+                    old_qty = float(
+                        state.get("qty")
+                        or state.get("net_qty")
+                        or state.get("position_qty")
+                        or 0.0
+                    )
+                    new_qty = old_qty + delta
+
+                    state.update(
+                        {
+                            "symbol": symbol,
+                            "qty": new_qty,
+                            "net_qty": new_qty,
+                            "last_fill_side": side,
+                            "last_fill_qty": qty,
+                            "last_fill_price": price,
+                            "last_fill_id": fill_id,
+                            "source": "paper_pipeline_fill_event_projection_v1",
+                        }
+                    )
+                    state["fills_count_projected"] = int(state.get("fills_count_projected") or 0) + 1
+
+                    conn.execute(
+                        """
+                        INSERT INTO position_projection (symbol, state, updated_at)
+                        VALUES (%s, %s, now())
+                        ON CONFLICT (symbol)
+                        DO UPDATE SET
+                            state = EXCLUDED.state,
+                            updated_at = now()
+                        """,
+                        (symbol, Jsonb(state)),
+                    )
+
+            if symbol.startswith("NG"):
+                print(
+                    f"PIPE_POSITION_PROJECTION_UPDATED symbol={symbol} "
+                    f"side={side} delta={delta} qty={new_qty}",
+                    flush=True,
+                )
+
+        except Exception as exc:
+            print(f"PIPE_POSITION_PROJECTION_UPDATE_FAILED error={exc}", flush=True)
+
+
     def _on_fill(self, event: dict):
+        # Русский комментарий: POSITION_PROJECTION_ON_FILL_V1 — синхронизация projection по FILL.
+        self._update_position_projection_on_fill_v1(event)
         """
         Русский коммент: единая точка применения исполнений.
         Идемпотентность по fill_id держит PositionManager (если включена).
