@@ -115,7 +115,13 @@ class SignalIntent:
             entry_price=data.get("entry_price") or data.get("price") or features.get("entry"),
             stop_price=data.get("stop_price") or data.get("stop") or features.get("stop"),
             take_profit=data.get("take_profit") or data.get("take") or features.get("take"),
-            strategy=str(data.get("strategy") or features.get("strategy") or "UNKNOWN_STRATEGY"),
+            # Русский комментарий: SIGNAL_ATTRIBUTION_CLEANUP_V1.
+            # Стратегия должна восстанавливаться из features.strategy до генерации signal_id.
+            strategy=str(
+                data.get("strategy")
+                if data.get("strategy") not in (None, "", "UNKNOWN_STRATEGY")
+                else features.get("strategy") or "UNKNOWN_STRATEGY"
+            ),
             intent_type=str(data.get("intent_type", "ENTRY")),
             confidence=float(data.get("confidence", data.get("score", 1.0)) or 1.0),
             timeframe=str(data.get("timeframe", "LIVE")),

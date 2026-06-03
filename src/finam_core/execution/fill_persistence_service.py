@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import os
 
 
 class FillPersistenceService:
@@ -41,4 +42,71 @@ class FillPersistenceService:
                 self.attribution_service.link_fill_from_payload(fill)
             )
 
+        # Русский комментарий: SIGNAL_FILL_LINKAGE_PERSISTENCE_V1.
+        # Если attribution_service не связал fill, но payload содержит signal_id,
+        # сохраняем связь напрямую в signal_fills.
+        if not result["signal_linked"]:
+            result["signal_linked"] = bool(
+                self._persist_signal_fill_linkage_v1(fill=fill, payload=payload)
+            )
+
         return result
+
+    def _persist_signal_fill_linkage_v1(self, *, fill: Any, payload: dict | None) -> bool:
+        """Русский комментарий: напрямую пишет связь signal_id -> fill_id в signal_fills."""
+        if not isinstance(payload, dict):
+            payload = {}
+
+        signal_id = (
+            payload.get("signal_id")
+            or payload.get("source_signal_id")
+            or getattr(fill, "signal_id", None)
+        )
+
+        if not signal_id:
+            return False
+
+        fill_id = getattr(fill, "fill_id", None)
+        symbol = getattr(fill, "symbol", None) or payload.get("symbol")
+        side = getattr(fill, "side", None) or payload.get("side")
+        qty = float(getattr(fill, "qty", 0.0) or payload.get("qty") or 0.0)
+        price = float(getattr(fill, "price", 0.0) or payload.get("price") or 0.0)
+
+        if not symbol or not side or qty <= 0:
+            return False
+
+        database_url = os.getenv("DATABASE_URL", "")
+        if not database_url:
+            return False
+
+        try:
+            import psycopg
+
+            with psycopg.connect(database_url) as conn:
+                with conn.transaction():
+                    conn.execute(
+                        """
+                        INSERT INTO signal_fills (
+                            signal_id,
+                            fill_id,
+                            symbol,
+                            side,
+                            qty,
+                            price,
+                            created_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, now())
+                        """,
+                        (
+                            str(signal_id),
+                            str(fill_id) if fill_id else None,
+                            str(symbol),
+                            str(side).upper(),
+                            qty,
+                            price,
+                        ),
+                    )
+            return True
+
+        except Exception:
+            return False

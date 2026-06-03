@@ -3249,10 +3249,20 @@ class PaperTradingPipeline:
                 # Русский комментарий: exit/hard-close PAPER fill тоже должен нести metadata для analytics lineage.
                 FillMetadataFactory.attach(fill, intent=intent, market_state=st, raw_fill=raw_fill)
 
+                # Русский комментарий: NG_SIGNAL_SOURCE_PROPAGATION_V2 для exit/hard-close ветки.
+                try:
+                    if not hasattr(self, "_fill_intent_payload_by_fill_id"):
+                        self._fill_intent_payload_by_fill_id = {}
+                    fill_key = str(getattr(fill, "fill_id", None) or "")
+                    if fill_key:
+                        self._fill_intent_payload_by_fill_id[fill_key] = dict(intent or {})
+                except Exception as exc:
+                    print(f"PIPE_SIGNAL_SOURCE_CACHE_FAILED symbol={intent.get('symbol')} error={exc}", flush=True)
 
                 self.bus.publish({"type": "FILL", "fill": fill})
                 try:
                     self.exit_state_machine.on_fill(str(intent.get("symbol") or ""))
+                    self._restore_pm_position_from_projection_v1(str(intent.get("symbol") or ""))
                     pos_after = self.pm.positions.get(str(intent.get("symbol") or ""))
                     qty_after = float(getattr(pos_after, "qty", 0.0) or 0.0) if pos_after else 0.0
                     self.exit_state_machine.on_position(str(intent.get("symbol") or ""), qty_after)
@@ -4392,6 +4402,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === POSITION GUARD (STRICT, NO STACKING)
         # =========================================================
+        self._restore_pm_position_from_projection_v1(str(sym))
         pos = self.pm.positions.get(sym)
         current_qty = float(getattr(pos, "qty", 0.0) or 0.0) if pos else 0.0
         avg_price = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos else 0.0
@@ -5053,31 +5064,16 @@ class PaperTradingPipeline:
         # Русский комментарий: единый PAPER/REAL helper metadata для analytics lineage.
         FillMetadataFactory.attach(fill, intent=intent, market_state=st, raw_fill=raw_fill)
 
-        # Русский комментарий: NG_SIGNAL_ID_PROPAGATION_V1.
-        # Протягиваем исходный signal_id стратегии в fill до публикации FILL.
+        # Русский комментарий: NG_SIGNAL_SOURCE_PROPAGATION_V2.
+        # Сохраняем исходный intent по fill_id до публикации FILL.
         try:
-            source_signal_id = (
-                intent.get("signal_id")
-                or intent.get("id")
-                or intent.get("source_signal_id")
-            )
-            if source_signal_id:
-                setattr(fill, "signal_id", str(source_signal_id))
-                fill_metadata = getattr(fill, "metadata", None)
-                if not isinstance(fill_metadata, dict):
-                    fill_metadata = {}
-                    setattr(fill, "metadata", fill_metadata)
-                fill_metadata["signal_id"] = str(source_signal_id)
-                fill_metadata["source_signal_id"] = str(source_signal_id)
-                fill_metadata.setdefault("source", intent.get("source") or "strategy_signal")
-                if str(intent.get("symbol") or "").startswith("NG"):
-                    print(
-                        f"PIPE_NG_SIGNAL_ID_PROPAGATED symbol={intent.get('symbol')} "
-                        f"signal_id={source_signal_id}",
-                        flush=True,
-                    )
+            if not hasattr(self, "_fill_intent_payload_by_fill_id"):
+                self._fill_intent_payload_by_fill_id = {}
+            fill_key = str(getattr(fill, "fill_id", None) or "")
+            if fill_key:
+                self._fill_intent_payload_by_fill_id[fill_key] = dict(intent or {})
         except Exception as exc:
-            print(f"PIPE_SIGNAL_ID_PROPAGATION_FAILED error={exc}", flush=True)
+            print(f"PIPE_SIGNAL_SOURCE_CACHE_FAILED symbol={intent.get('symbol')} error={exc}", flush=True)
 
         # SAFETY: гарантируем корректный fill (также qty > 0)
         if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
@@ -5127,6 +5123,153 @@ class PaperTradingPipeline:
         # ✔ breakout только в тренде
         if regime.trend in ("up", "down"):
             return self._breakout_logic(state)
+
+    def _update_position_lifecycle_on_fill_v1(self, event: dict) -> None:
+        """Русский комментарий: синхронизирует position_lifecycle_state.remaining_qty по FILL."""
+        try:
+            database_url = os.getenv("DATABASE_URL", "")
+            if not database_url:
+                return
+
+            fill = event.get("fill") if isinstance(event, dict) else event
+            if fill is None:
+                return
+
+            symbol = str(getattr(fill, "symbol", "") or "")
+            side = str(getattr(fill, "side", "") or "").upper()
+            qty = float(getattr(fill, "qty", 0.0) or 0.0)
+
+            if not symbol or qty <= 0 or side not in ("BUY", "SELL"):
+                return
+
+            delta = qty if side == "BUY" else -qty
+
+            import psycopg
+            from psycopg.rows import dict_row
+            from psycopg.types.json import Jsonb
+
+            with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                with conn.transaction():
+                    row = conn.execute(
+                        """
+                        SELECT id, remaining_qty, raw
+                        FROM position_lifecycle_state
+                        WHERE symbol = %s
+                        ORDER BY updated_at DESC NULLS LAST, created_at DESC
+                        LIMIT 1
+                        FOR UPDATE
+                        """,
+                        (symbol,),
+                    ).fetchone()
+
+                    if row:
+                        old_qty = float(row["remaining_qty"] or 0.0)
+                        new_qty = old_qty + delta
+                        raw = dict(row["raw"] or {})
+                        raw.update({
+                            "source": "paper_pipeline_lifecycle_on_fill_v1",
+                            "last_fill_side": side,
+                            "last_fill_qty": qty,
+                            "previous_remaining_qty": old_qty,
+                        })
+
+                        conn.execute(
+                            """
+                            UPDATE position_lifecycle_state
+                            SET remaining_qty = %s,
+                                initial_qty = COALESCE(initial_qty, %s),
+                                raw = %s,
+                                updated_at = now()
+                            WHERE id = %s
+                            """,
+                            (new_qty, new_qty, Jsonb(raw), row["id"]),
+                        )
+                    else:
+                        new_qty = delta
+                        conn.execute(
+                            """
+                            INSERT INTO position_lifecycle_state
+                                (symbol, strategy, remaining_qty, initial_qty, raw, created_at, updated_at)
+                            VALUES
+                                (%s, %s, %s, %s, %s, now(), now())
+                            """,
+                            (
+                                symbol,
+                                "default",
+                                new_qty,
+                                new_qty,
+                                Jsonb({"source": "paper_pipeline_lifecycle_on_fill_v1"}),
+                            ),
+                        )
+
+            if symbol.startswith("NG"):
+                print(
+                    f"PIPE_POSITION_LIFECYCLE_ON_FILL_UPDATED symbol={symbol} "
+                    f"side={side} delta={delta} qty={new_qty}",
+                    flush=True,
+                )
+
+        except Exception as exc:
+            print(f"PIPE_POSITION_LIFECYCLE_ON_FILL_FAILED error={exc}", flush=True)
+
+
+    def _restore_pm_position_from_projection_v1(self, symbol: str) -> bool:
+        """Русский комментарий: восстанавливает qty в in-memory PositionManager из position_projection."""
+        try:
+            symbol = str(symbol or "")
+            if not symbol:
+                return False
+
+            database_url = os.getenv("DATABASE_URL", "")
+            if not database_url:
+                return False
+
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                row = conn.execute(
+                    """
+                    SELECT NULLIF(state->>'qty', '')::double precision AS qty
+                    FROM position_projection
+                    WHERE symbol = %s
+                    """,
+                    (symbol,),
+                ).fetchone()
+
+            if not row:
+                return False
+
+            projection_qty = float(row["qty"] or 0.0)
+
+            if not hasattr(self, "pm") or not hasattr(self.pm, "positions"):
+                return False
+
+            # Русский комментарий: positions — defaultdict(Position), поэтому get() не создаёт позицию.
+            # Для restore используем индексный доступ, чтобы создать in-memory позицию при отсутствии.
+            pos = self.pm.positions[symbol]
+            pos.symbol = symbol
+
+            current_qty = float(getattr(pos, "qty", 0.0) or 0.0)
+
+            if abs(current_qty - projection_qty) < 1e-9:
+                return False
+
+            setattr(pos, "qty", projection_qty)
+
+            if symbol.startswith("NG"):
+                print(
+                    f"PIPE_PM_RESTORED_FROM_PROJECTION symbol={symbol} "
+                    f"old_qty={current_qty} projection_qty={projection_qty}",
+                    flush=True,
+                )
+
+            return True
+
+        except Exception as exc:
+            print(f"PIPE_PM_RESTORE_FROM_PROJECTION_FAILED symbol={symbol} error={exc}", flush=True)
+            return False
+
 
     def _update_position_projection_on_fill_v1(self, event: dict) -> None:
         """Русский комментарий: обновляет position_projection по каждому FILL-событию."""
@@ -5215,6 +5358,9 @@ class PaperTradingPipeline:
     def _on_fill(self, event: dict):
         # Русский комментарий: POSITION_PROJECTION_ON_FILL_V1 — синхронизация projection по FILL.
         self._update_position_projection_on_fill_v1(event)
+
+        # Русский комментарий: POSITION_LIFECYCLE_ON_FILL_V1 — синхронизация lifecycle по FILL.
+        self._update_position_lifecycle_on_fill_v1(event)
         """
         Русский коммент: единая точка применения исполнений.
         Идемпотентность по fill_id держит PositionManager (если включена).
@@ -5256,6 +5402,7 @@ class PaperTradingPipeline:
 
         # === PnL CALC (REALIZED) ===
         try:
+            self._restore_pm_position_from_projection_v1(str(getattr(fill, "symbol", "") or ""))
             pos = self.pm.positions.get(getattr(fill, "symbol", None))
             if pos:
                 realized = getattr(pos, "realized_pnl", 0.0)
@@ -5327,6 +5474,7 @@ class PaperTradingPipeline:
         try:
             pm_ctx = self.pm.get_context()
 
+            self._restore_pm_position_from_projection_v1(str(getattr(fill, "symbol", "") or ""))
             pos = self.pm.positions.get(getattr(fill, "symbol", None))
             qty_now = float(getattr(pos, "qty", 0.0) or 0.0) if pos is not None else 0.0
             avg_now = float(getattr(pos, "avg_price", 0.0) or 0.0) if pos is not None else 0.0
@@ -5423,9 +5571,92 @@ class PaperTradingPipeline:
                 fill_symbol = str(getattr(fill, "symbol", None) or payload.get("symbol") or "")
                 fill_id = str(getattr(fill, "fill_id", None) or "")
 
-                payload.setdefault("signal_id", getattr(fill, "signal_id", None) or f"fill-{fill_id}")
+                # Русский комментарий: NG_SIGNAL_SOURCE_PROPAGATION_V2.
+                # Восстанавливаем исходный intent по fill_id до fallback signal_id.
+                try:
+                    cached_intent = getattr(self, "_fill_intent_payload_by_fill_id", {}).pop(fill_id, None)
+                    if isinstance(cached_intent, dict):
+                        for key, value in cached_intent.items():
+                            if value is not None and key not in payload:
+                                payload[key] = value
+
+                        source_signal_id = (
+                            cached_intent.get("signal_id")
+                            or cached_intent.get("source_signal_id")
+                            or cached_intent.get("id")
+                        )
+                        if source_signal_id:
+                            payload["signal_id"] = str(source_signal_id)
+                            payload["source_signal_id"] = str(source_signal_id)
+                            payload["source"] = cached_intent.get("source") or "strategy_signal"
+
+                            if fill_symbol.startswith("NG"):
+                                print(
+                                    f"PIPE_NG_SIGNAL_SOURCE_RESTORED symbol={fill_symbol} "
+                                    f"fill_id={fill_id} signal_id={source_signal_id}",
+                                    flush=True,
+                                )
+                except Exception as exc:
+                    print(f"PIPE_SIGNAL_SOURCE_RESTORE_FAILED fill_id={fill_id} error={exc}", flush=True)
+
+                # Русский комментарий: NG_SIGNAL_STRATEGY_NORMALIZATION_V1.
+                # Если intent пришёл как UNKNOWN_STRATEGY, восстанавливаем стратегию из features.strategy.
+                try:
+                    features_for_strategy = payload.get("features") or {}
+                    if not isinstance(features_for_strategy, dict):
+                        features_for_strategy = {}
+
+                    resolved_strategy = (
+                        features_for_strategy.get("strategy")
+                        or payload.get("strategy")
+                        or self._strategy_name_for_symbol(fill_symbol)
+                    )
+
+                    if payload.get("strategy") in (None, "", "UNKNOWN_STRATEGY") and resolved_strategy:
+                        payload["strategy"] = str(resolved_strategy)
+
+                    sqs = payload.get("signal_quality_snapshot")
+                    if isinstance(sqs, dict) and sqs.get("strategy") in (None, "", "UNKNOWN_STRATEGY"):
+                        sqs["strategy"] = payload.get("strategy")
+
+                    sid = str(payload.get("signal_id") or "")
+                    if "UNKNOWN_STRATEGY" in sid and payload.get("strategy"):
+                        fixed_sid = sid.replace("UNKNOWN_STRATEGY", str(payload["strategy"]))
+                        payload["signal_id"] = fixed_sid
+                        payload["source_signal_id"] = fixed_sid
+
+                    if fill_symbol.startswith("NG") and payload.get("strategy") != "UNKNOWN_STRATEGY":
+                        print(
+                            f"PIPE_NG_SIGNAL_STRATEGY_NORMALIZED symbol={fill_symbol} "
+                            f"strategy={payload.get('strategy')} signal_id={payload.get('signal_id')}",
+                            flush=True,
+                        )
+                except Exception as exc:
+                    print(f"PIPE_SIGNAL_STRATEGY_NORMALIZE_FAILED fill_id={fill_id} error={exc}", flush=True)
+
+                # Русский комментарий: NG_SIGNAL_LINKAGE_V2.
+                # Не пишем атрибуты в ExecutionFill напрямую: signal_id берём из payload/metadata,
+                # иначе возможен конфликт с реализацией ExecutionFill.
+                fill_metadata = getattr(fill, "metadata", None)
+                if not isinstance(fill_metadata, dict):
+                    fill_metadata = {}
+
+                source_signal_id = (
+                    payload.get("signal_id")
+                    or payload.get("source_signal_id")
+                    or fill_metadata.get("signal_id")
+                    or fill_metadata.get("source_signal_id")
+                )
+
+                if source_signal_id:
+                    payload["signal_id"] = str(source_signal_id)
+                    payload["source_signal_id"] = str(source_signal_id)
+                    payload.setdefault("source", "strategy_signal")
+                else:
+                    payload.setdefault("signal_id", f"fill-{fill_id}")
+                    payload.setdefault("source", "paper_fill_fallback")
+
                 payload.setdefault("strategy", payload.get("strategy") or self._strategy_name_for_symbol(fill_symbol))
-                payload.setdefault("source", payload.get("source") or "paper_fill_fallback")
                 payload.setdefault("horizon", payload.get("horizon") or "INTRADAY")
                 payload.setdefault("timeframe", payload.get("timeframe") or "LIVE")
                 payload.setdefault("regime", payload.get("regime") or "UNKNOWN")
