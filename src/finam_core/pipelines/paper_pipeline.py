@@ -9204,6 +9204,33 @@ def _emit_regime_guard_live_match_pipeline_advisory_v1(symbol: str = "UNKNOWN") 
             f"would_block={int(decision.would_block)} actual_block=0 advisory_only=1",
             flush=True,
         )
+
+        try:
+            from finam_core.governance.regime_guard_shadow_accumulator import RegimeGuardShadowAccumulator
+
+            RegimeGuardShadowAccumulator().record(
+                symbol=symbol,
+                signal_id=None,
+                strategy=None,
+                regime_key=decision.regime_key,
+                classification=decision.classification,
+                would_block=decision.would_block,
+                reason=decision.reason,
+            )
+
+            print(
+                "PIPE_REGIME_GUARD_SHADOW_ACCUMULATION_OK "
+                f"symbol={symbol} regime_key={decision.regime_key} "
+                f"classification={decision.classification} "
+                f"would_block={int(decision.would_block)} actual_block=0 advisory_only=1",
+                flush=True,
+            )
+        except Exception as shadow_exc:
+            print(
+                "PIPE_REGIME_GUARD_SHADOW_ACCUMULATION_FAILED "
+                f"symbol={symbol} error={type(shadow_exc).__name__}:{shadow_exc}",
+                flush=True,
+            )
     except Exception as exc:
         print(
             "PIPE_REGIME_GUARD_ADVISORY_FAILED "
