@@ -6,6 +6,7 @@ from __future__ import annotations
 from finam_core.governance.runtime_guard_reader import RuntimeGuardReader
 
 from finam_core.governance.guard_candidate_classification_reader import GuardCandidateClassificationReader
+from finam_core.governance.guard_shadow_accumulator import GuardShadowAccumulator, GuardShadowEvent
 
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
@@ -8975,6 +8976,7 @@ def log_runtime_governance_decision(
 _RUNTIME_GUARD_READER_V1 = None
 _RUNTIME_GUARD_STATE_V1 = None
 _GUARD_CLASSIFICATION_STATE_V1 = {}
+_GUARD_SHADOW_ACCUMULATOR_V1 = None
 
 
 
@@ -9056,6 +9058,43 @@ def _guard_classification_advisory_v1(
             f"would_block=1 actual_block=0 advisory_only=1",
             flush=True,
         )
+
+        # guard_shadow_accumulation_v1:
+        # Пишем shadow-событие в PostgreSQL. Торговое решение не меняем.
+        try:
+            global _GUARD_SHADOW_ACCUMULATOR_V1
+            if _GUARD_SHADOW_ACCUMULATOR_V1 is None:
+                _GUARD_SHADOW_ACCUMULATOR_V1 = GuardShadowAccumulator()
+
+            _GUARD_SHADOW_ACCUMULATOR_V1.record(
+                GuardShadowEvent(
+                    symbol=item.symbol,
+                    strategy=item.strategy,
+                    timeframe=item.timeframe,
+                    side=item.side,
+                    session_bucket=item.session_bucket,
+                    classification=item.classification,
+                    reason=item.reason,
+                    would_block=True,
+                    actual_block=False,
+                    advisory_only=True,
+                    signal_id=None,
+                )
+            )
+
+            print(
+                "PIPE_GUARD_SHADOW_ACCUMULATION_RECORDED "
+                f"symbol={item.symbol} strategy={item.strategy} timeframe={item.timeframe} "
+                f"side={item.side} session={item.session_bucket} classification={item.classification}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                "PIPE_GUARD_SHADOW_ACCUMULATION_FAILED "
+                f"symbol={item.symbol} strategy={item.strategy} "
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
 
 def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side: str, session_bucket: str) -> None:
     """Только advisory-лог. Не блокирует pipeline и не меняет торговое решение."""
