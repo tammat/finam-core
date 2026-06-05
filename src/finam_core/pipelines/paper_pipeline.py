@@ -5,6 +5,8 @@
 from __future__ import annotations
 from finam_core.governance.runtime_guard_reader import RuntimeGuardReader
 
+from finam_core.governance.guard_candidate_classification_reader import GuardCandidateClassificationReader
+
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
 from finam_core.runtime.portfolio_governance_advisor import PortfolioGovernanceAdvisor
@@ -3957,6 +3959,31 @@ class PaperTradingPipeline:
                     else "UNKNOWN"
                 ),
             )
+
+            _guard_classification_advisory_v1(
+                symbol=str(sym),
+                strategy=str(
+                    raw_intent.get("strategy")
+                    if isinstance(raw_intent, dict) and raw_intent.get("strategy")
+                    else self._strategy_name_for_symbol(str(sym))
+                ),
+                timeframe=str(raw_intent.get("timeframe") or "LIVE") if isinstance(raw_intent, dict) else "LIVE",
+                side=(
+                    "LONG" if isinstance(raw_intent, dict) and str(raw_intent.get("side") or "").upper() == "BUY"
+                    else "SHORT" if isinstance(raw_intent, dict) and str(raw_intent.get("side") or "").upper() == "SELL"
+                    else "UNKNOWN"
+                ),
+                session_bucket=str(
+                    (
+                        raw_intent.get("session_bucket")
+                        or (raw_intent.get("payload") or {}).get("session_bucket")
+                        or "UNKNOWN"
+                    )
+                    if isinstance(raw_intent, dict)
+                    else "UNKNOWN"
+                ),
+            )
+
 
             if not (isinstance(raw_intent, dict) and raw_intent.get('strategy') == 'force_once_buy'):
                 return
@@ -8947,7 +8974,76 @@ def log_runtime_governance_decision(
 
 _RUNTIME_GUARD_READER_V1 = None
 _RUNTIME_GUARD_STATE_V1 = None
+_GUARD_CLASSIFICATION_STATE_V1 = {}
 
+
+
+def _load_guard_classification_state_v1() -> None:
+    global _GUARD_CLASSIFICATION_STATE_V1
+    try:
+        reader = GuardCandidateClassificationReader()
+        _GUARD_CLASSIFICATION_STATE_V1 = reader.load_all()
+
+        block_ready = sum(1 for x in _GUARD_CLASSIFICATION_STATE_V1.values() if x.classification == "BLOCK_READY")
+        research_only = sum(1 for x in _GUARD_CLASSIFICATION_STATE_V1.values() if x.classification == "RESEARCH_ONLY")
+        keep_watch = sum(1 for x in _GUARD_CLASSIFICATION_STATE_V1.values() if x.classification == "KEEP_WATCH")
+
+        print(
+            "PIPE_GUARD_CLASSIFICATION_STATE_LOADED "
+            f"rows={len(_GUARD_CLASSIFICATION_STATE_V1)} "
+            f"block_ready={block_ready} "
+            f"research_only={research_only} "
+            f"keep_watch={keep_watch}",
+            flush=True,
+        )
+    except Exception as exc:
+        _GUARD_CLASSIFICATION_STATE_V1 = {}
+        print(
+            "PIPE_GUARD_CLASSIFICATION_STATE_LOAD_FAILED "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+
+
+def _guard_classification_advisory_v1(
+    *,
+    symbol: str,
+    strategy: str,
+    timeframe: str,
+    side: str,
+    session_bucket: str,
+) -> None:
+    normalized_side = str(side or "").upper()
+    if normalized_side not in ("LONG", "SHORT"):
+        return
+
+    key = (
+        str(symbol or ""),
+        str(strategy or ""),
+        str(timeframe or ""),
+        normalized_side,
+        str(session_bucket or "UNKNOWN"),
+    )
+
+    item = _GUARD_CLASSIFICATION_STATE_V1.get(key)
+    if item is None:
+        print(
+            "PIPE_GUARD_CLASSIFICATION_ADVISORY_NOT_FOUND "
+            f"symbol={key[0]} strategy={key[1]} timeframe={key[2]} "
+            f"side={key[3]} session={key[4]} advisory_only=1",
+            flush=True,
+        )
+        return
+
+    print(
+        "PIPE_GUARD_CLASSIFICATION_ADVISORY "
+        f"symbol={item.symbol} strategy={item.strategy} timeframe={item.timeframe} "
+        f"side={item.side} session={item.session_bucket} "
+        f"classification={item.classification} reason={item.reason} "
+        f"trades={item.total_trades} expectancy={item.expectancy:.8f} "
+        f"stop_rate={item.stop_rate:.4f} advisory_only=1",
+        flush=True,
+    )
 
 def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side: str, session_bucket: str) -> None:
     """Только advisory-лог. Не блокирует pipeline и не меняет торговое решение."""
@@ -8956,6 +9052,10 @@ def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side:
     try:
         if _RUNTIME_GUARD_READER_V1 is None:
             _RUNTIME_GUARD_READER_V1 = RuntimeGuardReader()
+        # classification_state_loaded_inside_runtime_guard_v1
+        if not _GUARD_CLASSIFICATION_STATE_V1:
+            _load_guard_classification_state_v1()
+
 
         if _RUNTIME_GUARD_STATE_V1 is None:
             _RUNTIME_GUARD_STATE_V1 = _RUNTIME_GUARD_READER_V1.load_active_guards()
