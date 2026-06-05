@@ -148,38 +148,65 @@ class BinancePublicKlinesResearchProvider(BinanceResearchProvider):
         binance_symbol = self._normalize_symbol(symbol)
         interval = self._normalize_timeframe(timeframe)
 
-        params = {
-            "symbol": binance_symbol,
-            "interval": interval,
-            "startTime": int(start.timestamp() * 1000),
-            "endTime": int(end.timestamp() * 1000),
-            "limit": 1000,
-        }
+        all_bars: list[ResearchBar] = []
+        current_start_ms = int(start.timestamp() * 1000)
+        end_ms = int(end.timestamp() * 1000)
 
-        url = self.base_url + "?" + urllib.parse.urlencode(params)
+        while current_start_ms < end_ms:
+            params = {
+                "symbol": binance_symbol,
+                "interval": interval,
+                "startTime": current_start_ms,
+                "endTime": end_ms,
+                "limit": 1000,
+            }
 
-        with urllib.request.urlopen(url, timeout=20) as response:
-            raw = response.read().decode("utf-8")
+            url = self.base_url + "?" + urllib.parse.urlencode(params)
 
-        data = json.loads(raw)
-        bars: list[ResearchBar] = []
+            with urllib.request.urlopen(url, timeout=20) as response:
+                raw = response.read().decode("utf-8")
 
-        for item in data:
-            open_time_ms = int(item[0])
-            bars.append(
-                ResearchBar(
-                    symbol=symbol.upper(),
-                    timeframe=timeframe.upper(),
-                    ts=datetime.fromtimestamp(open_time_ms / 1000, tz=start.tzinfo),
-                    open=float(item[1]),
-                    high=float(item[2]),
-                    low=float(item[3]),
-                    close=float(item[4]),
-                    volume=float(item[5]),
-                    source=self.name,
-                    asset_class="crypto",
+            data = json.loads(raw)
+            if not data:
+                break
+
+            last_open_time_ms = None
+
+            for item in data:
+                open_time_ms = int(item[0])
+                last_open_time_ms = open_time_ms
+
+                all_bars.append(
+                    ResearchBar(
+                        symbol=symbol.upper(),
+                        timeframe=timeframe.upper(),
+                        ts=datetime.fromtimestamp(open_time_ms / 1000, tz=start.tzinfo),
+                        open=float(item[1]),
+                        high=float(item[2]),
+                        low=float(item[3]),
+                        close=float(item[4]),
+                        volume=float(item[5]),
+                        source=self.name,
+                        asset_class="crypto",
+                    )
                 )
-            )
 
-        return bars
+            if last_open_time_ms is None:
+                break
+
+            next_start_ms = last_open_time_ms + 1
+            if next_start_ms <= current_start_ms:
+                break
+
+            current_start_ms = next_start_ms
+
+            if len(data) < 1000:
+                break
+
+        # Защита от возможных дублей на границах страниц.
+        dedup: dict[datetime, ResearchBar] = {}
+        for bar in all_bars:
+            dedup[bar.ts] = bar
+
+        return [dedup[k] for k in sorted(dedup)]
 
