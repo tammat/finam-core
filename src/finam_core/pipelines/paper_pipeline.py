@@ -3,6 +3,7 @@
 # QUOTE -> Strategy -> Risдавайk -> PaperExecution -> publish(FILL) -> Accounting(PM.apply_fill)
 
 from __future__ import annotations
+from finam_core.governance.runtime_guard_reader import RuntimeGuardReader
 
 from finam_core.runtime.exit_policy_advisor import RuntimeExitPolicyAdvisor
 from finam_core.runtime.portfolio_heat_advisor import RuntimePortfolioHeatAdvisor
@@ -2525,18 +2526,18 @@ class PaperTradingPipeline:
 
         bars_for_exit = int(state["bars_held"])
 
-        # Русский комментарий: NG в live идёт частыми quote/tick-событиями, поэтому bars_held
-        # не равен количеству M1-баров. Не даём time_exit закрыть свежую NG paper-позицию.
-        if str(symbol).startswith("NG"):
-            min_hold_sec = float(os.getenv("NG_MIN_HOLD_SEC", "300"))
+        # Русский комментарий: BR/NG в live идут частыми quote/tick-событиями, поэтому bars_held
+        # не равен количеству M1-баров. Не даём time_exit закрыть свежую PAPER-позицию.
+        if str(symbol).startswith(("NG", "BR")):
+            min_hold_sec = float(os.getenv("ENERGY_TIME_EXIT_MIN_HOLD_SEC", os.getenv("NG_MIN_HOLD_SEC", "1800")))
             opened_at_ts = state.get("opened_at_ts")
             position_age_sec = time.time() - float(opened_at_ts or time.time())
 
             if position_age_sec < min_hold_sec:
                 bars_for_exit = 0
-                if self._runtime_log_allowed(f"NG_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
+                if self._runtime_log_allowed(f"ENERGY_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
                     print(
-                        f"PIPE_NG_TIME_EXIT_GUARD symbol={symbol} "
+                        f"PIPE_ENERGY_TIME_EXIT_GUARD symbol={symbol} "
                         f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
                         f"raw_bars_held={state['bars_held']}",
                         flush=True,
@@ -3932,6 +3933,31 @@ class PaperTradingPipeline:
             st["pending_breakout"] = None
 
         else:
+
+            _runtime_guard_advisory_v1(
+                symbol=str(sym),
+                strategy=str(
+                    raw_intent.get("strategy")
+                    if isinstance(raw_intent, dict) and raw_intent.get("strategy")
+                    else self._strategy_name_for_symbol(str(sym))
+                ),
+                timeframe=str(raw_intent.get("timeframe") or "LIVE") if isinstance(raw_intent, dict) else "LIVE",
+                side=(
+                    "LONG" if isinstance(raw_intent, dict) and str(raw_intent.get("side") or "").upper() == "BUY"
+                    else "SHORT" if isinstance(raw_intent, dict) and str(raw_intent.get("side") or "").upper() == "SELL"
+                    else "UNKNOWN"
+                ),
+                session_bucket=str(
+                    (
+                        raw_intent.get("session_bucket")
+                        or (raw_intent.get("payload") or {}).get("session_bucket")
+                        or "UNKNOWN"
+                    )
+                    if isinstance(raw_intent, dict)
+                    else "UNKNOWN"
+                ),
+            )
+
             if not (isinstance(raw_intent, dict) and raw_intent.get('strategy') == 'force_once_buy'):
                 return
 
@@ -4560,7 +4586,24 @@ class PaperTradingPipeline:
                     )
 
                 if not self._check_session_side_execution_gate_v1(symbol=str(sym), side=gate_side):
-                    return
+                    # Русский комментарий: PAPER-only advisory bypass для накопления статистики BRN6,
+                    # без влияния на real execution.
+                    br_session_bypass = (
+                        str(sym) == os.getenv("BR_SESSION_SIDE_GATE_BYPASS_SYMBOL", "BRN6@RTSX")
+                        and str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                        and os.getenv("ENABLE_BR_SESSION_SIDE_GATE_ADVISORY_V1", "0") == "1"
+                    )
+
+                    if br_session_bypass:
+                        print(
+                            "PIPE_BR_SESSION_SIDE_GATE_ADVISORY_CONTINUE",
+                            f"symbol={sym}",
+                            f"side={gate_side}",
+                            "paper_only=1",
+                            flush=True,
+                        )
+                    else:
+                        return
 
                 try:
                     strict_decision = self.edge_gate_strict_mode_v1.evaluate(
@@ -4583,20 +4626,19 @@ class PaperTradingPipeline:
                             str(sym).startswith("NG")
                             and self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
                             and strict_decision.reason == "strict_mode_no_match"
-                            and os.getenv(
-                                "ENABLE_NG_PAPER_ACCUMULATION_BYPASS_V1",
-                                "0",
-                            ) == "1"
+                            and os.getenv("ENABLE_NG_PAPER_ACCUMULATION_BYPASS_V1", "0") == "1"
+                        )
+
+                        br_paper_bypass = (
+                            str(sym) == os.getenv("BR_STRICT_EDGE_BYPASS_SYMBOL", "BRN6@RTSX")
+                            and self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
+                            and os.getenv("ENABLE_BR_STRICT_EDGE_ADVISORY_V1", "0") == "1"
                         )
 
                         if ng_paper_bypass:
-                            print(
-                                "NG_PAPER_ACCUMULATION_BYPASS",
-                                f"symbol={sym}",
-                                f"side={gate_side}",
-                                f"reason={strict_decision.reason}",
-                                flush=True,
-                            )
+                            print("NG_PAPER_ACCUMULATION_BYPASS", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", flush=True)
+                        elif br_paper_bypass:
+                            print("PIPE_BR_STRICT_EDGE_ADVISORY_CONTINUE", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", "paper_only=1", flush=True)
                         else:
                             return
                 except Exception as exc:
@@ -4653,6 +4695,13 @@ class PaperTradingPipeline:
 
 
             print("PIPE_RISK_OK", flush=True)
+            if str(sym).startswith("NG"):
+                print(
+                    "PIPE_NG_EXEC_TRACE_AFTER_RISK_OK",
+                    f"symbol={sym}",
+                    f"side={gate_side}",
+                    flush=True,
+                )
 
             # =========================================================
             # === CENTRALIZED PORTFOLIO RISK GATE
@@ -4663,6 +4712,12 @@ class PaperTradingPipeline:
                     gate = PortfolioRiskGate()
                     self.portfolio_risk_gate = gate
 
+                if str(sym).startswith("NG"):
+                    print(
+                        "PIPE_NG_EXEC_TRACE_BEFORE_PORTFOLIO_GATE",
+                        f"symbol={sym}",
+                        flush=True,
+                    )
                 pm_ctx = self.pm.get_context()
 
                 equity = float(getattr(pm_ctx, "portfolio_value", 0.0) or 0.0)
@@ -4870,6 +4925,33 @@ class PaperTradingPipeline:
                 existing_cluster = get_cluster(s)
 
                 if existing_cluster and existing_cluster == new_cluster:
+                    # Русский комментарий: research-only bypass для накопления PAPER-статистики
+                    # по энерго-инструментам независимо от уже открытой позиции в кластере.
+                    cluster_bypass_symbols = {
+                        x.strip()
+                        for x in os.getenv(
+                            "PAPER_CLUSTER_BLOCK_BYPASS_SYMBOLS",
+                            "NGN6@RTSX,BRN6@RTSX",
+                        ).split(",")
+                        if x.strip()
+                    }
+                    cluster_bypass_allowed = (
+                        str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                        and os.getenv("ENABLE_PAPER_CLUSTER_BLOCK_BYPASS_V1", "0") == "1"
+                        and str(intent.get("symbol") or "") in cluster_bypass_symbols
+                    )
+
+                    if cluster_bypass_allowed:
+                        print(
+                            "PIPE_CLUSTER_BLOCK_ADVISORY_CONTINUE",
+                            f"symbol={intent.get('symbol')}",
+                            f"cluster={new_cluster}",
+                            f"existing_symbol={s}",
+                            "paper_only=1",
+                            flush=True,
+                        )
+                        continue
+
                     print(f"PIPE_CLUSTER_BLOCK {new_cluster}", flush=True)
                     return
 
@@ -8861,3 +8943,63 @@ def log_runtime_governance_decision(
             f"error={type(exc).__name__}:{exc}",
             flush=True,
         )
+
+
+_RUNTIME_GUARD_READER_V1 = None
+_RUNTIME_GUARD_STATE_V1 = None
+
+
+def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side: str, session_bucket: str) -> None:
+    """Только advisory-лог. Не блокирует pipeline и не меняет торговое решение."""
+    global _RUNTIME_GUARD_READER_V1, _RUNTIME_GUARD_STATE_V1
+
+    try:
+        if _RUNTIME_GUARD_READER_V1 is None:
+            _RUNTIME_GUARD_READER_V1 = RuntimeGuardReader()
+
+        if _RUNTIME_GUARD_STATE_V1 is None:
+            _RUNTIME_GUARD_STATE_V1 = _RUNTIME_GUARD_READER_V1.load_active_guards()
+            block = sum(1 for g in _RUNTIME_GUARD_STATE_V1.values() if g.decision == "BLOCK_STOP_DOMINATED")
+            watch = sum(1 for g in _RUNTIME_GUARD_STATE_V1.values() if g.decision == "WATCH_NEGATIVE_TOTAL")
+            allow = sum(1 for g in _RUNTIME_GUARD_STATE_V1.values() if g.decision == "ALLOW_WATCH")
+            print(
+                f"PIPE_RUNTIME_GUARD_STATE_LOADED rows={len(_RUNTIME_GUARD_STATE_V1)} "
+                f"block={block} watch={watch} allow={allow}",
+                flush=True,
+            )
+
+        normalized_side = str(side or "").upper()
+        if normalized_side not in ("LONG", "SHORT"):
+            return
+
+        key = (
+            str(symbol or ""),
+            str(strategy or ""),
+            str(timeframe or ""),
+            normalized_side,
+            str(session_bucket or "UNKNOWN"),
+        )
+        guard = _RUNTIME_GUARD_STATE_V1.get(key)
+
+        if guard is None:
+            print(
+                f"PIPE_RUNTIME_GUARD_ADVISORY symbol={symbol} strategy={strategy} "
+                f"timeframe={timeframe} side={side} session={session_bucket} "
+                f"decision=NO_GUARD reason=no_matching_guard_state advisory_only=1",
+                flush=True,
+            )
+            return
+
+        print(
+            f"PIPE_RUNTIME_GUARD_ADVISORY symbol={symbol} strategy={strategy} "
+            f"timeframe={timeframe} side={side} session={session_bucket} "
+            f"decision={guard.decision} reason={guard.reason} "
+            f"total_trades={guard.total_trades} stop_trades={guard.stop_trades} "
+            f"stop_net_pnl={guard.stop_net_pnl:.8f} take_trades={guard.take_trades} "
+            f"take_net_pnl={guard.take_net_pnl:.8f} advisory_only=1",
+            flush=True,
+        )
+
+    except Exception as exc:
+        print(f"PIPE_RUNTIME_GUARD_ADVISORY_FAILED error={type(exc).__name__}:{exc} advisory_only=1", flush=True)
+
