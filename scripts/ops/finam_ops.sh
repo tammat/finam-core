@@ -74,6 +74,7 @@ case "$cmd" in
       echo " 9) bars-usd       - бары USD/RUB"
       echo "10) env            - параметры systemd/env"
       echo "11) restart        - безопасный restart"
+      echo "12) guard-shadow   - shadow-отчёт Guard Execution Gate"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -91,6 +92,7 @@ case "$cmd" in
         9) echo "=== ДЕЙСТВИЕ: BARS-USD ==="; "$0" bars-usd ;;
         10) echo "=== ДЕЙСТВИЕ: ENV ==="; "$0" env ;;
         11) echo "=== ДЕЙСТВИЕ: RESTART ==="; "$0" restart ;;
+        12) echo "=== ДЕЙСТВИЕ: GUARD SHADOW REPORT ==="; "$0" guard-shadow ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -113,6 +115,10 @@ case "$cmd" in
   env)
     systemctl cat finam-paper-pipeline.service | \
     grep -E "ENABLE_NG|NG_PAPER|NG_M1|ENABLE_USD|USD_PAPER|EXECUTION_MODE|REAL_TRADING|PAPER"
+    ;;
+
+  guard-shadow)
+    "$PY_BIN" src/scripts/analytics/build_guard_shadow_effectiveness_report_v1.py --since "24 hours ago"
     ;;
 
   restart)
@@ -181,9 +187,7 @@ case "$cmd" in
 
   accumulation)
     echo "=== ACCUMULATION PLAN V1 ==="
-    "$PY_BIN" src/scripts/analytics/build_accumulation_plan_v1.py > "$TMP_DIR/accumulation_plan_v1.out"
-    grep -E "source_group=PAPER|ACCUMULATION_PLAN_SUMMARY" \
-      "$TMP_DIR/accumulation_plan_v1.out" || true
+    "$PY_BIN" src/scripts/observability/build_accumulation_summary_ru_v1.py
     ;;
 
   dashboard)
