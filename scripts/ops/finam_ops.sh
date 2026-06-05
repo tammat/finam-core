@@ -296,6 +296,9 @@ case "$cmd" in
     ;;
 
   health)
+    echo "=== RESEARCH FEATURE FRESHNESS HEALTH ==="
+    "$PY_BIN" src/scripts/observability/build_research_feature_freshness_health_v1.py || true
+    echo
     echo "=== ДЕЙСТВИЕ: HEALTH ==="
     echo "Время проверки МСК: $(TZ=Europe/Moscow date '+%d-%m-%Y %H:%M:%S')"
     echo
