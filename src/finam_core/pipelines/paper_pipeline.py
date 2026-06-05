@@ -9139,6 +9139,8 @@ def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side:
                 f"decision=NO_GUARD reason=no_matching_guard_state advisory_only=1",
                 flush=True,
             )
+            # regime_guard_shadow_live_smoke_v1_call_no_guard
+            _emit_regime_guard_live_match_pipeline_advisory_v1(symbol)
             return
 
         print(
@@ -9150,6 +9152,10 @@ def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side:
             f"take_net_pnl={guard.take_net_pnl:.8f} advisory_only=1",
             flush=True,
         )
+
+        # regime_guard_shadow_live_smoke_v1_call
+        _emit_regime_guard_live_match_pipeline_advisory_v1(symbol)
+
 
     except Exception as exc:
         print(f"PIPE_RUNTIME_GUARD_ADVISORY_FAILED error={type(exc).__name__}:{exc} advisory_only=1", flush=True)
