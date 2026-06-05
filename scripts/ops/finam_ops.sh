@@ -215,6 +215,10 @@ case "$cmd" in
     "$PY_BIN" src/scripts/observability/build_crypto_research_dashboard_v1.py || true
 
     echo
+    echo "=== 3.2. CRYPTO FEATURES ==="
+    "$PY_BIN" src/scripts/observability/build_crypto_feature_dashboard_v1.py || true
+
+    echo
     echo "=== 4. СВЕЖЕСТЬ БАРОВ BR/NG/USD ==="
     psql "$DATABASE_URL" -c "
     SELECT
