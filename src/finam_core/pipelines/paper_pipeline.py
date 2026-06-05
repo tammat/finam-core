@@ -9183,3 +9183,30 @@ def _emit_regime_guard_advisory_v1(symbol: str, side: str = "UNKNOWN") -> None:
             f"symbol={symbol} side={side} error={type(exc).__name__}:{exc}",
             flush=True,
         )
+
+# regime_guard_live_match_pipeline_advisory_v1:
+# Advisory-only. Торговое решение не меняется.
+def _emit_regime_guard_live_match_pipeline_advisory_v1(symbol: str = "UNKNOWN") -> None:
+    try:
+        from finam_core.governance.regime_guard_advisory_service import RegimeGuardAdvisoryService
+
+        decision = RegimeGuardAdvisoryService().evaluate()
+        pf = decision.profit_factor
+        pf_text = "None" if pf is None else f"{pf:.8f}"
+
+        print(
+            "PIPE_REGIME_GUARD_ADVISORY "
+            f"symbol={symbol} scope={decision.scope} "
+            f"regime_key={decision.regime_key} matched={int(decision.matched)} "
+            f"classification={decision.classification} reason={decision.reason} "
+            f"trades={decision.trades} expectancy={decision.expectancy:.8f} "
+            f"profit_factor={pf_text} "
+            f"would_block={int(decision.would_block)} actual_block=0 advisory_only=1",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            "PIPE_REGIME_GUARD_ADVISORY_FAILED "
+            f"symbol={symbol} error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
