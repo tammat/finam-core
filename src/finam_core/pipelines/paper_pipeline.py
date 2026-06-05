@@ -9045,6 +9045,18 @@ def _guard_classification_advisory_v1(
         flush=True,
     )
 
+    # guard_execution_gate_shadow_v1:
+    # Только считаем потенциальную блокировку. Торговое решение не меняем.
+    if item.classification == "BLOCK_READY":
+        print(
+            "PIPE_GUARD_EXECUTION_GATE_SHADOW "
+            f"symbol={item.symbol} strategy={item.strategy} timeframe={item.timeframe} "
+            f"side={item.side} session={item.session_bucket} "
+            f"classification={item.classification} reason={item.reason} "
+            f"would_block=1 actual_block=0 advisory_only=1",
+            flush=True,
+        )
+
 def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side: str, session_bucket: str) -> None:
     """Только advisory-лог. Не блокирует pipeline и не меняет торговое решение."""
     global _RUNTIME_GUARD_READER_V1, _RUNTIME_GUARD_STATE_V1
