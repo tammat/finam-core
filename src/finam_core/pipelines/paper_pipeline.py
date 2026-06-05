@@ -9154,3 +9154,32 @@ def _runtime_guard_advisory_v1(symbol: str, strategy: str, timeframe: str, side:
     except Exception as exc:
         print(f"PIPE_RUNTIME_GUARD_ADVISORY_FAILED error={type(exc).__name__}:{exc} advisory_only=1", flush=True)
 
+
+# regime_guard_advisory_v1:
+# Только advisory-телеметрия. Торговое решение не меняется.
+def _emit_regime_guard_advisory_v1(symbol: str, side: str = "UNKNOWN") -> None:
+    try:
+        from finam_core.governance.regime_guard_candidate_reader import RegimeGuardCandidateReader
+
+        reader = RegimeGuardCandidateReader()
+        rows = reader.load()
+
+        # v1 использует только уже материализованные кандидаты.
+        # Точное сопоставление live regime_key будет добавлено следующим слоем,
+        # после стабилизации live regime snapshot.
+        block_count = sum(1 for x in rows.values() if x.classification == "BLOCK_CANDIDATE")
+
+        print(
+            "PIPE_REGIME_GUARD_ADVISORY "
+            f"symbol={symbol} side={side} "
+            f"candidates={len(rows)} block_candidates={block_count} "
+            "would_block=0 actual_block=0 advisory_only=1 "
+            "reason=reader_loaded_no_live_regime_key_yet",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            "PIPE_REGIME_GUARD_ADVISORY_FAILED "
+            f"symbol={symbol} side={side} error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
