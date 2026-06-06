@@ -128,6 +128,7 @@ from finam_core.strategy.trend_filter import TrendFilter
 # Governance-фильтр BR LONG. В shadow-режиме блокирует BR BUY/LONG,
 # но пишет исследовательское событие в PostgreSQL.
 from finam_core.governance.br_long_governance_v1 import BrLongGovernanceV1
+from finam_core.governance.br_short_shadow_policy_v1 import BrShortShadowPolicyV1
 from finam_core.governance.br_long_shadow_accumulator_v1 import (
     BrLongShadowAccumulatorV1,
     BrLongShadowEventV1,
@@ -7404,6 +7405,18 @@ class PaperTradingPipeline:
         ):
             return False, "BR_LONG_SHADOW_BLOCK"
 
+        # br_short_shadow_pipeline_hook_v1_call:
+        # Русский комментарий: BR short пока только shadow. Исполнение не меняем.
+        _br_short_shadow_pipeline_hook_v1(
+            symbol=br_symbol,
+            side=str(getattr(br_signal, "side", "") or ""),
+            strategy=br_strategy,
+            current_position=self._current_replay_position_for_br(br_symbol),
+            signal_id=str(getattr(br_signal, "signal_id", "") or "") or None,
+            price=getattr(br_signal, "price", None),
+            quantity=qty,
+        )
+
         # Русский комментарий:
         # Runtime-фильтр BR short-only ставим непосредственно в BR execution path.
         # Это надёжнее общего raw_intent gate, потому что здесь уже есть br_signal и br_strategy.
@@ -9266,6 +9279,61 @@ def _emit_regime_guard_live_match_pipeline_advisory_v1(symbol: str = "UNKNOWN") 
             f"symbol={symbol} error={type(exc).__name__}:{exc}",
             flush=True,
         )
+
+
+# br_short_shadow_pipeline_hook_v1:
+# Русский комментарий: ленивый singleton для shadow-policy BR short.
+_BR_SHORT_SHADOW_POLICY_V1 = None
+
+
+def _br_short_shadow_pipeline_hook_v1(
+    *,
+    symbol: str,
+    side: str,
+    strategy: str = "UNKNOWN",
+    current_position: float = 0.0,
+    signal_id: str | None = None,
+    price=None,
+    quantity=None,
+) -> bool:
+    """Русский комментарий: BR short shadow-hook.
+
+    Ничего не блокирует и не исполняет.
+    Только печатает, был бы SELL-сигнал кандидатом на OPEN_SHORT при flat/short позиции.
+    """
+    global _BR_SHORT_SHADOW_POLICY_V1
+
+    try:
+        if _BR_SHORT_SHADOW_POLICY_V1 is None:
+            _BR_SHORT_SHADOW_POLICY_V1 = BrShortShadowPolicyV1()
+
+        decision = _BR_SHORT_SHADOW_POLICY_V1.evaluate(
+            symbol=symbol,
+            side=side,
+            strategy=strategy,
+            current_position=float(current_position or 0.0),
+        )
+
+        print(
+            "PIPE_BR_SHORT_SHADOW_POLICY_V1 "
+            f"symbol={symbol} side={side} strategy={strategy} "
+            f"position={float(current_position or 0.0)} "
+            f"allowed={int(decision.allowed)} "
+            f"shadow_logged={int(decision.shadow_logged)} "
+            f"reason={decision.reason} "
+            f"signal_id={signal_id or ''} price={price} qty={quantity}",
+            flush=True,
+        )
+
+        return True
+    except Exception as exc:
+        print(
+            "PIPE_BR_SHORT_SHADOW_POLICY_V1_ERROR "
+            f"symbol={symbol} side={side} strategy={strategy} "
+            f"type={type(exc).__name__} error={exc}",
+            flush=True,
+        )
+        return True
 
 
 # br_long_shadow_pipeline_hook_v1:
