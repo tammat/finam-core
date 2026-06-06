@@ -123,6 +123,10 @@ case "$cmd" in
     "$PY_BIN" src/scripts/analytics/build_guard_shadow_effectiveness_report_v1.py --since "24 hours ago"
     ;;
 
+  energy-policy)
+    "$PY_BIN" src/scripts/analytics/build_energy_direction_policy_status_v1.py
+    ;;
+
   br-short)
     "$PY_BIN" src/scripts/analytics/build_br_short_shadow_live_report_v1.py
     ;;
