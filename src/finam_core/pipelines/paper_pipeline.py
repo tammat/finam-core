@@ -123,6 +123,16 @@ from finam_core.strategy.strategy_runtime import StrategyRuntime
 from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
 from finam_core.strategy.signal_router import SignalRouteInput, SignalRouter as QuoteSignalRouter
 from finam_core.strategy.trend_filter import TrendFilter
+
+# br_long_shadow_pipeline_hook_v1:
+# Governance-фильтр BR LONG. В shadow-режиме блокирует BR BUY/LONG,
+# но пишет исследовательское событие в PostgreSQL.
+from finam_core.governance.br_long_governance_v1 import BrLongGovernanceV1
+from finam_core.governance.br_long_shadow_accumulator_v1 import (
+    BrLongShadowAccumulatorV1,
+    BrLongShadowEventV1,
+)
+
 # === RISK CLUSTERS (упрощённая корреляция) ===
 CLUSTERS = {
     "energy": ["NG", "BR"],
@@ -9243,3 +9253,93 @@ def _emit_regime_guard_live_match_pipeline_advisory_v1(symbol: str = "UNKNOWN") 
             f"symbol={symbol} error={type(exc).__name__}:{exc}",
             flush=True,
         )
+
+
+# br_long_shadow_pipeline_hook_v1:
+# Ленивые singleton-объекты, чтобы не создавать соединение на каждый сигнал.
+_BR_LONG_GOVERNANCE_V1 = None
+_BR_LONG_SHADOW_ACCUMULATOR_V1 = None
+
+
+def _br_long_shadow_pipeline_hook_v1(
+    *,
+    symbol: str,
+    side: str,
+    strategy: str = "UNKNOWN",
+    signal_id: str | None = None,
+    price=None,
+    quantity=None,
+) -> bool:
+    """Возвращает True, если сигнал можно пропустить дальше.
+
+    Для BR LONG в shadow/disabled режиме возвращает False.
+    Runtime/execution для остальных сигналов не меняет.
+    """
+    global _BR_LONG_GOVERNANCE_V1, _BR_LONG_SHADOW_ACCUMULATOR_V1
+
+    try:
+        import os
+        from decimal import Decimal
+
+        if _BR_LONG_GOVERNANCE_V1 is None:
+            _BR_LONG_GOVERNANCE_V1 = BrLongGovernanceV1(
+                mode=os.getenv("BR_LONG_MODE", "shadow")
+            )
+
+        decision = _BR_LONG_GOVERNANCE_V1.evaluate(symbol=symbol, side=side)
+
+        print(
+            "PIPE_BR_LONG_GOVERNANCE_V1 "
+            f"symbol={decision.symbol} side={decision.side} mode={decision.mode} "
+            f"allowed={int(decision.allowed)} shadow_logged={int(decision.shadow_logged)} "
+            f"reason={decision.reason}",
+            flush=True,
+        )
+
+        if decision.shadow_logged:
+            if _BR_LONG_SHADOW_ACCUMULATOR_V1 is None:
+                _BR_LONG_SHADOW_ACCUMULATOR_V1 = BrLongShadowAccumulatorV1()
+
+            def _to_decimal(value):
+                if value is None:
+                    return None
+                try:
+                    return Decimal(str(value))
+                except Exception:
+                    return None
+
+            _BR_LONG_SHADOW_ACCUMULATOR_V1.record(
+                BrLongShadowEventV1(
+                    symbol=decision.symbol,
+                    side=decision.side,
+                    strategy=str(strategy or "UNKNOWN"),
+                    signal_id=signal_id,
+                    price=_to_decimal(price),
+                    quantity=_to_decimal(quantity),
+                    mode=decision.mode,
+                    allowed=decision.allowed,
+                    shadow_logged=decision.shadow_logged,
+                    reason=decision.reason,
+                )
+            )
+
+            print(
+                "PIPE_BR_LONG_SHADOW_ACCUMULATION_OK "
+                f"symbol={decision.symbol} side={decision.side} "
+                f"strategy={strategy} signal_id={signal_id} "
+                f"allowed={int(decision.allowed)} shadow_logged=1",
+                flush=True,
+            )
+
+        return bool(decision.allowed)
+
+    except Exception as exc:
+        # Fail-open: governance не должен ломать общий pipeline.
+        print(
+            "PIPE_BR_LONG_SHADOW_PIPELINE_HOOK_FAILED "
+            f"symbol={symbol} side={side} error={type(exc).__name__}:{exc} "
+            "fail_open=1",
+            flush=True,
+        )
+        return True
+
