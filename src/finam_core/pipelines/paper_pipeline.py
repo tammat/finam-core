@@ -8187,6 +8187,23 @@ class PaperTradingPipeline:
             )
             return
 
+        # ng_short_block_pipeline_hook_v1_call:
+        # Русский комментарий: NG short-edge отрицательный, поэтому SELL из flat/short блокируем.
+        ng_symbol_for_block = str(getattr(ng_signal, "symbol", "") or "")
+        ng_side_for_block = str(getattr(ng_signal, "side", "") or "").upper()
+        try:
+            ng_position_for_block = float(self._current_replay_position_for_br(ng_symbol_for_block))
+        except Exception:
+            ng_position_for_block = 0.0
+
+        if not _ng_short_block_pipeline_hook_v1(
+            symbol=ng_symbol_for_block,
+            side=ng_side_for_block,
+            position=ng_position_for_block,
+            quantity=float(qty),
+        ):
+            return
+
         risk_accepted, risk_reason = self._risk_check_br_signal(ng_signal, qty)
         signal_status = "risk_accepted" if risk_accepted else "risk_rejected"
 
@@ -9501,3 +9518,49 @@ def _br_long_shadow_pipeline_hook_v1(
         )
         return True
 
+
+# ng_short_block_pipeline_hook_v1:
+_NG_SHORT_BLOCK_POLICY_V1 = None
+
+
+def _ng_short_block_pipeline_hook_v1(
+    *,
+    symbol: str,
+    side: str,
+    position: float,
+    quantity: float,
+) -> bool:
+    """Русский комментарий: блокирует NG OPEN_SHORT/ADD_SHORT в paper-flow после отрицательной статистики."""
+    global _NG_SHORT_BLOCK_POLICY_V1
+
+    try:
+        from finam_core.governance.ng_short_block_policy_v1 import NgShortBlockPolicyV1
+
+        if _NG_SHORT_BLOCK_POLICY_V1 is None:
+            _NG_SHORT_BLOCK_POLICY_V1 = NgShortBlockPolicyV1()
+
+        decision = _NG_SHORT_BLOCK_POLICY_V1.evaluate(
+            symbol=symbol,
+            side=side,
+            position=position,
+            quantity=quantity,
+        )
+
+        print(
+            "PIPE_NG_SHORT_BLOCK_POLICY_V1 "
+            f"symbol={decision.symbol} side={decision.side} "
+            f"position={decision.position} qty={decision.quantity} "
+            f"allowed={int(decision.allowed)} action={decision.action} "
+            f"reason={decision.reason}",
+            flush=True,
+        )
+
+        return bool(decision.allowed)
+
+    except Exception as exc:
+        print(
+            "PIPE_NG_SHORT_BLOCK_POLICY_V1_FAIL_OPEN "
+            f"symbol={symbol} side={side} position={position} qty={quantity} error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+        return True
