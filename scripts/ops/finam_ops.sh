@@ -75,6 +75,7 @@ case "$cmd" in
       echo "10) env            - параметры systemd/env"
       echo "11) restart        - безопасный restart"
       echo "12) guard-shadow   - shadow-отчёт Guard Execution Gate"
+      echo "13) br-short       - BR short shadow/live status"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -93,6 +94,7 @@ case "$cmd" in
         10) echo "=== ДЕЙСТВИЕ: ENV ==="; "$0" env ;;
         11) echo "=== ДЕЙСТВИЕ: RESTART ==="; "$0" restart ;;
         12) echo "=== ДЕЙСТВИЕ: GUARD SHADOW REPORT ==="; "$0" guard-shadow ;;
+        13) echo "=== ДЕЙСТВИЕ: BR SHORT STATUS ==="; "$0" br-short ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -119,6 +121,10 @@ case "$cmd" in
 
   guard-shadow)
     "$PY_BIN" src/scripts/analytics/build_guard_shadow_effectiveness_report_v1.py --since "24 hours ago"
+    ;;
+
+  br-short)
+    "$PY_BIN" src/scripts/analytics/build_br_short_shadow_live_report_v1.py
     ;;
 
   restart)
