@@ -31,7 +31,7 @@ def print_metrics(label: str, values: list[float]) -> None:
 def main() -> None:
     dsn = os.environ["DATABASE_URL"]
 
-    print("=== REPLAY BR SESSION EXIT POLICY V1 ===")
+    print("=== REPLAY BR SESSION EXIT POLICY V1.1 ===")
     print("mode=research_only")
     print("execution=disabled")
     print("runtime_changed=0")
@@ -74,7 +74,8 @@ def main() -> None:
             b.close as session_exit_close
         from clean_br t
         join bars b on b.trade_id = t.id
-        where (b.ts at time zone 'Europe/Moscow')::time <= time '23:45'
+        where (b.ts at time zone 'Europe/Moscow')::date =
+              (t.entry_ts at time zone 'Europe/Moscow')::date
         order by t.id, b.ts desc
     )
     select

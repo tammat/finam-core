@@ -20,7 +20,7 @@ class BrSessionExitPolicy:
     Runtime/paper pipeline не изменяет.
     """
 
-    POLICY_NAME = "BR_SESSION_EXIT_V1"
+    POLICY_NAME = "BR_SESSION_EXIT_V1_1"
 
     def __init__(self, session_close_hour: int = 23, session_close_minute: int = 45):
         self.session_close_hour = session_close_hour
