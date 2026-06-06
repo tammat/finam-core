@@ -7391,6 +7391,19 @@ class PaperTradingPipeline:
         if not hasattr(self, "paper") or self.paper is None:
             return False, "NO_PAPER_EXECUTION_ENGINE_ATTACHED"
 
+        # br_long_shadow_pipeline_hook_v1_call:
+        # Русский комментарий: BR LONG после отрицательной clean-statistics
+        # не отправляем в PaperExecution, но в shadow-режиме пишем сигнал в PostgreSQL.
+        if not _br_long_shadow_pipeline_hook_v1(
+            symbol=br_symbol,
+            side=str(getattr(br_signal, "side", "") or ""),
+            strategy=br_strategy,
+            signal_id=str(getattr(br_signal, "signal_id", "") or "") or None,
+            price=getattr(br_signal, "price", None),
+            quantity=qty,
+        ):
+            return False, "BR_LONG_SHADOW_BLOCK"
+
         # Русский комментарий:
         # Runtime-фильтр BR short-only ставим непосредственно в BR execution path.
         # Это надёжнее общего raw_intent gate, потому что здесь уже есть br_signal и br_strategy.
