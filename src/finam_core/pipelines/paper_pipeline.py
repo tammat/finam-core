@@ -129,6 +129,10 @@ from finam_core.strategy.trend_filter import TrendFilter
 # но пишет исследовательское событие в PostgreSQL.
 from finam_core.governance.br_long_governance_v1 import BrLongGovernanceV1
 from finam_core.governance.br_short_shadow_policy_v1 import BrShortShadowPolicyV1
+from finam_core.governance.br_short_shadow_accumulator_v1 import (
+    BrShortShadowAccumulatorV1,
+    BrShortShadowEventV1,
+)
 from finam_core.governance.br_long_shadow_accumulator_v1 import (
     BrLongShadowAccumulatorV1,
     BrLongShadowEventV1,
@@ -9282,8 +9286,9 @@ def _emit_regime_guard_live_match_pipeline_advisory_v1(symbol: str = "UNKNOWN") 
 
 
 # br_short_shadow_pipeline_hook_v1:
-# Русский комментарий: ленивый singleton для shadow-policy BR short.
+# Русский комментарий: ленивые singleton-объекты для shadow-policy BR short.
 _BR_SHORT_SHADOW_POLICY_V1 = None
+_BR_SHORT_SHADOW_ACCUMULATOR_V1 = None
 
 
 def _br_short_shadow_pipeline_hook_v1(
@@ -9301,7 +9306,7 @@ def _br_short_shadow_pipeline_hook_v1(
     Ничего не блокирует и не исполняет.
     Только печатает, был бы SELL-сигнал кандидатом на OPEN_SHORT при flat/short позиции.
     """
-    global _BR_SHORT_SHADOW_POLICY_V1
+    global _BR_SHORT_SHADOW_POLICY_V1, _BR_SHORT_SHADOW_ACCUMULATOR_V1
 
     try:
         if _BR_SHORT_SHADOW_POLICY_V1 is None:
@@ -9324,6 +9329,47 @@ def _br_short_shadow_pipeline_hook_v1(
             f"signal_id={signal_id or ''} price={price} qty={quantity}",
             flush=True,
         )
+
+        if decision.shadow_logged:
+            from decimal import Decimal
+
+            if _BR_SHORT_SHADOW_ACCUMULATOR_V1 is None:
+                _BR_SHORT_SHADOW_ACCUMULATOR_V1 = BrShortShadowAccumulatorV1()
+
+            def _to_decimal(value):
+                if value is None:
+                    return None
+                try:
+                    return Decimal(str(value))
+                except Exception:
+                    return None
+
+            _BR_SHORT_SHADOW_ACCUMULATOR_V1.record(
+                BrShortShadowEventV1(
+                    symbol=symbol,
+                    side=side,
+                    strategy=strategy,
+                    signal_id=signal_id,
+                    mode="shadow",
+                    allowed=bool(decision.allowed),
+                    shadow_logged=bool(decision.shadow_logged),
+                    reason=decision.reason,
+                    current_position=_to_decimal(current_position),
+                    price=_to_decimal(price),
+                    quantity=_to_decimal(quantity),
+                    payload={
+                        "source": "br_short_shadow_pipeline_hook_v1",
+                        "runtime_changed": 0,
+                    },
+                )
+            )
+
+            print(
+                "PIPE_BR_SHORT_SHADOW_ACCUMULATION_OK "
+                f"symbol={symbol} side={side} strategy={strategy} "
+                f"signal_id={signal_id or ''} reason={decision.reason}",
+                flush=True,
+            )
 
         return True
     except Exception as exc:
