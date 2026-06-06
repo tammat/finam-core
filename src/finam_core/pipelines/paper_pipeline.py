@@ -7421,6 +7421,37 @@ class PaperTradingPipeline:
             quantity=qty,
         )
 
+        # br_short_paper_enablement_gate_v1:
+        # Русский комментарий: BR short в PaperExecution разрешается только явным флагом
+        # и только для канонической стратегии. SELL при long-позиции оставляем как reduce/close.
+        br_current_pos = self._current_replay_position_for_br(br_symbol)
+        br_side = str(getattr(br_signal, "side", "") or "").upper()
+        if br_symbol.upper().startswith("BR") and br_side == "SELL" and br_current_pos <= 0:
+            if br_strategy != "BR_CONSERVATIVE_BREAKOUT":
+                print(
+                    "PIPE_BR_SHORT_PAPER_BLOCK "
+                    f"symbol={br_symbol} strategy={br_strategy} side={br_side} "
+                    f"position={br_current_pos} reason=non_canonical_strategy",
+                    flush=True,
+                )
+                return False, "BR_SHORT_PAPER_BLOCK_NON_CANONICAL"
+
+            if os.getenv("BR_SHORT_PAPER_ENABLED", "0") != "1":
+                print(
+                    "PIPE_BR_SHORT_PAPER_SHADOW_ONLY "
+                    f"symbol={br_symbol} strategy={br_strategy} side={br_side} "
+                    f"position={br_current_pos} reason=flag_disabled",
+                    flush=True,
+                )
+                return False, "BR_SHORT_PAPER_SHADOW_ONLY"
+
+            print(
+                "PIPE_BR_SHORT_PAPER_ALLOWED "
+                f"symbol={br_symbol} strategy={br_strategy} side={br_side} "
+                f"position={br_current_pos} reason=canonical_short_enabled",
+                flush=True,
+            )
+
         # Русский комментарий:
         # Runtime-фильтр BR short-only ставим непосредственно в BR execution path.
         # Это надёжнее общего raw_intent gate, потому что здесь уже есть br_signal и br_strategy.
