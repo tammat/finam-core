@@ -3947,6 +3947,25 @@ class PaperTradingPipeline:
                     flush=True,
                 )
 
+                # br_short_candidate_pre_route_policy_hook_v1_call:
+                # Русский комментарий: фиксируем BR SELL-кандидат до rollback/risk,
+                # чтобы short-policy видел достижимость сигнала, но не обходил защитные фильтры.
+                if str(entry_side).upper() == "SELL":
+                    try:
+                        br_position_for_short = float(self._current_replay_position_for_br(str(sym)))
+                    except Exception:
+                        br_position_for_short = 0.0
+
+                    _br_short_shadow_pipeline_hook_v1(
+                        symbol=str(sym),
+                        side=str(entry_side),
+                        strategy=str(strategy_name),
+                        current_position=br_position_for_short,
+                        signal_id=str(raw_intent.get("signal_id") or ""),
+                        price=raw_intent.get("price"),
+                        quantity=float(qty),
+                    )
+
             # сброс состояния
             st["pending_breakout"] = None
 
