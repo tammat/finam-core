@@ -124,6 +124,19 @@ def build_closed_trades(rows):
                 "payload": {
                     "entry_payload": lot.payload,
                     "exit_payload": payload,
+                    # Русский комментарий: сохраняем причину выхода сразу при материализации,
+                    # чтобы аналитика не зависела от последующего backfill по времени.
+                    "exit_reason": (
+                        payload.get("reason")
+                        or (payload.get("features") or {}).get("reason")
+                        or payload.get("exit_reason")
+                        or (payload.get("features") or {}).get("exit_reason")
+                        or "UNKNOWN"
+                    ),
+                    "exit_trade_id": r.get("id"),
+                    "exit_fill_id": r.get("fill_id"),
+                    "exit_reason_source": "closed_trade_exit_reason_runtime_fix_v1",
+                    "exit_reason_event_ts": str(ts),
                     "entry_side": "BUY" if lot.side == "LONG" else "SELL",
                     "exit_side": side,
                     "materializer": SOURCE,
