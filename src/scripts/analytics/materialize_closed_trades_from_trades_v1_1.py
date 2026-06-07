@@ -249,9 +249,14 @@ def main():
                 print("VERDICT=DRY_RUN")
                 return
 
-            if args.replace:
-                cur.execute(delete_sql, (symbols, args.trade_source, SOURCE))
-                print(f"REPLACED_ROWS={cur.rowcount}")
+            if not args.replace:
+                print("ERROR=APPLY_REQUIRES_REPLACE_FOR_IDEMPOTENCY")
+                print("HINT=rerun_with_--replace_--apply")
+                print("VERDICT=REFUSED_NON_IDEMPOTENT_APPLY")
+                return
+
+            cur.execute(delete_sql, (symbols, args.trade_source, SOURCE))
+            print(f"REPLACED_ROWS={cur.rowcount}")
 
             for t in closed:
                 t["source"] = SOURCE
