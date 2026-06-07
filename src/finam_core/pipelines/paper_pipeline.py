@@ -2654,6 +2654,26 @@ class PaperTradingPipeline:
                     f"reason={time_exit_decision.reason}",
                     flush=True,
                 )
+
+                # ng_time_exit_governance_runtime_enable_v1_call:
+                # Русский комментарий: hard-block разрешён только для NG, только в PAPER,
+                # только по time_exit с отрицательным PnL и только при явном env-флаге.
+                if (
+                    root_symbol == "NG"
+                    and os.getenv("ENABLE_NG_TIME_EXIT_GOVERNANCE_V1", "0") == "1"
+                    and str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper"
+                    and not time_exit_decision.allowed
+                    and time_exit_decision.action == "SHADOW_BLOCK"
+                ):
+                    print(
+                        "PIPE_NG_TIME_EXIT_GOVERNANCE_BLOCK_V1 "
+                        f"symbol={symbol} root={root_symbol} side={close_side} "
+                        f"pnl={float(current_trade_pnl or 0.0):.6f} "
+                        f"reason={time_exit_decision.reason} "
+                        "paper_only=1",
+                        flush=True,
+                    )
+                    return None
             except Exception as exc:
                 print(
                     f"PIPE_TIME_EXIT_GOVERNANCE_ERROR symbol={symbol} error={exc}",
