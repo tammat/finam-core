@@ -30,6 +30,7 @@ from finam_core.pipelines.pipeline_orchestrator import PipelineOrchestrator, Quo
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
 from finam_core.governance.time_exit_governance_v1 import TimeExitGovernanceV1
+from finam_core.governance.ng_time_exit_hold_bucket_policy_v1 import NgTimeExitHoldBucketPolicyV1
 from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
@@ -2655,25 +2656,50 @@ class PaperTradingPipeline:
                     flush=True,
                 )
 
-                # ng_time_exit_governance_runtime_enable_v1_call:
-                # Русский комментарий: hard-block разрешён только для NG, только в PAPER,
-                # только по time_exit с отрицательным PnL и только при явном env-флаге.
+                # ng_time_exit_hold_bucket_pipeline_hook_v1_call:
+                # Русский комментарий: точная политика NG time_exit заменяет грубый negative-pnl block.
+                # В PAPER блокируем только отрицательный time_exit до 60 минут удержания.
                 if (
                     root_symbol == "NG"
-                    and os.getenv("ENABLE_NG_TIME_EXIT_GOVERNANCE_V1", "0") == "1"
+                    and os.getenv("ENABLE_NG_TIME_EXIT_HOLD_BUCKET_POLICY_V1", "0") == "1"
                     and str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper"
-                    and not time_exit_decision.allowed
-                    and time_exit_decision.action == "SHADOW_BLOCK"
                 ):
+                    hold_seconds = float(state.get("hold_seconds", 0.0) or 0.0)
+                    if hold_seconds <= 0:
+                        bars_held = float(state.get("bars_held", 0.0) or 0.0)
+                        hold_seconds = bars_held * 60.0
+
+                    hold_policy = NgTimeExitHoldBucketPolicyV1()
+                    hold_decision = hold_policy.evaluate(
+                        root_symbol=root_symbol,
+                        exit_reason=str(decision.reason),
+                        hold_seconds=hold_seconds,
+                        unrealized_pnl=float(current_trade_pnl or 0.0),
+                    )
+
                     print(
-                        "PIPE_NG_TIME_EXIT_GOVERNANCE_BLOCK_V1 "
+                        "PIPE_NG_TIME_EXIT_HOLD_BUCKET_POLICY_V1 "
                         f"symbol={symbol} root={root_symbol} side={close_side} "
+                        f"hold_seconds={hold_seconds:.2f} "
                         f"pnl={float(current_trade_pnl or 0.0):.6f} "
-                        f"reason={time_exit_decision.reason} "
+                        f"allowed={int(hold_decision.allowed)} "
+                        f"action={hold_decision.action} "
+                        f"reason={hold_decision.reason} "
                         "paper_only=1",
                         flush=True,
                     )
-                    return None
+
+                    if not hold_decision.allowed:
+                        print(
+                            "PIPE_NG_TIME_EXIT_HOLD_BUCKET_BLOCK_V1 "
+                            f"symbol={symbol} root={root_symbol} side={close_side} "
+                            f"hold_seconds={hold_seconds:.2f} "
+                            f"pnl={float(current_trade_pnl or 0.0):.6f} "
+                            f"reason={hold_decision.reason} "
+                            "paper_only=1",
+                            flush=True,
+                        )
+                        return None
             except Exception as exc:
                 print(
                     f"PIPE_TIME_EXIT_GOVERNANCE_ERROR symbol={symbol} error={exc}",
