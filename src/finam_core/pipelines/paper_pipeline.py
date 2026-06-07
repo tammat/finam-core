@@ -29,6 +29,7 @@ from finam_core.signals.strategy_intent_adapter import StrategyIntentAdapter
 from finam_core.pipelines.pipeline_orchestrator import PipelineOrchestrator, QuoteEventContext
 from finam_core.storage.postgres_logger import PostgresLogger
 import os
+from finam_core.governance.time_exit_governance_v1 import TimeExitGovernanceV1
 from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
@@ -2615,6 +2616,49 @@ class PaperTradingPipeline:
             f"price={round(float(price), 6)} reason={decision.reason}",
             flush=True,
         )
+
+        # time_exit_governance_pipeline_hook_v1_call:
+        # Русский комментарий: advisory-only контроль time_exit.
+        # На этом этапе runtime не блокируем, только печатаем решение policy.
+        if str(decision.reason).lower() == "time_exit":
+            try:
+                root_symbol = str(symbol).split("@")[0]
+                if root_symbol.startswith("BR"):
+                    root_symbol = "BR"
+                elif root_symbol.startswith("NG"):
+                    root_symbol = "NG"
+
+                current_trade_pnl = 0.0
+                try:
+                    if float(qty) > 0:
+                        current_trade_pnl = (float(price) - float(avg_price)) * abs(float(qty))
+                    elif float(qty) < 0:
+                        current_trade_pnl = (float(avg_price) - float(price)) * abs(float(qty))
+                except Exception:
+                    current_trade_pnl = 0.0
+
+                time_exit_governance = TimeExitGovernanceV1(mode="shadow")
+                time_exit_decision = time_exit_governance.evaluate(
+                    root_symbol=root_symbol,
+                    side=close_side,
+                    unrealized_pnl=float(current_trade_pnl or 0.0),
+                    reason=str(decision.reason),
+                )
+
+                print(
+                    "PIPE_TIME_EXIT_GOVERNANCE_V1 "
+                    f"symbol={symbol} root={root_symbol} side={close_side} "
+                    f"pnl={float(current_trade_pnl or 0.0):.6f} "
+                    f"allowed={int(time_exit_decision.allowed)} "
+                    f"action={time_exit_decision.action} "
+                    f"reason={time_exit_decision.reason}",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    f"PIPE_TIME_EXIT_GOVERNANCE_ERROR symbol={symbol} error={exc}",
+                    flush=True,
+                )
 
         return {
             "symbol": symbol,
