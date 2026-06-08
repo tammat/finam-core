@@ -78,6 +78,8 @@ case "$cmd" in
       echo "13) br-short       - BR short shadow/live status"
       echo "14) active-score   - активные контракты: статистика 7 дней"
       echo "15) active-score3  - активные контракты: статистика 3 дня"
+      echo "16) rollover       - статус экспирации и rollover"
+      echo "17) contract-align - сверка runtime-контрактов с календарём"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -99,6 +101,8 @@ case "$cmd" in
         13) echo "=== ДЕЙСТВИЕ: BR SHORT STATUS ==="; "$0" br-short ;;
         14) echo "=== ДЕЙСТВИЕ: ACTIVE CONTRACT SCORECARD 7D ==="; "$0" active-score ;;
         15) echo "=== ДЕЙСТВИЕ: ACTIVE CONTRACT SCORECARD 3D ==="; "$0" active-score3 ;;
+        16) echo "=== ДЕЙСТВИЕ: ROLLOVER STATUS ==="; "$0" rollover ;;
+        17) echo "=== ДЕЙСТВИЕ: CONTRACT ALIGNMENT ==="; "$0" contract-align ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -133,6 +137,18 @@ case "$cmd" in
     cd /opt/finam-core
     export PYTHONPATH=src
     WINDOW_DAYS=3 python src/scripts/analytics/build_active_contract_scorecard_v1_1_recent_window.py
+    ;;
+
+  rollover)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    python src/scripts/analytics/build_rollover_status_report_v1.py
+    ;;
+
+  contract-align)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    python src/scripts/analytics/build_runtime_active_contract_vs_calendar_v1.py
     ;;
 
 
