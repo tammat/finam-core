@@ -76,6 +76,8 @@ case "$cmd" in
       echo "11) restart        - безопасный restart"
       echo "12) guard-shadow   - shadow-отчёт Guard Execution Gate"
       echo "13) br-short       - BR short shadow/live status"
+      echo "14) active-score   - активные контракты: статистика 7 дней"
+      echo "15) active-score3  - активные контракты: статистика 3 дня"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -95,6 +97,8 @@ case "$cmd" in
         11) echo "=== ДЕЙСТВИЕ: RESTART ==="; "$0" restart ;;
         12) echo "=== ДЕЙСТВИЕ: GUARD SHADOW REPORT ==="; "$0" guard-shadow ;;
         13) echo "=== ДЕЙСТВИЕ: BR SHORT STATUS ==="; "$0" br-short ;;
+        14) echo "=== ДЕЙСТВИЕ: ACTIVE CONTRACT SCORECARD 7D ==="; "$0" active-score ;;
+        15) echo "=== ДЕЙСТВИЕ: ACTIVE CONTRACT SCORECARD 3D ==="; "$0" active-score3 ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -118,6 +122,19 @@ case "$cmd" in
     systemctl cat finam-paper-pipeline.service | \
     grep -E "ENABLE_NG|NG_PAPER|NG_M1|ENABLE_USD|USD_PAPER|EXECUTION_MODE|REAL_TRADING|PAPER"
     ;;
+
+  active-score)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    WINDOW_DAYS=7 python src/scripts/analytics/build_active_contract_scorecard_v1_1_recent_window.py
+    ;;
+
+  active-score3)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    WINDOW_DAYS=3 python src/scripts/analytics/build_active_contract_scorecard_v1_1_recent_window.py
+    ;;
+
 
   guard-shadow)
     "$PY_BIN" src/scripts/analytics/build_guard_shadow_effectiveness_report_v1.py --since "24 hours ago"
