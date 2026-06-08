@@ -31,6 +31,7 @@ from finam_core.storage.postgres_logger import PostgresLogger
 import os
 from finam_core.governance.time_exit_governance_v1 import TimeExitGovernanceV1
 from finam_core.governance.ng_time_exit_hold_bucket_policy_v1 import NgTimeExitHoldBucketPolicyV1
+from finam_core.risk.ng_smart_entry_quality_gate_v1 import NgSmartEntryQualityGateV1
 from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
@@ -2656,6 +2657,14 @@ class PaperTradingPipeline:
                     flush=True,
                 )
 
+                print(
+                    "PIPE_NG_TIME_EXIT_HOLD_BUCKET_PRECHECK_V1 "
+                    f"symbol={symbol} root={root_symbol} "
+                    f"env={os.getenv('ENABLE_NG_TIME_EXIT_HOLD_BUCKET_POLICY_V1', '0')} "
+                    f"runtime_mode={str(self.runtime_config.get('EXECUTION_MODE', 'missing')).lower()}",
+                    flush=True,
+                )
+
                 # ng_time_exit_hold_bucket_pipeline_hook_v1_call:
                 # Русский комментарий: точная политика NG time_exit заменяет грубый negative-pnl block.
                 # В PAPER блокируем только отрицательный time_exit до 60 минут удержания.
@@ -4012,6 +4021,56 @@ class PaperTradingPipeline:
                     "take_distance": take_distance,
                 }
             }
+
+            # ng_smart_entry_quality_gate_pipeline_hook_v1:
+            # Русский комментарий: блокируем только NG smart_entry_retest в режиме trend_down_high_vol.
+            if (
+                str(sym).startswith("NG")
+                and os.getenv("ENABLE_NG_SMART_ENTRY_QUALITY_GATE_V1", "0") == "1"
+                and str(self.runtime_config.get("EXECUTION_MODE", os.getenv("EXECUTION_MODE", "paper"))).lower() == "paper"
+            ):
+                features_v1 = raw_intent.get("features") or {}
+                entry_reason_v1 = str(
+                    raw_intent.get("reason")
+                    or raw_intent.get("source")
+                    or ""
+                )
+                regime_v1 = str(
+                    features_v1.get("regime")
+                    or features_v1.get("regime_label")
+                    or raw_intent.get("regime")
+                    or ""
+                )
+
+                gate_decision_v1 = NgSmartEntryQualityGateV1().evaluate(
+                    root_symbol="NG",
+                    entry_reason=entry_reason_v1,
+                    regime=regime_v1,
+                )
+
+                print(
+                    "PIPE_NG_SMART_ENTRY_QUALITY_GATE_V1 "
+                    f"symbol={sym} "
+                    f"entry_reason={entry_reason_v1} "
+                    f"regime={regime_v1} "
+                    f"allowed={int(gate_decision_v1.allowed)} "
+                    f"action={gate_decision_v1.action} "
+                    f"reason={gate_decision_v1.reason} "
+                    "paper_only=1",
+                    flush=True,
+                )
+
+                if not gate_decision_v1.allowed:
+                    print(
+                        "PIPE_NG_SMART_ENTRY_QUALITY_BLOCK_V1 "
+                        f"symbol={sym} "
+                        f"entry_reason={entry_reason_v1} "
+                        f"regime={regime_v1} "
+                        f"reason={gate_decision_v1.reason} "
+                        "paper_only=1",
+                        flush=True,
+                    )
+                    return
 
             if str(sym).startswith("BR"):
                 rub_per_point = get_br_rub_per_point(getattr(self, "market_state", None))
