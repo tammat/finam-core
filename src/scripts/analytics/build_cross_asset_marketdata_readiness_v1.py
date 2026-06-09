@@ -8,9 +8,17 @@ import psycopg2.extras
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 ASSETS = {
-    "USD": ["USDRUBF@RTSX", "SI%", "%USD%"],
-    "GOLD": ["%GOLD%", "GD%", "GLD%", "GDU%", "GLDRUB%"],
-    "BTC": ["%BTC%", "%BITCOIN%"],
+    # Русский комментарий: USD ограничиваем валютными инструментами, чтобы BTCUSD/ETHUSD не попадали в USD-группу.
+    "USD": ["USDRUBF@RTSX", "SI%@RTSX", "SI%", "%USDRUB%"],
+
+    # Русский комментарий: золото на MOEX обычно идёт через GD-контракты и GLD/GOLD-тикеры.
+    "GOLD": ["%GOLD%", "GD%@RTSX", "GD%", "GLD%", "GDU%", "GLDRUB%"],
+
+    # Русский комментарий: BTCUSD должен относиться только к BTC, а не к USD.
+    "BTC": ["BTCUSD", "BTCUSD@%", "%BTC%"],
+
+    # Русский комментарий: ETH выводим отдельно, чтобы не загрязнять USD-группу.
+    "ETH": ["ETHUSD", "ETHUSD@%", "%ETH%"],
 }
 
 SQL = """
@@ -57,7 +65,7 @@ def main() -> None:
     print("mode=research_only")
     print("execution=disabled")
     print("runtime_changed=0")
-    print("assets=USD,GOLD,BTC")
+    print("assets=USD,GOLD,BTC,ETH")
     print()
 
     all_rows = []
