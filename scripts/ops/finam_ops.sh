@@ -88,6 +88,7 @@ case "$cmd" in
       echo "24) governor-snapshot - сохранить снимок contract governor"
       echo "25) cross-assets    - статистика USD/GOLD/BTC"
       echo "26) cross-readiness - готовность marketdata USD/GOLD/BTC"
+      echo "27) cross-summary   - summary готовности USD/GOLD/BTC/ETH"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -119,6 +120,7 @@ case "$cmd" in
         24) echo "=== ДЕЙСТВИЕ: GOVERNOR SNAPSHOT ==="; "$0" governor-snapshot ;;
         25) echo "=== ДЕЙСТВИЕ: CROSS ASSET SCORECARD ==="; "$0" cross-assets ;;
         26) echo "=== ДЕЙСТВИЕ: CROSS ASSET MARKETDATA READINESS ==="; "$0" cross-readiness ;;
+        27) echo "=== ДЕЙСТВИЕ: CROSS ASSET READINESS SUMMARY ==="; "$0" cross-summary ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -165,6 +167,12 @@ case "$cmd" in
     cd /opt/finam-core
     export PYTHONPATH=src
     python src/scripts/analytics/build_cross_asset_marketdata_readiness_v1.py
+    ;;
+
+  cross-summary)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    python src/scripts/analytics/build_cross_asset_instrument_readiness_summary_v1.py
     ;;
 
   status)
