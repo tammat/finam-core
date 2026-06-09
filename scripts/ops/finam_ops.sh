@@ -89,6 +89,7 @@ case "$cmd" in
       echo "25) cross-assets    - статистика USD/GOLD/BTC"
       echo "26) cross-readiness - готовность marketdata USD/GOLD/BTC"
       echo "27) cross-summary   - summary готовности USD/GOLD/BTC/ETH"
+      echo "28) gold-readiness  - готовность золота к replay"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -121,6 +122,7 @@ case "$cmd" in
         25) echo "=== ДЕЙСТВИЕ: CROSS ASSET SCORECARD ==="; "$0" cross-assets ;;
         26) echo "=== ДЕЙСТВИЕ: CROSS ASSET MARKETDATA READINESS ==="; "$0" cross-readiness ;;
         27) echo "=== ДЕЙСТВИЕ: CROSS ASSET READINESS SUMMARY ==="; "$0" cross-summary ;;
+        28) echo "=== ДЕЙСТВИЕ: GOLD REPLAY READINESS ==="; "$0" gold-readiness ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -173,6 +175,12 @@ case "$cmd" in
     cd /opt/finam-core
     export PYTHONPATH=src
     python src/scripts/analytics/build_cross_asset_instrument_readiness_summary_v1.py
+    ;;
+
+  gold-readiness)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    python src/scripts/analytics/build_gold_research_replay_readiness_v1.py
     ;;
 
   status)
