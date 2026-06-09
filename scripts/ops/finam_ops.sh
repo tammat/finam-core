@@ -85,6 +85,7 @@ case "$cmd" in
       echo "21) selector-runtime - сверка selector и runtime"
       echo "22) selector-liquidity - выбор контракта по ликвидности"
       echo "23) contract-governor - advisory по контрактам runtime"
+      echo "24) governor-snapshot - сохранить снимок contract governor"
       echo " 0) выход"
       echo
       read -r -p "Выберите действие: " choice
@@ -113,6 +114,7 @@ case "$cmd" in
         21) echo "=== ДЕЙСТВИЕ: SELECTOR VS RUNTIME ==="; "$0" selector-runtime ;;
         22) echo "=== ДЕЙСТВИЕ: CONTRACT SELECTOR LIQUIDITY ==="; "$0" selector-liquidity ;;
         23) echo "=== ДЕЙСТВИЕ: RUNTIME CONTRACT GOVERNOR ==="; "$0" contract-governor ;;
+        24) echo "=== ДЕЙСТВИЕ: GOVERNOR SNAPSHOT ==="; "$0" governor-snapshot ;;
         0) echo "Выход"; exit 0 ;;
         *) echo "Неверный выбор: $choice" ;;
       esac
@@ -141,6 +143,12 @@ case "$cmd" in
     cd /opt/finam-core
     export PYTHONPATH=src
     python src/scripts/analytics/build_runtime_contract_governor_advisory_v1.py
+    ;;
+
+  governor-snapshot)
+    cd /opt/finam-core
+    export PYTHONPATH=src
+    python src/scripts/analytics/build_runtime_contract_governor_snapshot_v1.py
     ;;
 
   status)
