@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS runtime_shadow_gold_signals (
 
 CREATE INDEX IF NOT EXISTS idx_runtime_shadow_gold_signals_symbol_ts
 ON runtime_shadow_gold_signals(symbol, signal_ts);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_runtime_shadow_gold_signals_dedup_v1
+ON runtime_shadow_gold_signals(symbol, timeframe, signal_ts, strategy);
 """
 
 SQL = """
@@ -69,7 +72,7 @@ VALUES (
     true,
     %(raw_json)s
 )
-ON CONFLICT DO NOTHING;
+ON CONFLICT (symbol, timeframe, signal_ts, strategy) DO NOTHING;
 """
 
 def main() -> None:
@@ -139,7 +142,8 @@ def main() -> None:
                         "raw_json": json.dumps(s, ensure_ascii=False),
                     },
                 )
-                written += 1
+                if cur.rowcount == 1:
+                    written += 1
 
                 print(
                     "SHADOW_ROW "
@@ -157,7 +161,9 @@ def main() -> None:
     print()
     print(f"SIGNALS_FOUND={len(signals)}")
     print(f"SHADOW_ROWS_WRITTEN={written}")
+    print("DEDUP=enabled")
     print("VERDICT=GOLD_RUNTIME_SHADOW_VALIDATION_RECORDED")
+    print("RUNTIME_SHADOW_VALIDATION_GOLD_V1_1_DEDUP_OK")
     print("RUNTIME_SHADOW_VALIDATION_GOLD_V1_OK")
 
 if __name__ == "__main__":
