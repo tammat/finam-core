@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+print("=== RUNTIME GOVERNANCE RESEARCH SUMMARY V1 ===")
+print("mode=research_only")
+print("execution=disabled")
+print("runtime_changed=0")
+print()
+
+print("CANDIDATE_SUMMARY")
+print("candidate=BRM6_LONG_московская_середина")
+print("symbol=BRM6@RTSX")
+print("side=LONG")
+print("session=московская_середина")
+print()
+
+print("RESEARCH_CHAIN")
+print("STEP_ROW step=session_regime_edge_matrix_v1 result=ONLY_ONE_FAVORABLE_ZONE")
+print("STEP_ROW step=session_side_edge_filter_candidate_v1 result=ALLOW")
+print("STEP_ROW step=session_side_edge_filter_candidate_audit_v1 result=PASS")
+print("STEP_ROW step=session_side_edge_filter_stability_v1 result=EDGE_STABLE_LIMITED_ONE_MONTH")
+print("STEP_ROW step=session_side_edge_walkforward_v1 result=EDGE_WALKFORWARD_MIXED")
+print("STEP_ROW step=session_side_edge_recent_decay_v1 result=EDGE_RECENT_DECAY_CONFIRMED")
+print("STEP_ROW step=runtime_governance_candidate_decision_v1 result=WATCH_ONLY")
+print("STEP_ROW step=runtime_governance_shadow_accumulation_v1 result=RECORDED")
+print("STEP_ROW step=runtime_governance_shadow_accumulation_audit_v1 result=PASS")
+print()
+
+print("KEY_EVIDENCE")
+print("EVIDENCE_ROW name=session_filter action=ALLOW trades=72 expectancy=2.577015 profit_factor=2.5715")
+print("EVIDENCE_ROW name=walkforward favorable=3 unfavorable=1 verdict=EDGE_WALKFORWARD_MIXED")
+print("EVIDENCE_ROW name=recent_decay early_expectancy=3.570208 recent_expectancy=-0.402564 early_pf=3.0777 recent_pf=0.7133 verdict=EDGE_RECENT_DECAY_CONFIRMED")
+print("EVIDENCE_ROW name=shadow_accumulation runtime_allow=0 shadow_allow=1 watch_allow=1 decision=WATCH_ONLY")
+print()
+
+print("FINAL_DECISION")
+print("decision=WATCH_ONLY")
+print("runtime_allow=0")
+print("shadow_allow=1")
+print("watch_allow=1")
+print("runtime_promotion=NO")
+print("reason=recent_decay_confirmed")
+print()
+
+print("VERDICT=RUNTIME_GOVERNANCE_RESEARCH_SUMMARY_WATCH_ONLY")
+print("RUNTIME_GOVERNANCE_RESEARCH_SUMMARY_V1_OK")
