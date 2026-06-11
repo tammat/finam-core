@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <h2>Статистика инструментов</h2>
+    <table>
+        <tr>
+            <th>Стратегия</th>
+            <th>Инструменты</th>
+            <th>Сделки</th>
+            <th>PnL</th>
+            <th>Expectancy</th>
+            <th>PF</th>
+            <th>Governance</th>
+            <th>Статус</th>
+        </tr>
+        {% for row in data.scorecard %}
+        <tr>
+            <td>{{ row.strategy }}</td>
+            <td>{{ row.symbols }}</td>
+            <td>{{ row.runtime_trades }}</td>
+            <td>{{ row.runtime_net_pnl }}</td>
+            <td>{{ row.runtime_expectancy }}</td>
+            <td>{{ row.runtime_profit_factor }}</td>
+            <td>{{ row.governance_decision }}</td>
+            <td>{{ row.status }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+{% endblock %}

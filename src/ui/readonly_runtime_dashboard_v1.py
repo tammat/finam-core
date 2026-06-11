@@ -117,3 +117,14 @@ def checkpoints(request: Request):
         "checkpoints.html",
         {"request": request, "data": fetch_dashboard_data(), "active": "checkpoints"},
     )
+
+@app.get("/instruments", response_class=HTMLResponse)
+def instruments(request: Request):
+    return templates.TemplateResponse(
+        "instruments.html",
+        {
+            "request": request,
+            "data": fetch_dashboard_data(),
+            "active": "instruments",
+        },
+    )
