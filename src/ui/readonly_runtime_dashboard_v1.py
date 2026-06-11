@@ -79,6 +79,78 @@ def fetch_dashboard_data():
     }
 
 
+def fetch_instrument_statistics_v2():
+    dsn = os.environ["DATABASE_URL"]
+    symbols = [
+        "GDU6@RTSX", "BRN6@RTSX", "NGN6@RTSX", "USDRUBF@RTSX",
+        "LKOH@MISX", "SBER@MISX", "GAZP@MISX", "PLZL@MISX",
+    ]
+
+    sql = """
+    WITH src AS (
+        SELECT unnest(%s::text[]) AS symbol
+    ),
+    bars AS (
+        SELECT symbol, COUNT(*) AS bars, MAX(ts) AS last_bar_ts
+        FROM market_bars
+        WHERE symbol = ANY(%s)
+        GROUP BY symbol
+    ),
+    closed AS (
+        SELECT
+            symbol,
+            COUNT(*) AS trades,
+            COUNT(*) FILTER (WHERE net_pnl > 0) AS wins,
+            ROUND(COALESCE(AVG(net_pnl), 0)::numeric, 6) AS expectancy,
+            ROUND((
+                SUM(CASE WHEN net_pnl > 0 THEN net_pnl ELSE 0 END)
+                / NULLIF(ABS(SUM(CASE WHEN net_pnl < 0 THEN net_pnl ELSE 0 END)), 0)
+            )::numeric, 4) AS profit_factor
+        FROM closed_trades
+        WHERE symbol = ANY(%s)
+          AND source='closed_trade_engine_v1_1'
+        GROUP BY symbol
+    ),
+    gold AS (
+        SELECT COUNT(*) AS gold_shadow_signals
+        FROM runtime_shadow_gold_signals
+        WHERE symbol='GDU6@RTSX'
+          AND strategy='gold_short_only_shadow_v1'
+    )
+    SELECT
+        src.symbol,
+        COALESCE(b.bars, 0) AS bars,
+        b.last_bar_ts,
+        COALESCE(c.trades, 0) AS trades,
+        COALESCE(c.wins, 0) AS wins,
+        CASE
+            WHEN COALESCE(c.trades, 0) > 0
+            THEN ROUND((c.wins::numeric / c.trades::numeric * 100), 2)
+            ELSE NULL
+        END AS winrate,
+        c.expectancy,
+        c.profit_factor,
+        CASE
+            WHEN src.symbol='GDU6@RTSX' THEN 'SHADOW'
+            WHEN src.symbol IN ('BRN6@RTSX','NGN6@RTSX') AND COALESCE(c.expectancy,0) < 0 THEN 'REJECT'
+            WHEN src.symbol IN ('USDRUBF@RTSX','LKOH@MISX') THEN 'WATCH'
+            WHEN COALESCE(b.bars,0)=0 THEN 'NO_DATA'
+            WHEN b.last_bar_ts < now() - interval '7 days' THEN 'STALE'
+            ELSE 'WATCH'
+        END AS status,
+        (SELECT gold_shadow_signals FROM gold) AS gold_shadow_signals
+    FROM src
+    LEFT JOIN bars b ON b.symbol = src.symbol
+    LEFT JOIN closed c ON c.symbol = src.symbol
+    ORDER BY src.symbol;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (symbols, symbols, symbols))
+            return cur.fetchall()
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse(
@@ -120,11 +192,13 @@ def checkpoints(request: Request):
 
 @app.get("/instruments", response_class=HTMLResponse)
 def instruments(request: Request):
+    data = fetch_dashboard_data()
+    data["instrument_rows"] = fetch_instrument_statistics_v2()
     return templates.TemplateResponse(
         "instruments.html",
         {
             "request": request,
-            "data": fetch_dashboard_data(),
+            "data": data,
             "active": "instruments",
         },
     )
