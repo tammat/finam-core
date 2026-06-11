@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Finam Equity Market Bars Backfill every 15 minutes
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:00/15:00 Europe/Moscow
+Persistent=true
+Unit=finam-equity-market-bars.service
+
+[Install]
+WantedBy=timers.target
