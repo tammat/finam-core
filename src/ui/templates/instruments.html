@@ -22,7 +22,23 @@
             <td>{{ row.winrate if row.winrate is not none else "—" }}</td>
             <td>{{ row.expectancy if row.expectancy is not none else "—" }}</td>
             <td>{{ row.profit_factor if row.profit_factor is not none else "—" }}</td>
-            <td>{{ row.status }}</td>
+            
+<td>
+{% if row.status == "SHADOW" %}
+🟡 Накопление статистики
+{% elif row.status == "WATCH" %}
+🔵 Наблюдение
+{% elif row.status == "REJECT" %}
+🔴 Отклонено
+{% elif row.status == "STALE" %}
+🟠 Данные устарели
+{% elif row.status == "NO_DATA" %}
+⚫ Нет данных
+{% else %}
+{{ row.status }}
+{% endif %}
+</td>
+
         </tr>
         {% endfor %}
     </table>
