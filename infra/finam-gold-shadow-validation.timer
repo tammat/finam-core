@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Finam GOLD Shadow Validation every 5 minutes
+
+[Timer]
+OnCalendar=*-*-* 15..18:00/5:00 Europe/Moscow
+Persistent=true
+Unit=finam-gold-shadow-validation.service
+
+[Install]
+WantedBy=timers.target
