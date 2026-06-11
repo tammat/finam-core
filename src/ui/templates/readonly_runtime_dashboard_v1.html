@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Панель Finam_Core</title>
+</head>
+<body>
+    <h1>Панель управления Finam_Core</h1>
+    <p>Режим только для чтения. Торговые действия отключены.</p>
+
+    <h2>Состояние системы</h2>
+    <p>Статус системы: {{ data.system_status }}</p>
+    <p>Режим: {{ data.mode }}</p>
+    <p>Исполнение сделок: {{ data.execution }}</p>
+
+    <h2>GOLD</h2>
+    <p>Накоплено сигналов: {{ data.gold_signals }}</p>
+    <p>Цель: {{ data.gold_target }}</p>
+    <p>Осталось: {{ data.gold_remaining }}</p>
+
+    <h2>Исследовательский контур</h2>
+    {% for item in data.instruments %}
+        <p>{{ item.name }} — {{ item.status }}</p>
+    {% endfor %}
+</body>
+</html>
