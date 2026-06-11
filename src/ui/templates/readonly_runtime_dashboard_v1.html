@@ -14,10 +14,11 @@
         .ok { color: #166534; font-weight: 700; }
         .warn { color: #92400e; font-weight: 700; }
         .bad { color: #991b1b; font-weight: 700; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 9px; border-bottom: 1px solid #e5e7eb; text-align: left; }
         th { background: #f9fafb; color: #374151; }
         .footer { color: #6b7280; font-size: 13px; margin-top: 20px; }
+        code { font-size: 13px; }
     </style>
 </head>
 <body>
@@ -28,22 +29,10 @@
 
 <main>
     <section class="grid">
-        <div class="card">
-            <div class="label">Статус системы</div>
-            <div class="metric ok">{{ data.system_status }}</div>
-        </div>
-        <div class="card">
-            <div class="label">Режим</div>
-            <div class="metric warn">{{ data.mode }}</div>
-        </div>
-        <div class="card">
-            <div class="label">Исполнение сделок</div>
-            <div class="metric bad">{{ data.execution }}</div>
-        </div>
-        <div class="card">
-            <div class="label">GOLD: прогресс</div>
-            <div class="metric">{{ data.gold_signals }} / {{ data.gold_target }}</div>
-        </div>
+        <div class="card"><div class="label">Статус системы</div><div class="metric ok">{{ data.system_status }}</div></div>
+        <div class="card"><div class="label">Режим</div><div class="metric warn">{{ data.mode }}</div></div>
+        <div class="card"><div class="label">Исполнение сделок</div><div class="metric bad">{{ data.execution }}</div></div>
+        <div class="card"><div class="label">GOLD</div><div class="metric">{{ data.gold_signals }} / {{ data.gold_target }}</div></div>
     </section>
 
     <section class="card">
@@ -54,27 +43,26 @@
             <tr><td>Цель</td><td>{{ data.gold_target }}</td></tr>
             <tr><td>Осталось</td><td>{{ data.gold_remaining }}</td></tr>
             <tr><td>Последний сигнал</td><td>{{ data.gold_last_signal_ts }}</td></tr>
-            <tr>
-                <td>Статус</td>
-                <td>
-                    {% if data.gold_signals >= data.gold_target %}
-                        <span class="ok">Готово к scorecard</span>
-                    {% else %}
-                        <span class="warn">Накопление статистики</span>
-                    {% endif %}
-                </td>
-            </tr>
         </table>
     </section>
 
     <section class="card">
-        <h2>Исследовательский контур</h2>
+        <h2>Runtime Edge Scorecard v2</h2>
         <table>
-            <tr><th>Инструмент</th><th>Статус</th></tr>
-            {% for item in data.instruments %}
             <tr>
-                <td>{{ item.name }}</td>
-                <td>{{ item.status }}</td>
+                <th>Стратегия</th><th>Инструменты</th><th>Сделки</th><th>PnL</th>
+                <th>Expectancy</th><th>PF</th><th>Governance</th><th>Статус</th>
+            </tr>
+            {% for row in data.scorecard %}
+            <tr>
+                <td>{{ row.strategy }}</td>
+                <td>{{ row.symbols }}</td>
+                <td>{{ row.runtime_trades }}</td>
+                <td>{{ row.runtime_net_pnl }}</td>
+                <td>{{ row.runtime_expectancy }}</td>
+                <td>{{ row.runtime_profit_factor }}</td>
+                <td>{{ row.governance_decision }}</td>
+                <td>{{ row.status }}</td>
             </tr>
             {% endfor %}
         </table>
@@ -83,14 +71,7 @@
     <section class="card">
         <h2>Runtime Governance</h2>
         <table>
-            <tr>
-                <th>Кандидат</th>
-                <th>Решение</th>
-                <th>Runtime</th>
-                <th>Shadow</th>
-                <th>Watch</th>
-                <th>Причина</th>
-            </tr>
+            <tr><th>Кандидат</th><th>Решение</th><th>Runtime</th><th>Shadow</th><th>Watch</th><th>Причина</th><th>Дата</th></tr>
             {% for row in data.governance %}
             <tr>
                 <td>{{ row.candidate }}</td>
@@ -99,14 +80,37 @@
                 <td>{{ row.shadow_allow }}</td>
                 <td>{{ row.watch_allow }}</td>
                 <td>{{ row.reason }}</td>
+                <td>{{ row.created_at }}</td>
             </tr>
             {% endfor %}
         </table>
     </section>
 
-    <div class="footer">
-        UI v2: только чтение. POST/PUT/DELETE и SQL write-операции запрещены.
-    </div>
+    <section class="card">
+        <h2>Последние GOLD shadow-сигналы</h2>
+        <table>
+            <tr><th>Время</th><th>Инструмент</th><th>TF</th><th>Сторона</th><th>Цена</th><th>Причина</th></tr>
+            {% for row in data.gold_signal_rows %}
+            <tr>
+                <td>{{ row.signal_ts }}</td>
+                <td>{{ row.symbol }}</td>
+                <td>{{ row.timeframe }}</td>
+                <td>{{ row.side }}</td>
+                <td>{{ row.entry_price }}</td>
+                <td>{{ row.reason }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Последние checkpoint</h2>
+        {% for tag in data.checkpoints %}
+            <div><code>{{ tag }}</code></div>
+        {% endfor %}
+    </section>
+
+    <div class="footer">UI v3: только чтение. POST/PUT/DELETE и SQL write-операции запрещены.</div>
 </main>
 </body>
 </html>
