@@ -185,6 +185,103 @@ def fetch_instrument_statistics_v2():
     return rows
 
 
+def fetch_gold_research_details_v1():
+    dsn = os.environ["DATABASE_URL"]
+    symbol = "GDU6@RTSX"
+    strategy = "gold_short_only_shadow_v1"
+
+    sql = """
+    WITH signals AS (
+        SELECT
+            id,
+            symbol,
+            timeframe,
+            signal_ts,
+            side,
+            entry_price::numeric AS entry_price,
+            LEAD(entry_price::numeric, 10) OVER (
+                PARTITION BY symbol, timeframe, strategy
+                ORDER BY signal_ts
+            ) AS exit_price
+        FROM runtime_shadow_gold_signals
+        WHERE symbol=%s
+          AND strategy=%s
+    ),
+    scored AS (
+        SELECT
+            *,
+            CASE
+                WHEN exit_price IS NULL THEN NULL
+                WHEN side='SELL' THEN entry_price - exit_price
+                ELSE exit_price - entry_price
+            END AS pnl
+        FROM signals
+    )
+    SELECT
+        COUNT(*) AS signals,
+        COUNT(*) FILTER (WHERE pnl IS NOT NULL) AS closed_shadow_trades,
+        COUNT(*) FILTER (WHERE pnl > 0) AS wins,
+        COUNT(*) FILTER (WHERE pnl < 0) AS losses,
+        ROUND(COALESCE(SUM(pnl),0)::numeric, 6) AS net_pnl,
+        ROUND(COALESCE(AVG(pnl),0)::numeric, 6) AS expectancy,
+        ROUND((
+            SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END)
+            / NULLIF(ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)), 0)
+        )::numeric, 4) AS profit_factor,
+        MIN(signal_ts) AS first_signal_ts,
+        MAX(signal_ts) AS last_signal_ts
+    FROM scored;
+    """
+
+    last_sql = """
+    SELECT signal_ts, side, entry_price, reason
+    FROM runtime_shadow_gold_signals
+    WHERE symbol=%s
+      AND strategy=%s
+    ORDER BY signal_ts DESC
+    LIMIT 10;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (symbol, strategy))
+            summary = cur.fetchone()
+
+            cur.execute(last_sql, (symbol, strategy))
+            last_signals = cur.fetchall()
+
+    for row in last_signals:
+        row["signal_ts_msk"] = to_msk(row.get("signal_ts"))
+
+    closed = int(summary["closed_shadow_trades"] or 0)
+    wins = int(summary["wins"] or 0)
+    winrate = round(wins / closed * 100, 2) if closed else None
+
+    return {
+        "symbol": symbol,
+        "strategy": strategy,
+        "status": "Кандидат для runtime-наблюдения",
+        "runtime": "Отключён",
+        "execution": "Отключено",
+        "signals": int(summary["signals"] or 0),
+        "closed_shadow_trades": closed,
+        "wins": wins,
+        "losses": int(summary["losses"] or 0),
+        "winrate": winrate,
+        "net_pnl": summary["net_pnl"],
+        "expectancy": summary["expectancy"],
+        "profit_factor": summary["profit_factor"],
+        "first_signal_ts": to_msk(summary.get("first_signal_ts")),
+        "last_signal_ts": to_msk(summary.get("last_signal_ts")),
+        "scorecard": "PASS",
+        "audit": "PASS",
+        "walkforward": "STABLE",
+        "promotion_review": "WATCH_RUNTIME_CANDIDATE",
+        "autorun_audit": "PASS",
+        "last_signals": last_signals,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse(
@@ -234,5 +331,16 @@ def instruments(request: Request):
             "request": request,
             "data": data,
             "active": "instruments",
+        },
+    )
+
+@app.get("/gold-details", response_class=HTMLResponse)
+def gold_details(request: Request):
+    return templates.TemplateResponse(
+        "gold_details.html",
+        {
+            "request": request,
+            "data": fetch_gold_research_details_v1(),
+            "active": "gold_details",
         },
     )

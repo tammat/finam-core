@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>Исследование золота</h2>
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.symbol }}</td></tr>
+        <tr><td>Стратегия</td><td>{{ data.strategy }}</td></tr>
+        <tr><td>Статус</td><td>🟢 {{ data.status }}</td></tr>
+        <tr><td>Runtime</td><td>{{ data.runtime }}</td></tr>
+        <tr><td>Исполнение</td><td>{{ data.execution }}</td></tr>
+        <tr><td>Первый сигнал</td><td>{{ data.first_signal_ts }}</td></tr>
+        <tr><td>Последний сигнал</td><td>{{ data.last_signal_ts }}</td></tr>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Метрики shadow-проверки</h2>
+    <table>
+        <tr><th>Метрика</th><th>Значение</th></tr>
+        <tr><td>Сигналов</td><td>{{ data.signals }}</td></tr>
+        <tr><td>Закрытых shadow-сделок</td><td>{{ data.closed_shadow_trades }}</td></tr>
+        <tr><td>Побед</td><td>{{ data.wins }}</td></tr>
+        <tr><td>Убыточных</td><td>{{ data.losses }}</td></tr>
+        <tr><td>Доля прибыльных</td><td>{{ data.winrate }}%</td></tr>
+        <tr><td>Ожидание</td><td>{{ data.expectancy }}</td></tr>
+        <tr><td>Профит-фактор</td><td>{{ data.profit_factor }}</td></tr>
+        <tr><td>Чистый результат</td><td>{{ data.net_pnl }}</td></tr>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Проверки</h2>
+    <table>
+        <tr><th>Проверка</th><th>Результат</th></tr>
+        <tr><td>Scorecard</td><td>{{ data.scorecard }}</td></tr>
+        <tr><td>Audit</td><td>{{ data.audit }}</td></tr>
+        <tr><td>WalkForward</td><td>{{ data.walkforward }}</td></tr>
+        <tr><td>Promotion Review</td><td>{{ data.promotion_review }}</td></tr>
+        <tr><td>Autorun Audit</td><td>{{ data.autorun_audit }}</td></tr>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Последние сигналы</h2>
+    <table>
+        <tr><th>Время</th><th>Сторона</th><th>Цена</th><th>Причина</th></tr>
+        {% for row in data.last_signals %}
+        <tr>
+            <td>{{ row.signal_ts_msk }}</td>
+            <td>{{ row.side }}</td>
+            <td>{{ row.entry_price }}</td>
+            <td>{{ row.reason }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+
+{% endblock %}
