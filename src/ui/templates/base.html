@@ -17,7 +17,14 @@
         .ok { color: #166534; font-weight: 700; }
         .warn { color: #92400e; font-weight: 700; }
         .bad { color: #991b1b; font-weight: 700; }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        
+.table-wrap { width: 100%; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.wide { min-width: 1500px; }
+td, th { vertical-align: top; }
+.nowrap { white-space: nowrap; }
+.status-cell { min-width: 190px; }
+
         th, td { padding: 9px; border-bottom: 1px solid #e5e7eb; text-align: left; }
         th { background: #f9fafb; color: #374151; }
         code { font-size: 13px; }
