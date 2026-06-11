@@ -391,3 +391,168 @@ def gold_details(request: Request):
             "active": "gold_details",
         },
     )
+
+def fetch_runtime_candidates_dashboard_v2():
+    dsn = os.environ["DATABASE_URL"]
+    symbols = ["GDU6@RTSX", "USDRUBF@RTSX", "LKOH@MISX", "NGN6@RTSX", "BRN6@RTSX", "SBER@MISX", "PLZL@MISX", "GAZP@MISX"]
+
+    sql = """
+    WITH src AS (
+        SELECT unnest(%s::text[]) AS symbol
+    ),
+    bars AS (
+        SELECT symbol, COUNT(*) AS bars, MAX(ts) AS last_bar_ts
+        FROM market_bars
+        WHERE symbol = ANY(%s)
+        GROUP BY symbol
+    ),
+    closed AS (
+        SELECT
+            symbol,
+            COUNT(*) AS closed_trades,
+            COUNT(*) FILTER (WHERE net_pnl > 0) AS closed_wins,
+            ROUND(COALESCE(AVG(net_pnl),0)::numeric, 6) AS closed_expectancy,
+            ROUND((
+                SUM(CASE WHEN net_pnl > 0 THEN net_pnl ELSE 0 END)
+                / NULLIF(ABS(SUM(CASE WHEN net_pnl < 0 THEN net_pnl ELSE 0 END)), 0)
+            )::numeric, 4) AS closed_profit_factor
+        FROM closed_trades
+        WHERE symbol = ANY(%s)
+        GROUP BY symbol
+    ),
+    gold_shadow AS (
+        WITH raw AS (
+            SELECT
+                symbol,
+                timeframe,
+                strategy,
+                signal_ts,
+                side,
+                entry_price::numeric AS entry_price,
+                LEAD(entry_price::numeric, 10) OVER (
+                    PARTITION BY symbol, timeframe, strategy
+                    ORDER BY signal_ts
+                ) AS exit_price
+            FROM runtime_shadow_gold_signals
+            WHERE symbol='GDU6@RTSX'
+              AND strategy='gold_short_only_shadow_v1'
+        ),
+        scored AS (
+            SELECT
+                *,
+                CASE
+                    WHEN exit_price IS NULL THEN NULL
+                    WHEN side='SELL' THEN entry_price - exit_price
+                    ELSE exit_price - entry_price
+                END AS pnl
+            FROM raw
+        )
+        SELECT
+            symbol,
+            COUNT(*) AS shadow_signals,
+            COUNT(*) FILTER (WHERE pnl IS NOT NULL) AS shadow_trades,
+            COUNT(*) FILTER (WHERE pnl > 0) AS shadow_wins,
+            ROUND(CASE
+                WHEN COUNT(*) FILTER (WHERE pnl IS NOT NULL) > 0
+                THEN COUNT(*) FILTER (WHERE pnl > 0)::numeric
+                     / COUNT(*) FILTER (WHERE pnl IS NOT NULL)::numeric * 100
+                ELSE NULL
+            END, 2) AS shadow_winrate,
+            ROUND(COALESCE(AVG(pnl),0)::numeric, 6) AS shadow_expectancy,
+            ROUND((
+                SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END)
+                / NULLIF(ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)), 0)
+            )::numeric, 4) AS shadow_profit_factor
+        FROM scored
+        GROUP BY symbol
+    ),
+    registry AS (
+        SELECT symbol, status, reason, runtime_allowed, execution_enabled
+        FROM runtime_candidate_registry
+    )
+    SELECT
+        src.symbol,
+        COALESCE(b.bars, 0) AS bars,
+        b.last_bar_ts,
+        COALESCE(c.closed_trades, 0) AS closed_trades,
+        CASE
+            WHEN COALESCE(c.closed_trades, 0) > 0
+            THEN ROUND((c.closed_wins::numeric / c.closed_trades::numeric * 100), 2)
+            ELSE NULL
+        END AS closed_winrate,
+        c.closed_expectancy,
+        c.closed_profit_factor,
+        gs.shadow_signals,
+        gs.shadow_trades,
+        gs.shadow_winrate,
+        gs.shadow_expectancy,
+        gs.shadow_profit_factor,
+        r.status,
+        r.reason,
+        r.runtime_allowed,
+        r.execution_enabled
+    FROM src
+    LEFT JOIN bars b ON b.symbol = src.symbol
+    LEFT JOIN closed c ON c.symbol = src.symbol
+    LEFT JOIN gold_shadow gs ON gs.symbol = src.symbol
+    LEFT JOIN registry r ON r.symbol = src.symbol
+    ORDER BY src.symbol;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (symbols, symbols, symbols))
+            rows = cur.fetchall()
+
+    result = []
+    for row in rows:
+        row["last_bar_ts_msk"] = to_msk(row.get("last_bar_ts"))
+
+        shadow_trades = int(row["shadow_trades"] or 0)
+        closed_trades = int(row["closed_trades"] or 0)
+
+        if shadow_trades > 0 and closed_trades == 0:
+            row["source"] = "SHADOW"
+            row["eval_signals"] = row["shadow_signals"]
+            row["eval_trades"] = row["shadow_trades"]
+            row["eval_winrate"] = row["shadow_winrate"]
+            row["eval_expectancy"] = row["shadow_expectancy"]
+            row["eval_profit_factor"] = row["shadow_profit_factor"]
+        else:
+            row["source"] = "CLOSED_TRADES"
+            row["eval_signals"] = None
+            row["eval_trades"] = row["closed_trades"]
+            row["eval_winrate"] = row["closed_winrate"]
+            row["eval_expectancy"] = row["closed_expectancy"]
+            row["eval_profit_factor"] = row["closed_profit_factor"]
+
+        status = row["status"] or "RESEARCH"
+        row["status_ru"] = {
+            "WATCH_RUNTIME": "🟢 Кандидат для runtime-наблюдения",
+            "RESEARCH": "🟡 Исследование",
+            "REJECTED": "🔴 Отклонено",
+            "RUNTIME": "🟢 Runtime",
+        }.get(status, status)
+        row["reason"] = row["reason"] or "not_in_registry"
+        result.append(row)
+
+    summary = {
+        "promote_candidates": sum(1 for r in result if r["status"] == "WATCH_RUNTIME"),
+        "watch": sum(1 for r in result if r["status"] == "WATCH"),
+        "research": sum(1 for r in result if r["status"] == "RESEARCH"),
+        "rejected": sum(1 for r in result if r["status"] == "REJECTED"),
+    }
+
+    return {"rows": result, "summary": summary}
+
+
+@app.get("/runtime-candidates", response_class=HTMLResponse)
+def runtime_candidates(request: Request):
+    return templates.TemplateResponse(
+        "runtime_candidates.html",
+        {
+            "request": request,
+            "data": fetch_runtime_candidates_dashboard_v2(),
+            "active": "runtime_candidates",
+        },
+    )

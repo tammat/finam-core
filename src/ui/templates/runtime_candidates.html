@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <h2>Кандидаты для runtime</h2>
+    <div class="table-wrap">
+    <table class="wide">
+        <tr>
+            <th>Инструмент</th>
+            <th>Бары</th>
+            <th>Последний бар</th>
+            <th>Источник оценки</th>
+            <th>Сигналы</th>
+            <th>Сделки</th>
+            <th>WinRate</th>
+            <th>Ожидание</th>
+            <th>PF</th>
+            <th>Статус</th>
+            <th>Причина</th>
+            <th>Runtime</th>
+            <th>Execution</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td class="nowrap">{{ row.symbol }}</td>
+            <td class="num">{{ row.bars }}</td>
+            <td class="nowrap">{{ row.last_bar_ts_msk }}</td>
+            <td class="nowrap">{{ row.source }}</td>
+            <td class="num">{{ row.eval_signals if row.eval_signals is not none else "—" }}</td>
+            <td class="num">{{ row.eval_trades if row.eval_trades is not none else "—" }}</td>
+            <td class="num">{{ row.eval_winrate if row.eval_winrate is not none else "—" }}</td>
+            <td class="num">{{ row.eval_expectancy if row.eval_expectancy is not none else "—" }}</td>
+            <td class="num">{{ row.eval_profit_factor if row.eval_profit_factor is not none else "—" }}</td>
+            <td class="status-cell">{{ row.status_ru }}</td>
+            <td class="reason-cell">{{ row.reason }}</td>
+            <td>{{ "Да" if row.runtime_allowed else "Нет" }}</td>
+            <td>{{ "Да" if row.execution_enabled else "Нет" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+{% endblock %}
