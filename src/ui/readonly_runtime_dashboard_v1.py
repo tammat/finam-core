@@ -135,11 +135,47 @@ def fetch_instrument_statistics_v2():
           
         GROUP BY symbol
     ),
-    gold AS (
-        SELECT COUNT(*) AS gold_shadow_signals
+    gold_shadow_raw AS (
+        SELECT
+            id,
+            symbol,
+            timeframe,
+            strategy,
+            signal_ts,
+            side,
+            entry_price::numeric AS entry_price,
+            LEAD(entry_price::numeric, 10) OVER (
+                PARTITION BY symbol, timeframe, strategy
+                ORDER BY signal_ts
+            ) AS exit_price
         FROM runtime_shadow_gold_signals
         WHERE symbol='GDU6@RTSX'
           AND strategy='gold_short_only_shadow_v1'
+    ),
+    gold_shadow_scored AS (
+        SELECT
+            *,
+            CASE
+                WHEN exit_price IS NULL THEN NULL
+                WHEN side='SELL' THEN entry_price - exit_price
+                ELSE exit_price - entry_price
+            END AS pnl
+        FROM gold_shadow_raw
+    ),
+    gold AS (
+        SELECT
+            symbol,
+            COUNT(*) AS shadow_signals,
+            COUNT(*) FILTER (WHERE pnl IS NOT NULL) AS shadow_trades,
+            COUNT(*) FILTER (WHERE pnl > 0) AS shadow_wins,
+            COUNT(*) FILTER (WHERE pnl < 0) AS shadow_losses,
+            ROUND(COALESCE(AVG(pnl), 0)::numeric, 6) AS shadow_expectancy,
+            ROUND((
+                SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END)
+                / NULLIF(ABS(SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END)), 0)
+            )::numeric, 4) AS shadow_profit_factor
+        FROM gold_shadow_scored
+        GROUP BY symbol
     )
     SELECT
         src.symbol,
@@ -167,10 +203,21 @@ def fetch_instrument_statistics_v2():
             WHEN b.last_bar_ts < now() - interval '7 days' THEN 'STALE'
             ELSE 'WATCH'
         END AS status,
-        (SELECT gold_shadow_signals FROM gold) AS gold_shadow_signals
+        COALESCE(g.shadow_signals, 0) AS shadow_signals,
+        COALESCE(g.shadow_trades, 0) AS shadow_trades,
+        COALESCE(g.shadow_wins, 0) AS shadow_wins,
+        COALESCE(g.shadow_losses, 0) AS shadow_losses,
+        CASE
+            WHEN COALESCE(g.shadow_trades, 0) > 0
+            THEN ROUND((g.shadow_wins::numeric / g.shadow_trades::numeric * 100), 2)
+            ELSE NULL
+        END AS shadow_winrate,
+        g.shadow_expectancy,
+        g.shadow_profit_factor
     FROM src
     LEFT JOIN bars b ON b.symbol = src.symbol
     LEFT JOIN closed c ON c.symbol = src.symbol
+    LEFT JOIN gold g ON g.symbol = src.symbol
     ORDER BY src.symbol;
     """
 

@@ -11,6 +11,11 @@
             <th>Доля прибыльных</th>
             <th>Ожидание</th>
             <th>Профит-фактор</th>
+            <th>Shadow Signals</th>
+            <th>Shadow Trades</th>
+            <th>Shadow WinRate</th>
+            <th>Shadow Expectancy</th>
+            <th>Shadow Profit Factor</th>
             <th>Статус</th>
         </tr>
         {% for row in data.instrument_rows %}
@@ -18,29 +23,32 @@
             <td>{{ row.symbol }}</td>
             <td>{{ row.bars }}</td>
             <td>{{ row.last_bar_ts_msk }}</td>
-            <td>{{ row.trades }}</td>
+            <td>{{ row.trades if row.trades else "—" }}</td>
             <td>{{ row.winrate if row.winrate is not none else "—" }}</td>
             <td>{{ row.expectancy if row.expectancy is not none else "—" }}</td>
             <td>{{ row.profit_factor if row.profit_factor is not none else "—" }}</td>
-            
-<td>
-{% if row.status == "WATCH_RUNTIME_CANDIDATE" %}
-🟢 Кандидат для runtime-наблюдения
-{% elif row.status == "SHADOW" %}
-🟡 Накопление статистики
-{% elif row.status == "WATCH" %}
-🔵 Наблюдение
-{% elif row.status == "REJECT" %}
-🔴 Отклонено
-{% elif row.status == "STALE" %}
-🟠 Данные устарели
-{% elif row.status == "NO_DATA" %}
-⚫ Нет данных
-{% else %}
-{{ row.status }}
-{% endif %}
-</td>
-
+            <td>{{ row.shadow_signals if row.shadow_signals else "—" }}</td>
+            <td>{{ row.shadow_trades if row.shadow_trades else "—" }}</td>
+            <td>{{ row.shadow_winrate if row.shadow_winrate is not none else "—" }}</td>
+            <td>{{ row.shadow_expectancy if row.shadow_expectancy is not none else "—" }}</td>
+            <td>{{ row.shadow_profit_factor if row.shadow_profit_factor is not none else "—" }}</td>
+            <td>
+                {% if row.status == "WATCH_RUNTIME_CANDIDATE" %}
+                🟢 Кандидат для runtime-наблюдения
+                {% elif row.status == "SHADOW" %}
+                🟡 Накопление статистики
+                {% elif row.status == "WATCH" %}
+                🔵 Наблюдение
+                {% elif row.status == "REJECT" %}
+                🔴 Отклонено
+                {% elif row.status == "STALE" %}
+                🟠 Данные устарели
+                {% elif row.status == "NO_DATA" %}
+                ⚫ Нет данных
+                {% else %}
+                {{ row.status }}
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </table>
