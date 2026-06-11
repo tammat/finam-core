@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <h2>Runtime Governance</h2>
+    <table>
+        <tr><th>Кандидат</th><th>Решение</th><th>Runtime</th><th>Shadow</th><th>Watch</th><th>Причина</th><th>Дата</th></tr>
+        {% for row in data.governance %}
+        <tr>
+            <td>{{ row.candidate }}</td>
+            <td>{{ row.decision }}</td>
+            <td>{{ row.runtime_allow }}</td>
+            <td>{{ row.shadow_allow }}</td>
+            <td>{{ row.watch_allow }}</td>
+            <td>{{ row.reason }}</td>
+            <td>{{ row.created_at }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+{% endblock %}

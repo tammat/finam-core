@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <h2>GOLD: накопление статистики</h2>
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Накоплено сигналов</td><td>{{ data.gold_signals }}</td></tr>
+        <tr><td>Цель</td><td>{{ data.gold_target }}</td></tr>
+        <tr><td>Осталось</td><td>{{ data.gold_remaining }}</td></tr>
+        <tr><td>Последний сигнал</td><td>{{ data.gold_last_signal_ts }}</td></tr>
+        <tr>
+            <td>Статус</td>
+            <td>
+                {% if data.gold_signals >= data.gold_target %}
+                    <span class="ok">Готово к scorecard</span>
+                {% else %}
+                    <span class="warn">Накопление статистики</span>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+</section>
+{% endblock %}

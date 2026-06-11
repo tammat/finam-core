@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+    <h2>Последние checkpoint проекта</h2>
+    {% for tag in data.checkpoints %}
+        <div><code>{{ tag }}</code></div>
+    {% endfor %}
+</section>
+{% endblock %}

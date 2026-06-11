@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Панель Finam_Core</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; color: #111827; }
+        header { background: #111827; color: white; padding: 22px 32px; }
+        nav { background: #1f2937; padding: 10px 32px; }
+        nav a { color: white; text-decoration: none; margin-right: 20px; font-weight: 600; }
+        nav a.active { color: #fbbf24; }
+        main { padding: 24px 32px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+        .metric { font-size: 30px; font-weight: 700; margin: 8px 0; }
+        .label { color: #6b7280; font-size: 14px; }
+        .ok { color: #166534; font-weight: 700; }
+        .warn { color: #92400e; font-weight: 700; }
+        .bad { color: #991b1b; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { padding: 9px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+        th { background: #f9fafb; color: #374151; }
+        code { font-size: 13px; }
+        .footer { color: #6b7280; font-size: 13px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Панель управления Finam_Core</h1>
+    <div>Read-only мониторинг. Торговые действия и изменение runtime отключены.</div>
+</header>
+
+<nav>
+    <a href="/" class="{% if active == 'dashboard' %}active{% endif %}">Главная</a>
+    <a href="/governance" class="{% if active == 'governance' %}active{% endif %}">Governance</a>
+    <a href="/gold" class="{% if active == 'gold' %}active{% endif %}">GOLD</a>
+    <a href="/signals" class="{% if active == 'signals' %}active{% endif %}">Сигналы</a>
+    <a href="/checkpoints" class="{% if active == 'checkpoints' %}active{% endif %}">Checkpoint</a>
+</nav>
+
+<main>
+    {% block content %}{% endblock %}
+    <div class="footer">UI Navigation v1: только чтение. POST/PUT/DELETE и SQL write-операции запрещены.</div>
+</main>
+</body>
+</html>
