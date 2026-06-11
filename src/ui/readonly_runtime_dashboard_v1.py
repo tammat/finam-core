@@ -132,7 +132,7 @@ def fetch_instrument_statistics_v2():
             )::numeric, 4) AS profit_factor
         FROM closed_trades
         WHERE symbol = ANY(%s)
-          AND source='closed_trade_engine_v1_1'
+          
         GROUP BY symbol
     ),
     gold AS (
