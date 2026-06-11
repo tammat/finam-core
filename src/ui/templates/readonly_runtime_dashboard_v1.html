@@ -3,24 +3,110 @@
 <head>
     <meta charset="utf-8">
     <title>Панель Finam_Core</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; color: #111827; }
+        header { background: #111827; color: white; padding: 22px 32px; }
+        main { padding: 24px 32px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .card { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+        .metric { font-size: 30px; font-weight: 700; margin: 8px 0; }
+        .label { color: #6b7280; font-size: 14px; }
+        .ok { color: #166534; font-weight: 700; }
+        .warn { color: #92400e; font-weight: 700; }
+        .bad { color: #991b1b; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+        th { background: #f9fafb; color: #374151; }
+        .footer { color: #6b7280; font-size: 13px; margin-top: 20px; }
+    </style>
 </head>
 <body>
+<header>
     <h1>Панель управления Finam_Core</h1>
-    <p>Режим только для чтения. Торговые действия отключены.</p>
+    <div>Read-only мониторинг. Торговые действия и изменение runtime отключены.</div>
+</header>
 
-    <h2>Состояние системы</h2>
-    <p>Статус системы: {{ data.system_status }}</p>
-    <p>Режим: {{ data.mode }}</p>
-    <p>Исполнение сделок: {{ data.execution }}</p>
+<main>
+    <section class="grid">
+        <div class="card">
+            <div class="label">Статус системы</div>
+            <div class="metric ok">{{ data.system_status }}</div>
+        </div>
+        <div class="card">
+            <div class="label">Режим</div>
+            <div class="metric warn">{{ data.mode }}</div>
+        </div>
+        <div class="card">
+            <div class="label">Исполнение сделок</div>
+            <div class="metric bad">{{ data.execution }}</div>
+        </div>
+        <div class="card">
+            <div class="label">GOLD: прогресс</div>
+            <div class="metric">{{ data.gold_signals }} / {{ data.gold_target }}</div>
+        </div>
+    </section>
 
-    <h2>GOLD</h2>
-    <p>Накоплено сигналов: {{ data.gold_signals }}</p>
-    <p>Цель: {{ data.gold_target }}</p>
-    <p>Осталось: {{ data.gold_remaining }}</p>
+    <section class="card">
+        <h2>GOLD: накопление статистики</h2>
+        <table>
+            <tr><th>Показатель</th><th>Значение</th></tr>
+            <tr><td>Накоплено сигналов</td><td>{{ data.gold_signals }}</td></tr>
+            <tr><td>Цель</td><td>{{ data.gold_target }}</td></tr>
+            <tr><td>Осталось</td><td>{{ data.gold_remaining }}</td></tr>
+            <tr><td>Последний сигнал</td><td>{{ data.gold_last_signal_ts }}</td></tr>
+            <tr>
+                <td>Статус</td>
+                <td>
+                    {% if data.gold_signals >= data.gold_target %}
+                        <span class="ok">Готово к scorecard</span>
+                    {% else %}
+                        <span class="warn">Накопление статистики</span>
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </section>
 
-    <h2>Исследовательский контур</h2>
-    {% for item in data.instruments %}
-        <p>{{ item.name }} — {{ item.status }}</p>
-    {% endfor %}
+    <section class="card">
+        <h2>Исследовательский контур</h2>
+        <table>
+            <tr><th>Инструмент</th><th>Статус</th></tr>
+            {% for item in data.instruments %}
+            <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.status }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </section>
+
+    <section class="card">
+        <h2>Runtime Governance</h2>
+        <table>
+            <tr>
+                <th>Кандидат</th>
+                <th>Решение</th>
+                <th>Runtime</th>
+                <th>Shadow</th>
+                <th>Watch</th>
+                <th>Причина</th>
+            </tr>
+            {% for row in data.governance %}
+            <tr>
+                <td>{{ row.candidate }}</td>
+                <td>{{ row.decision }}</td>
+                <td>{{ row.runtime_allow }}</td>
+                <td>{{ row.shadow_allow }}</td>
+                <td>{{ row.watch_allow }}</td>
+                <td>{{ row.reason }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </section>
+
+    <div class="footer">
+        UI v2: только чтение. POST/PUT/DELETE и SQL write-операции запрещены.
+    </div>
+</main>
 </body>
 </html>
