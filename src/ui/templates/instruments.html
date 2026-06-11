@@ -24,7 +24,9 @@
             <td>{{ row.profit_factor if row.profit_factor is not none else "—" }}</td>
             
 <td>
-{% if row.status == "SHADOW" %}
+{% if row.status == "WATCH_RUNTIME_CANDIDATE" %}
+🟢 Кандидат для runtime-наблюдения
+{% elif row.status == "SHADOW" %}
 🟡 Накопление статистики
 {% elif row.status == "WATCH" %}
 🔵 Наблюдение

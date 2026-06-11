@@ -155,6 +155,11 @@ def fetch_instrument_statistics_v2():
         c.expectancy,
         c.profit_factor,
         CASE
+            WHEN src.symbol='GDU6@RTSX'
+                 AND (SELECT COUNT(*) FROM runtime_shadow_gold_signals
+                      WHERE symbol='GDU6@RTSX'
+                        AND strategy='gold_short_only_shadow_v1') >= 50
+            THEN 'WATCH_RUNTIME_CANDIDATE'
             WHEN src.symbol='GDU6@RTSX' THEN 'SHADOW'
             WHEN src.symbol IN ('BRN6@RTSX','NGN6@RTSX') AND COALESCE(c.expectancy,0) < 0 THEN 'REJECT'
             WHEN src.symbol IN ('USDRUBF@RTSX','LKOH@MISX') THEN 'WATCH'
