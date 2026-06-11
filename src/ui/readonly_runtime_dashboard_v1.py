@@ -36,11 +36,19 @@ def fetch_dashboard_data():
             gold = cur.fetchone()
 
             cur.execute("""
-                SELECT *
-                FROM runtime_edge_validation_scorecard_v2
-                ORDER BY strategy;
+                SELECT to_regclass('public.runtime_edge_validation_scorecard_v2') IS NOT NULL AS exists;
             """)
-            scorecard = cur.fetchall()
+            scorecard_table_exists = bool(cur.fetchone()["exists"])
+
+            if scorecard_table_exists:
+                cur.execute("""
+                    SELECT *
+                    FROM runtime_edge_validation_scorecard_v2
+                    ORDER BY strategy;
+                """)
+                scorecard = cur.fetchall()
+            else:
+                scorecard = []
 
             cur.execute("""
                 SELECT candidate, decision, runtime_allow, shadow_allow,
