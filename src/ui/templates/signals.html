@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card">
-    <h2>Последние GOLD shadow-сигналы</h2>
+    <h2>Последние shadow-сигналы по золоту</h2>
     <table>
-        <tr><th>Время</th><th>Инструмент</th><th>TF</th><th>Сторона</th><th>Цена</th><th>Причина</th></tr>
+        <tr><th>Время</th><th>Инструмент</th><th>Таймфрейм</th><th>Сторона</th><th>Цена</th><th>Причина</th></tr>
         {% for row in data.gold_signal_rows %}
         <tr>
-            <td>{{ row.signal_ts }}</td>
+            <td>{{ row.signal_ts_msk }}</td>
             <td>{{ row.symbol }}</td>
             <td>{{ row.timeframe }}</td>
             <td>{{ row.side }}</td>

@@ -27,21 +27,21 @@
 <body>
 <header>
     <h1>Панель управления Finam_Core</h1>
-    <div>Read-only мониторинг. Торговые действия и изменение runtime отключены.</div>
+    <div>Режим только для чтения. Торговые действия и изменение runtime отключены. Часовой пояс: Москва (UTC+3).</div>
 </header>
 
 <nav>
     <a href="/" class="{% if active == 'dashboard' %}active{% endif %}">Главная</a>
-    <a href="/governance" class="{% if active == 'governance' %}active{% endif %}">Governance</a>
-    <a href="/gold" class="{% if active == 'gold' %}active{% endif %}">GOLD</a>
+    <a href="/governance" class="{% if active == 'governance' %}active{% endif %}">Управление</a>
+    <a href="/gold" class="{% if active == 'gold' %}active{% endif %}">Золото</a>
     <a href="/signals" class="{% if active == 'signals' %}active{% endif %}">Сигналы</a>
-    <a href="/checkpoints" class="{% if active == 'checkpoints' %}active{% endif %}">Checkpoint</a>
+    <a href="/checkpoints" class="{% if active == 'checkpoints' %}active{% endif %}">Контрольные точки</a>
     <a href="/instruments" class="{% if active == 'instruments' %}active{% endif %}">Инструменты</a>
 </nav>
 
 <main>
     {% block content %}{% endblock %}
-    <div class="footer">UI Navigation v1: только чтение. POST/PUT/DELETE и SQL write-операции запрещены.</div>
+    <div class="footer">UI: только чтение. POST/PUT/DELETE и SQL write-операции запрещены.</div>
 </main>
 </body>
 </html>

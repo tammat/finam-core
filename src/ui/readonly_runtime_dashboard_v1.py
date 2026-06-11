@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -12,6 +13,15 @@ from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="Панель Finam_Core")
 templates = Jinja2Templates(directory="src/ui/templates")
+
+
+MSK = ZoneInfo("Europe/Moscow")
+
+def to_msk(dt):
+    if not dt:
+        return ""
+    return dt.astimezone(MSK).strftime("%d.%m.%Y %H:%M")
+
 
 
 def fetch_git_checkpoints(limit: int = 10):
@@ -69,6 +79,12 @@ def fetch_dashboard_data():
             """)
             gold_signals = cur.fetchall()
 
+    for row in governance:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+
+    for row in gold_signals:
+        row["signal_ts_msk"] = to_msk(row.get("signal_ts"))
+
     gold_count = int(gold["signals"] or 0)
     target = 50
 
@@ -79,7 +95,7 @@ def fetch_dashboard_data():
         "gold_signals": gold_count,
         "gold_target": target,
         "gold_remaining": max(0, target - gold_count),
-        "gold_last_signal_ts": gold["last_signal_ts"],
+        "gold_last_signal_ts": to_msk(gold["last_signal_ts"]),
         "scorecard": scorecard,
         "governance": governance,
         "gold_signal_rows": gold_signals,
@@ -156,7 +172,12 @@ def fetch_instrument_statistics_v2():
     with psycopg2.connect(dsn) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, (symbols, symbols, symbols))
-            return cur.fetchall()
+            rows = cur.fetchall()
+
+    for row in rows:
+        row["last_bar_ts_msk"] = to_msk(row.get("last_bar_ts"))
+
+    return rows
 
 
 @app.get("/", response_class=HTMLResponse)

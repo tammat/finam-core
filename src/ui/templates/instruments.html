@@ -8,16 +8,16 @@
             <th>Бары</th>
             <th>Последний бар</th>
             <th>Сделки</th>
-            <th>WinRate</th>
-            <th>Expectancy</th>
-            <th>PF</th>
+            <th>Доля прибыльных</th>
+            <th>Ожидание</th>
+            <th>Профит-фактор</th>
             <th>Статус</th>
         </tr>
         {% for row in data.instrument_rows %}
         <tr>
             <td>{{ row.symbol }}</td>
             <td>{{ row.bars }}</td>
-            <td>{{ row.last_bar_ts }}</td>
+            <td>{{ row.last_bar_ts_msk }}</td>
             <td>{{ row.trades }}</td>
             <td>{{ row.winrate if row.winrate is not none else "—" }}</td>
             <td>{{ row.expectancy if row.expectancy is not none else "—" }}</td>

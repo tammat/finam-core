@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="grid">
-    <div class="card"><div class="label">Статус системы</div><div class="metric ok">{{ data.system_status }}</div></div>
+    <div class="card"><div class="label">Состояние системы</div><div class="metric ok">{{ data.system_status }}</div></div>
     <div class="card"><div class="label">Режим</div><div class="metric warn">{{ data.mode }}</div></div>
     <div class="card"><div class="label">Исполнение сделок</div><div class="metric bad">{{ data.execution }}</div></div>
-    <div class="card"><div class="label">GOLD</div><div class="metric">{{ data.gold_signals }} / {{ data.gold_target }}</div></div>
+    <div class="card"><div class="label">Золото</div><div class="metric">{{ data.gold_signals }} / {{ data.gold_target }}</div></div>
 </section>
 
 <section class="card">
-    <h2>Runtime Edge Scorecard v2</h2>
+    <h2>Сводка стратегий</h2>
     <table>
         <tr>
             <th>Стратегия</th><th>Инструменты</th><th>Сделки</th><th>PnL</th>
-            <th>Expectancy</th><th>PF</th><th>Governance</th><th>Статус</th>
+            <th>Ожидание</th><th>PF</th><th>Решение</th><th>Статус</th>
         </tr>
         {% for row in data.scorecard %}
         <tr>
