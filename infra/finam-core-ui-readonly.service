@@ -1,0 +1,19 @@
+[Unit]
+Description=Finam Core ReadOnly Runtime Dashboard
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env
+ExecStart=/opt/finam-core/venv/bin/uvicorn ui.readonly_runtime_dashboard_v1:app --host 0.0.0.0 --port 8088
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
