@@ -92,6 +92,27 @@ gold_gate AS (
     WHERE symbol='GDU6@RTSX'
     ORDER BY id DESC
     LIMIT 1
+),
+lkoh_sell AS (
+    SELECT
+        symbol,
+        closed_trades,
+        winrate,
+        expectancy,
+        profit_factor
+    FROM lkoh_sell_only_scorecard
+    WHERE symbol='LKOH@MISX'
+    ORDER BY id DESC
+    LIMIT 1
+),
+lkoh_gate AS (
+    SELECT
+        symbol,
+        decision
+    FROM lkoh_sell_only_review_gate
+    WHERE symbol='LKOH@MISX'
+    ORDER BY id DESC
+    LIMIT 1
 )
 SELECT
     s.symbol,
@@ -112,13 +133,20 @@ SELECT
     gt.shadow_expectancy,
     gt.shadow_profit_factor,
     gs.stability_ratio,
-    gg.decision AS review_gate
+    gg.decision AS review_gate,
+    ls.closed_trades AS lkoh_sell_trades,
+    ls.winrate AS lkoh_sell_winrate,
+    ls.expectancy AS lkoh_sell_expectancy,
+    ls.profit_factor AS lkoh_sell_profit_factor,
+    lg.decision AS lkoh_review_gate
 FROM src s
 LEFT JOIN registry r ON r.symbol = s.symbol
 LEFT JOIN closed c ON c.symbol = s.symbol
 LEFT JOIN gold_telemetry gt ON gt.symbol = s.symbol
 LEFT JOIN gold_stability gs ON gs.symbol = s.symbol
 LEFT JOIN gold_gate gg ON gg.symbol = s.symbol
+LEFT JOIN lkoh_sell ls ON ls.symbol = s.symbol
+LEFT JOIN lkoh_gate lg ON lg.symbol = s.symbol
 ORDER BY s.symbol;
 """
 
@@ -177,6 +205,16 @@ def metric_view(row: dict) -> dict:
             "profit_factor": row.get("shadow_profit_factor"),
         }
 
+    if symbol == "LKOH@MISX" and row.get("lkoh_sell_trades") is not None:
+        return {
+            "source": "LKOH_SELL_ONLY",
+            "signals": None,
+            "trades": row.get("lkoh_sell_trades"),
+            "winrate": row.get("lkoh_sell_winrate"),
+            "expectancy": row.get("lkoh_sell_expectancy"),
+            "profit_factor": row.get("lkoh_sell_profit_factor"),
+        }
+
     return {
         "source": "CLOSED_TRADES",
         "signals": None,
@@ -221,7 +259,7 @@ def main() -> int:
                         "expectancy": metrics["expectancy"],
                         "profit_factor": metrics["profit_factor"],
                         "stability_ratio": row["stability_ratio"],
-                        "review_gate": row["review_gate"],
+                        "review_gate": row["lkoh_review_gate"] if row["symbol"] == "LKOH@MISX" else row["review_gate"],
                         "reason": row["reason"],
                         "raw_json": json.dumps(payload, ensure_ascii=False),
                     },
@@ -239,7 +277,7 @@ def main() -> int:
                     f"expectancy={metrics['expectancy']} "
                     f"profit_factor={metrics['profit_factor']} "
                     f"stability_ratio={row['stability_ratio']} "
-                    f"review_gate={row['review_gate']} "
+                    f"review_gate={row['lkoh_review_gate'] if row['symbol'] == 'LKOH@MISX' else row['review_gate']} "
                     f"runtime_allowed=0 "
                     f"execution_enabled=0"
                 )
