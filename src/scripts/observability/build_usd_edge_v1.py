@@ -6,9 +6,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-import sys
-
-SYMBOL = sys.argv[1]
+SYMBOL = "USDRUBF@RTSX"
 
 if not DATABASE_URL:
     raise SystemExit("DATABASE_URL_NOT_SET")
@@ -22,12 +20,6 @@ SELECT
     ts
 FROM fills
 WHERE symbol = %s
-  AND qty > 0
-  AND price > 0
-  AND (
-      symbol <> 'LKOH@MISX'
-      OR price BETWEEN 1000 AND 10000
-  )
 ORDER BY ts ASC;
 """
 
@@ -171,110 +163,3 @@ if closed:
         print("profit_factor_without_max_win=INF")
     else:
         print(f"profit_factor_without_max_win={pf_wo:.6f}")
-
-# Русский комментарий: сохраняем итог edge validation в PostgreSQL для scorecard/dashboard.
-def classify_edge_status() -> str:
-    if trades < 100:
-        return "INSUFFICIENT_SAMPLE"
-
-    if (
-        (profit_factor is not None and profit_factor > 1.0)
-        and pf_wo is not None
-        and pf_wo > 1.0
-        and expectancy_without_max > 0
-        and median_pnl > 0
-    ):
-        return "EDGE_CONFIRMED_V1"
-
-    if (
-        pf_wo is not None
-        and pf_wo > 0.95
-        and expectancy_without_max > -1e-9
-    ):
-        return "EDGE_WEAK"
-
-    return "EDGE_REJECTED"
-
-
-status = classify_edge_status()
-
-with psycopg.connect(DATABASE_URL) as conn:
-    conn.execute(
-        """
-        INSERT INTO analytics_edge_validation_metrics_v1 (
-            symbol,
-            closed_trades,
-            wins,
-            losses,
-            winrate,
-            net_pnl,
-            profit_factor,
-            expectancy,
-            median_pnl,
-            max_win,
-            max_loss,
-            net_pnl_without_max_win,
-            expectancy_without_max_win,
-            profit_factor_without_max_win,
-            status,
-            calculated_at
-        )
-        VALUES (
-            %(symbol)s,
-            %(closed_trades)s,
-            %(wins)s,
-            %(losses)s,
-            %(winrate)s,
-            %(net_pnl)s,
-            %(profit_factor)s,
-            %(expectancy)s,
-            %(median_pnl)s,
-            %(max_win)s,
-            %(max_loss)s,
-            %(net_pnl_without_max_win)s,
-            %(expectancy_without_max_win)s,
-            %(profit_factor_without_max_win)s,
-            %(status)s,
-            now()
-        )
-        ON CONFLICT (symbol) DO UPDATE SET
-            closed_trades = EXCLUDED.closed_trades,
-            wins = EXCLUDED.wins,
-            losses = EXCLUDED.losses,
-            winrate = EXCLUDED.winrate,
-            net_pnl = EXCLUDED.net_pnl,
-            profit_factor = EXCLUDED.profit_factor,
-            expectancy = EXCLUDED.expectancy,
-            median_pnl = EXCLUDED.median_pnl,
-            max_win = EXCLUDED.max_win,
-            max_loss = EXCLUDED.max_loss,
-            net_pnl_without_max_win = EXCLUDED.net_pnl_without_max_win,
-            expectancy_without_max_win = EXCLUDED.expectancy_without_max_win,
-            profit_factor_without_max_win = EXCLUDED.profit_factor_without_max_win,
-            status = EXCLUDED.status,
-            calculated_at = now();
-        """,
-        {
-            "symbol": SYMBOL,
-            "closed_trades": trades,
-            "wins": len(wins),
-            "losses": len(losses),
-            "winrate": winrate,
-            "net_pnl": net_pnl,
-            "profit_factor": profit_factor,
-            "expectancy": expectancy,
-            "median_pnl": median_pnl,
-            "max_win": max_win,
-            "max_loss": max_loss,
-            "net_pnl_without_max_win": net_without_max,
-            "expectancy_without_max_win": expectancy_without_max,
-            "profit_factor_without_max_win": pf_wo,
-            "status": status,
-        },
-    )
-    conn.commit()
-
-print()
-print("=== EDGE VALIDATION STATUS ===")
-print(f"status={status}")
-print("persisted=1")

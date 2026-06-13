@@ -4,13 +4,23 @@ set -euo pipefail
 cd /opt/finam-core
 
 SINCE_UTC="${SINCE_UTC:-2026-06-08 14:40:00+00}"
+ACTIVE_BR_SYMBOLS="${ACTIVE_BR_SYMBOLS:-BRN6@RTSX}"
+ACTIVE_NG_SYMBOLS="${ACTIVE_NG_SYMBOLS:-NGN6@RTSX}"
+ACTIVE_SYMBOLS="${ACTIVE_BR_SYMBOLS},${ACTIVE_NG_SYMBOLS}"
 
-echo "=== BR / NG POST-FILTER SCORECARD ==="
+echo "=== BR / NG POST-FILTER ACTIVE CONTRACT SCORECARD ==="
 echo "since_utc=$SINCE_UTC"
+echo "active_br_symbols=$ACTIVE_BR_SYMBOLS"
+echo "active_ng_symbols=$ACTIVE_NG_SYMBOLS"
 echo
 
 psql "$DATABASE_URL" -c "
-WITH base AS (
+WITH params AS (
+    SELECT
+        string_to_array('${ACTIVE_SYMBOLS}', ',') AS symbols,
+        '${SINCE_UTC}'::timestamptz AS since_utc
+),
+base AS (
     SELECT
         CASE
             WHEN root_symbol IS NOT NULL AND root_symbol <> '' THEN root_symbol
@@ -21,13 +31,9 @@ WITH base AS (
         symbol,
         net_pnl,
         COALESCE(exit_ts, closed_at, created_at) AS ts
-    FROM closed_trades
-    WHERE COALESCE(exit_ts, closed_at, created_at) >= '$SINCE_UTC'
-      AND (
-          symbol LIKE 'BR%'
-          OR symbol LIKE 'NG%'
-          OR root_symbol IN ('BR','NG')
-      )
+    FROM closed_trades, params
+    WHERE symbol = ANY(params.symbols)
+      AND COALESCE(exit_ts, closed_at, created_at) >= params.since_utc
 )
 SELECT
     root,
@@ -43,8 +49,8 @@ SELECT
     MAX(ts) AS last_trade_ts
 FROM base
 GROUP BY root, symbol
-ORDER BY root, net_pnl DESC;
+ORDER BY root, symbol;
 "
 
 echo
-echo "BR_NG_POST_FILTER_SCORECARD_OK"
+echo "BR_NG_POST_FILTER_ACTIVE_CONTRACT_SCORECARD_OK"

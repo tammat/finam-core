@@ -62,6 +62,191 @@ def main() -> int:
     if not db:
         raise SystemExit("DATABASE_URL is required")
 
+    use_materialized = os.getenv("USE_MATERIALIZED_CLOSED_TRADES", "1") == "1"
+
+    if use_materialized:
+        with psycopg.connect(db, row_factory=dict_row) as conn:
+            closed_rows = conn.execute(
+                """
+                SELECT
+                    trade_id,
+                    symbol,
+                    strategy,
+                    side,
+                    qty,
+                    entry_ts,
+                    exit_ts,
+                    entry_price,
+                    exit_price,
+                    pnl_points,
+                    hour_msk,
+                    weekday,
+                    session,
+                    raw
+                FROM analytics_closed_trades_v1
+                WHERE symbol = %s
+                ORDER BY exit_ts, trade_id
+                """,
+                (SYMBOL,),
+            ).fetchall()
+
+            fill_summary = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS fills,
+                    MIN(ts) AS first_fill,
+                    MAX(ts) AS last_fill,
+                    COALESCE(SUM(CASE WHEN side='BUY' THEN qty ELSE -qty END), 0) AS open_qty
+                FROM fills
+                WHERE symbol = %s
+                """,
+                (SYMBOL,),
+            ).fetchone()
+
+            link_summary = conn.execute(
+                """
+                SELECT COUNT(*) AS signal_links
+                FROM signal_fills
+                WHERE symbol = %s
+                """,
+                (SYMBOL,),
+            ).fetchone()
+
+        closed = [
+            {
+                "entry_ts": r["entry_ts"],
+                "exit_ts": r["exit_ts"],
+                "side": r["side"],
+                "close_side": "SELL" if r["side"] == "LONG" else "BUY",
+                "qty": float(r["qty"] or 0.0),
+                "entry_price": float(r["entry_price"] or 0.0),
+                "exit_price": float(r["exit_price"] or 0.0),
+                "pnl_points": float(r["pnl_points"] or 0.0),
+                "hour_msk": r["hour_msk"],
+                "session": r["session"],
+                "raw": r.get("raw") or {},
+            }
+            for r in closed_rows
+        ]
+
+        fills = []
+        signal_links = [None] * int((link_summary or {}).get("signal_links") or 0)
+        open_qty = float((fill_summary or {}).get("open_qty") or 0.0)
+        first_fill = (fill_summary or {}).get("first_fill")
+        last_fill = (fill_summary or {}).get("last_fill")
+
+        print("=== NG RUNTIME GOVERNANCE STATISTICS V1 ===")
+        print(f"symbol={SYMBOL}")
+        print()
+
+        print("SUMMARY")
+        print(f"source=analytics_closed_trades_v1")
+        print(f"fills={int((fill_summary or {}).get('fills') or 0)}")
+        print(f"signal_links={len(signal_links)}")
+        print(f"closed_trades={len(closed)}")
+        print(f"open_qty={round(open_qty, 6)}")
+        print(f"first_fill={first_fill}")
+        print(f"last_fill={last_fill}")
+        print()
+
+        pnls = [x["pnl_points"] for x in closed]
+        wins = [x for x in pnls if x > 0]
+        losses = [x for x in pnls if x < 0]
+
+        print_perf_block("PERFORMANCE_ALL", closed)
+
+        single_qty_trades = [x for x in closed if abs(float(x.get("qty") or 0.0) - 1.0) < 1e-9]
+        batch_trades = [x for x in closed if float(x.get("qty") or 0.0) > 1.0]
+        no_batch_trades = [x for x in closed if float(x.get("qty") or 0.0) <= 1.0]
+
+        print_perf_block("PERFORMANCE_WITHOUT_BATCH_QTY_GT_1", no_batch_trades)
+        print_perf_block("PERFORMANCE_QTY_EQ_1", single_qty_trades)
+        single_exit_trades = [
+            x for x in closed
+            if not bool((x.get("raw") or {}).get("exit_batch_is_batch"))
+        ]
+        batch_exit_trades = [
+            x for x in closed
+            if bool((x.get("raw") or {}).get("exit_batch_is_batch"))
+        ]
+
+        print_perf_block("PERFORMANCE_SINGLE_EXIT_TRADES", single_exit_trades)
+        print_perf_block("PERFORMANCE_BATCH_EXIT_TRADES", batch_exit_trades)
+
+        print_perf_block("PERFORMANCE_QTY_GT_1", batch_trades)
+
+        by_side = defaultdict(list)
+        by_hour = defaultdict(list)
+        by_session = defaultdict(list)
+
+        for tr in closed:
+            by_side[tr["side"]].append(tr["pnl_points"])
+            by_hour[tr["hour_msk"]].append(tr["pnl_points"])
+            by_session[tr["session"]].append(tr["pnl_points"])
+
+        print("BY_SIDE")
+        for side, arr in sorted(by_side.items()):
+            w = [x for x in arr if x > 0]
+            l = [x for x in arr if x < 0]
+            print(
+                f"side={side} trades={len(arr)} pnl={round(sum(arr), 6)} "
+                f"winrate={round(len(w)/len(arr), 6) if arr else None} "
+                f"expectancy={round(sum(arr)/len(arr), 6) if arr else None} "
+                f"profit_factor={safe_pf(w, l)}"
+            )
+        print()
+
+        print("BY_HOUR_MSK")
+        for hour, arr in sorted(by_hour.items()):
+            w = [x for x in arr if x > 0]
+            l = [x for x in arr if x < 0]
+            print(
+                f"hour_msk={hour} trades={len(arr)} pnl={round(sum(arr), 6)} "
+                f"winrate={round(len(w)/len(arr), 6) if arr else None} "
+                f"expectancy={round(sum(arr)/len(arr), 6) if arr else None} "
+                f"profit_factor={safe_pf(w, l)}"
+            )
+        print()
+
+        print("BY_SESSION")
+        for sess, arr in sorted(by_session.items()):
+            w = [x for x in arr if x > 0]
+            l = [x for x in arr if x < 0]
+            print(
+                f"session={sess} trades={len(arr)} pnl={round(sum(arr), 6)} "
+                f"winrate={round(len(w)/len(arr), 6) if arr else None} "
+                f"expectancy={round(sum(arr)/len(arr), 6) if arr else None} "
+                f"profit_factor={safe_pf(w, l)}"
+            )
+        print()
+
+        print("RECENT_CLOSED_TRADES")
+        for tr in closed[-20:]:
+            print(
+                f"exit_msk={tr['exit_ts'].astimezone(MSK) if tr['exit_ts'] else None} "
+                f"side={tr['side']} qty={tr['qty']} "
+                f"entry={round(tr['entry_price'], 6)} exit={round(tr['exit_price'], 6)} "
+                f"pnl_points={round(tr['pnl_points'], 6)} session={tr['session']}"
+            )
+        print()
+
+        print("BLOCK_REASONS")
+        print("source_not_available_in_materialized_mode")
+        print()
+
+        print("VERDICT")
+        if len(closed) < 30:
+            print("status=INSUFFICIENT_SAMPLE")
+            print("reason=closed_trades_below_30")
+        elif len(closed) < 100:
+            print("status=EARLY_SAMPLE")
+            print("reason=closed_trades_below_100")
+        else:
+            print("status=ENOUGH_FOR_PRIMARY_EDGE_CHECK")
+            print("reason=closed_trades_at_least_100")
+
+        return 0
+
     with psycopg.connect(db, row_factory=dict_row) as conn:
         fills = conn.execute(
             """

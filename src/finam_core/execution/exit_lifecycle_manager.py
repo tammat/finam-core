@@ -169,18 +169,18 @@ class ExitLifecycleManager:
 
         bars_for_exit = int(state["bars_held"])
 
-        # Русский комментарий: NG в live идёт частыми quote/tick-событиями, поэтому bars_held
-        # не равен количеству M1-баров. Не даём time_exit закрыть свежую NG paper-позицию.
-        if str(symbol).startswith("NG"):
-            min_hold_sec = float(os.getenv("NG_MIN_HOLD_SEC", "300"))
+        # Русский комментарий: BR/NG в live идут частыми quote/tick-событиями, поэтому bars_held
+        # не равен количеству M1-баров. Не даём time_exit закрыть свежую PAPER-позицию.
+        if str(symbol).startswith(("NG", "BR")):
+            min_hold_sec = float(os.getenv("ENERGY_TIME_EXIT_MIN_HOLD_SEC", os.getenv("NG_MIN_HOLD_SEC", "1800")))
             opened_at_ts = state.get("opened_at_ts")
             position_age_sec = time.time() - float(opened_at_ts or time.time())
 
             if position_age_sec < min_hold_sec:
                 bars_for_exit = 0
-                if p._runtime_log_allowed(f"NG_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
+                if p._runtime_log_allowed(f"ENERGY_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
                     print(
-                        f"PIPE_NG_TIME_EXIT_GUARD symbol={symbol} "
+                        f"PIPE_ENERGY_TIME_EXIT_GUARD symbol={symbol} "
                         f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
                         f"raw_bars_held={state['bars_held']}",
                         flush=True,
