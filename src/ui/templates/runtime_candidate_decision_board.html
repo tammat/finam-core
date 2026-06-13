@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="grid">
+    <div class="card"><div class="label">На runtime-review</div><div class="metric ok">{{ data.summary.promote }}</div></div>
+    <div class="card"><div class="label">Исследовать дальше</div><div class="metric warn">{{ data.summary.watch }}</div></div>
+    <div class="card"><div class="label">Отклонено</div><div class="metric bad">{{ data.summary.reject }}</div></div>
+    <div class="card"><div class="label">Всего</div><div class="metric">{{ data.summary.total }}</div></div>
+</section>
+
+<section class="card">
+    <h2>Runtime Candidate Decision Board</h2>
+
+    <div class="table-wrap">
+    <table>
+        <tr>
+            <th>Инструмент</th>
+            <th>Решение</th>
+            <th>Статус кандидата</th>
+            <th>Review Gate</th>
+            <th>Expectancy</th>
+            <th>PF</th>
+            <th>Stability</th>
+            <th>Причина решения</th>
+            <th>Runtime</th>
+            <th>Execution</th>
+            <th>Обновлено</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td class="nowrap">{{ row.symbol }}</td>
+            <td class="status-cell">{{ row.decision_ru }}</td>
+            <td class="nowrap">{{ row.candidate_status }}</td>
+            <td>{{ row.review_gate if row.review_gate is not none else "—" }}</td>
+            <td class="num">{{ row.expectancy if row.expectancy is not none else "—" }}</td>
+            <td class="num">{{ row.profit_factor if row.profit_factor is not none else "—" }}</td>
+            <td class="num">{{ row.stability_ratio if row.stability_ratio is not none else "—" }}</td>
+            <td class="reason-cell">{{ row.decision_reason }}</td>
+            <td>{{ "Да" if row.runtime_allowed else "Нет" }}</td>
+            <td>{{ "Да" if row.execution_enabled else "Нет" }}</td>
+            <td class="nowrap">{{ row.created_at_msk }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Decision Board является только управленческой витриной.
+        RuntimeAllowed=false и ExecutionEnabled=false сохраняются.
+        Эта страница не создаёт заявок и не меняет торговый контур.
+    </p>
+</section>
+
+{% endblock %}

@@ -951,6 +951,61 @@ def gold_runtime_review_gate(request: Request):
         },
     )
 
+def fetch_runtime_candidate_decision_board_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    WITH latest AS (
+        SELECT DISTINCT ON (symbol)
+            created_at,
+            symbol,
+            candidate_status,
+            review_gate,
+            expectancy,
+            profit_factor,
+            stability_ratio,
+            decision,
+            decision_reason,
+            runtime_allowed,
+            execution_enabled
+        FROM runtime_candidate_decision_board
+        ORDER BY symbol, id DESC
+    )
+    SELECT *
+    FROM latest
+    ORDER BY
+        CASE
+            WHEN decision='PROMOTE_RUNTIME_REVIEW' THEN 1
+            WHEN decision='WATCH_RESEARCH' THEN 2
+            WHEN decision='REJECT' THEN 3
+            ELSE 4
+        END,
+        symbol;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+    for row in rows:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+        row["decision_ru"] = {
+            "PROMOTE_RUNTIME_REVIEW": "🟢 Вынести на runtime-review",
+            "WATCH_RESEARCH": "🟡 Продолжить исследование",
+            "REJECT": "🔴 Отклонить",
+        }.get(row["decision"], row["decision"])
+
+    summary = {
+        "promote": sum(1 for r in rows if r["decision"] == "PROMOTE_RUNTIME_REVIEW"),
+        "watch": sum(1 for r in rows if r["decision"] == "WATCH_RESEARCH"),
+        "reject": sum(1 for r in rows if r["decision"] == "REJECT"),
+        "total": len(rows),
+    }
+
+    return {"rows": rows, "summary": summary}
+
+
 @app.get("/runtime-candidate-scorecard", response_class=HTMLResponse)
 def runtime_candidate_scorecard(request: Request):
     return templates.TemplateResponse(
@@ -959,5 +1014,16 @@ def runtime_candidate_scorecard(request: Request):
             "request": request,
             "data": fetch_runtime_candidate_scorecard_v1(),
             "active": "runtime_candidate_scorecard",
+        },
+    )
+
+@app.get("/runtime-candidate-decision-board", response_class=HTMLResponse)
+def runtime_candidate_decision_board(request: Request):
+    return templates.TemplateResponse(
+        "runtime_candidate_decision_board.html",
+        {
+            "request": request,
+            "data": fetch_runtime_candidate_decision_board_v1(),
+            "active": "runtime_candidate_decision_board",
         },
     )
