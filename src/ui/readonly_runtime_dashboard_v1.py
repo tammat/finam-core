@@ -1017,6 +1017,135 @@ def runtime_candidate_scorecard(request: Request):
         },
     )
 
+def fetch_candidate_portfolio_dashboard_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    WITH registry AS (
+        SELECT
+            symbol,
+            status AS registry_status,
+            reason AS registry_reason,
+            runtime_allowed AS registry_runtime_allowed,
+            execution_enabled AS registry_execution_enabled,
+            updated_at AS registry_updated_at
+        FROM runtime_candidate_registry
+    ),
+    scorecard AS (
+        SELECT DISTINCT ON (symbol)
+            symbol,
+            source,
+            signals,
+            trades,
+            winrate,
+            expectancy,
+            profit_factor,
+            stability_ratio,
+            review_gate,
+            runtime_allowed AS scorecard_runtime_allowed,
+            execution_enabled AS scorecard_execution_enabled,
+            created_at AS scorecard_created_at
+        FROM runtime_candidate_scorecard
+        ORDER BY symbol, id DESC
+    ),
+    decision AS (
+        SELECT DISTINCT ON (symbol)
+            symbol,
+            candidate_status,
+            decision,
+            decision_reason,
+            runtime_allowed AS decision_runtime_allowed,
+            execution_enabled AS decision_execution_enabled,
+            created_at AS decision_created_at
+        FROM runtime_candidate_decision_board
+        ORDER BY symbol, id DESC
+    )
+    SELECT
+        COALESCE(r.symbol, s.symbol, d.symbol) AS symbol,
+        r.registry_status,
+        r.registry_reason,
+        r.registry_runtime_allowed,
+        r.registry_execution_enabled,
+        r.registry_updated_at,
+        s.source,
+        s.signals,
+        s.trades,
+        s.winrate,
+        s.expectancy,
+        s.profit_factor,
+        s.stability_ratio,
+        s.review_gate,
+        s.scorecard_runtime_allowed,
+        s.scorecard_execution_enabled,
+        s.scorecard_created_at,
+        d.candidate_status,
+        d.decision,
+        d.decision_reason,
+        d.decision_runtime_allowed,
+        d.decision_execution_enabled,
+        d.decision_created_at
+    FROM registry r
+    FULL OUTER JOIN scorecard s ON s.symbol = r.symbol
+    FULL OUTER JOIN decision d ON d.symbol = COALESCE(r.symbol, s.symbol)
+    ORDER BY
+        CASE
+            WHEN d.decision='PROMOTE_RUNTIME_REVIEW' THEN 1
+            WHEN d.decision='WATCH_RESEARCH' THEN 2
+            WHEN d.decision='REJECT' THEN 3
+            ELSE 4
+        END,
+        COALESCE(r.symbol, s.symbol, d.symbol);
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+    for row in rows:
+        row["registry_updated_at_msk"] = to_msk(row.get("registry_updated_at"))
+        row["scorecard_created_at_msk"] = to_msk(row.get("scorecard_created_at"))
+        row["decision_created_at_msk"] = to_msk(row.get("decision_created_at"))
+
+        row["decision_ru"] = {
+            "PROMOTE_RUNTIME_REVIEW": "🟢 Вынести на runtime-review",
+            "WATCH_RESEARCH": "🟡 Продолжить исследование",
+            "REJECT": "🔴 Отклонить",
+        }.get(row.get("decision"), row.get("decision") or "—")
+
+        row["registry_status_ru"] = {
+            "READY_FOR_RUNTIME_REVIEW": "🟢 Готов к ручному runtime-review",
+            "RESEARCH": "🟡 Исследование",
+            "REJECTED": "🔴 Отклонено",
+            "WATCH_RUNTIME_ACTIVE": "🟢 Runtime-наблюдение активно",
+            "WATCH_RUNTIME": "🟢 Кандидат для runtime-наблюдения",
+        }.get(row.get("registry_status"), row.get("registry_status") or "—")
+
+    summary = {
+        "promote": sum(1 for r in rows if r.get("decision") == "PROMOTE_RUNTIME_REVIEW"),
+        "watch": sum(1 for r in rows if r.get("decision") == "WATCH_RESEARCH"),
+        "reject": sum(1 for r in rows if r.get("decision") == "REJECT"),
+        "ready": sum(1 for r in rows if r.get("registry_status") == "READY_FOR_RUNTIME_REVIEW"),
+        "research": sum(1 for r in rows if r.get("registry_status") == "RESEARCH"),
+        "rejected": sum(1 for r in rows if r.get("registry_status") == "REJECTED"),
+        "total": len(rows),
+        "runtime_enabled": sum(1 for r in rows if bool(r.get("registry_runtime_allowed")) or bool(r.get("scorecard_runtime_allowed")) or bool(r.get("decision_runtime_allowed"))),
+        "execution_enabled": sum(1 for r in rows if bool(r.get("registry_execution_enabled")) or bool(r.get("scorecard_execution_enabled")) or bool(r.get("decision_execution_enabled"))),
+    }
+
+    top = None
+    for row in rows:
+        if row.get("decision") == "PROMOTE_RUNTIME_REVIEW":
+            top = row
+            break
+
+    return {
+        "rows": rows,
+        "summary": summary,
+        "top": top,
+    }
+
+
 @app.get("/runtime-candidate-decision-board", response_class=HTMLResponse)
 def runtime_candidate_decision_board(request: Request):
     return templates.TemplateResponse(
@@ -1025,5 +1154,16 @@ def runtime_candidate_decision_board(request: Request):
             "request": request,
             "data": fetch_runtime_candidate_decision_board_v1(),
             "active": "runtime_candidate_decision_board",
+        },
+    )
+
+@app.get("/candidate-portfolio", response_class=HTMLResponse)
+def candidate_portfolio_dashboard(request: Request):
+    return templates.TemplateResponse(
+        "candidate_portfolio_dashboard.html",
+        {
+            "request": request,
+            "data": fetch_candidate_portfolio_dashboard_v1(),
+            "active": "candidate_portfolio",
         },
     )

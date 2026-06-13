@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="grid">
+    <div class="card"><div class="label">На runtime-review</div><div class="metric ok">{{ data.summary.promote }}</div></div>
+    <div class="card"><div class="label">Исследовать дальше</div><div class="metric warn">{{ data.summary.watch }}</div></div>
+    <div class="card"><div class="label">Отклонено</div><div class="metric bad">{{ data.summary.reject }}</div></div>
+    <div class="card"><div class="label">Всего кандидатов</div><div class="metric">{{ data.summary.total }}</div></div>
+</section>
+
+<section class="grid">
+    <div class="card"><div class="label">READY_FOR_RUNTIME_REVIEW</div><div class="metric ok">{{ data.summary.ready }}</div></div>
+    <div class="card"><div class="label">RESEARCH</div><div class="metric warn">{{ data.summary.research }}</div></div>
+    <div class="card"><div class="label">REJECTED</div><div class="metric bad">{{ data.summary.rejected }}</div></div>
+    <div class="card"><div class="label">Runtime / Execution</div><div class="metric">{{ data.summary.runtime_enabled }} / {{ data.summary.execution_enabled }}</div></div>
+</section>
+
+<section class="card">
+    <h2>Top Candidate</h2>
+    {% if data.top %}
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.top.symbol }}</td></tr>
+        <tr><td>Статус</td><td>{{ data.top.registry_status_ru }}</td></tr>
+        <tr><td>Решение</td><td>{{ data.top.decision_ru }}</td></tr>
+        <tr><td>Источник</td><td>{{ data.top.source }}</td></tr>
+        <tr><td>Сигналы</td><td>{{ data.top.signals }}</td></tr>
+        <tr><td>Сделки</td><td>{{ data.top.trades }}</td></tr>
+        <tr><td>WinRate</td><td>{{ data.top.winrate }}</td></tr>
+        <tr><td>Expectancy</td><td>{{ data.top.expectancy }}</td></tr>
+        <tr><td>PF</td><td>{{ data.top.profit_factor }}</td></tr>
+        <tr><td>Stability</td><td>{{ data.top.stability_ratio }}</td></tr>
+        <tr><td>Review Gate</td><td>{{ data.top.review_gate }}</td></tr>
+        <tr><td>Runtime</td><td>Отключён</td></tr>
+        <tr><td>Execution</td><td>Отключено</td></tr>
+    </table>
+    {% else %}
+    <p>Кандидатов для runtime-review нет.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2>Candidate Portfolio Dashboard</h2>
+
+    <div class="table-wrap">
+    <table>
+        <tr>
+            <th>Инструмент</th>
+            <th>Registry</th>
+            <th>Decision</th>
+            <th>Source</th>
+            <th>Signals</th>
+            <th>Trades</th>
+            <th>WinRate</th>
+            <th>Expectancy</th>
+            <th>PF</th>
+            <th>Stability</th>
+            <th>Review Gate</th>
+            <th>Reason</th>
+            <th>Runtime</th>
+            <th>Execution</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td class="nowrap">{{ row.symbol }}</td>
+            <td class="status-cell">{{ row.registry_status_ru }}</td>
+            <td class="status-cell">{{ row.decision_ru }}</td>
+            <td class="nowrap">{{ row.source if row.source is not none else "—" }}</td>
+            <td class="num">{{ row.signals if row.signals is not none else "—" }}</td>
+            <td class="num">{{ row.trades if row.trades is not none else "—" }}</td>
+            <td class="num">{{ row.winrate if row.winrate is not none else "—" }}</td>
+            <td class="num">{{ row.expectancy if row.expectancy is not none else "—" }}</td>
+            <td class="num">{{ row.profit_factor if row.profit_factor is not none else "—" }}</td>
+            <td class="num">{{ row.stability_ratio if row.stability_ratio is not none else "—" }}</td>
+            <td>{{ row.review_gate if row.review_gate is not none else "—" }}</td>
+            <td class="reason-cell">{{ row.decision_reason if row.decision_reason is not none else row.registry_reason }}</td>
+            <td>{{ "Да" if row.registry_runtime_allowed or row.scorecard_runtime_allowed or row.decision_runtime_allowed else "Нет" }}</td>
+            <td>{{ "Да" if row.registry_execution_enabled or row.scorecard_execution_enabled or row.decision_execution_enabled else "Нет" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Панель объединяет Registry, Scorecard и Decision Board. Она не включает runtime, не включает execution,
+        не создаёт заявки и не меняет торговый контур.
+    </p>
+</section>
+
+{% endblock %}
