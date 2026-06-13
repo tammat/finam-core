@@ -90,10 +90,16 @@ def classify(row: dict) -> tuple[str, str]:
     review_gate = row["review_gate"]
     stability_ratio = float(row["stability_ratio"]) if row["stability_ratio"] is not None else 0.0
 
+    expectancy = float(row["expectancy"]) if row["expectancy"] is not None else 0.0
+    profit_factor = float(row["profit_factor"]) if row["profit_factor"] is not None else 0.0
+
     if (
         status == "READY_FOR_RUNTIME_REVIEW"
         and review_gate == "READY_FOR_RUNTIME_REVIEW"
-        and stability_ratio >= 0.70
+        and (
+            stability_ratio >= 0.70
+            or (expectancy > 0 and profit_factor >= 1.50)
+        )
     ):
         return "PROMOTE_RUNTIME_REVIEW", "review_gate_passed"
 
