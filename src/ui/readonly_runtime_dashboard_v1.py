@@ -348,7 +348,7 @@ def governance(request: Request):
 @app.get("/gold", response_class=HTMLResponse)
 def gold(request: Request):
     return templates.TemplateResponse(
-        "gold.html",
+        "gold_status.html",
         {"request": request, "data": fetch_dashboard_data(), "active": "gold"},
     )
 

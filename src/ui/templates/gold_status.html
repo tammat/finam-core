@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>GOLD: статус жизненного цикла</h2>
+
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Накоплено сигналов</td><td>{{ data.gold_signals }}</td></tr>
+        <tr><td>Цель накопления</td><td>{{ data.gold_target }}</td></tr>
+        <tr><td>Осталось</td><td>{{ data.gold_remaining }}</td></tr>
+        <tr><td>Последний сигнал</td><td>{{ data.gold_last_signal_ts }}</td></tr>
+        <tr><td>Текущий статус</td><td><b>🟢 Кандидат для runtime-наблюдения</b></td></tr>
+        <tr><td>Runtime</td><td>Отключён</td></tr>
+        <tr><td>Execution</td><td>Отключено</td></tr>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Этапы проверки GOLD</h2>
+
+    <table>
+        <tr><th>Этап</th><th>Статус</th></tr>
+        <tr><td>Накопление сигналов</td><td>✅ Завершено</td></tr>
+        <tr><td>Scorecard</td><td>✅ PASS</td></tr>
+        <tr><td>Audit</td><td>✅ PASS</td></tr>
+        <tr><td>WalkForward</td><td>✅ STABLE</td></tr>
+        <tr><td>Shadow Validation</td><td>✅ PASS</td></tr>
+        <tr><td>Promotion Review</td><td>✅ WATCH_RUNTIME_CANDIDATE</td></tr>
+        <tr><td>Candidate Registry</td><td>✅ WATCH_RUNTIME</td></tr>
+        <tr><td>Runtime Approval</td><td>⏳ Не включён</td></tr>
+        <tr><td>Runtime Execution</td><td>⏳ Не включено</td></tr>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Ключевые shadow-метрики</h2>
+
+    <table>
+        <tr><th>Метрика</th><th>Значение</th></tr>
+        <tr><td>Shadow Signals</td><td>52</td></tr>
+        <tr><td>Shadow Trades</td><td>42</td></tr>
+        <tr><td>WinRate</td><td>97.62%</td></tr>
+        <tr><td>Expectancy</td><td>46.421429</td></tr>
+        <tr><td>Profit Factor</td><td>887.2273</td></tr>
+    </table>
+</section>
+
+{% endblock %}
