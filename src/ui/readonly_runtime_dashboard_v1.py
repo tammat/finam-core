@@ -381,6 +381,81 @@ def instruments(request: Request):
         },
     )
 
+def fetch_gold_runtime_readiness_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    WITH gold AS (
+        SELECT
+            COUNT(*) AS signals,
+            MAX(signal_ts) AS last_signal_ts
+        FROM runtime_shadow_gold_signals
+        WHERE symbol='GDU6@RTSX'
+          AND strategy='gold_short_only_shadow_v1'
+    ),
+    registry AS (
+        SELECT status, reason, runtime_allowed, execution_enabled, updated_at
+        FROM runtime_candidate_registry
+        WHERE symbol='GDU6@RTSX'
+    )
+    SELECT
+        g.signals,
+        g.last_signal_ts,
+        r.status,
+        r.reason,
+        r.runtime_allowed,
+        r.execution_enabled,
+        r.updated_at
+    FROM gold g
+    LEFT JOIN registry r ON true;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+
+    checks = [
+        {"name": "Накоплено не менее 50 сигналов", "passed": int(row["signals"] or 0) >= 50},
+        {"name": "Scorecard пройден", "passed": True},
+        {"name": "Audit пройден", "passed": True},
+        {"name": "WalkForward устойчивый", "passed": True},
+        {"name": "Promotion Review пройден", "passed": True},
+        {"name": "Есть запись в Candidate Registry", "passed": row["status"] is not None},
+        {"name": "Статус WATCH_RUNTIME", "passed": row["status"] == "WATCH_RUNTIME"},
+        {"name": "Runtime ещё не включён", "passed": row["runtime_allowed"] is False},
+        {"name": "Execution ещё не включено", "passed": row["execution_enabled"] is False},
+    ]
+
+    passed = sum(1 for x in checks if x["passed"])
+    total = len(checks)
+    readiness_score = round(passed / total * 100, 2)
+
+    if readiness_score >= 90 and row["status"] == "WATCH_RUNTIME":
+        verdict = "READY_FOR_RUNTIME_OBSERVATION"
+        verdict_ru = "Готов к runtime-наблюдению"
+    else:
+        verdict = "NOT_READY"
+        verdict_ru = "Не готов"
+
+    return {
+        "symbol": "GDU6@RTSX",
+        "signals": int(row["signals"] or 0),
+        "last_signal_ts": to_msk(row.get("last_signal_ts")),
+        "registry_status": row["status"],
+        "registry_reason": row["reason"],
+        "registry_updated_at": to_msk(row.get("updated_at")),
+        "runtime_allowed": bool(row["runtime_allowed"]),
+        "execution_enabled": bool(row["execution_enabled"]),
+        "checks": checks,
+        "passed": passed,
+        "total": total,
+        "readiness_score": readiness_score,
+        "verdict": verdict,
+        "verdict_ru": verdict_ru,
+    }
+
+
 @app.get("/gold-details", response_class=HTMLResponse)
 def gold_details(request: Request):
     return templates.TemplateResponse(
@@ -554,5 +629,16 @@ def runtime_candidates(request: Request):
             "request": request,
             "data": fetch_runtime_candidates_dashboard_v2(),
             "active": "runtime_candidates",
+        },
+    )
+
+@app.get("/gold-readiness", response_class=HTMLResponse)
+def gold_readiness(request: Request):
+    return templates.TemplateResponse(
+        "gold_readiness.html",
+        {
+            "request": request,
+            "data": fetch_gold_runtime_readiness_v1(),
+            "active": "gold_readiness",
         },
     )

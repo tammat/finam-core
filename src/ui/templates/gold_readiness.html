@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>GOLD: готовность к runtime-наблюдению</h2>
+
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.symbol }}</td></tr>
+        <tr><td>Накоплено сигналов</td><td>{{ data.signals }}</td></tr>
+        <tr><td>Последний сигнал</td><td>{{ data.last_signal_ts }}</td></tr>
+        <tr><td>Статус registry</td><td>{{ data.registry_status }}</td></tr>
+        <tr><td>Причина</td><td>{{ data.registry_reason }}</td></tr>
+        <tr><td>Registry обновлён</td><td>{{ data.registry_updated_at }}</td></tr>
+        <tr><td>Runtime</td><td>{{ "Включён" if data.runtime_allowed else "Отключён" }}</td></tr>
+        <tr><td>Execution</td><td>{{ "Включено" if data.execution_enabled else "Отключено" }}</td></tr>
+        <tr><td>Readiness Score</td><td><b>{{ data.readiness_score }}%</b></td></tr>
+        <tr><td>Вердикт</td><td><b>🟢 {{ data.verdict_ru }}</b></td></tr>
+    </table>
+</section>
+
+<section class="card">
+    <h2>Контрольные условия</h2>
+
+    <table>
+        <tr><th>Условие</th><th>Статус</th></tr>
+        {% for check in data.checks %}
+        <tr>
+            <td>{{ check.name }}</td>
+            <td>{% if check.passed %}✅ Выполнено{% else %}⛔ Не выполнено{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Этот экран только оценивает готовность. Runtime и execution не включаются автоматически.
+        Любое изменение режима должно выполняться отдельным контролируемым этапом.
+    </p>
+</section>
+
+{% endblock %}
