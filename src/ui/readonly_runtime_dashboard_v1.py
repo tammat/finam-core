@@ -737,6 +737,70 @@ def fetch_gold_regime_filter_status_v1():
     return row
 
 
+def fetch_gold_stability_monitor_dashboard_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql_latest = """
+    SELECT
+        created_at,
+        symbol,
+        strategy,
+        stability_ratio,
+        negative_ratio,
+        days_total,
+        days_effective,
+        days_stable,
+        days_weak,
+        days_negative,
+        total_trades,
+        filtered_pnl,
+        verdict,
+        runtime_allowed,
+        execution_enabled
+    FROM gold_shadow_stability_monitor
+    WHERE symbol='GDU6@RTSX'
+    ORDER BY id DESC
+    LIMIT 1;
+    """
+
+    sql_history = """
+    SELECT
+        created_at,
+        stability_ratio,
+        negative_ratio,
+        days_effective,
+        days_stable,
+        days_weak,
+        days_negative,
+        total_trades,
+        filtered_pnl,
+        verdict
+    FROM gold_shadow_stability_monitor
+    WHERE symbol='GDU6@RTSX'
+    ORDER BY id DESC
+    LIMIT 20;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql_latest)
+            latest = cur.fetchone()
+
+            cur.execute(sql_history)
+            history = cur.fetchall()
+
+    if latest:
+        latest["created_at_msk"] = to_msk(latest.get("created_at"))
+
+    for row in history:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+
+    return {
+        "latest": latest,
+        "history": list(reversed(history)),
+    }
+
+
 @app.get("/gold-watch-telemetry", response_class=HTMLResponse)
 def gold_watch_telemetry(request: Request):
     return templates.TemplateResponse(
@@ -756,5 +820,16 @@ def gold_regime_filter(request: Request):
             "request": request,
             "data": fetch_gold_regime_filter_status_v1(),
             "active": "gold_regime_filter",
+        },
+    )
+
+@app.get("/gold-stability-monitor", response_class=HTMLResponse)
+def gold_stability_monitor(request: Request):
+    return templates.TemplateResponse(
+        "gold_stability_monitor.html",
+        {
+            "request": request,
+            "data": fetch_gold_stability_monitor_dashboard_v1(),
+            "active": "gold_stability_monitor",
         },
     )

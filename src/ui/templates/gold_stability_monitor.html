@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>GOLD: монитор стабильности</h2>
+
+    {% if data.latest %}
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.latest.symbol }}</td></tr>
+        <tr><td>Стратегия</td><td>{{ data.latest.strategy }}</td></tr>
+        <tr><td>Последний расчёт</td><td>{{ data.latest.created_at_msk }}</td></tr>
+        <tr><td>Stability Ratio</td><td>{{ data.latest.stability_ratio }}</td></tr>
+        <tr><td>Negative Ratio</td><td>{{ data.latest.negative_ratio }}</td></tr>
+        <tr><td>Дней всего</td><td>{{ data.latest.days_total }}</td></tr>
+        <tr><td>Эффективных дней</td><td>{{ data.latest.days_effective }}</td></tr>
+        <tr><td>Стабильных дней</td><td>{{ data.latest.days_stable }}</td></tr>
+        <tr><td>Слабых дней</td><td>{{ data.latest.days_weak }}</td></tr>
+        <tr><td>Отрицательных дней</td><td>{{ data.latest.days_negative }}</td></tr>
+        <tr><td>Сделок после фильтра</td><td>{{ data.latest.total_trades }}</td></tr>
+        <tr><td>Filtered PnL</td><td>{{ data.latest.filtered_pnl }}</td></tr>
+        <tr><td>Вердикт</td><td><b>{{ data.latest.verdict }}</b></td></tr>
+        <tr><td>Runtime</td><td>{{ "Включён" if data.latest.runtime_allowed else "Отключён" }}</td></tr>
+        <tr><td>Execution</td><td>{{ "Включено" if data.latest.execution_enabled else "Отключено" }}</td></tr>
+    </table>
+    {% else %}
+    <p>Данных монитора стабильности пока нет.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2>История расчётов</h2>
+    <div class="table-wrap">
+    <table>
+        <tr>
+            <th>Время</th>
+            <th>Stability</th>
+            <th>Negative</th>
+            <th>Effective Days</th>
+            <th>Stable Days</th>
+            <th>Weak Days</th>
+            <th>Negative Days</th>
+            <th>Trades</th>
+            <th>Filtered PnL</th>
+            <th>Verdict</th>
+        </tr>
+        {% for row in data.history %}
+        <tr>
+            <td class="nowrap">{{ row.created_at_msk }}</td>
+            <td class="num">{{ row.stability_ratio }}</td>
+            <td class="num">{{ row.negative_ratio }}</td>
+            <td class="num">{{ row.days_effective }}</td>
+            <td class="num">{{ row.days_stable }}</td>
+            <td class="num">{{ row.days_weak }}</td>
+            <td class="num">{{ row.days_negative }}</td>
+            <td class="num">{{ row.total_trades }}</td>
+            <td class="num">{{ row.filtered_pnl }}</td>
+            <td>{{ row.verdict }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Монитор стабильности не включает runtime и execution. Он только фиксирует качество GOLD после обязательного фильтра.
+    </p>
+</section>
+
+{% endblock %}
