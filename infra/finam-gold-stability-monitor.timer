@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Finam GOLD Shadow Stability Monitor every 30 minutes
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:00/30:00 Europe/Moscow
+Persistent=true
+Unit=finam-gold-stability-monitor.service
+
+[Install]
+WantedBy=timers.target
