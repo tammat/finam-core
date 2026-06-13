@@ -633,6 +633,67 @@ def runtime_candidates(request: Request):
         },
     )
 
+def fetch_gold_watch_telemetry_dashboard_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql_latest = """
+    SELECT
+        created_at,
+        symbol,
+        status,
+        last_bar_ts,
+        last_signal_ts,
+        bars_count,
+        shadow_signals,
+        shadow_trades,
+        shadow_winrate,
+        shadow_expectancy,
+        shadow_profit_factor,
+        runtime_allowed,
+        execution_enabled,
+        reason
+    FROM runtime_gold_watch_telemetry
+    WHERE symbol='GDU6@RTSX'
+    ORDER BY id DESC
+    LIMIT 1;
+    """
+
+    sql_history = """
+    SELECT
+        created_at,
+        shadow_signals,
+        shadow_trades,
+        shadow_winrate,
+        shadow_expectancy,
+        shadow_profit_factor
+    FROM runtime_gold_watch_telemetry
+    WHERE symbol='GDU6@RTSX'
+    ORDER BY id DESC
+    LIMIT 20;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql_latest)
+            latest = cur.fetchone()
+
+            cur.execute(sql_history)
+            history = cur.fetchall()
+
+    if latest:
+        latest["created_at_msk"] = to_msk(latest.get("created_at"))
+        latest["last_bar_ts_msk"] = to_msk(latest.get("last_bar_ts"))
+        latest["last_signal_ts_msk"] = to_msk(latest.get("last_signal_ts"))
+
+    for row in history:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+
+    return {
+        "latest": latest,
+        "history": list(reversed(history)),
+    }
+
+
 @app.get("/gold-readiness", response_class=HTMLResponse)
 def gold_readiness(request: Request):
     return templates.TemplateResponse(
@@ -641,5 +702,16 @@ def gold_readiness(request: Request):
             "request": request,
             "data": fetch_gold_runtime_readiness_v1(),
             "active": "gold_readiness",
+        },
+    )
+
+@app.get("/gold-watch-telemetry", response_class=HTMLResponse)
+def gold_watch_telemetry(request: Request):
+    return templates.TemplateResponse(
+        "gold_watch_telemetry.html",
+        {
+            "request": request,
+            "data": fetch_gold_watch_telemetry_dashboard_v1(),
+            "active": "gold_watch_telemetry",
         },
     )

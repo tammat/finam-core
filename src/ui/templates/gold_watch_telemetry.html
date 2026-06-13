@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>GOLD: telemetry runtime-наблюдения</h2>
+
+    {% if data.latest %}
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.latest.symbol }}</td></tr>
+        <tr><td>Статус</td><td>🟢 {{ data.latest.status }}</td></tr>
+        <tr><td>Причина</td><td>{{ data.latest.reason }}</td></tr>
+        <tr><td>Последняя telemetry-запись</td><td>{{ data.latest.created_at_msk }}</td></tr>
+        <tr><td>Последний бар</td><td>{{ data.latest.last_bar_ts_msk }}</td></tr>
+        <tr><td>Последний сигнал</td><td>{{ data.latest.last_signal_ts_msk }}</td></tr>
+        <tr><td>Бары</td><td>{{ data.latest.bars_count }}</td></tr>
+        <tr><td>Shadow Signals</td><td>{{ data.latest.shadow_signals }}</td></tr>
+        <tr><td>Shadow Trades</td><td>{{ data.latest.shadow_trades }}</td></tr>
+        <tr><td>Shadow WinRate</td><td>{{ data.latest.shadow_winrate }}</td></tr>
+        <tr><td>Shadow Expectancy</td><td>{{ data.latest.shadow_expectancy }}</td></tr>
+        <tr><td>Shadow Profit Factor</td><td>{{ data.latest.shadow_profit_factor }}</td></tr>
+        <tr><td>Runtime</td><td>{{ "Включён" if data.latest.runtime_allowed else "Отключён" }}</td></tr>
+        <tr><td>Execution</td><td>{{ "Включено" if data.latest.execution_enabled else "Отключено" }}</td></tr>
+    </table>
+    {% else %}
+    <p>Данных telemetry пока нет.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2>История telemetry</h2>
+    <div class="table-wrap">
+    <table>
+        <tr>
+            <th>Время</th>
+            <th>Signals</th>
+            <th>Trades</th>
+            <th>WinRate</th>
+            <th>Expectancy</th>
+            <th>PF</th>
+        </tr>
+        {% for row in data.history %}
+        <tr>
+            <td class="nowrap">{{ row.created_at_msk }}</td>
+            <td class="num">{{ row.shadow_signals }}</td>
+            <td class="num">{{ row.shadow_trades }}</td>
+            <td class="num">{{ row.shadow_winrate }}</td>
+            <td class="num">{{ row.shadow_expectancy }}</td>
+            <td class="num">{{ row.shadow_profit_factor }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        GOLD находится в режиме runtime-наблюдения. RuntimeAllowed=false, ExecutionEnabled=false.
+        Страница отображает только telemetry и не выполняет торговых действий.
+    </p>
+</section>
+
+{% endblock %}
