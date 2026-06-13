@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>GOLD: обязательный regime-фильтр</h2>
+
+    {% if data %}
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.symbol }}</td></tr>
+        <tr><td>Статус GOLD</td><td>{{ data.status }}</td></tr>
+        <tr><td>Причина</td><td>{{ data.reason }}</td></tr>
+        <tr><td>Фильтр активирован</td><td>{% if data.filter_enabled %}✅ Да{% else %}⛔ Нет{% endif %}</td></tr>
+        <tr><td>Правило</td><td>{{ data.filter_rule }}</td></tr>
+        <tr><td>Backtest verdict</td><td>{{ data.backtest_verdict }}</td></tr>
+        <tr><td>Заблокировано сделок</td><td>{{ data.blocked_trades }}</td></tr>
+        <tr><td>Улучшение PnL</td><td>{{ data.pnl_improvement }}</td></tr>
+        <tr><td>Runtime</td><td>{{ "Включён" if data.runtime_allowed else "Отключён" }}</td></tr>
+        <tr><td>Execution</td><td>{{ "Включено" if data.execution_enabled else "Отключено" }}</td></tr>
+        <tr><td>Обновлено</td><td>{{ data.updated_at_msk }}</td></tr>
+    </table>
+    {% else %}
+    <p>Данные фильтра GOLD не найдены.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2>Смысл правила</h2>
+    <p>
+        Фильтр блокирует SELL-сигналы GOLD, если золото находится в сильном восходящем дневном импульсе.
+        Это защищает стратегию от повторения сценария 11.06.2026, когда все SELL-сигналы против импульса закрылись убытком.
+    </p>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Фильтр зарегистрирован как обязательное условие для дальнейшего продвижения GOLD.
+        RuntimeAllowed=false и ExecutionEnabled=false сохраняются.
+    </p>
+</section>
+
+{% endblock %}

@@ -705,6 +705,38 @@ def gold_readiness(request: Request):
         },
     )
 
+def fetch_gold_regime_filter_status_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    SELECT
+        symbol,
+        status,
+        reason,
+        runtime_allowed,
+        execution_enabled,
+        updated_at,
+        raw_json->'mandatory_filters'->'gold_shadow_regime_filter_v1' AS filter_json,
+        raw_json->'mandatory_filters'->'gold_shadow_regime_filter_v1'->>'rule' AS filter_rule,
+        raw_json->'mandatory_filters'->'gold_shadow_regime_filter_v1'->>'backtest_verdict' AS backtest_verdict,
+        raw_json->'mandatory_filters'->'gold_shadow_regime_filter_v1'->>'blocked_trades' AS blocked_trades,
+        raw_json->'mandatory_filters'->'gold_shadow_regime_filter_v1'->>'pnl_improvement' AS pnl_improvement
+    FROM runtime_candidate_registry
+    WHERE symbol='GDU6@RTSX';
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+
+    if row:
+        row["updated_at_msk"] = to_msk(row.get("updated_at"))
+        row["filter_enabled"] = row.get("filter_rule") is not None
+
+    return row
+
+
 @app.get("/gold-watch-telemetry", response_class=HTMLResponse)
 def gold_watch_telemetry(request: Request):
     return templates.TemplateResponse(
@@ -713,5 +745,16 @@ def gold_watch_telemetry(request: Request):
             "request": request,
             "data": fetch_gold_watch_telemetry_dashboard_v1(),
             "active": "gold_watch_telemetry",
+        },
+    )
+
+@app.get("/gold-regime-filter", response_class=HTMLResponse)
+def gold_regime_filter(request: Request):
+    return templates.TemplateResponse(
+        "gold_regime_filter.html",
+        {
+            "request": request,
+            "data": fetch_gold_regime_filter_status_v1(),
+            "active": "gold_regime_filter",
         },
     )
