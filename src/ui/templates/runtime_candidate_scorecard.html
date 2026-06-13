@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="grid">
+    <div class="card"><div class="label">Готовы к review</div><div class="metric ok">{{ data.summary.ready }}</div></div>
+    <div class="card"><div class="label">Исследование</div><div class="metric warn">{{ data.summary.research }}</div></div>
+    <div class="card"><div class="label">Отклонено</div><div class="metric bad">{{ data.summary.rejected }}</div></div>
+    <div class="card"><div class="label">Всего</div><div class="metric">{{ data.summary.total }}</div></div>
+</section>
+
+<section class="card">
+    <h2>Runtime Candidate Scorecard</h2>
+
+    <div class="table-wrap">
+    <table>
+        <tr>
+            <th>Инструмент</th>
+            <th>Статус</th>
+            <th>Источник</th>
+            <th>Сигналы</th>
+            <th>Сделки</th>
+            <th>WinRate</th>
+            <th>Expectancy</th>
+            <th>PF</th>
+            <th>Stability</th>
+            <th>Gate</th>
+            <th>Runtime</th>
+            <th>Execution</th>
+            <th>Причина</th>
+            <th>Обновлено</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td class="nowrap">{{ row.symbol }}</td>
+            <td class="status-cell">{{ row.status_ru }}</td>
+            <td class="nowrap">{{ row.source }}</td>
+            <td class="num">{{ row.signals if row.signals is not none else "—" }}</td>
+            <td class="num">{{ row.trades if row.trades is not none else "—" }}</td>
+            <td class="num">{{ row.winrate if row.winrate is not none else "—" }}</td>
+            <td class="num">{{ row.expectancy if row.expectancy is not none else "—" }}</td>
+            <td class="num">{{ row.profit_factor if row.profit_factor is not none else "—" }}</td>
+            <td class="num">{{ row.stability_ratio if row.stability_ratio is not none else "—" }}</td>
+            <td>{{ row.review_gate if row.review_gate is not none else "—" }}</td>
+            <td>{{ "Да" if row.runtime_allowed else "Нет" }}</td>
+            <td>{{ "Да" if row.execution_enabled else "Нет" }}</td>
+            <td class="reason-cell">{{ row.reason }}</td>
+            <td class="nowrap">{{ row.created_at_msk }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Scorecard отображает только состояние кандидатов. RuntimeAllowed и ExecutionEnabled не изменяются этой страницей.
+    </p>
+</section>
+
+{% endblock %}

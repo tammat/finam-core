@@ -624,6 +624,67 @@ def fetch_runtime_candidates_dashboard_v2():
     return {"rows": result, "summary": summary}
 
 
+def fetch_runtime_candidate_scorecard_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    WITH latest AS (
+        SELECT DISTINCT ON (symbol)
+            created_at,
+            symbol,
+            status,
+            source,
+            signals,
+            trades,
+            winrate,
+            expectancy,
+            profit_factor,
+            stability_ratio,
+            review_gate,
+            runtime_allowed,
+            execution_enabled,
+            reason
+        FROM runtime_candidate_scorecard
+        ORDER BY symbol, id DESC
+    )
+    SELECT *
+    FROM latest
+    ORDER BY
+        CASE
+            WHEN status='READY_FOR_RUNTIME_REVIEW' THEN 1
+            WHEN status='RESEARCH' THEN 2
+            WHEN status='REJECTED' THEN 3
+            ELSE 4
+        END,
+        symbol;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+    for row in rows:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+        status = row["status"] or "UNKNOWN"
+        row["status_ru"] = {
+            "READY_FOR_RUNTIME_REVIEW": "🟢 Готов к ручному runtime-review",
+            "RESEARCH": "🟡 Исследование",
+            "REJECTED": "🔴 Отклонено",
+            "WATCH_RUNTIME_ACTIVE": "🟢 Runtime-наблюдение активно",
+            "WATCH_RUNTIME": "🟢 Кандидат для runtime-наблюдения",
+        }.get(status, status)
+
+    summary = {
+        "ready": sum(1 for r in rows if r["status"] == "READY_FOR_RUNTIME_REVIEW"),
+        "research": sum(1 for r in rows if r["status"] == "RESEARCH"),
+        "rejected": sum(1 for r in rows if r["status"] == "REJECTED"),
+        "total": len(rows),
+    }
+
+    return {"rows": rows, "summary": summary}
+
+
 @app.get("/runtime-candidates", response_class=HTMLResponse)
 def runtime_candidates(request: Request):
     return templates.TemplateResponse(
@@ -887,5 +948,16 @@ def gold_runtime_review_gate(request: Request):
             "request": request,
             "data": fetch_gold_runtime_review_gate_v1(),
             "active": "gold_runtime_review_gate",
+        },
+    )
+
+@app.get("/runtime-candidate-scorecard", response_class=HTMLResponse)
+def runtime_candidate_scorecard(request: Request):
+    return templates.TemplateResponse(
+        "runtime_candidate_scorecard.html",
+        {
+            "request": request,
+            "data": fetch_runtime_candidate_scorecard_v1(),
+            "active": "runtime_candidate_scorecard",
         },
     )
