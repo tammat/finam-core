@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="grid">
+    <div class="card"><div class="label">Инструменты</div><div class="metric">{{ data.summary.symbols }}</div></div>
+    <div class="card"><div class="label">События</div><div class="metric">{{ data.summary.events }}</div></div>
+    <div class="card"><div class="label">Promote / Watch / Reject</div><div class="metric">{{ data.summary.promote }} / {{ data.summary.watch }} / {{ data.summary.reject }}</div></div>
+    <div class="card"><div class="label">Runtime / Execution</div><div class="metric">{{ data.summary.runtime_enabled }} / {{ data.summary.execution_enabled }}</div></div>
+</section>
+
+<section class="card">
+    <h2>Runtime Candidate Lifecycle Board</h2>
+
+    <div class="table-wrap">
+    <table>
+        <tr>
+            <th>Инструмент</th>
+            <th>Тип события</th>
+            <th>Статус / решение</th>
+            <th>Причина</th>
+            <th>Runtime</th>
+            <th>Execution</th>
+            <th>Записано</th>
+        </tr>
+        {% for row in data.rows %}
+        <tr>
+            <td class="nowrap">{{ row.symbol }}</td>
+            <td class="nowrap">{{ row.event_type }}</td>
+            <td class="status-cell">{{ row.event_status_ru }}</td>
+            <td class="reason-cell">{{ row.event_reason }}</td>
+            <td>{{ "Да" if row.runtime_allowed else "Нет" }}</td>
+            <td>{{ "Да" if row.execution_enabled else "Нет" }}</td>
+            <td class="nowrap">{{ row.created_at_msk }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Lifecycle Board показывает историю состояний кандидатов. Страница не включает runtime,
+        не включает execution, не создаёт заявки и не меняет торговый контур.
+    </p>
+</section>
+
+{% endblock %}

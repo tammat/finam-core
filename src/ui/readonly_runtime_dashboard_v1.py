@@ -1157,6 +1157,66 @@ def runtime_candidate_decision_board(request: Request):
         },
     )
 
+def fetch_runtime_candidate_lifecycle_board_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    SELECT
+        created_at,
+        symbol,
+        event_type,
+        event_status,
+        event_reason,
+        runtime_allowed,
+        execution_enabled
+    FROM runtime_candidate_lifecycle_board
+    ORDER BY
+        symbol,
+        CASE
+            WHEN event_type='REGISTRY' THEN 1
+            WHEN event_type='REVIEW_GATE' THEN 2
+            WHEN event_type='DECISION' THEN 3
+            ELSE 4
+        END,
+        id DESC;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+    for row in rows:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+        row["event_status_ru"] = {
+            "READY_FOR_RUNTIME_REVIEW": "🟢 Готов к runtime-review",
+            "PROMOTE_RUNTIME_REVIEW": "🟢 Вынести на runtime-review",
+            "WATCH_RESEARCH": "🟡 Продолжить исследование",
+            "RESEARCH": "🟡 Исследование",
+            "REJECTED": "🔴 Отклонено",
+            "REJECT": "🔴 Отклонить",
+            "WATCH_RUNTIME_ACTIVE": "🟢 Runtime-наблюдение активно",
+        }.get(row.get("event_status"), row.get("event_status") or "—")
+
+    symbols = sorted({r["symbol"] for r in rows})
+
+    summary = {
+        "symbols": len(symbols),
+        "events": len(rows),
+        "promote": sum(1 for r in rows if r["event_status"] in ("READY_FOR_RUNTIME_REVIEW", "PROMOTE_RUNTIME_REVIEW")),
+        "watch": sum(1 for r in rows if r["event_status"] in ("RESEARCH", "WATCH_RESEARCH", "WATCH_RUNTIME_ACTIVE")),
+        "reject": sum(1 for r in rows if r["event_status"] in ("REJECTED", "REJECT")),
+        "runtime_enabled": sum(1 for r in rows if r["runtime_allowed"]),
+        "execution_enabled": sum(1 for r in rows if r["execution_enabled"]),
+    }
+
+    return {
+        "rows": rows,
+        "symbols": symbols,
+        "summary": summary,
+    }
+
+
 @app.get("/candidate-portfolio", response_class=HTMLResponse)
 def candidate_portfolio_dashboard(request: Request):
     return templates.TemplateResponse(
@@ -1165,5 +1225,16 @@ def candidate_portfolio_dashboard(request: Request):
             "request": request,
             "data": fetch_candidate_portfolio_dashboard_v1(),
             "active": "candidate_portfolio",
+        },
+    )
+
+@app.get("/runtime-candidate-lifecycle", response_class=HTMLResponse)
+def runtime_candidate_lifecycle(request: Request):
+    return templates.TemplateResponse(
+        "runtime_candidate_lifecycle_board.html",
+        {
+            "request": request,
+            "data": fetch_runtime_candidate_lifecycle_board_v1(),
+            "active": "runtime_candidate_lifecycle",
         },
     )
