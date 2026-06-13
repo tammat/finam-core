@@ -604,6 +604,7 @@ def fetch_runtime_candidates_dashboard_v2():
         status = row["status"] or "RESEARCH"
         row["status_ru"] = {
             "WATCH_RUNTIME": "🟢 Кандидат для runtime-наблюдения",
+            "WATCH_RUNTIME_ACTIVE": "🟢 Runtime-наблюдение активно",
             "RESEARCH": "🟡 Исследование",
             "REJECTED": "🔴 Отклонено",
             "RUNTIME": "🟢 Runtime",
