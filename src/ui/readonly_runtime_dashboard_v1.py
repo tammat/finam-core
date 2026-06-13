@@ -823,6 +823,49 @@ def gold_regime_filter(request: Request):
         },
     )
 
+def fetch_gold_runtime_review_gate_v1():
+    dsn = os.environ["DATABASE_URL"]
+
+    sql = """
+    SELECT
+        created_at,
+        symbol,
+        registry_status,
+        registry_reason,
+        mandatory_filter_rule,
+        stability_verdict,
+        stability_ratio,
+        negative_ratio,
+        days_effective,
+        days_stable,
+        filtered_pnl,
+        telemetry_status,
+        shadow_signals,
+        shadow_trades,
+        shadow_winrate,
+        shadow_expectancy,
+        shadow_profit_factor,
+        runtime_allowed,
+        execution_enabled,
+        decision,
+        reason
+    FROM gold_runtime_review_gate
+    WHERE symbol='GDU6@RTSX'
+    ORDER BY id DESC
+    LIMIT 1;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+
+    if row:
+        row["created_at_msk"] = to_msk(row.get("created_at"))
+
+    return row
+
+
 @app.get("/gold-stability-monitor", response_class=HTMLResponse)
 def gold_stability_monitor(request: Request):
     return templates.TemplateResponse(
@@ -831,5 +874,16 @@ def gold_stability_monitor(request: Request):
             "request": request,
             "data": fetch_gold_stability_monitor_dashboard_v1(),
             "active": "gold_stability_monitor",
+        },
+    )
+
+@app.get("/gold-runtime-review-gate", response_class=HTMLResponse)
+def gold_runtime_review_gate(request: Request):
+    return templates.TemplateResponse(
+        "gold_runtime_review_gate.html",
+        {
+            "request": request,
+            "data": fetch_gold_runtime_review_gate_v1(),
+            "active": "gold_runtime_review_gate",
         },
     )

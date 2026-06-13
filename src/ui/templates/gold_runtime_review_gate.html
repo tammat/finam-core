@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+    <h2>GOLD: runtime review gate</h2>
+
+    {% if data %}
+    <table>
+        <tr><th>Показатель</th><th>Значение</th></tr>
+        <tr><td>Инструмент</td><td>{{ data.symbol }}</td></tr>
+        <tr><td>Решение gate</td><td><b>🟢 {{ data.decision }}</b></td></tr>
+        <tr><td>Причина</td><td>{{ data.reason }}</td></tr>
+        <tr><td>Время расчёта</td><td>{{ data.created_at_msk }}</td></tr>
+
+        <tr><td>Registry status</td><td>{{ data.registry_status }}</td></tr>
+        <tr><td>Registry reason</td><td>{{ data.registry_reason }}</td></tr>
+        <tr><td>Mandatory filter</td><td>{{ data.mandatory_filter_rule }}</td></tr>
+
+        <tr><td>Stability verdict</td><td>{{ data.stability_verdict }}</td></tr>
+        <tr><td>Stability ratio</td><td>{{ data.stability_ratio }}</td></tr>
+        <tr><td>Negative ratio</td><td>{{ data.negative_ratio }}</td></tr>
+        <tr><td>Effective days</td><td>{{ data.days_effective }}</td></tr>
+        <tr><td>Stable days</td><td>{{ data.days_stable }}</td></tr>
+        <tr><td>Filtered PnL</td><td>{{ data.filtered_pnl }}</td></tr>
+
+        <tr><td>Telemetry status</td><td>{{ data.telemetry_status }}</td></tr>
+        <tr><td>Shadow signals</td><td>{{ data.shadow_signals }}</td></tr>
+        <tr><td>Shadow trades</td><td>{{ data.shadow_trades }}</td></tr>
+        <tr><td>Shadow WinRate</td><td>{{ data.shadow_winrate }}</td></tr>
+        <tr><td>Shadow Expectancy</td><td>{{ data.shadow_expectancy }}</td></tr>
+        <tr><td>Shadow PF</td><td>{{ data.shadow_profit_factor }}</td></tr>
+
+        <tr><td>Runtime</td><td>{{ "Включён" if data.runtime_allowed else "Отключён" }}</td></tr>
+        <tr><td>Execution</td><td>{{ "Включено" if data.execution_enabled else "Отключено" }}</td></tr>
+    </table>
+    {% else %}
+    <p>Данных runtime review gate пока нет.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2>Ограничение безопасности</h2>
+    <p>
+        Gate выдаёт только решение о готовности к ручному review.
+        RuntimeAllowed=false и ExecutionEnabled=false сохраняются.
+        Торговые заявки не создаются.
+    </p>
+</section>
+
+{% endblock %}
