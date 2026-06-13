@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Finam GOLD Watch Telemetry every 5 minutes
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 10:00/5:00 Europe/Moscow
+Persistent=true
+Unit=finam-gold-watch-telemetry.service
+
+[Install]
+WantedBy=timers.target
