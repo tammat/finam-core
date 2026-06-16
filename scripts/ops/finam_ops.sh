@@ -325,6 +325,7 @@ case "$cmd" in
   dashboard)
     echo "=== ДАШБОРД FINAM_CORE ==="
     echo
+
     echo "=== 1. СЕРВИС ==="
     systemctl is-active finam-paper-pipeline.service || true
     systemctl status finam-paper-pipeline.service --no-pager | sed -n '1,12p' || true
@@ -335,109 +336,14 @@ case "$cmd" in
       grep -E "ERROR|Traceback|Exception|FAILED" | grep -v "PIPE_SESSION_BLOCK phase=preopen" || true
 
     echo
-    echo "=== 3. ИССЛЕДОВАТЕЛЬСКИЙ КОНТУР ==="
-
-    "$PY_BIN" \
-echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
-
-echo
-echo "=== АКТУАЛЬНАЯ ЧИСТАЯ V3-СТАТИСТИКА ==="
-PYTHONPATH=src python3 src/scripts/observability/build_clean_paper_dashboard_ru_v1.py || true
-
+    echo "=== 3. АКТУАЛЬНАЯ ЧИСТАЯ V3-СТАТИСТИКА ==="
+    PYTHONPATH=src "$PY_BIN" src/scripts/observability/build_clean_paper_dashboard_ru_v1.py || true
 
     echo
-echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
-    echo
-echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
-echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
-
-    echo
-    echo "Crypto Features отключён из основного dashboard до русификации и проверки источников."
-echo
-    echo "=== 3.3. REGIME GUARD SHADOW ==="
-    "$PY_BIN" src/scripts/research/build_regime_guard_shadow_report_v1.py --since "24 hours" || true
-
-    echo
-    echo "=== 3.4. REGIME GUARD SHADOW EFFECTIVENESS ==="
-    "$PY_BIN" src/scripts/research/build_regime_guard_shadow_effectiveness_report_v1.py --since "24 hours" || true
-
-    echo
-    echo "=== 4. СВЕЖЕСТЬ БАРОВ BR/NG/USD ==="
-    psql "$DATABASE_URL" -c "
-    SELECT
-      symbol,
-      timeframe,
-      to_char(max(ts) AT TIME ZONE 'Europe/Moscow','DD-MM-YYYY HH24:MI:SS') AS last_bar_msk,
-      round(extract(epoch from (now() - max(ts))) / 60, 2) AS lag_min
-    FROM market_bars
-    WHERE symbol IN ('BRN6@RTSX','NGN6@RTSX','USDRUBF@RTSX')
-      AND timeframe IN ('M1','M5')
-    GROUP BY symbol, timeframe
-    ORDER BY symbol, timeframe;
-    "
-
-    echo "=== 4. БЛОКИРОВКИ СИГНАЛОВ ЗА 30 МИНУТ ==="
-    blocks_tmp="$(mktemp)"
-    journalctl -u finam-paper-pipeline.service --since "30 minutes ago" --no-pager 2>/dev/null | \
-      grep "RUNTIME_GUARD_PRE_SIGNAL_BLOCK_SAVED" | \
-      sed -E 's/.*symbol=([^ ]+).*block_type=([^ ]+).*/\1 \2/' | \
-      sort | uniq -c | tee "$blocks_tmp" || true
-
-    blocked_total="$(awk '{s += $1} END {print s + 0}' "$blocks_tmp")"
-    echo "BLOCKED_SIGNALS_TOTAL=${blocked_total}"
-    rm -f "$blocks_tmp"
-
-
-    echo
-    echo
-    "$PY_BIN" src/scripts/observability/build_execution_funnel_v2.py
-
-
-    echo
-    echo "=== 5. ПОСЛЕДНИЕ FILL BR/NG ЗА 1 ЧАС ==="
-    psql "$DATABASE_URL" -c "
-    SELECT
-        symbol,
-        side,
-        qty,
-        price,
-        origin,
-        strategy,
-        timeframe,
-        created_at
-    FROM trades
-    WHERE symbol IN ('BRN6@RTSX','NGN6@RTSX')
-      AND created_at >= now() - interval '1 hour'
-      AND COALESCE(origin, '') = 'paper'
-      AND is_invalid = false
-    ORDER BY created_at DESC
-    LIMIT 20;
-    "
-
-    echo
-    echo "=== 6. ПОСЛЕДНИЕ 20 PAPER-СДЕЛОК ==="
-    psql "$DATABASE_URL" -c "
-    SELECT
-        symbol,
-        side,
-        qty,
-        price,
-        origin,
-        strategy,
-        timeframe,
-        created_at
-    FROM trades
-    WHERE origin = 'paper'
-      AND is_invalid = false
-      AND COALESCE(strategy, '') <> ''
-      AND COALESCE(payload->>'source', '') <> 'moex_external_replay_v3'
-      AND COALESCE(payload->>'regime', '') <> 'MOEX_HISTORY'
-      AND COALESCE(payload->>'paper_only', '') <> 'true'
-    ORDER BY created_at DESC
-    LIMIT 20;
-    "
+    echo "LEGACY KPI / EDGE / CRYPTO отключены из основного dashboard."
+    echo "Источник истины: clean_paper_accumulation_tracker_v1 + strategy_statistics_v3."
+    echo "Dashboard завершён. Тяжёлые проверки вынесены в отдельные пункты меню."
     ;;
-
   health)
     echo "=== RESEARCH FEATURE FRESHNESS HEALTH ==="
     "$PY_BIN" src/scripts/observability/build_research_feature_freshness_health_v1.py || true
