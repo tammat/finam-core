@@ -7849,6 +7849,12 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+        br_timeframe = str(
+            getattr(br_signal, "timeframe", None)
+            or os.getenv("BR_BREAKOUT_TIMEFRAME", "M5")
+            or "M5"
+        ).strip().upper()
+
         order = {
             "symbol": br_signal.symbol,
             "side": br_signal.side,
@@ -7856,7 +7862,11 @@ class PaperTradingPipeline:
             "price": br_signal.price,
             "stop": br_signal.stop,
             "take": br_signal.take,
+            # Русский комментарий: paper trade identity обязательна для clean V3 accumulation.
             "strategy": br_strategy,
+            "timeframe": br_timeframe,
+            "origin": "paper",
+            "trade_source": "paper",
             "source": "paper_pipeline_closed_bar",
             "paper_only": True,
         }
@@ -7930,8 +7940,18 @@ class PaperTradingPipeline:
                 trade.price = br_signal.price
                 trade.commission = 0.0
                 trade.fill_id = f"paper_br_{int(br_signal.ts.timestamp())}"
-                trade.origin = "paper_pipeline_fallback"
+                # Русский комментарий: fallback также обязан сохранять identity.
+                trade.strategy = br_strategy
+                trade.timeframe = br_timeframe
+
+                trade.origin = "paper"
                 trade.trade_source = "paper"
+
+                if not trade.strategy or not trade.timeframe:
+                    raise ValueError(
+                        f"PAPER_TRADE_IDENTITY_MISSING symbol={trade.symbol} "
+                        f"strategy={trade.strategy} timeframe={trade.timeframe}"
+                    )
 
                 self.pg_logger.log_trade(trade)
                 return True, "PAPER_TRADE_LOG_FALLBACK"
