@@ -493,6 +493,13 @@ class ExecutionDispatcher:
                     }
             except Exception as exc:
                 print(f"ОШИБКА_RUNTIME_CONTROL_GATE error={exc}", flush=True)
+                return {
+                    "status": "REJECTED",
+                    "reason": "strategy_runtime_control_gate_error",
+                    "runtime_reason": str(exc),
+                    "symbol": intent.get("symbol"),
+                    "intent": intent,
+                }
 
             oms_guard = self._get_oms_dispatch_guard()
             oms_decision = oms_guard.prepare(intent)

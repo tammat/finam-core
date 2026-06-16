@@ -32,13 +32,13 @@ class StrategyRuntimeGate:
 
         if self.repository is None:
             return StrategyRuntimeGateDecision(
-                allowed=True,
-                watch_only=False,
+                allowed=False,
+                watch_only=True,
                 original_qty=original_qty,
-                adjusted_qty=original_qty,
-                risk_multiplier=1.0,
+                adjusted_qty=0.0,
+                risk_multiplier=0.0,
                 status="NO_REPOSITORY",
-                reason="Репозиторий runtime-control не подключён",
+                reason="Репозиторий runtime-control не подключён; исполнение заблокировано",
             )
 
         decision = self.repository.get_decision(symbol, strategy)
