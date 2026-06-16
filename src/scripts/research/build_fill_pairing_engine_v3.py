@@ -48,7 +48,11 @@ create table if not exists closed_trade_chains_v3 (
 );
 """
 
-TRUNCATE = "truncate table closed_trade_chains_v3;"
+
+TRUNCATE = """
+truncate table trade_attribution_v3, closed_trade_chains_v3;
+"""
+
 
 FILL_SQL = """
 select
