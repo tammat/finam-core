@@ -86,6 +86,9 @@ scored as (
         coalesce(g.identity_status, 'NO_IDENTITY_GOVERNANCE') as identity_status,
         coalesce(q.quarantine_status, 'NOT_QUARANTINED') as quarantine_status,
         coalesce(q.quarantine_reason, '') as quarantine_reason,
+        coalesce(dq.gate_status, 'BLOCKED') as dq_gate_status,
+        coalesce(dq.gate_reason, 'research_data_quality_gate_missing') as dq_gate_reason,
+        coalesce(dq.allow_statistics, false) as dq_allow_statistics,
         coalesce(b.full_ctx::numeric / nullif(b.trades,0),0) as full_ctx_pct
     from base b
     left join strategy_identity_governance_v1 g
@@ -98,14 +101,25 @@ scored as (
      and q.strategy = b.strategy
      and q.timeframe = b.timeframe
      and q.trade_source = b.trade_source
+    left join research_data_quality_gate_v1 dq
+      on dq.symbol = b.symbol
+     and dq.strategy = b.strategy
+     and dq.timeframe = b.timeframe
+     and dq.trade_source = b.trade_source
 ),
 verdict as (
     select
         *,
         case
+            -- RESEARCH_DATA_QUALITY_GATE_V1_WIRE:
+            -- Русский комментарий:
+            -- Data Quality Gate имеет самый высокий приоритет.
+            -- Если gate закрыт, статистика не может стать trusted.
+            when dq_gate_status <> 'OPEN' or dq_allow_statistics = false
+                then 'NOT_TRUSTED'
             -- QUARANTINE_RECONSTRUCTION_ARTIFACTS_V1_WIRE:
             -- Русский комментарий:
-            -- Карантин имеет приоритет над всеми остальными правилами trusted scoring.
+            -- Карантин имеет приоритет над базовыми правилами trusted scoring.
             when quarantine_status = 'QUARANTINED'
                 then 'NOT_TRUSTED'
             when identity_status = 'TIMEFRAME_IDENTITY_SUSPECT'
@@ -127,6 +141,11 @@ verdict as (
             else 'TRUSTED'
         end as trusted_status,
         case
+            -- RESEARCH_DATA_QUALITY_GATE_V1_WIRE:
+            -- Русский комментарий:
+            -- Причина закрытия DQ gate сохраняется как trusted_reason.
+            when dq_gate_status <> 'OPEN' or dq_allow_statistics = false
+                then 'dq_gate_block:' || dq_gate_reason
             -- QUARANTINE_RECONSTRUCTION_ARTIFACTS_V1_WIRE:
             -- Русский комментарий:
             -- Причина quarantine сохраняется отдельно в trusted_reason.
