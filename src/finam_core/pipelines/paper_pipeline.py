@@ -4298,6 +4298,35 @@ class PaperTradingPipeline:
         try:
             normalized_signal_intent = StrategyIntentAdapter.normalize(raw_intent)
             raw_intent = StrategyIntentAdapter.to_pipeline_dict(normalized_signal_intent)
+
+            # NG_PAPER_TRADE_IDENTITY_ENFORCEMENT_V1:
+            # Русский комментарий: новые paper-сделки NG должны нести strategy/timeframe,
+            # иначе они не попадают в clean V3 accumulation.
+            if isinstance(raw_intent, dict) and self._is_ng_symbol(str(sym)):
+                ng_strategy_name = (
+                    raw_intent.get("strategy")
+                    or (raw_intent.get("features") or {}).get("strategy")
+                    or self._strategy_name_for_symbol(str(sym))
+                )
+                ng_timeframe = (
+                    raw_intent.get("timeframe")
+                    or os.getenv("NG_PAPER_PILOT_PROFILE_TIMEFRAME", "M5")
+                    or "M5"
+                )
+
+                raw_intent["strategy"] = str(ng_strategy_name)
+                raw_intent["timeframe"] = str(ng_timeframe).strip().upper()
+                raw_intent["origin"] = "paper"
+                raw_intent["trade_source"] = "paper"
+                raw_intent.setdefault("features", {})
+                raw_intent["features"]["strategy"] = raw_intent["strategy"]
+                raw_intent["features"]["timeframe"] = raw_intent["timeframe"]
+
+                if not raw_intent["strategy"] or not raw_intent["timeframe"]:
+                    raise ValueError(
+                        f"NG_PAPER_TRADE_IDENTITY_MISSING symbol={sym} "
+                        f"strategy={raw_intent.get('strategy')} timeframe={raw_intent.get('timeframe')}"
+                    )
         except Exception as exc:
             print(f"PIPE_SIGNAL_INTENT_ADAPTER_ERROR {type(exc).__name__}:{exc}", flush=True)
             return
