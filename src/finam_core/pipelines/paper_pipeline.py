@@ -1217,10 +1217,26 @@ class PaperTradingPipeline:
                 self._broker_position_last_sync_log_ts = now_log_ts
 
         except Exception as exc:
-            self._log_dedup(
-                f"PIPE_BROKER_POSITION_SYNC_ERROR:{type(exc).__name__}",
-                f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}",
+            # Русский комментарий: в paper-режиме временный gRPC timeout брокерской
+            # синхронизации позиций не должен загрязнять ERROR-логи и не должен
+            # влиять на исполнение paper-контура.
+            err_text = str(exc)
+            is_deadline_timeout = (
+                "DEADLINE_EXCEEDED" in err_text
+                or "Deadline Exceeded" in err_text
+                or "StatusCode.DEADLINE_EXCEEDED" in err_text
             )
+
+            if is_deadline_timeout:
+                self._log_dedup(
+                    f"PIPE_BROKER_POSITION_SYNC_TIMEOUT_SOFT:{type(exc).__name__}",
+                    f"PIPE_BROKER_POSITION_SYNC_TIMEOUT_SOFT error={exc}",
+                )
+            else:
+                self._log_dedup(
+                    f"PIPE_BROKER_POSITION_SYNC_ERROR:{type(exc).__name__}",
+                    f"PIPE_BROKER_POSITION_SYNC_ERROR error={exc}",
+                )
 
 
     def _local_position_qty_for_hard_gate(self, symbol: str) -> float:
