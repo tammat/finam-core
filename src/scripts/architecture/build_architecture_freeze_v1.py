@@ -49,7 +49,18 @@ def main() -> int:
     print("ARCH_FREEZE_FORBIDDEN_RUNTIME v2_chains,v2_attribution,quarantine_artifacts,burst_artifacts,symbol_only_matches,research_only_statistics")
 
     status = "FROZEN_SAFE_BLOCKED"
-    reason = "no_trusted_candidates_no_runtime_active_no_v3_reviewable"
+
+    # ARCHITECTURE_FREEZE_V1_RUNTIME_ACTIVE_VERDICT:
+    # Русский комментарий:
+    # runtime_active_universe может содержать enabled rows,
+    # но это не означает, что стратегии trusted.
+    # Поэтому reason должен честно различать:
+    # 1) runtime_active пуст;
+    # 2) runtime_active не пуст, но trusted/v3 candidates отсутствуют.
+    if int(r["runtime_active"] or 0) > 0:
+        reason = "runtime_active_present_but_no_trusted_candidates_no_v3_reviewable"
+    else:
+        reason = "no_runtime_active_no_trusted_candidates_no_v3_reviewable"
 
     print(
         "ARCHITECTURE_FREEZE_VERDICT "
