@@ -215,6 +215,14 @@ def main() -> int:
             queues: dict[tuple[str, str, str, str, str], deque[Fill]] = defaultdict(deque)
             inserted = 0
             skipped_same_side = 0
+            skipped_burst_chains = 0
+
+            # FILL_PAIRING_ENGINE_V3_BURST_SKIP:
+            # Русский комментарий:
+            # Не даём burst-кластерам попасть в closed_trade_chains_v3.
+            # Цепочки, возникающие пакетно внутри одной минуты, считаются research artifact.
+            max_chains_per_minute = 10
+            chains_per_minute = defaultdict(int)
 
             for r in rows:
                 fill = Fill(
@@ -257,6 +265,26 @@ def main() -> int:
                     gross = pnl(entry, fill, matched_qty)
                     net = gross - entry.commission - fill.commission
                     q_status, q_reason = quality(entry, fill)
+
+                    minute_key = (
+                        fill.symbol,
+                        fill.strategy,
+                        fill.timeframe,
+                        fill.trade_source,
+                        entry.created_at.replace(second=0, microsecond=0),
+                    )
+
+                    if chains_per_minute[minute_key] >= max_chains_per_minute:
+                        skipped_burst_chains += 1
+                        entry.qty -= matched_qty
+                        remaining_qty -= matched_qty
+
+                        if entry.qty <= 0:
+                            queues[key].popleft()
+
+                        continue
+
+                    chains_per_minute[minute_key] += 1
 
                     payload = {
                         "symbol": fill.symbol,
@@ -320,6 +348,7 @@ def main() -> int:
         f"fills_loaded={len(rows)} "
         f"chains_inserted={inserted} "
         f"same_side_closed={skipped_same_side} "
+        f"skipped_burst_chains={skipped_burst_chains} "
         "runtime_allow=0 execution_enabled=0"
     )
 
