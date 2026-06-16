@@ -78,6 +78,7 @@ where c.rebuild_status='PLANNED'
   and coalesce(t.strategy,'') <> ''
   and coalesce(t.timeframe,'') <> ''
   and coalesce(t.is_invalid,false)=false
+  and coalesce(t.origin,'') = 'paper'
 order by
     t.symbol,
     t.strategy,
