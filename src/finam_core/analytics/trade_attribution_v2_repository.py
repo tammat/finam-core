@@ -12,6 +12,10 @@ class TradeAttributionV2Repository:
     """
     Русский комментарий:
     Обогащает closed_trade_chains_v2 контекстом governance / lifecycle / exit policy.
+
+    Важно:
+    поле trade_attribution_v2.closed_trade_id исторически хранит closed_trade_chains_v2.id,
+    а не closed_trades.id. Не использовать closed_trades для проверки связности attribution.
     """
 
     def __init__(self, database_url: str) -> None:
