@@ -97,6 +97,27 @@ def build_strategy_promotion_decision(
             reason="research_watch_divergence",
         )
 
+    # Русский комментарий:
+    # PLZL D1 стратегии подтверждены attribution-chain статистикой, но не должны
+    # получать paper/real-допуск. Держим их в безопасном research/radar watch.
+    if (
+        status in {"REJECT", "WEAK", "NO_TRADES"}
+        and item.symbol == "PLZL@MISX"
+        and item.strategy in {"MOEX_SIMPLE_MOMENTUM", "MOEX_MEAN_REVERSION_V1"}
+        and item.timeframe == "D1"
+    ):
+        return StrategyPromotionDecision(
+            symbol=item.symbol,
+            strategy=item.strategy,
+            timeframe=item.timeframe,
+            trade_source=item.trade_source,
+            runtime_action="RESEARCH_WATCH",
+            allow_paper_signal=False,
+            allow_radar_signal=True,
+            allow_real_suggestion=False,
+            reason=f"plzl_attribution_chain_research_watch:{item.reason}",
+        )
+
     if status in {"REJECT", "WEAK", "NO_TRADES"}:
         return StrategyPromotionDecision(
             symbol=item.symbol,
