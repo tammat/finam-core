@@ -84,6 +84,8 @@ scored as (
     select
         b.*,
         coalesce(g.identity_status, 'NO_IDENTITY_GOVERNANCE') as identity_status,
+        coalesce(q.quarantine_status, 'NOT_QUARANTINED') as quarantine_status,
+        coalesce(q.quarantine_reason, '') as quarantine_reason,
         coalesce(b.full_ctx::numeric / nullif(b.trades,0),0) as full_ctx_pct
     from base b
     left join strategy_identity_governance_v1 g
@@ -91,11 +93,21 @@ scored as (
      and g.strategy = b.strategy
      and g.timeframe = b.timeframe
      and g.trade_source = b.trade_source
+    left join quarantine_reconstruction_artifacts_v1 q
+      on q.symbol = b.symbol
+     and q.strategy = b.strategy
+     and q.timeframe = b.timeframe
+     and q.trade_source = b.trade_source
 ),
 verdict as (
     select
         *,
         case
+            -- QUARANTINE_RECONSTRUCTION_ARTIFACTS_V1_WIRE:
+            -- Русский комментарий:
+            -- Карантин имеет приоритет над всеми остальными правилами trusted scoring.
+            when quarantine_status = 'QUARANTINED'
+                then 'NOT_TRUSTED'
             when identity_status = 'TIMEFRAME_IDENTITY_SUSPECT'
                 then 'NOT_TRUSTED'
             when full_ctx_pct < 0.20
@@ -115,6 +127,11 @@ verdict as (
             else 'TRUSTED'
         end as trusted_status,
         case
+            -- QUARANTINE_RECONSTRUCTION_ARTIFACTS_V1_WIRE:
+            -- Русский комментарий:
+            -- Причина quarantine сохраняется отдельно в trusted_reason.
+            when quarantine_status = 'QUARANTINED'
+                then 'quarantined_reconstruction_artifact'
             when identity_status = 'TIMEFRAME_IDENTITY_SUSPECT'
                 then 'identity_suspect'
             when full_ctx_pct < 0.20
