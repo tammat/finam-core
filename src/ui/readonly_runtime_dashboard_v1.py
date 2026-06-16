@@ -1238,3 +1238,89 @@ def runtime_candidate_lifecycle(request: Request):
             "active": "runtime_candidate_lifecycle",
         },
     )
+
+# CLEAN_PAPER_V3_DASHBOARD_RU:
+# Русский комментарий:
+# Канонический отчёт по чистому paper-контуру V3.
+# Старые scorecard не считаются источником runtime-решений.
+@app.get("/clean-paper-v3")
+def clean_paper_v3_dashboard():
+    import os
+    import psycopg2
+    import psycopg2.extras
+    from fastapi.responses import HTMLResponse
+
+    sql = """
+    select
+        symbol,
+        strategy,
+        timeframe,
+        clean_trades,
+        trade_days,
+        v3_full_chains,
+        round(v3_net_pnl, 6) as v3_net_pnl,
+        accumulation_status,
+        accumulation_reason
+    from clean_paper_accumulation_tracker_v1
+    order by v3_full_chains desc, clean_trades desc;
+    """
+
+    rows_html = ""
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+
+    for r in rows:
+        rows_html += f"""
+        <tr>
+          <td>{r['symbol']}</td>
+          <td>{r['strategy']}</td>
+          <td>{r['timeframe']}</td>
+          <td>{r['clean_trades']}</td>
+          <td>{r['trade_days']}</td>
+          <td>{r['v3_full_chains']}</td>
+          <td>{r['v3_net_pnl']}</td>
+          <td>{r['accumulation_status']}</td>
+          <td>{r['accumulation_reason']}</td>
+        </tr>
+        """
+
+    html = f"""
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Чистый paper-контур V3</title>
+      <style>
+        body {{ font-family: Arial, sans-serif; margin: 24px; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; }}
+        th {{ background: #f2f2f2; }}
+        .danger {{ color: #b00020; font-weight: bold; }}
+        .ok {{ color: #006400; font-weight: bold; }}
+      </style>
+    </head>
+    <body>
+      <h1>Чистый paper-контур V3</h1>
+      <p><b>Источник:</b> clean_paper_accumulation_tracker_v1</p>
+      <p class="danger">Подтверждённый edge: нет. Runtime и real execution закрыты.</p>
+      <p>Legacy scorecard не использовать для runtime-решений.</p>
+
+      <table>
+        <tr>
+          <th>Инструмент</th>
+          <th>Стратегия</th>
+          <th>Таймфрейм</th>
+          <th>Чистые сделки</th>
+          <th>Торговые дни</th>
+          <th>Полные V3-цепочки</th>
+          <th>PnL V3</th>
+          <th>Статус</th>
+          <th>Причина</th>
+        </tr>
+        {rows_html}
+      </table>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)

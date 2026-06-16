@@ -338,19 +338,22 @@ case "$cmd" in
     echo "=== 3. ИССЛЕДОВАТЕЛЬСКИЙ КОНТУР ==="
 
     "$PY_BIN" \
-    src/scripts/observability/build_research_kpi_dashboard_v1.py
+echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
+
+echo
+echo "=== АКТУАЛЬНАЯ ЧИСТАЯ V3-СТАТИСТИКА ==="
+PYTHONPATH=src python3 src/scripts/observability/build_clean_paper_dashboard_ru_v1.py || true
+
 
     echo
-    "$PY_BIN" src/scripts/observability/build_edge_scorecard_v1.py
+echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
     echo
-    echo "=== 3.1. CRYPTO RESEARCH ==="
-    "$PY_BIN" src/scripts/observability/build_crypto_research_dashboard_v1.py || true
+echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
+echo "LEGACY-блок отключён: использовать только чистую V3-статистику."
 
     echo
-    echo "=== 3.2. CRYPTO FEATURES ==="
-    "$PY_BIN" src/scripts/observability/build_crypto_feature_dashboard_v1.py || true
-
-    echo
+    echo "Crypto Features отключён из основного dashboard до русификации и проверки источников."
+echo
     echo "=== 3.3. REGIME GUARD SHADOW ==="
     "$PY_BIN" src/scripts/research/build_regime_guard_shadow_report_v1.py --since "24 hours" || true
 
