@@ -211,7 +211,17 @@ class RuntimeUniverseAllocator:
                         },
                     )
 
-                cur.execute("delete from runtime_active_universe")
+                # Русский комментарий:
+                # Не удаляем ручные forward-accumulation seed-строки.
+                # Они нужны для research-only накопления статистики по контрактам,
+                # которые allocator пока не выбирает автоматически.
+                cur.execute("""
+                    delete from runtime_active_universe
+                    where coalesce(source, '') not in (
+                        'manual_forward_accumulation_seed',
+                        'manual_forward_accumulation'
+                    )
+                """)
 
                 for (
                     effective_score,
