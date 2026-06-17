@@ -7,6 +7,11 @@ import psycopg2.extras
 
 
 CREATE_VIEW_SQL = """
+-- Русский комментарий:
+-- Сначала удаляем зависимое metrics-view, иначе PostgreSQL не даст
+-- пересоздать базовое clean_operational_position_view_v1.
+drop view if exists clean_operational_position_metrics_v1;
+
 drop view if exists clean_operational_position_view_v1;
 
 create view clean_operational_position_view_v1 as
