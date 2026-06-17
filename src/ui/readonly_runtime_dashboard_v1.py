@@ -329,11 +329,104 @@ def fetch_gold_research_details_v1():
     }
 
 
+
+def fetch_v3_dashboard_data():
+    """Русский комментарий: единый источник данных для главной страницы 8088 — только clean V3."""
+    dsn = os.environ["DATABASE_URL"]
+
+    sql_accumulation = """
+    select
+        symbol,
+        strategy,
+        timeframe,
+        clean_trades,
+        trade_days,
+        v3_full_chains,
+        v3_partial_chains,
+        round(v3_net_pnl, 6) as v3_net_pnl,
+        accumulation_status,
+        accumulation_reason
+    from clean_paper_accumulation_tracker_v1
+    order by v3_net_pnl desc;
+    """
+
+    sql_statistics = """
+    select
+        symbol,
+        strategy,
+        timeframe,
+        trade_source,
+        quality_bucket,
+        trades,
+        entry_days,
+        exit_days,
+        round(net_pnl, 6) as net_pnl,
+        round(expectancy, 6) as expectancy,
+        round(profit_factor, 4) as profit_factor,
+        statistics_status,
+        statistics_reason
+    from strategy_statistics_v3
+    order by net_pnl desc;
+    """
+
+    sql_daily = """
+    select
+        entry_ts::date as trade_date,
+        symbol,
+        strategy,
+        timeframe,
+        count(*) as trades,
+        round(sum(net_pnl), 6) as pnl,
+        round(avg(net_pnl), 6) as expectancy
+    from closed_trade_chains_v3
+    where entry_ts::date >= current_date - interval '7 days'
+    group by 1,2,3,4
+    order by trade_date desc, pnl desc;
+    """
+
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql_accumulation)
+            accumulation = cur.fetchall()
+
+            cur.execute(sql_statistics)
+            statistics = cur.fetchall()
+
+            cur.execute(sql_daily)
+            daily = cur.fetchall()
+
+    summary = {
+        "strategies": len(accumulation),
+        "clean_trades": sum(int(r["clean_trades"] or 0) for r in accumulation),
+        "v3_full_chains": sum(int(r["v3_full_chains"] or 0) for r in accumulation),
+        "v3_pnl": round(sum(float(r["v3_net_pnl"] or 0) for r in accumulation), 6),
+    }
+
+    return {
+        "title": "FINAM_CORE V3",
+        "mode": "Только clean V3",
+        "runtime": "Закрыт",
+        "execution": "Закрыто",
+        "summary": summary,
+        "accumulation": accumulation,
+        "statistics": statistics,
+        "daily": daily,
+        "checkpoints": fetch_git_checkpoints(),
+    }
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "data": fetch_dashboard_data(), "active": "dashboard"},
+        "v3_dashboard.html",
+        {"request": request, "data": fetch_v3_dashboard_data(), "active": "v3"},
+    )
+
+
+@app.get("/v3", response_class=HTMLResponse)
+def v3_dashboard(request: Request):
+    return templates.TemplateResponse(
+        "v3_dashboard.html",
+        {"request": request, "data": fetch_v3_dashboard_data(), "active": "v3"},
     )
 
 
