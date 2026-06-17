@@ -340,6 +340,40 @@ def ru_accumulation_status(status: str) -> str:
     return mapping.get(status or "", status or "")
 
 
+
+
+def ru_reason(reason: str) -> str:
+    mapping = {
+        "too_few_clean_full_chains":
+            "Недостаточно полных V3-цепочек",
+
+        "clean_data_accumulating_not_enough_for_review":
+            "Идёт накопление данных для анализа",
+
+        "clean_trades_exist_but_no_v3_chains":
+            "Сделки есть, но V3-цепочки не сформированы",
+
+        "low_time_diversity_intraday":
+            "Низкая временная диверсификация",
+
+        "low_sample":
+            "Недостаточный объём выборки",
+
+        "statistics_v3_reviewable":
+            "Доступно для статистического анализа",
+
+        "strategy_timeframe_mismatch":
+            "Несовпадение стратегии и таймфрейма",
+
+        "contains_backfill_fill":
+            "Используются восстановленные сделки",
+
+        "exact_fill_pair":
+            "Полное совпадение пары вход-выход",
+    }
+
+    return mapping.get(reason or "", reason or "")
+
 def ru_statistics_status(status: str) -> str:
     mapping = {
         "LOW_SAMPLE": "Малая выборка",
@@ -417,9 +451,11 @@ def fetch_v3_dashboard_data():
 
     for row in accumulation:
         row["accumulation_status_ru"] = ru_accumulation_status(row.get("accumulation_status"))
+        row["accumulation_reason_ru"] = ru_reason(row.get("accumulation_reason"))
 
     for row in statistics:
         row["statistics_status_ru"] = ru_statistics_status(row.get("statistics_status"))
+        row["statistics_reason_ru"] = ru_reason(row.get("statistics_reason"))
 
     summary = {
         "strategies": len(accumulation),
