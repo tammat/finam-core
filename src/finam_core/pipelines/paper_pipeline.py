@@ -8423,6 +8423,19 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+        # Русский комментарий:
+        # Второй источник истины NG_M1_BREAKOUT_SYMBOL используем только если
+        # runtime_active_universe и runtime reload вообще не дали NG M1 символов.
+        # Если runtime уже активен, не возвращаем устаревший fallback NGN6.
+        if not symbols:
+            runtime_active = [
+                str(x)
+                for x in (getattr(self, "_runtime_active_symbols", []) or [])
+                if str(x).startswith("NG")
+            ]
+            if runtime_active:
+                symbols = runtime_active
+
         if not symbols and fallback:
             symbols = [fallback]
 
