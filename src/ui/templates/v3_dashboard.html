@@ -149,5 +149,59 @@
   </ul>
 </div>
 
+
+<!-- OPERATIONAL_DASHBOARD_WIRING_V1 BEGIN -->
+<section id="clean-operational-position-view-v1" style="margin-top: 24px;">
+  <h2>Операционное состояние paper-позиций</h2>
+  <p style="margin-bottom: 12px;">
+    Источник: <code>clean_operational_position_view_v1</code>.
+    Runtime и real execution не открываются.
+  </p>
+
+  {% if operational_positions_error_v1 %}
+    <div style="padding: 10px; border: 1px solid #b91c1c; border-radius: 6px;">
+      Ошибка чтения operational view: {{ operational_positions_error_v1 }}
+    </div>
+  {% elif operational_positions_v1 %}
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <thead>
+        <tr>
+          <th style="text-align:left; border-bottom: 1px solid #ccc; padding: 6px;">Инструмент</th>
+          <th style="text-align:left; border-bottom: 1px solid #ccc; padding: 6px;">Стратегия</th>
+          <th style="text-align:left; border-bottom: 1px solid #ccc; padding: 6px;">TF</th>
+          <th style="text-align:right; border-bottom: 1px solid #ccc; padding: 6px;">Net qty</th>
+          <th style="text-align:right; border-bottom: 1px solid #ccc; padding: 6px;">Цепочки</th>
+          <th style="text-align:right; border-bottom: 1px solid #ccc; padding: 6px;">PnL</th>
+          <th style="text-align:left; border-bottom: 1px solid #ccc; padding: 6px;">Статус</th>
+          <th style="text-align:center; border-bottom: 1px solid #ccc; padding: 6px;">Текущая позиция</th>
+          <th style="text-align:center; border-bottom: 1px solid #ccc; padding: 6px;">В clean view</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in operational_positions_v1 %}
+          <tr>
+            <td style="padding: 6px; border-bottom: 1px solid #eee;">{{ row.symbol }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee;">{{ row.strategy }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee;">{{ row.timeframe }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee; text-align:right;">{{ row.net_qty }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee; text-align:right;">{{ row.full_chains }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee; text-align:right;">{{ row.pnl }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee;">{{ row.operational_status_ru }}</td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee; text-align:center;">
+              {% if row.is_current_operational_position %}да{% else %}нет{% endif %}
+            </td>
+            <td style="padding: 6px; border-bottom: 1px solid #eee; text-align:center;">
+              {% if row.include_in_clean_operational_view %}да{% else %}нет{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>Нет данных operational view.</p>
+  {% endif %}
+</section>
+<!-- OPERATIONAL_DASHBOARD_WIRING_V1 END -->
+
 </body>
 </html>
