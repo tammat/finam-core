@@ -756,6 +756,11 @@ class PaperTradingPipeline:
             else None
         )
 
+        # Русский комментарий: multi-symbol NG M1 routing.
+        # Для каждого NG-контракта нужен отдельный экземпляр стратегии,
+        # чтобы состояние breakout-логики не смешивалось между контрактами.
+        self.ng_m1_breakout_by_symbol = {}
+
         # Русский комментарий:
         # Advisory-only лог выбранной exit policy для BR breakout.
         # Не влияет на заявки, RiskEngine, stop/take и execution.
@@ -8384,19 +8389,85 @@ class PaperTradingPipeline:
         return bool(decision.allowed)
 
 
+
+    def _ng_m1_runtime_symbols_v1(self) -> list[str]:
+        """
+        Русский комментарий:
+        Возвращает список NG M1 символов из runtime_active_universe.
+        Если таблица недоступна или список пуст, используем fallback NG_M1_BREAKOUT_SYMBOL.
+        """
+        fallback = str(getattr(self, "ng_m1_breakout_symbol", "") or "").strip()
+        symbols: list[str] = []
+
+        try:
+            pg_logger = getattr(self, "pg_logger", None)
+            conn = getattr(pg_logger, "conn", None)
+            if conn is not None:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select symbol
+                        from runtime_active_universe
+                        where is_enabled = true
+                          and timeframe = 'M1'
+                          and strategy = 'NG_CONSERVATIVE_BREAKOUT_M1'
+                          and symbol like 'NG%%'
+                        order by priority desc, symbol
+                        """
+                    )
+                    symbols = [str(row[0]) for row in cur.fetchall()]
+        except Exception as exc:
+            print(
+                "PIPE_NG_M1_RUNTIME_SYMBOLS_FALLBACK",
+                f"reason={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
+        if not symbols and fallback:
+            symbols = [fallback]
+
+        return symbols
+
+
+    def _ng_m1_breakout_for_symbol_v1(self, symbol: str) -> NgConservativeBreakoutM1:
+        """
+        Русский комментарий:
+        Создаёт отдельный экземпляр NG M1 стратегии на каждый контракт.
+        Это исключает смешивание состояния между NGM6, NGQ6 и другими NG.
+        """
+        symbol = str(symbol or "").strip()
+        strategies = getattr(self, "ng_m1_breakout_by_symbol", None)
+        if strategies is None:
+            strategies = {}
+            self.ng_m1_breakout_by_symbol = strategies
+
+        if symbol not in strategies:
+            strategies[symbol] = NgConservativeBreakoutM1(symbol=symbol)
+            print(
+                "PIPE_NG_M1_STRATEGY_INIT",
+                f"symbol={symbol}",
+                "strategy=NG_CONSERVATIVE_BREAKOUT_M1",
+                flush=True,
+            )
+
+        return strategies[symbol]
+
     def _process_ng_m1_closed_bar_for_paper_signal(self, bar) -> None:
         """Русский комментарий: обработка закрытых M1 баров NG для live paper runtime."""
-        if not (self.ng_m1_breakout_enabled and self.ng_m1_breakout is not None):
+        if not self.ng_m1_breakout_enabled:
             return
 
-        if bar.symbol != self.ng_m1_breakout_symbol:
+        ng_m1_symbols = set(self._ng_m1_runtime_symbols_v1())
+        if str(bar.symbol) not in ng_m1_symbols:
             return
+
+        ng_m1_breakout = self._ng_m1_breakout_for_symbol_v1(str(bar.symbol))
 
         timeframe = str(bar.timeframe).upper()
         if timeframe != "M1":
             return
 
-        ng_signal = self.ng_m1_breakout.on_signal_bar(
+        ng_signal = ng_m1_breakout.on_signal_bar(
             ts=bar.ts,
             open_=float(bar.open),
             high=float(bar.high),
