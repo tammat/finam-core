@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from finam_core.risk.futures_real_block_guard_v1 import evaluate_futures_real_block_v1
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -237,6 +239,34 @@ class OcoOrderManager:
                     take_price=take_profit_price,
                 )
             elif hasattr(self.orders_client, "place_limit_order"):
+                # FUTURES_REAL_BLOCK_GUARD_OCO_WIRING_V1
+                # Русский комментарий:
+                # OCO manager может напрямую вызвать orders_client.place_limit_order.
+                # Поэтому перед отправкой OCO-заявки блокируем real futures до 01.07.2026.
+                guard_decision = evaluate_futures_real_block_v1(
+                    symbol=symbol,
+                    execution_mode="real",
+                )
+                if not guard_decision.allowed:
+                    print(
+                        "FUTURES_REAL_BLOCK_GUARD_OCO_BLOCKED "
+                        f"symbol={guard_decision.symbol} "
+                        f"mode={guard_decision.execution_mode} "
+                        f"kind={guard_decision.instrument_kind} "
+                        f"reason={guard_decision.reason} "
+                        f"current_date={guard_decision.current_date} "
+                        f"allowed_after={guard_decision.allowed_after}",
+                        flush=True,
+                    )
+                    return {
+                        "status": "REJECTED",
+                        "reason": guard_decision.reason,
+                        "order_id": None,
+                        "broker_order_id": None,
+                        "place_order_sent": False,
+                        "futures_real_block_guard": True,
+                    }
+
                 take_result = self.orders_client.place_limit_order(
                     symbol=group.symbol,
                     side=exit_side,
