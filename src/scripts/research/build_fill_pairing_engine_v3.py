@@ -200,6 +200,25 @@ def quality(entry: Fill, exit_: Fill) -> tuple[str, str]:
     return "FULL", "exact_fill_pair"
 
 
+def should_skip_chain(entry: Fill, exit_: Fill) -> tuple[bool, str]:
+    """
+    Русский комментарий:
+    Жёсткий фильтр качества V3-цепочек.
+    Для USDRUBF intraday M5 не допускаем цепочки длиннее 120 минут,
+    чтобы gap/backfill-артефакты не попадали в clean V3 статистику.
+    """
+    if (
+        entry.symbol == "USDRUBF@RTSX"
+        and entry.strategy == "USD_INTRADAY_REGIME"
+        and entry.timeframe == "M5"
+    ):
+        duration = exit_.created_at - entry.created_at
+        if duration.total_seconds() > 120 * 60:
+            return True, "usd_intraday_duration_exceeded"
+
+    return False, ""
+
+
 def main() -> int:
     print("=== FILL PAIRING ENGINE V3 ===")
     print("mode=research_only")
@@ -262,6 +281,32 @@ def main() -> int:
                 while remaining_qty > 0 and queues[key]:
                     entry = queues[key][0]
                     matched_qty = min(entry.qty, remaining_qty)
+
+                    skip_chain, skip_reason = should_skip_chain(entry, fill)
+                    if skip_chain:
+                        skipped_burst_chains += 1
+                        print(
+                            "FILL_PAIRING_V3_SKIP_CHAIN",
+                            f"symbol={entry.symbol}",
+                            f"strategy={entry.strategy}",
+                            f"timeframe={entry.timeframe}",
+                            f"entry_trade_id={entry.id}",
+                            f"exit_trade_id={fill.id}",
+                            f"reason={skip_reason}",
+                            "runtime_allow=0",
+                            "execution_enabled=0",
+                            flush=True,
+                        )
+
+                        # Русский комментарий: загрязнённая цепочка не вставляется в closed_trade_chains_v3.
+                        # Exit считается использованным, чтобы не подцепить его к другой старой позиции.
+                        entry.qty -= matched_qty
+                        remaining_qty -= matched_qty
+
+                        if entry.qty <= 0:
+                            queues[key].popleft()
+
+                        continue
 
                     gross = pnl(entry, fill, matched_qty)
                     net = gross - entry.commission - fill.commission
