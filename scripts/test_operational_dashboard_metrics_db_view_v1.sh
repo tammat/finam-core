@@ -14,7 +14,8 @@ python3 src/scripts/research/build_clean_operational_position_metrics_view_v1.py
 grep -q "CLEAN_OPERATIONAL_POSITION_METRICS_VIEW_V1_OK" /tmp/clean_operational_position_metrics_view_v1.log
 grep -q "VERDICT=CLEAN_OPERATIONAL_POSITION_METRICS_VIEW_READY" /tmp/clean_operational_position_metrics_view_v1.log
 grep -q "current_position_count=1" /tmp/clean_operational_position_metrics_view_v1.log
-grep -q "clean_flat_count=6" /tmp/clean_operational_position_metrics_view_v1.log
+grep -q "clean_flat_count=" /tmp/clean_operational_position_metrics_view_v1.log
+grep -q "clean_open_review_count=" /tmp/clean_operational_position_metrics_view_v1.log
 grep -q "quarantine_count=1" /tmp/clean_operational_position_metrics_view_v1.log
 grep -q "excluded_count=1" /tmp/clean_operational_position_metrics_view_v1.log
 grep -q "runtime_allow=0" /tmp/clean_operational_position_metrics_view_v1.log

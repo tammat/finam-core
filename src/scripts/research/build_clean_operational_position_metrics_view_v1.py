@@ -20,6 +20,10 @@ select
     )::int as clean_flat_count,
 
     count(*) filter (
+        where operational_status = 'CLEAN_V3_OPEN_REVIEW'
+    )::int as clean_open_review_count,
+
+    count(*) filter (
         where operational_status = 'QUARANTINE_CONTAMINATED_TAIL'
     )::int as quarantine_count,
 
@@ -56,6 +60,7 @@ REPORT_SQL = """
 select
     current_position_count,
     clean_flat_count,
+    clean_open_review_count,
     quarantine_count,
     excluded_count,
     current_net_qty_sum,
@@ -84,6 +89,7 @@ def main() -> int:
         "METRICS_ROW "
         f"current_position_count={row['current_position_count']} "
         f"clean_flat_count={row['clean_flat_count']} "
+        f"clean_open_review_count={row['clean_open_review_count']} "
         f"quarantine_count={row['quarantine_count']} "
         f"excluded_count={row['excluded_count']} "
         f"current_net_qty_sum={row['current_net_qty_sum']} "
@@ -92,17 +98,30 @@ def main() -> int:
         f"included_v3_pnl={row['included_v3_pnl']}"
     )
 
-    expected = {
-        "current_position_count": 1,
-        "clean_flat_count": 6,
-        "quarantine_count": 1,
-        "excluded_count": 1,
-    }
-
     failed = []
-    for k, v in expected.items():
-        if int(row[k] or 0) != v:
-            failed.append(f"{k}={row[k]} expected={v}")
+
+    # Русский комментарий:
+    # Эти два статуса зафиксированы архитектурным решением:
+    # USDRUBF в quarantine, BRM6 в excluded.
+    if int(row["quarantine_count"] or 0) != 1:
+        failed.append(f"quarantine_count={row['quarantine_count']} expected=1")
+
+    if int(row["excluded_count"] or 0) != 1:
+        failed.append(f"excluded_count={row['excluded_count']} expected=1")
+
+    # Русский комментарий:
+    # Количество flat/open clean строк может меняться по мере forward accumulation,
+    # поэтому проверяем не точное число, а консистентность.
+    current_position_count = int(row["current_position_count"] or 0)
+    clean_flat_count = int(row["clean_flat_count"] or 0)
+    clean_open_review_count = int(row["clean_open_review_count"] or 0)
+    included_rows = int(row["included_rows"] or 0)
+
+    expected_included = current_position_count + clean_flat_count + clean_open_review_count
+    if included_rows != expected_included:
+        failed.append(
+            f"included_rows={included_rows} expected={expected_included}"
+        )
 
     if failed:
         print("VERDICT=METRICS_VIEW_CHECK_FAILED " + " ".join(failed))
