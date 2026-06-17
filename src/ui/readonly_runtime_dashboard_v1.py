@@ -1559,9 +1559,43 @@ def _clean_operational_positions_context_v1():
     Только UI-контекст, без влияния на торговый pipeline.
     """
     rows, error = _load_clean_operational_positions_v1()
+    metrics = {}
+    metrics_error = None
+
+    try:
+        import os
+        import psycopg2
+        import psycopg2.extras
+
+        database_url = os.environ.get("DATABASE_URL")
+        if database_url:
+            with psycopg2.connect(database_url) as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("""
+                        select
+                            current_position_count,
+                            clean_flat_count,
+                            quarantine_count,
+                            excluded_count,
+                            current_net_qty_sum,
+                            included_rows,
+                            excluded_or_quarantined_rows,
+                            included_v3_pnl
+                        from clean_operational_position_metrics_v1;
+                    """)
+                    row = cur.fetchone()
+                    if row:
+                        metrics = dict(row)
+    except Exception as exc:
+        metrics_error = str(exc)
+
+    # === OPERATIONAL_DASHBOARD_METRICS_DB_VIEW_V1 BEGIN ===
     return {
         "operational_positions_v1": rows,
         "operational_positions_error_v1": error,
+        "operational_metrics_v1": metrics,
+        "operational_metrics_error_v1": metrics_error,
     }
+    # === OPERATIONAL_DASHBOARD_METRICS_DB_VIEW_V1 END ===
 # === OPERATIONAL_DASHBOARD_CONTEXT_V1_4 END ===
 
