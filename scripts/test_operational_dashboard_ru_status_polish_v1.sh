@@ -27,12 +27,20 @@ sudo systemctl restart finam-core-ui-readonly.service
 
 echo
 echo "=== WAIT FOR 8088 ==="
+ready=0
 for i in $(seq 1 20); do
-  if curl -fsS http://127.0.0.1:8088/ >/tmp/operational_dashboard_ru_status_root_v1.html; then
+  if curl -fss http://127.0.0.1:8088/ >/tmp/operational_dashboard_ru_status_root_v1.html; then
+    ready=1
+    echo "8088_READY attempt=${i}"
     break
   fi
   sleep 1
 done
+
+if [ "${ready}" != "1" ]; then
+  echo "FAIL: 8088 did not become ready after restart"
+  exit 1
+fi
 
 grep -q "Текущая paper-позиция" /tmp/operational_dashboard_ru_status_root_v1.html
 
