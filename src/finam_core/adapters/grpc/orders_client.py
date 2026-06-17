@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from finam_core.risk.futures_real_block_guard_v1 import evaluate_futures_real_block_v1
+
 import os
 import time
 from finam_core.config.runtime_config import RuntimeConfig
@@ -600,6 +602,42 @@ class FinamOrdersClient:
                 "reason": "real_order_confirm_disabled",
             }
 
+        # LOW_LEVEL_GRPC_ORDER_CLIENT_LAST_LINE_GUARD_V1
+        # Русский комментарий:
+        # Последняя линия защиты на уровне gRPC orders_client.
+        # Если кто-то обойдёт верхние execution-адаптеры, real futures всё равно
+        # не должны уйти в PlaceOrder до 01.07.2026.
+        guard_decision = evaluate_futures_real_block_v1(
+            symbol=symbol,
+            execution_mode="real",
+        )
+        if not guard_decision.allowed:
+            print(
+                "LOW_LEVEL_GRPC_ORDER_CLIENT_LAST_LINE_GUARD_BLOCKED "
+                f"symbol={guard_decision.symbol} "
+                f"side={side} "
+                f"mode={guard_decision.execution_mode} "
+                f"kind={guard_decision.instrument_kind} "
+                f"reason={guard_decision.reason} "
+                f"current_date={guard_decision.current_date} "
+                f"allowed_after={guard_decision.allowed_after}",
+                flush=True,
+            )
+            return {
+                "status": "REJECTED",
+                "symbol": symbol,
+                "side": side,
+                "qty": float(qty),
+                "limit_price": limit_price,
+                "order_id": None,
+                "reason": guard_decision.reason,
+                "raw": {
+                    "futures_real_block_guard": True,
+                    "place_order_sent": False,
+                    "allowed_after": str(guard_decision.allowed_after),
+                },
+            }
+
         try:
             order = self._build_limit_order(
                 symbol=symbol,
@@ -698,6 +736,40 @@ class FinamOrdersClient:
                 order_id=ack.order_id,
                 reason=ack.reason,
                 raw={"ack": ack.__dict__},
+            )
+
+        # LOW_LEVEL_GRPC_ORDER_CLIENT_LAST_LINE_GUARD_V1
+        # Русский комментарий:
+        # Последняя линия защиты на уровне gRPC orders_client для market-заявки.
+        # Блокируем real futures до 01.07.2026 непосредственно перед token/send path.
+        guard_decision = evaluate_futures_real_block_v1(
+            symbol=symbol,
+            execution_mode="real",
+        )
+        if not guard_decision.allowed:
+            print(
+                "LOW_LEVEL_GRPC_ORDER_CLIENT_LAST_LINE_GUARD_BLOCKED "
+                f"symbol={guard_decision.symbol} "
+                f"side={side} "
+                f"mode={guard_decision.execution_mode} "
+                f"kind={guard_decision.instrument_kind} "
+                f"reason={guard_decision.reason} "
+                f"current_date={guard_decision.current_date} "
+                f"allowed_after={guard_decision.allowed_after}",
+                flush=True,
+            )
+            return FinamOrderResult(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                status="REJECTED",
+                reason=guard_decision.reason,
+                raw={
+                    "futures_real_block_guard": True,
+                    "place_order_sent": False,
+                    "allowed_after": str(guard_decision.allowed_after),
+                },
             )
 
         token_reason = self._ensure_token()
