@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from finam_core.risk.futures_real_block_guard_v1 import evaluate_futures_real_block_v1
+
 import json
 import os
 import psycopg2
@@ -137,6 +139,30 @@ def main() -> int:
                         if price <= 0:
                             raise RuntimeError("limit_order_requires_planned_price")
 
+                        # FUTURES_REAL_BLOCK_GUARD_SYNTHETIC_PROTECTIVE_WIRING_V1
+                        # Русский комментарий:
+                        # Synthetic protective real sell может напрямую вызвать Finam client.
+                        # Поэтому перед отправкой заявки блокируем real futures до 01.07.2026.
+                        guard_decision = evaluate_futures_real_block_v1(
+                            symbol=symbol,
+                            execution_mode="real",
+                        )
+                        if not guard_decision.allowed:
+                            print(
+                                "FUTURES_REAL_BLOCK_GUARD_SYNTHETIC_PROTECTIVE_BLOCKED "
+                                f"intent_id={intent_id} "
+                                f"symbol={guard_decision.symbol} "
+                                f"mode={guard_decision.execution_mode} "
+                                f"kind={guard_decision.instrument_kind} "
+                                f"reason={guard_decision.reason} "
+                                f"current_date={guard_decision.current_date} "
+                                f"allowed_after={guard_decision.allowed_after}",
+                                flush=True,
+                            )
+                            sent = sent + 0
+                            blocked = blocked + 1 if 'blocked' in locals() else 1
+                            continue
+
                         response = client.place_limit_order(
                             symbol=str(symbol),
                             side="SELL",
@@ -145,6 +171,30 @@ def main() -> int:
                             client_order_id=client_order_id,
                         )
                     else:
+                        # FUTURES_REAL_BLOCK_GUARD_SYNTHETIC_PROTECTIVE_WIRING_V1
+                        # Русский комментарий:
+                        # Synthetic protective real sell может напрямую вызвать Finam client.
+                        # Поэтому перед отправкой заявки блокируем real futures до 01.07.2026.
+                        guard_decision = evaluate_futures_real_block_v1(
+                            symbol=symbol,
+                            execution_mode="real",
+                        )
+                        if not guard_decision.allowed:
+                            print(
+                                "FUTURES_REAL_BLOCK_GUARD_SYNTHETIC_PROTECTIVE_BLOCKED "
+                                f"intent_id={intent_id} "
+                                f"symbol={guard_decision.symbol} "
+                                f"mode={guard_decision.execution_mode} "
+                                f"kind={guard_decision.instrument_kind} "
+                                f"reason={guard_decision.reason} "
+                                f"current_date={guard_decision.current_date} "
+                                f"allowed_after={guard_decision.allowed_after}",
+                                flush=True,
+                            )
+                            sent = sent + 0
+                            blocked = blocked + 1 if 'blocked' in locals() else 1
+                            continue
+
                         response = client.place_market_order(
                             symbol=str(symbol),
                             side="SELL",
