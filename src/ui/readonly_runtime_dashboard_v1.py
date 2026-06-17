@@ -480,7 +480,7 @@ def fetch_v3_dashboard_data():
 def dashboard(request: Request):
     return templates.TemplateResponse(
         "v3_dashboard.html",
-        {"request": request, "data": fetch_v3_dashboard_data(), "active": "v3"},
+        {"request": request, "data": fetch_v3_dashboard_data(), "active": "v3", **_clean_operational_positions_context_v1()},
     )
 
 
@@ -488,7 +488,7 @@ def dashboard(request: Request):
 def v3_dashboard(request: Request):
     return templates.TemplateResponse(
         "v3_dashboard.html",
-        {"request": request, "data": fetch_v3_dashboard_data(), "active": "v3"},
+        {"request": request, "data": fetch_v3_dashboard_data(), "active": "v3", **_clean_operational_positions_context_v1()},
     )
 
 
@@ -1479,3 +1479,89 @@ def clean_paper_v3_dashboard():
     </html>
     """
     return HTMLResponse(html)
+
+
+# === OPERATIONAL_DASHBOARD_CONTEXT_V1_4 BEGIN ===
+def _load_clean_operational_positions_v1():
+    """Русский комментарий:
+    Read-only загрузка clean_operational_position_view_v1 для dashboard.
+    Историю сделок не меняет, runtime/execution не открывает.
+    """
+    import os
+    import psycopg2
+    import psycopg2.extras
+
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        return [], "DATABASE_URL не задан"
+
+    sql = """
+        select
+            symbol,
+            strategy,
+            timeframe,
+            trade_source,
+            fills,
+            buy_fills,
+            sell_fills,
+            round(net_qty::numeric, 6) as net_qty,
+            full_chains,
+            round(v3_pnl::numeric, 6) as pnl,
+            operational_status,
+            is_current_operational_position,
+            include_in_clean_operational_view,
+            last_buy_ts,
+            last_sell_ts,
+            last_chain_exit_ts
+        from clean_operational_position_view_v1
+        order by
+            case operational_status
+                when 'OPEN_PAPER_LONG_TAIL' then 0
+                when 'CLEAN_V3_OPEN_REVIEW' then 1
+                when 'CLEAN_V3_FLAT' then 2
+                when 'QUARANTINE_CONTAMINATED_TAIL' then 3
+                when 'EXCLUDE_HISTORICAL_TAIL' then 4
+                else 5
+            end,
+            symbol,
+            strategy,
+            timeframe;
+    """
+
+    status_ru = {
+        "OPEN_PAPER_LONG_TAIL": "Текущая paper-позиция",
+        "CLEAN_V3_FLAT": "Clean V3, позиции нет",
+        "CLEAN_V3_OPEN_REVIEW": "Clean V3, открыт остаток",
+        "EXCLUDE_HISTORICAL_TAIL": "Исключено: исторический хвост",
+        "QUARANTINE_CONTAMINATED_TAIL": "Карантин: загрязнённый хвост",
+    }
+
+    rows = []
+    try:
+        with psycopg2.connect(database_url) as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql)
+                for row in cur.fetchall():
+                    item = dict(row)
+                    item["operational_status_ru"] = status_ru.get(
+                        item.get("operational_status"),
+                        item.get("operational_status"),
+                    )
+                    rows.append(item)
+        return rows, None
+    except Exception as exc:
+        return [], str(exc)
+
+
+def _clean_operational_positions_context_v1():
+    """Русский комментарий:
+    Возвращает kwargs для v3_dashboard.html.
+    Только UI-контекст, без влияния на торговый pipeline.
+    """
+    rows, error = _load_clean_operational_positions_v1()
+    return {
+        "operational_positions_v1": rows,
+        "operational_positions_error_v1": error,
+    }
+# === OPERATIONAL_DASHBOARD_CONTEXT_V1_4 END ===
+
