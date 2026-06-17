@@ -227,10 +227,10 @@ select
         where symbol='NGQ6@RTSX'
           and strategy='NG_CONSERVATIVE_BREAKOUT_M1'
           and timeframe='M1'
-          and operational_status='CLEAN_V3_FLAT'
+          and operational_status in ('CLEAN_V3_FLAT', 'CLEAN_V3_OPEN_REVIEW')
           and is_current_operational_position=false
           and include_in_clean_operational_view=true
-    ) as ngq6_flat_ok
+    ) as ngq6_clean_ok
 from clean_operational_position_view_v1;
 """
 
@@ -295,14 +295,14 @@ def main() -> int:
         f"brn6_open_ok={checks['brn6_open_ok']} "
         f"brm6_excluded_ok={checks['brm6_excluded_ok']} "
         f"usdrubf_quarantine_ok={checks['usdrubf_quarantine_ok']} "
-        f"ngq6_flat_ok={checks['ngq6_flat_ok']}"
+        f"ngq6_clean_ok={checks['ngq6_clean_ok']}"
     )
 
     if (
         int(checks["brn6_open_ok"] or 0) == 1
         and int(checks["brm6_excluded_ok"] or 0) == 1
         and int(checks["usdrubf_quarantine_ok"] or 0) == 1
-        and int(checks["ngq6_flat_ok"] or 0) == 1
+        and int(checks["ngq6_clean_ok"] or 0) == 1
     ):
         verdict = "CLEAN_OPERATIONAL_POSITION_VIEW_READY"
     else:
