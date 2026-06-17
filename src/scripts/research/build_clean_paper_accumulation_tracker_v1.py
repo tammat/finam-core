@@ -52,7 +52,7 @@ with clean_trades as (
         max(created_at) as last_trade_ts,
         count(distinct created_at::date)::bigint as trade_days
     from trades
-    where origin='paper'
+    where (coalesce(origin,'') = 'paper' or (coalesce(origin,'') = '' and trade_source='paper'))
       and trade_source='paper'
       and coalesce(strategy,'') <> ''
       and coalesce(timeframe,'') <> ''

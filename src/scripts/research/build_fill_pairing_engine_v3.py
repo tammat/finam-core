@@ -67,7 +67,7 @@ select
     t.commission,
     t.fill_id,
     t.created_at,
-    coalesce(t.origin,'') as origin
+    coalesce(nullif(t.origin,''),'paper') as origin
 from trades t
 join rebuild_candidates_v1 c
   on c.symbol=t.symbol
@@ -78,7 +78,7 @@ where c.rebuild_status='PLANNED'
   and coalesce(t.strategy,'') <> ''
   and coalesce(t.timeframe,'') <> ''
   and coalesce(t.is_invalid,false)=false
-  and coalesce(t.origin,'') = 'paper'
+  and (coalesce(t.origin,'') = 'paper' or (coalesce(t.origin,'') = '' and t.trade_source = 'paper'))
 order by
     t.symbol,
     t.strategy,
