@@ -8458,6 +8458,18 @@ class PaperTradingPipeline:
             return
 
         ng_m1_symbols = set(self._ng_m1_runtime_symbols_v1())
+
+        # Русский комментарий: трассировка NGQ6 M1 route.
+        # Нужна только для проверки, что подписанный NGQ6 действительно доходит до M1 handler.
+        if str(bar.symbol) == "NGQ6@RTSX":
+            print(
+                "PIPE_NGQ6_M1_BAR_HANDLER_TRACE_V1",
+                f"symbol={bar.symbol}",
+                f"allowed={str(bar.symbol) in ng_m1_symbols}",
+                f"runtime_symbols={','.join(sorted(ng_m1_symbols))}",
+                flush=True,
+            )
+
         if str(bar.symbol) not in ng_m1_symbols:
             return
 
