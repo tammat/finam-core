@@ -4892,10 +4892,23 @@ class PaperTradingPipeline:
                             and os.getenv("ENABLE_BR_STRICT_EDGE_ADVISORY_V1", "0") == "1"
                         )
 
+                        # Русский комментарий: USDRUBF bypass нужен только для research paper accumulation.
+                        # Runtime и real execution остаются закрытыми.
+                        usdrubf_paper_bypass = (
+                            str(sym) == "USDRUBF@RTSX"
+                            and self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
+                            and strict_decision.reason == "strict_mode_no_match"
+                            and os.getenv("ENABLE_USDRUBF_PAPER_ACCUMULATION_BYPASS_V1", "0") == "1"
+                            and os.getenv("EXECUTION_ENABLED", "0") != "1"
+                            and os.getenv("REAL_TRADING_ENABLED", "0") != "1"
+                        )
+
                         if ng_paper_bypass:
                             print("NG_PAPER_ACCUMULATION_BYPASS", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", flush=True)
                         elif br_paper_bypass:
                             print("PIPE_BR_STRICT_EDGE_ADVISORY_CONTINUE", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", "paper_only=1", flush=True)
+                        elif usdrubf_paper_bypass:
+                            print("USDRUBF_PAPER_ACCUMULATION_BYPASS", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", "runtime_allow=0", "execution_enabled=0", "paper_only=1", flush=True)
                         else:
                             return
                 except Exception as exc:
