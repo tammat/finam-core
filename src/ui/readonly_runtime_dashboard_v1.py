@@ -330,6 +330,26 @@ def fetch_gold_research_details_v1():
 
 
 
+def ru_accumulation_status(status: str) -> str:
+    mapping = {
+        "EARLY_ACCUMULATION": "Раннее накопление",
+        "ACCUMULATING": "Идёт накопление",
+        "NO_V3_CHAINS": "Нет V3-цепочек",
+        "READY_FOR_REVIEW": "Готово к проверке",
+    }
+    return mapping.get(status or "", status or "")
+
+
+def ru_statistics_status(status: str) -> str:
+    mapping = {
+        "LOW_SAMPLE": "Малая выборка",
+        "LOW_TIME_DIVERSITY": "Низкая временная диверсификация",
+        "STATISTICALLY_REVIEWABLE": "Доступно для статистического анализа",
+        "REJECTED": "Отклонено",
+        "RESEARCH": "Исследование",
+    }
+    return mapping.get(status or "", status or "")
+
 def fetch_v3_dashboard_data():
     """Русский комментарий: единый источник данных для главной страницы 8088 — только clean V3."""
     dsn = os.environ["DATABASE_URL"]
@@ -394,6 +414,12 @@ def fetch_v3_dashboard_data():
 
             cur.execute(sql_daily)
             daily = cur.fetchall()
+
+    for row in accumulation:
+        row["accumulation_status_ru"] = ru_accumulation_status(row.get("accumulation_status"))
+
+    for row in statistics:
+        row["statistics_status_ru"] = ru_statistics_status(row.get("statistics_status"))
 
     summary = {
         "strategies": len(accumulation),

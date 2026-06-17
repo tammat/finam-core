@@ -73,7 +73,7 @@
       <td>{{ r.v3_full_chains }}</td>
       <td>{{ r.v3_partial_chains }}</td>
       <td class="{{ 'good' if r.v3_net_pnl > 0 else 'bad' }}">{{ r.v3_net_pnl }}</td>
-      <td>{{ r.accumulation_status }}</td>
+      <td>{{ r.accumulation_status_ru }}</td>
       <td>{{ r.accumulation_reason }}</td>
     </tr>
     {% endfor %}
@@ -107,7 +107,7 @@
       <td class="{{ 'good' if r.net_pnl > 0 else 'bad' }}">{{ r.net_pnl }}</td>
       <td>{{ r.expectancy }}</td>
       <td>{{ r.profit_factor }}</td>
-      <td>{{ r.statistics_status }}</td>
+      <td>{{ r.statistics_status_ru }}</td>
       <td>{{ r.statistics_reason }}</td>
     </tr>
     {% endfor %}
