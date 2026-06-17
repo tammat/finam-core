@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from finam_core.risk.futures_real_block_guard_v1 import evaluate_futures_real_block_v1
+
 
 @dataclass(frozen=True)
 class FinamOrderResult:
@@ -17,6 +19,37 @@ class FinamOrderClientAdapter:
     def __init__(self, client: Any):
         self.client = client
 
+    def _check_futures_real_block(self, *, symbol: str) -> FinamOrderResult | None:
+        """Русский комментарий:
+        Нижний hard-block перед реальной отправкой заявки в Finam.
+        Этот adapter используется как real-send слой, поэтому execution_mode='real'.
+        Paper/shadow контур сюда не должен попадать.
+        """
+        decision = evaluate_futures_real_block_v1(
+            symbol=symbol,
+            execution_mode="real",
+        )
+
+        if decision.allowed:
+            return None
+
+        print(
+            "FUTURES_REAL_BLOCK_GUARD_BROKER_BLOCKED "
+            f"symbol={decision.symbol} "
+            f"mode={decision.execution_mode} "
+            f"kind={decision.instrument_kind} "
+            f"reason={decision.reason} "
+            f"current_date={decision.current_date} "
+            f"allowed_after={decision.allowed_after}",
+            flush=True,
+        )
+
+        return FinamOrderResult(
+            ok=False,
+            broker_order_id=None,
+            reason=decision.reason,
+        )
+
     def place_buy_limit(
         self,
         *,
@@ -30,6 +63,11 @@ class FinamOrderClientAdapter:
 
         if price <= 0:
             return FinamOrderResult(False, None, "price<=0")
+
+        # FUTURES_REAL_BLOCK_GUARD_BROKER_WIRING_V1
+        blocked = self._check_futures_real_block(symbol=symbol)
+        if blocked is not None:
+            return blocked
 
         if hasattr(self.client, "place_limit_order"):
             result = self.client.place_limit_order(
@@ -94,6 +132,11 @@ class FinamOrderClientAdapter:
         if price <= 0:
             return FinamOrderResult(False, None, "price<=0")
 
+        # FUTURES_REAL_BLOCK_GUARD_BROKER_WIRING_V1
+        blocked = self._check_futures_real_block(symbol=symbol)
+        if blocked is not None:
+            return blocked
+
         if hasattr(self.client, "place_limit_order"):
             result = self.client.place_limit_order(
                 symbol=symbol,
@@ -153,6 +196,11 @@ class FinamOrderClientAdapter:
         if qty <= 0:
             return FinamOrderResult(False, None, "qty<=0")
 
+        # FUTURES_REAL_BLOCK_GUARD_BROKER_WIRING_V1
+        blocked = self._check_futures_real_block(symbol=symbol)
+        if blocked is not None:
+            return blocked
+
         if hasattr(self.client, "place_market_order"):
             result = self.client.place_market_order(
                 symbol=symbol,
@@ -206,6 +254,11 @@ class FinamOrderClientAdapter:
         """Русский комментарий: отправляет рыночную SELL-заявку через существующий Finam client."""
         if qty <= 0:
             return FinamOrderResult(False, None, "qty<=0")
+
+        # FUTURES_REAL_BLOCK_GUARD_BROKER_WIRING_V1
+        blocked = self._check_futures_real_block(symbol=symbol)
+        if blocked is not None:
+            return blocked
 
         if hasattr(self.client, "place_market_order"):
             result = self.client.place_market_order(
