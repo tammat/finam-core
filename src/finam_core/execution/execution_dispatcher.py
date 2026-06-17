@@ -11,6 +11,8 @@ ExecutionDispatcher — единая точка маршрутизации ис�
 
 from __future__ import annotations
 
+from finam_core.risk.futures_real_block_guard_v1 import evaluate_futures_real_block_v1
+
 import os
 import math
 from typing import Any
@@ -628,6 +630,35 @@ class ExecutionDispatcher:
                     "side": side,
                     "qty": float(qty),
                     "limit_price": float(limit_price),
+                }
+
+            # FUTURES_REAL_BLOCK_GUARD_DISPATCHER_WIRING_V1
+            # Русский комментарий:
+            # Dispatcher является обходным real-send путём вокруг FinamOrderClientAdapter.
+            # Поэтому перед прямым вызовом orders_client.place_limit_order
+            # принудительно блокируем real futures до 01.07.2026.
+            guard_decision = evaluate_futures_real_block_v1(
+                symbol=symbol,
+                execution_mode="real",
+            )
+            if not guard_decision.allowed:
+                print(
+                    "FUTURES_REAL_BLOCK_GUARD_DISPATCHER_BLOCKED "
+                    f"symbol={guard_decision.symbol} "
+                    f"mode={guard_decision.execution_mode} "
+                    f"kind={guard_decision.instrument_kind} "
+                    f"reason={guard_decision.reason} "
+                    f"current_date={guard_decision.current_date} "
+                    f"allowed_after={guard_decision.allowed_after}",
+                    flush=True,
+                )
+                return {
+                    "status": "REJECTED",
+                    "reason": guard_decision.reason,
+                    "order_id": None,
+                    "broker_order_id": None,
+                    "place_order_sent": False,
+                    "futures_real_block_guard": True,
                 }
 
             result = self.orders_client.place_limit_order(
