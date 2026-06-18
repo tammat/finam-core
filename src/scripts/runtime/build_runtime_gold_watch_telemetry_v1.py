@@ -161,7 +161,16 @@ def main() -> int:
                 print("TELEMETRY_ERROR reason=registry_row_missing")
                 return 1
 
-            if row["status"] != "WATCH_RUNTIME_ACTIVE":
+            # GOLD_WATCH_TELEMETRY_READY_FOR_RUNTIME_REVIEW_STATUS_V1
+            # Русский комментарий:
+            # READY_FOR_RUNTIME_REVIEW — допустимый review-статус для telemetry.
+            # Он не должен ронять oneshot systemd service.
+            allowed_statuses = {
+                "WATCH_RUNTIME_ACTIVE",
+                "READY_FOR_RUNTIME_REVIEW",
+            }
+
+            if row["status"] not in allowed_statuses:
                 print(
                     "TELEMETRY_ERROR "
                     f"reason=invalid_status status={row['status']}"
