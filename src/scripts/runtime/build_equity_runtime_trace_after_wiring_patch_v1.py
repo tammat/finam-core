@@ -52,23 +52,24 @@ def systemctl_active_since(service: str) -> str:
 
 
 def systemctl_active_since_usec(service: str) -> datetime | None:
-    """Русский комментарий: надёжно переводит ActiveEnterTimestampUSec systemd в UTC.
+    """Русский комментарий: берём ActiveEnterTimestamp и переводим в UTC.
 
-    Не парсим руками MSK/локаль. Используем date -d, потому что systemd timestamp
-    может быть без микросекунд и с timezone alias.
+    На текущем Debian ActiveEnterTimestampUSec возвращает пустую строку,
+    поэтому используем ActiveEnterTimestamp — это тот же timestamp, который
+    уже корректно выводится в отчёте: Thu 2026-06-18 13:50:12 MSK.
     """
     try:
         raw = subprocess.check_output(
-            ["systemctl", "show", service, "-p", "ActiveEnterTimestampUSec", "--value"],
+            ["systemctl", "show", service, "-p", "ActiveEnterTimestamp", "--value"],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
 
-        if not raw or raw == "0":
+        if not raw:
             return None
 
-        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_DATE_CMD_FIX_V1
-        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_MSK_REPLACE_FALLBACK_V1
+        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_ACTIVE_TIMESTAMP_FIX_V1
+        # Пример: Thu 2026-06-18 13:50:12 MSK -> Thu 2026-06-18 13:50:12 +0300
         date_input = raw.replace(" MSK", " +0300")
 
         iso = subprocess.check_output(
