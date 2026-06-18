@@ -232,6 +232,7 @@ def _selection_gate_allowed(pipeline, *, strategy: str, symbol: str, regime: str
     return False
 
 
+from finam_core.storage.trade_context_guard_v1 import TradeContextGuardV1
 class RealPositionQtyProvider:
     """Русский комментарий: provider broker/local qty для финального hard block перед real PlaceOrder."""
 
@@ -6287,6 +6288,8 @@ class PaperTradingPipeline:
                 "timeframe": trade_payload.get("timeframe"),
                 "reason": trade_payload.get("reason"),
             }
+            # TRADE_CONTEXT_GUARD_ALT_WRITER_PATCH_V1
+            trade = self._ensure_trade_context_before_log_trade_v1(trade)
             log_result = self.pg_logger.log_trade(trade)
             db_trade_id = log_result.get("id") if isinstance(log_result, dict) else None
             _save_trade_context_snapshot_for_paper_trade(
@@ -6295,6 +6298,90 @@ class PaperTradingPipeline:
                 trade_payload=trade_payload,
             )
 
+
+
+
+
+    def _ensure_trade_context_before_log_trade_v1(self, trade):
+        """
+        Русский комментарий:
+        Финальный callsite-level guard перед self.pg_logger.log_trade(trade).
+        Нужен для fallback-путей, где payload содержит strategy/timeframe/continuous_symbol,
+        но верхний уровень trade может остаться пустым.
+        """
+        try:
+            is_dict = isinstance(trade, dict)
+
+            def _get(name, default=None):
+                if is_dict:
+                    return trade.get(name, default)
+                return getattr(trade, name, default)
+
+            def _set(name, value):
+                if is_dict:
+                    trade[name] = value
+                else:
+                    setattr(trade, name, value)
+
+            payload = _get("payload") or _get("raw_json") or {}
+            if not isinstance(payload, dict):
+                payload = {}
+
+            symbol = str(_get("symbol") or payload.get("symbol") or "").strip()
+            strategy = str(_get("strategy") or payload.get("strategy") or "").strip()
+            timeframe = str(_get("timeframe") or payload.get("timeframe") or "").strip()
+            continuous_symbol = str(
+                _get("continuous_symbol")
+                or payload.get("continuous_symbol")
+                or ""
+            ).strip()
+
+            decision = TradeContextGuardV1().normalize(
+                symbol=symbol,
+                strategy=strategy,
+                timeframe=timeframe,
+                continuous_symbol=continuous_symbol,
+                payload=payload,
+            )
+
+            if not decision.allowed:
+                raise ValueError(
+                    "TRADE_CONTEXT_GUARD_ALT_WRITER_BLOCKED "
+                    f"symbol={symbol} reason={decision.reason}"
+                )
+
+            _set("strategy", decision.strategy)
+            _set("timeframe", decision.timeframe)
+            _set("continuous_symbol", decision.continuous_symbol)
+
+            payload["strategy"] = decision.strategy
+            payload["timeframe"] = decision.timeframe
+            payload["continuous_symbol"] = decision.continuous_symbol
+
+            if is_dict:
+                trade["payload"] = payload
+                trade["raw_json"] = payload
+            else:
+                setattr(trade, "payload", payload)
+
+            print(
+                "TRADE_CONTEXT_GUARD_ALT_WRITER_NORMALIZED "
+                f"symbol={symbol} "
+                f"strategy={decision.strategy} "
+                f"timeframe={decision.timeframe} "
+                f"continuous_symbol={decision.continuous_symbol} "
+                f"reason={decision.reason}",
+                flush=True,
+            )
+
+            return trade
+        except Exception as exc:
+            print(
+                "TRADE_CONTEXT_GUARD_ALT_WRITER_FAILED "
+                f"type={type(exc).__name__} error={exc}",
+                flush=True,
+            )
+            raise
 
 
 
@@ -8131,6 +8218,8 @@ class PaperTradingPipeline:
                         f"strategy={trade.strategy} timeframe={trade.timeframe}"
                     )
 
+                # TRADE_CONTEXT_GUARD_ALT_WRITER_PATCH_V1
+                trade = self._ensure_trade_context_before_log_trade_v1(trade)
                 self.pg_logger.log_trade(trade)
                 return True, "PAPER_TRADE_LOG_FALLBACK"
 
