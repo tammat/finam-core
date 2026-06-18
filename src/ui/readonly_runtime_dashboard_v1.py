@@ -8,8 +8,15 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+
+# TODAY_CLOSED_PNL_8088_EMBED_V1
+from finam_core.ui.today_closed_pnl_widget_v1 import (
+    build_today_closed_pnl_status_v1,
+    render_today_closed_pnl_json_v1,
+    render_today_closed_pnl_page_v1,
+)
 
 app = FastAPI(title="Панель Finam_Core")
 templates = Jinja2Templates(directory="src/ui/templates")
@@ -1398,6 +1405,21 @@ def runtime_candidate_lifecycle(request: Request):
 # Русский комментарий:
 # Канонический отчёт по чистому paper-контуру V3.
 # Старые scorecard не считаются источником runtime-решений.
+
+# TODAY_CLOSED_PNL_8088_EMBED_V1
+@app.get("/today-pnl", response_class=HTMLResponse)
+def today_closed_pnl_dashboard():
+    """Русский комментарий: read-only страница дневного closed PnL на основном dashboard 8088."""
+    return render_today_closed_pnl_page_v1()
+
+
+@app.get("/today-pnl/json")
+def today_closed_pnl_dashboard_json():
+    """Русский комментарий: read-only JSON дневного closed PnL на основном dashboard 8088."""
+    # TODAY_CLOSED_PNL_8088_JSON_RESPONSE_FIX_V1
+    return JSONResponse(content=build_today_closed_pnl_status_v1())
+
+
 @app.get("/clean-paper-v3")
 def clean_paper_v3_dashboard():
     import os
