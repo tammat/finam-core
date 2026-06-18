@@ -57,6 +57,70 @@ class PostgresLogger:
         except Exception:
             return json.dumps({"raw": str(obj)}, ensure_ascii=False)
 
+
+    def _normalize_trade_context_before_insert_v1(
+        self,
+        *,
+        symbol,
+        strategy,
+        timeframe,
+        continuous_symbol,
+        payload,
+    ):
+        """
+        Русский комментарий:
+        # TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_ENFORCEMENT_V1
+        strategy, timeframe, continuous_symbol, payload = self._normalize_trade_context_before_insert_v1(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+            continuous_symbol=continuous_symbol,
+            payload=payload,
+        )
+        Финальный storage-level guard перед INSERT INTO trades.
+        Обязан восстановить strategy/timeframe/continuous_symbol из payload или known route.
+        """
+        # TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_ENFORCEMENT_V1
+        if not isinstance(payload, dict):
+            payload = {}
+
+        decision = TradeContextGuardV1().normalize(
+            symbol=str(symbol or ""),
+            strategy=str(strategy or ""),
+            timeframe=str(timeframe or ""),
+            continuous_symbol=str(continuous_symbol or ""),
+            payload=payload,
+        )
+
+        if not decision.allowed:
+            print(
+                "TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_BLOCKED "
+                f"symbol={symbol} reason={decision.reason}",
+                flush=True,
+            )
+            raise ValueError(
+                "TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_BLOCKED "
+                f"symbol={symbol} reason={decision.reason}"
+            )
+
+        payload["strategy"] = decision.strategy
+        payload["timeframe"] = decision.timeframe
+        payload["continuous_symbol"] = decision.continuous_symbol
+
+        print(
+            "TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_NORMALIZED "
+            f"symbol={symbol} "
+            f"strategy={decision.strategy} "
+            f"timeframe={decision.timeframe} "
+            f"continuous_symbol={decision.continuous_symbol} "
+            f"reason={decision.reason}",
+            flush=True,
+        )
+
+        return decision.strategy, decision.timeframe, decision.continuous_symbol, payload
+
+
+
     def log_fill(self, *args, **kwargs) -> None:
         """
         Русский коммент: логирование fill в PostgreSQL.
@@ -192,6 +256,14 @@ class PostgresLogger:
                     payload["continuous_symbol"] = attribution_decision.continuous_symbol
 
                     # TRADE_CONTEXT_GUARD_WIRE_TO_TRADES_WRITER_V1
+                    # TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_ENFORCEMENT_V1
+                    strategy, timeframe, continuous_symbol, payload = self._normalize_trade_context_before_insert_v1(
+                        symbol=symbol,
+                        strategy=strategy,
+                        timeframe=timeframe,
+                        continuous_symbol=continuous_symbol,
+                        payload=payload,
+                    )
                     # Русский комментарий: финальный writer-level guard перед INSERT INTO trades.
                     trade_context_decision = TradeContextGuardV1().normalize(
                         symbol=str(normalized_symbol or ""),
@@ -215,6 +287,14 @@ class PostgresLogger:
 
                     cur.execute(
                         """
+                        # TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_ENFORCEMENT_V1
+                        strategy, timeframe, continuous_symbol, payload = self._normalize_trade_context_before_insert_v1(
+                            symbol=symbol,
+                            strategy=strategy,
+                            timeframe=timeframe,
+                            continuous_symbol=continuous_symbol,
+                            payload=payload,
+                        )
                         INSERT INTO trades (
                             symbol, side, qty, price, commission,
                             fill_id, origin, payload, created_at, ts, trade_source,
