@@ -5,11 +5,73 @@ import os
 import subprocess
 from pathlib import Path
 
+import psycopg2
+import psycopg2.extras
+
 
 # Русский комментарий:
 # SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1 — read-only план по сигналам.
 # Скрипт использует результат SIGNAL_CLASS_EDGE_SCORECARD_V1_1 и классифицирует
 # signal pairs в research candidates / quarantine / legacy / require more data.
+
+
+def load_gold_telemetry_guard() -> dict[str, str]:
+    """Русский комментарий: читаем последнюю telemetry по золоту для защиты от ложного promote."""
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        return {
+            "available": "0",
+            "reason": "database_url_missing",
+        }
+
+    sql = """
+    SELECT
+        symbol,
+        status,
+        shadow_trades,
+        shadow_winrate,
+        shadow_expectancy,
+        shadow_profit_factor,
+        runtime_allowed,
+        execution_enabled,
+        created_at
+    FROM runtime_gold_watch_telemetry
+    WHERE symbol = 'GDU6@RTSX'
+    ORDER BY created_at DESC
+    LIMIT 1
+    """
+
+    try:
+        with psycopg2.connect(dsn) as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql)
+                row = cur.fetchone()
+                if not row:
+                    return {
+                        "available": "0",
+                        "reason": "gold_telemetry_missing",
+                    }
+
+                expectancy = float(row["shadow_expectancy"] or 0)
+                profit_factor = float(row["shadow_profit_factor"] or 0)
+                trades = int(row["shadow_trades"] or 0)
+
+                return {
+                    "available": "1",
+                    "status": str(row["status"]),
+                    "shadow_trades": str(trades),
+                    "shadow_expectancy": f"{expectancy:.6f}",
+                    "shadow_profit_factor": f"{profit_factor:.6f}",
+                    "runtime_allowed": "1" if row["runtime_allowed"] else "0",
+                    "execution_enabled": "1" if row["execution_enabled"] else "0",
+                    "created_at": str(row["created_at"]),
+                    "confirmed": "1" if trades >= 50 and expectancy > 0 and profit_factor > 1 else "0",
+                }
+    except Exception as exc:
+        return {
+            "available": "0",
+            "reason": f"gold_telemetry_error:{type(exc).__name__}",
+        }
 
 
 def main() -> int:
@@ -18,6 +80,13 @@ def main() -> int:
     print("runtime_allow=0")
     print("execution_enabled=0")
     print("real_trading_enabled=0")
+    print()
+
+    gold_telemetry = load_gold_telemetry_guard()
+    print(
+        "GOLD_TELEMETRY_GUARD "
+        + " ".join(f"{k}={v}" for k, v in gold_telemetry.items())
+    )
     print()
 
     cmd = [
@@ -107,9 +176,19 @@ def main() -> int:
                     reason = "historical_only_requires_live_confirmation"
                     research_only += 1
                 elif "shadow" in strategy.lower():
-                    action = "PROMOTE_TO_RESEARCH_CANDIDATE"
-                    reason = "positive_shadow_edge_requires_paper_confirmation"
-                    promote += 1
+                    # SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1_2_GOLD_TELEMETRY_GUARD
+                    # Русский комментарий:
+                    # Shadow-scorecard сам по себе не подтверждает кандидата.
+                    # Если runtime telemetry показывает отрицательную expectancy или PF < 1,
+                    # оставляем сигнал только в research.
+                    if strategy == "gold_short_only_shadow_v1" and gold_telemetry.get("confirmed") != "1":
+                        action = "KEEP_RESEARCH_ONLY"
+                        reason = "gold_shadow_telemetry_not_confirmed"
+                        research_only += 1
+                    else:
+                        action = "PROMOTE_TO_RESEARCH_CANDIDATE"
+                        reason = "positive_shadow_edge_requires_paper_confirmation"
+                        promote += 1
                 elif family in {"ENERGY_GAS", "ENERGY_OIL", "FX_USDRUB"} and net_pnl_per_pair < 0.01:
                     # SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1_1_STRICT_EDGE_FILTER
                     # Русский комментарий:
