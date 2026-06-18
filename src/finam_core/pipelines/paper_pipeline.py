@@ -4507,6 +4507,59 @@ class PaperTradingPipeline:
             LOG.warning("PIPE_SIGNAL_SAVE_FAILED error=%s", exc)
 
 
+
+        # USDRUB_REGIME_RUNTIME_BLOCK_GUARD_V1
+        # Русский комментарий:
+        # Если стратегия уже заблокирована в runtime_strategy_selection,
+        # legacy SYMBOL_STRATEGY_MAP не должен протаскивать её в paper execution.
+        try:
+            intent_features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
+            runtime_strategy_for_guard = str(
+                intent.get("strategy")
+                or intent_features.get("strategy")
+                or self._strategy_name_for_symbol(str(sym))
+            )
+
+            runtime_blocked, runtime_block_reason = self._is_runtime_strategy_blocked_v1(
+                symbol=str(sym),
+                strategy=runtime_strategy_for_guard,
+            )
+
+            if runtime_blocked:
+                print(
+                    "PIPE_RUNTIME_STRATEGY_BLOCKED_V1",
+                    f"symbol={sym}",
+                    f"strategy={runtime_strategy_for_guard}",
+                    f"reason={runtime_block_reason}",
+                    "runtime_allow=0",
+                    "execution_enabled=0",
+                    "real_trading_enabled=0",
+                    "paper_only=1",
+                    flush=True,
+                )
+                return
+        except Exception as exc:
+            if str(sym) == "USDRUBF@RTSX":
+                print(
+                    "PIPE_RUNTIME_STRATEGY_BLOCK_CHECK_FAILED_CLOSED_V1",
+                    f"symbol={sym}",
+                    "strategy=USDRUB_REGIME",
+                    f"error={type(exc).__name__}:{exc}",
+                    "runtime_allow=0",
+                    "execution_enabled=0",
+                    "real_trading_enabled=0",
+                    flush=True,
+                )
+                return
+
+            print(
+                "PIPE_RUNTIME_STRATEGY_BLOCK_CHECK_FAILED_OPEN_V1",
+                f"symbol={sym}",
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
+
         # Русский комментарий: Telegram получает торговую точку сразу после формирования валидного intent.
         # Заявка при этом не выставляется; отправляются только вход, стоп-лосс и тейк-профит.
         try:
@@ -4932,6 +4985,36 @@ class PaperTradingPipeline:
                             and os.getenv("EXECUTION_ENABLED", "0") != "1"
                             and os.getenv("REAL_TRADING_ENABLED", "0") != "1"
                         )
+
+                        # USDRUB_REGIME_RUNTIME_BLOCK_GUARD_V1_1
+                        # Русский комментарий:
+                        # Этот guard стоит непосредственно перед USDRUBF paper bypass.
+                        # Общий intent-guard выше не покрывает этот legacy route, поэтому
+                        # runtime_strategy_selection должен проверяться здесь, до risk-router.
+                        if usdrubf_paper_bypass:
+                            try:
+                                usdrubf_runtime_blocked, usdrubf_runtime_block_reason = self._is_runtime_strategy_blocked_v1(
+                                    symbol=str(sym),
+                                    strategy="USDRUB_REGIME",
+                                )
+                            except Exception as exc:
+                                usdrubf_runtime_blocked = True
+                                usdrubf_runtime_block_reason = f"runtime_strategy_block_check_failed:{type(exc).__name__}"
+
+                            if usdrubf_runtime_blocked:
+                                print(
+                                    "PIPE_RUNTIME_STRATEGY_BLOCKED_V1",
+                                    f"symbol={sym}",
+                                    "strategy=USDRUB_REGIME",
+                                    f"reason={usdrubf_runtime_block_reason}",
+                                    "callsite=usdrubf_paper_bypass",
+                                    "runtime_allow=0",
+                                    "execution_enabled=0",
+                                    "real_trading_enabled=0",
+                                    "paper_only=1",
+                                    flush=True,
+                                )
+                                return
 
                         if ng_paper_bypass:
                             print("NG_PAPER_ACCUMULATION_BYPASS", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", flush=True)
@@ -7122,6 +7205,103 @@ class PaperTradingPipeline:
             )
         except Exception as exc:
             print(f"RUNTIME_GUARD_PRE_SIGNAL_BLOCK_AUDIT_FAILED error={exc}", flush=True)
+
+
+    def _is_runtime_strategy_blocked_v1(self, symbol: str, strategy: str) -> tuple[bool, str]:
+        """
+        Русский комментарий:
+        Runtime-level запрет стратегии по runtime_strategy_selection.
+
+        Нужен для legacy routes, где стратегия берётся через SYMBOL_STRATEGY_MAP
+        и может обходить runtime_active_universe. Сейчас критичный кейс —
+        USDRUBF@RTSX / USDRUB_REGIME, где edge audit показал fee drag.
+        """
+        try:
+            import os
+            import time
+
+            symbol_key = str(symbol or "").strip()
+            strategy_key = str(strategy or "").strip()
+
+            if symbol_key != "USDRUBF@RTSX" or strategy_key != "USDRUB_REGIME":
+                return False, "not_usdrub_regime_target"
+
+            cache_ttl = float(os.getenv("RUNTIME_STRATEGY_BLOCK_CACHE_TTL_SEC", "30"))
+            cache = getattr(self, "_runtime_strategy_block_cache_v1", None)
+            if cache is None:
+                cache = {}
+                self._runtime_strategy_block_cache_v1 = cache
+
+            cache_key = (symbol_key, strategy_key)
+            now = time.time()
+            cached = cache.get(cache_key)
+            if cached and now - float(cached.get("ts", 0.0)) <= cache_ttl:
+                return bool(cached.get("blocked")), str(cached.get("reason") or "runtime_strategy_block_cache")
+
+            dsn = os.getenv("DATABASE_URL")
+            if not dsn:
+                fail_closed = os.getenv("USDRUB_RUNTIME_BLOCK_FAIL_CLOSED_V1", "1") == "1"
+                return fail_closed, "runtime_strategy_block_no_database_url"
+
+            import psycopg2
+
+            with psycopg2.connect(dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select mode, enabled, reason
+                        from runtime_strategy_selection
+                        where symbol = %s
+                          and strategy = %s
+                        order by updated_at desc nulls last
+                        limit 1
+                        """,
+                        (symbol_key, strategy_key),
+                    )
+                    row = cur.fetchone()
+
+            if not row:
+                cache[cache_key] = {
+                    "ts": now,
+                    "blocked": False,
+                    "reason": "runtime_strategy_selection_no_row",
+                }
+                return False, "runtime_strategy_selection_no_row"
+
+            mode = str(row[0] or "").upper()
+            enabled = row[1]
+            reason = str(row[2] or "")
+
+            enabled_text = str(enabled).lower()
+            blocked = (
+                mode == "BLOCKED"
+                or enabled is False
+                or enabled_text in ("false", "f", "0", "no")
+            )
+
+            block_reason = reason or (
+                "runtime_strategy_selection_blocked"
+                if blocked
+                else "runtime_strategy_selection_allowed"
+            )
+
+            cache[cache_key] = {
+                "ts": now,
+                "blocked": blocked,
+                "reason": block_reason,
+            }
+
+            return blocked, block_reason
+
+        except Exception as exc:
+            fail_closed = True
+            try:
+                import os
+                fail_closed = os.getenv("USDRUB_RUNTIME_BLOCK_FAIL_CLOSED_V1", "1") == "1"
+            except Exception:
+                fail_closed = True
+
+            return fail_closed, f"runtime_strategy_block_check_failed:{type(exc).__name__}"
 
     def _runtime_strategy_name_for_symbol(self, symbol: str) -> str:
         """Русский комментарий: возвращает strategy из runtime_active_universe для equity-symbol.
