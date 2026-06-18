@@ -3728,16 +3728,21 @@ class PaperTradingPipeline:
                             flush=True,
                         )
                         # Русский комментарий: сохраняем pre-signal low-vol block в аудит.
+                        # EQUITY_PRE_SIGNAL_GUARD_RUNTIME_VALUE_PROBE_V1
+                        _pre_signal_guard_strategy = (
+                            self._runtime_strategy_name_for_symbol(str(sym))
+                            if str(sym).endswith("@MISX")
+                            else self._strategy_name_for_symbol(str(sym))
+                        )
+                        print(
+                            f"PIPE_EQUITY_PRE_SIGNAL_GUARD_STRATEGY_RESOLVED "
+                            f"symbol={sym} block_type=VOL_LOW_BLOCK "
+                            f"strategy={_pre_signal_guard_strategy}",
+                            flush=True,
+                        )
                         self._save_pre_signal_block_audit_v1(
                             symbol=str(sym),
-                            # EQUITY_PRE_SIGNAL_GUARD_STRATEGY_WIRING_PATCH_V1
-                            # Русский комментарий: для equity pre-signal guard strategy берём
-                            # из runtime_active_universe, чтобы аудит не писал legacy MEAN_REVERSION_EQUITY.
-                            strategy=(
-                                self._runtime_strategy_name_for_symbol(str(sym))
-                                if str(sym).endswith("@MISX")
-                                else self._strategy_name_for_symbol(str(sym))
-                            ),
+                            strategy=_pre_signal_guard_strategy,
                             timeframe=str(getattr(self, "timeframe", None) or st.get("timeframe") or "M5"),
                             block_type="VOL_LOW_BLOCK",
                             block_reason=str(vol_gate_reason),
@@ -3783,16 +3788,21 @@ class PaperTradingPipeline:
                                     flush=True,
                                 )
                                 # Русский комментарий: сохраняем pre-signal compression watch в аудит.
+                                # EQUITY_PRE_SIGNAL_GUARD_RUNTIME_VALUE_PROBE_V1
+                                _pre_signal_guard_strategy = (
+                                    self._runtime_strategy_name_for_symbol(str(sym))
+                                    if str(sym).endswith("@MISX")
+                                    else self._strategy_name_for_symbol(str(sym))
+                                )
+                                print(
+                                    f"PIPE_EQUITY_PRE_SIGNAL_GUARD_STRATEGY_RESOLVED "
+                                    f"symbol={sym} block_type=COMPRESSION_WATCH "
+                                    f"strategy={_pre_signal_guard_strategy}",
+                                    flush=True,
+                                )
                                 self._save_pre_signal_block_audit_v1(
                                     symbol=str(sym),
-                                    # EQUITY_PRE_SIGNAL_GUARD_STRATEGY_WIRING_PATCH_V1
-                                    # Русский комментарий: для equity compression guard strategy берём
-                                    # из runtime_active_universe, чтобы свежий trace соответствовал runtime strategy.
-                                    strategy=(
-                                        self._runtime_strategy_name_for_symbol(str(sym))
-                                        if str(sym).endswith("@MISX")
-                                        else self._strategy_name_for_symbol(str(sym))
-                                    ),
+                                    strategy=_pre_signal_guard_strategy,
                                     timeframe=str(getattr(self, "timeframe", None) or st.get("timeframe") or "M5"),
                                     block_type="COMPRESSION_WATCH",
                                     block_reason=str(compression_decision.reason),
