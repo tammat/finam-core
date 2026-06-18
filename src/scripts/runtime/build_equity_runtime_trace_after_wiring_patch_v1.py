@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import psycopg2
@@ -52,7 +52,15 @@ def systemctl_active_since(service: str) -> str:
 
 
 def systemctl_active_since_usec(service: str) -> datetime | None:
-    """Русский комментарий: берём monotonic-free wall-clock timestamp старта сервиса."""
+    """Русский комментарий: парсим ActiveEnterTimestampUSec systemd в UTC.
+
+    systemd на сервере отдаёт строку вида:
+    Thu 2026-06-18 13:50:12 MSK
+    или:
+    Thu 2026-06-18 13:50:12.123456 MSK
+
+    Для PostgreSQL timestamptz сравнения нужен UTC datetime.
+    """
     try:
         raw = subprocess.check_output(
             ["systemctl", "show", service, "-p", "ActiveEnterTimestampUSec", "--value"],
@@ -63,10 +71,25 @@ def systemctl_active_since_usec(service: str) -> datetime | None:
         if not raw or raw == "0":
             return None
 
-        # systemd обычно отдаёт: Thu 2026-06-18 13:50:12.123456 MSK
-        parsed = datetime.strptime(raw.rsplit(" ", 1)[0], "%a %Y-%m-%d %H:%M:%S.%f")
-        # Сервер в MSK, приводим к UTC для сравнения с timestamptz.
-        return parsed.replace(tzinfo=timezone.utc).astimezone(timezone.utc)
+        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_MSK_FIX_V1
+        parts = raw.rsplit(" ", 1)
+        timestamp_part = parts[0].strip()
+        tz_part = parts[1].strip() if len(parts) > 1 else ""
+
+        if "." in timestamp_part:
+            parsed = datetime.strptime(timestamp_part, "%a %Y-%m-%d %H:%M:%S.%f")
+        else:
+            parsed = datetime.strptime(timestamp_part, "%a %Y-%m-%d %H:%M:%S")
+
+        if tz_part == "MSK":
+            local_tz = timezone(timedelta(hours=3))
+        elif tz_part in ("UTC", "GMT"):
+            local_tz = timezone.utc
+        else:
+            # Русский комментарий: безопасный fallback для текущего сервера — MSK.
+            local_tz = timezone(timedelta(hours=3))
+
+        return parsed.replace(tzinfo=local_tz).astimezone(timezone.utc)
 
     except Exception:
         return None
