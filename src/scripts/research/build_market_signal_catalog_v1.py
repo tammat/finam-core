@@ -23,6 +23,10 @@ class SignalClassRule:
 
 
 SIGNAL_CLASS_RULES: tuple[SignalClassRule, ...] = (
+    # MARKET_SIGNAL_CATALOG_V1_1_FAMILY_AND_GOLD_SHADOW_FIX
+    # Русский комментарий:
+    # GOLD shadow-сигналы часто не имеют payload.reason, поэтому классифицируем их по strategy.
+    SignalClassRule("GOLD_SHORT_SHADOW", ("gold_short_only_shadow_v1",)),
     SignalClassRule("TIME_EXIT", ("time_exit", "timeout", "time_stop")),
     SignalClassRule("SMART_ENTRY_RETEST", ("smart_entry_retest", "retest")),
     SignalClassRule("BREAKOUT", ("breakout", "break_out", "range_break", "level_break")),
@@ -171,14 +175,16 @@ def classify_signal(row: dict[str, Any]) -> str:
 def signal_family(symbol: str, continuous_symbol: str) -> str:
     value = f"{symbol} {continuous_symbol}".upper()
 
-    if "NG" in value:
-        return "ENERGY_GAS"
-    if "BR" in value:
+    # Русский комментарий:
+    # Порядок важен: BR_ROLLING содержит подстроку "NG", поэтому BR проверяем раньше NG.
+    if "BR" in value or "BRENT" in value:
         return "ENERGY_OIL"
-    if "USD" in value or "USDRUB" in value:
-        return "FX_USDRUB"
     if "GDU" in value or "GOLD" in value:
         return "METALS_GOLD"
+    if "USDRUB" in value or "USD" in value:
+        return "FX_USDRUB"
+    if "NG" in value:
+        return "ENERGY_GAS"
     if "@MISX" in value:
         return "EQUITY_MISX"
 
