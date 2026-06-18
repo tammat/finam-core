@@ -6830,7 +6830,15 @@ class PaperTradingPipeline:
 
             for dynamic_symbol in decision.added_symbols:
                 if dynamic_symbol not in self.strategy_by_symbol:
-                    strategy_name = self._strategy_name_for_symbol(dynamic_symbol)
+                    # EQUITY_STRATEGY_WIRING_PATCH_V1
+                    # Русский комментарий: для equity-symbol стратегия должна браться
+                    # из runtime_active_universe.strategy, а не из legacy symbol map.
+                    # Futures/NG/BR/USDRUB остаются на прежнем resolver-е.
+                    strategy_name = (
+                        self._runtime_strategy_name_for_symbol(dynamic_symbol)
+                        if str(dynamic_symbol).endswith("@MISX")
+                        else self._strategy_name_for_symbol(dynamic_symbol)
+                    )
                     self.strategy_by_symbol[dynamic_symbol] = StrategyFactory.create(
                         dynamic_symbol,
                         strategy_name=strategy_name,
@@ -7003,6 +7011,75 @@ class PaperTradingPipeline:
             )
         except Exception as exc:
             print(f"RUNTIME_GUARD_PRE_SIGNAL_BLOCK_AUDIT_FAILED error={exc}", flush=True)
+
+    def _runtime_strategy_name_for_symbol(self, symbol: str) -> str:
+        """Русский комментарий: возвращает strategy из runtime_active_universe для equity-symbol.
+
+        Метод используется только для @MISX в runtime symbol add path.
+        При любой ошибке мягко возвращается legacy _strategy_name_for_symbol,
+        чтобы не ломать paper runtime.
+        """
+        try:
+            symbol_key = str(symbol or "").strip()
+            if not symbol_key.endswith("@MISX"):
+                return self._strategy_name_for_symbol(symbol_key)
+
+            pg_logger = getattr(self, "pg_logger", None)
+            if pg_logger is None:
+                return self._strategy_name_for_symbol(symbol_key)
+
+            conn = (
+                getattr(pg_logger, "conn", None)
+                or getattr(pg_logger, "connection", None)
+                or getattr(pg_logger, "_conn", None)
+            )
+
+            if conn is None and hasattr(pg_logger, "get_connection"):
+                conn = pg_logger.get_connection()
+
+            if conn is None and hasattr(pg_logger, "_get_connection"):
+                conn = pg_logger._get_connection()
+
+            if conn is None:
+                return self._strategy_name_for_symbol(symbol_key)
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select strategy
+                    from runtime_active_universe
+                    where symbol = %s
+                      and is_enabled = true
+                    order by priority desc nulls last,
+                             score desc nulls last,
+                             updated_at desc nulls last
+                    limit 1
+                    """,
+                    (symbol_key,),
+                )
+                row = cur.fetchone()
+
+            if not row:
+                return self._strategy_name_for_symbol(symbol_key)
+
+            runtime_strategy = str(row[0] or "").strip()
+            if runtime_strategy:
+                return runtime_strategy
+
+            return self._strategy_name_for_symbol(symbol_key)
+
+        except Exception as exc:
+            try:
+                self._log_dedup(
+                    f"PIPE_RUNTIME_EQUITY_STRATEGY_RESOLVER_ERROR:{symbol}",
+                    f"PIPE_RUNTIME_EQUITY_STRATEGY_RESOLVER_ERROR symbol={symbol} error={type(exc).__name__}:{exc}",
+                    heartbeat_sec=300,
+                )
+            except Exception:
+                pass
+
+            return self._strategy_name_for_symbol(str(symbol or ""))
+
 
     def _strategy_name_for_symbol(self, symbol: str) -> str:
         """Русский комментарий: возвращает имя стратегии с учётом dynamic_watchlist."""
