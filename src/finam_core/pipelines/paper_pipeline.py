@@ -7054,24 +7054,54 @@ class PaperTradingPipeline:
             if conn is None and hasattr(pg_logger, "_get_connection"):
                 conn = pg_logger._get_connection()
 
+            # EQUITY_RUNTIME_STRATEGY_RESOLVER_CONNECTION_PATCH_V1
+            # Русский комментарий: в systemd/runtime pg_logger не всегда отдаёт открытый conn.
+            # Поэтому для read-only resolver используем DATABASE_URL как безопасный fallback.
+            should_close_conn = False
+            if conn is None:
+                try:
+                    import os
+                    import psycopg2
+
+                    dsn = os.getenv("DATABASE_URL")
+                    if dsn:
+                        conn = psycopg2.connect(dsn)
+                        should_close_conn = True
+                except Exception as exc:
+                    try:
+                        self._log_dedup(
+                            f"PIPE_RUNTIME_EQUITY_STRATEGY_RESOLVER_DB_CONNECT_ERROR:{symbol_key}",
+                            f"PIPE_RUNTIME_EQUITY_STRATEGY_RESOLVER_DB_CONNECT_ERROR symbol={symbol_key} error={type(exc).__name__}:{exc}",
+                            heartbeat_sec=300,
+                        )
+                    except Exception:
+                        pass
+
             if conn is None:
                 return self._strategy_name_for_symbol(symbol_key)
 
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    select strategy
-                    from runtime_active_universe
-                    where symbol = %s
-                      and is_enabled = true
-                    order by priority desc nulls last,
-                             score desc nulls last,
-                             updated_at desc nulls last
-                    limit 1
-                    """,
-                    (symbol_key,),
-                )
-                row = cur.fetchone()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select strategy
+                        from runtime_active_universe
+                        where symbol = %s
+                          and is_enabled = true
+                        order by priority desc nulls last,
+                                 score desc nulls last,
+                                 updated_at desc nulls last
+                        limit 1
+                        """,
+                        (symbol_key,),
+                    )
+                    row = cur.fetchone()
+            finally:
+                if should_close_conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
             if not row:
                 return self._strategy_name_for_symbol(symbol_key)
