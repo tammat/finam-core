@@ -52,14 +52,10 @@ def systemctl_active_since(service: str) -> str:
 
 
 def systemctl_active_since_usec(service: str) -> datetime | None:
-    """Русский комментарий: парсим ActiveEnterTimestampUSec systemd в UTC.
+    """Русский комментарий: надёжно переводит ActiveEnterTimestampUSec systemd в UTC.
 
-    systemd на сервере отдаёт строку вида:
-    Thu 2026-06-18 13:50:12 MSK
-    или:
-    Thu 2026-06-18 13:50:12.123456 MSK
-
-    Для PostgreSQL timestamptz сравнения нужен UTC datetime.
+    Не парсим руками MSK/локаль. Используем date -d, потому что systemd timestamp
+    может быть без микросекунд и с timezone alias.
     """
     try:
         raw = subprocess.check_output(
@@ -71,25 +67,18 @@ def systemctl_active_since_usec(service: str) -> datetime | None:
         if not raw or raw == "0":
             return None
 
-        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_MSK_FIX_V1
-        parts = raw.rsplit(" ", 1)
-        timestamp_part = parts[0].strip()
-        tz_part = parts[1].strip() if len(parts) > 1 else ""
+        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_DATE_CMD_FIX_V1
+        # EQUITY_RUNTIME_TRACE_RESTART_AWARE_MSK_REPLACE_FALLBACK_V1
+        date_input = raw.replace(" MSK", " +0300")
 
-        if "." in timestamp_part:
-            parsed = datetime.strptime(timestamp_part, "%a %Y-%m-%d %H:%M:%S.%f")
-        else:
-            parsed = datetime.strptime(timestamp_part, "%a %Y-%m-%d %H:%M:%S")
+        iso = subprocess.check_output(
+            ["date", "-u", "-d", date_input, "+%Y-%m-%dT%H:%M:%S%z"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
 
-        if tz_part == "MSK":
-            local_tz = timezone(timedelta(hours=3))
-        elif tz_part in ("UTC", "GMT"):
-            local_tz = timezone.utc
-        else:
-            # Русский комментарий: безопасный fallback для текущего сервера — MSK.
-            local_tz = timezone(timedelta(hours=3))
-
-        return parsed.replace(tzinfo=local_tz).astimezone(timezone.utc)
+        parsed = datetime.strptime(iso, "%Y-%m-%dT%H:%M:%S%z")
+        return parsed.astimezone(timezone.utc)
 
     except Exception:
         return None
