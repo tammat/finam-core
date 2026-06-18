@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from datetime import datetime, timezone
 from typing import Any
 
 import psycopg2
@@ -50,6 +51,27 @@ def systemctl_active_since(service: str) -> str:
         return "UNKNOWN"
 
 
+def systemctl_active_since_usec(service: str) -> datetime | None:
+    """Русский комментарий: берём monotonic-free wall-clock timestamp старта сервиса."""
+    try:
+        raw = subprocess.check_output(
+            ["systemctl", "show", service, "-p", "ActiveEnterTimestampUSec", "--value"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+
+        if not raw or raw == "0":
+            return None
+
+        # systemd обычно отдаёт: Thu 2026-06-18 13:50:12.123456 MSK
+        parsed = datetime.strptime(raw.rsplit(" ", 1)[0], "%a %Y-%m-%d %H:%M:%S.%f")
+        # Сервер в MSK, приводим к UTC для сравнения с timestamptz.
+        return parsed.replace(tzinfo=timezone.utc).astimezone(timezone.utc)
+
+    except Exception:
+        return None
+
+
 def table_columns(cur, table_name: str) -> set[str]:
     cur.execute(
         """
@@ -94,7 +116,7 @@ def build_guard_sql(cols: set[str]) -> str:
         {created_expr}
     from runtime_guard_pre_signal_block_audit_v1
     where symbol = %s
-      and created_at >= now() - (%s::text)::interval
+      and created_at >= greatest(now() - (%s::text)::interval, coalesce(%s::timestamptz, '-infinity'::timestamptz))
     order by created_at desc
     limit %s;
     """
@@ -116,7 +138,7 @@ def build_summary_sql(cols: set[str]) -> str:
         max(created_at) as last_created_at
     from runtime_guard_pre_signal_block_audit_v1
     where symbol = %s
-      and created_at >= now() - (%s::text)::interval;
+      and created_at >= greatest(now() - (%s::text)::interval, coalesce(%s::timestamptz, '-infinity'::timestamptz));
     """
 
 
@@ -140,8 +162,13 @@ def main() -> int:
     print(f"symbol={symbol}")
     print(f"expected_strategy={expected_strategy}")
     print(f"since_interval={since_interval}")
+    # EQUITY_RUNTIME_TRACE_RESTART_AWARE_V1
+    service_active_since_text = systemctl_active_since(service_name)
+    service_active_since_dt = systemctl_active_since_usec(service_name)
+
     print(f"service={service_name}")
-    print(f"service_active_since={systemctl_active_since(service_name)}")
+    print(f"service_active_since={service_active_since_text}")
+    print(f"service_active_since_utc={service_active_since_dt.isoformat() if service_active_since_dt else 'UNKNOWN'}")
     print()
 
     with psycopg2.connect(dsn) as conn:
@@ -154,12 +181,12 @@ def main() -> int:
             summary_sql = build_summary_sql(guard_cols)
 
             if "strategy" in guard_cols:
-                cur.execute(summary_sql, (expected_strategy, expected_strategy, symbol, since_interval))
+                cur.execute(summary_sql, (expected_strategy, expected_strategy, symbol, since_interval, service_active_since_dt))
             else:
-                cur.execute(summary_sql, (symbol, since_interval))
+                cur.execute(summary_sql, (symbol, since_interval, service_active_since_dt))
             summary = cur.fetchone() or {}
 
-            cur.execute(guard_sql, (symbol, since_interval, limit))
+            cur.execute(guard_sql, (symbol, since_interval, service_active_since_dt, limit))
             rows = cur.fetchall()
 
     print("EQUITY_RUNTIME_AFTER_PATCH_SCHEMA")
@@ -219,6 +246,7 @@ def main() -> int:
     print(f"fresh_expected_strategy_rows={expected_rows}")
     print(f"fresh_other_strategy_rows={other_rows}")
     print(f"last_guard_created_at={summary.get('last_created_at')}")
+    print(f"restart_aware_filter=1")
     print("runtime_changes_required=0")
     print("execution_changes_required=0")
     print("db_update=0")
