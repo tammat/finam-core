@@ -2,76 +2,246 @@
 from __future__ import annotations
 
 import os
-import subprocess
-from pathlib import Path
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
 
 
 # Русский комментарий:
-# SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1 — read-only план по сигналам.
-# Скрипт использует результат SIGNAL_CLASS_EDGE_SCORECARD_V1_1 и классифицирует
-# signal pairs в research candidates / quarantine / legacy / require more data.
+# SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1
+# Read-only план решений по нормализованным signal_class.
+# Ничего не меняет в БД. Не включает runtime/execution.
 
 
-def load_gold_telemetry_guard() -> dict[str, str]:
-    """Русский комментарий: читаем последнюю telemetry по золоту для защиты от ложного promote."""
+LOOKBACK_DAYS = int(os.getenv("SIGNAL_CLASS_CANDIDATE_LOOKBACK_DAYS", "30"))
+MIN_CYCLES = int(os.getenv("SIGNAL_CLASS_CANDIDATE_MIN_CYCLES", "5"))
+
+
+TRADES_SQL = """
+select
+    id,
+    created_at,
+    symbol,
+    strategy,
+    timeframe,
+    continuous_symbol,
+    side,
+    qty,
+    price,
+    commission,
+    payload
+from trades
+where created_at >= now() - (%s::text)::interval
+  and coalesce(is_invalid, false) = false
+  and payload ? 'signal_class'
+  and coalesce(payload->>'signal_class', '') <> ''
+  and payload->>'signal_class' <> 'UNKNOWN_REASON'
+order by created_at asc, id asc;
+"""
+
+
+@dataclass
+class Trade:
+    id: int
+    created_at: Any
+    symbol: str
+    strategy: str
+    timeframe: str
+    continuous_symbol: str
+    side: str
+    qty: float
+    price: float
+    commission: float
+    signal_class: str
+    entry_source: str
+    entry_regime: str
+
+
+@dataclass
+class Cycle:
+    symbol: str
+    strategy: str
+    timeframe: str
+    continuous_symbol: str
+    entry_source: str
+    entry_signal_class: str
+    entry_regime: str
+    exit_signal_class: str
+    gross_pnl: float
+    commission: float
+    net_pnl: float
+    duration_sec: float
+
+
+def sval(value: Any, default: str = "UNKNOWN") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def fnum(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except Exception:
+        return 0.0
+
+
+def payload_dict(payload: Any) -> dict[str, Any]:
+    return payload if isinstance(payload, dict) else {}
+
+
+def load_trades() -> list[Trade]:
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
-        return {
-            "available": "0",
-            "reason": "database_url_missing",
-        }
+        raise SystemExit("DATABASE_URL is required")
 
-    sql = """
-    SELECT
-        symbol,
-        status,
-        shadow_trades,
-        shadow_winrate,
-        shadow_expectancy,
-        shadow_profit_factor,
-        runtime_allowed,
-        execution_enabled,
-        created_at
-    FROM runtime_gold_watch_telemetry
-    WHERE symbol = 'GDU6@RTSX'
-    ORDER BY created_at DESC
-    LIMIT 1
-    """
+    interval = f"{LOOKBACK_DAYS} days"
 
-    try:
-        with psycopg2.connect(dsn) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute(sql)
-                row = cur.fetchone()
-                if not row:
-                    return {
-                        "available": "0",
-                        "reason": "gold_telemetry_missing",
-                    }
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(TRADES_SQL, (interval,))
+            rows = list(cur.fetchall())
 
-                expectancy = float(row["shadow_expectancy"] or 0)
-                profit_factor = float(row["shadow_profit_factor"] or 0)
-                trades = int(row["shadow_trades"] or 0)
+    trades: list[Trade] = []
+    for row in rows:
+        payload = payload_dict(row.get("payload"))
+        trades.append(
+            Trade(
+                id=int(row["id"]),
+                created_at=row["created_at"],
+                symbol=sval(row.get("symbol")),
+                strategy=sval(row.get("strategy"), "UNKNOWN_STRATEGY"),
+                timeframe=sval(row.get("timeframe"), "UNKNOWN_TIMEFRAME"),
+                continuous_symbol=sval(row.get("continuous_symbol"), sval(row.get("symbol"))),
+                side=sval(row.get("side")).upper(),
+                qty=fnum(row.get("qty")),
+                price=fnum(row.get("price")),
+                commission=fnum(row.get("commission")),
+                signal_class=sval(payload.get("signal_class"), "UNKNOWN_REASON"),
+                entry_source=sval(payload.get("entry_source_normalized"), "UNKNOWN_SOURCE"),
+                entry_regime=sval(payload.get("entry_regime_normalized"), "UNKNOWN_REGIME"),
+            )
+        )
+    return trades
 
-                return {
-                    "available": "1",
-                    "status": str(row["status"]),
-                    "shadow_trades": str(trades),
-                    "shadow_expectancy": f"{expectancy:.6f}",
-                    "shadow_profit_factor": f"{profit_factor:.6f}",
-                    "runtime_allowed": "1" if row["runtime_allowed"] else "0",
-                    "execution_enabled": "1" if row["execution_enabled"] else "0",
-                    "created_at": str(row["created_at"]),
-                    "confirmed": "1" if trades >= 50 and expectancy > 0 and profit_factor > 1 else "0",
-                }
-    except Exception as exc:
-        return {
-            "available": "0",
-            "reason": f"gold_telemetry_error:{type(exc).__name__}",
-        }
+
+def reconstruct_cycles(trades: list[Trade]) -> list[Cycle]:
+    inventory: dict[tuple[str, str, str], deque[Trade]] = defaultdict(deque)
+    cycles: list[Cycle] = []
+
+    for trade in trades:
+        key = (trade.symbol, trade.strategy, trade.timeframe)
+
+        if trade.side == "BUY":
+            inventory[key].append(trade)
+            continue
+
+        if trade.side != "SELL":
+            continue
+
+        qty_left = trade.qty
+        while qty_left > 1e-12 and inventory[key]:
+            entry = inventory[key][0]
+            q = min(qty_left, entry.qty)
+
+            gross = (trade.price - entry.price) * q
+            commission = entry.commission + trade.commission
+            net = gross - commission
+
+            try:
+                duration = (trade.created_at - entry.created_at).total_seconds()
+            except Exception:
+                duration = 0.0
+
+            cycles.append(
+                Cycle(
+                    symbol=trade.symbol,
+                    strategy=trade.strategy,
+                    timeframe=trade.timeframe,
+                    continuous_symbol=trade.continuous_symbol,
+                    entry_source=entry.entry_source,
+                    entry_signal_class=entry.signal_class,
+                    entry_regime=entry.entry_regime,
+                    exit_signal_class=trade.signal_class,
+                    gross_pnl=gross,
+                    commission=commission,
+                    net_pnl=net,
+                    duration_sec=duration,
+                )
+            )
+
+            entry.qty -= q
+            qty_left -= q
+
+            if entry.qty <= 1e-12:
+                inventory[key].popleft()
+
+    return cycles
+
+
+def safe_div(a: float, b: float) -> float | None:
+    if abs(b) < 1e-12:
+        return None
+    return a / b
+
+
+def metrics(group: list[Cycle]) -> dict[str, Any]:
+    closed = len(group)
+    wins = [c for c in group if c.net_pnl > 0]
+    losses = [c for c in group if c.net_pnl < 0]
+    profit = sum(c.net_pnl for c in wins)
+    loss = abs(sum(c.net_pnl for c in losses))
+
+    gross = sum(c.gross_pnl for c in group)
+    commission = sum(c.commission for c in group)
+    net = sum(c.net_pnl for c in group)
+
+    return {
+        "closed": closed,
+        "wins": len(wins),
+        "losses": len(losses),
+        "winrate": safe_div(len(wins), closed) or 0.0,
+        "profit_factor": safe_div(profit, loss),
+        "gross": gross,
+        "commission": commission,
+        "net": net,
+        "avg_net": safe_div(net, closed) or 0.0,
+        "avg_commission": safe_div(commission, closed) or 0.0,
+        "avg_duration": safe_div(sum(c.duration_sec for c in group), closed) or 0.0,
+    }
+
+
+def decision_for(key: tuple[str, ...], m: dict[str, Any]) -> tuple[str, str]:
+    symbol, strategy, timeframe, continuous_symbol, entry_source, signal_class, entry_regime, exit_signal_class = key
+
+    closed = int(m["closed"])
+    net = float(m["net"])
+    commission = float(m["commission"])
+    avg_duration = float(m["avg_duration"])
+    pf = m["profit_factor"]
+
+    if entry_source == "UNKNOWN_SOURCE" and commission == 0.0 and avg_duration == 0.0:
+        return "DIRTY_DATA_REVIEW", "unknown_source_zero_commission_zero_duration"
+
+    if entry_source == "historical_signal_replay_backfill":
+        if closed >= MIN_CYCLES and net > 0 and pf is not None and pf >= 1.2:
+            return "KEEP_HISTORICAL_RESEARCH_ONLY", "historical_positive_requires_replay_validation"
+        return "HISTORICAL_REVIEW_REQUIRED", "historical_not_strong_enough"
+
+    if closed < MIN_CYCLES:
+        return "REQUIRE_MORE_DATA", "too_few_closed_cycles"
+
+    if net < 0 and pf is not None and pf < 1.0:
+        return "QUARANTINE_SIGNAL_CLASS", "negative_net_and_profit_factor_below_one"
+
+    if net > 0 and pf is not None and pf >= 1.2 and commission > 0:
+        return "PROMOTE_TO_RESEARCH_CANDIDATE", "clean_positive_after_commission"
+
+    return "KEEP_RESEARCH_ONLY", "mixed_or_unconfirmed_metrics"
 
 
 def main() -> int:
@@ -80,161 +250,97 @@ def main() -> int:
     print("runtime_allow=0")
     print("execution_enabled=0")
     print("real_trading_enabled=0")
+    print("db_update=0")
+    print(f"lookback_days={LOOKBACK_DAYS}")
+    print(f"min_cycles={MIN_CYCLES}")
     print()
 
-    gold_telemetry = load_gold_telemetry_guard()
-    print(
-        "GOLD_TELEMETRY_GUARD "
-        + " ".join(f"{k}={v}" for k, v in gold_telemetry.items())
-    )
-    print()
+    trades = load_trades()
+    cycles = reconstruct_cycles(trades)
 
-    cmd = [
-        "python3",
-        "src/scripts/research/build_signal_class_edge_scorecard_v1_1.py",
-    ]
+    grouped: dict[tuple[str, str, str, str, str, str, str, str], list[Cycle]] = defaultdict(list)
+    for c in cycles:
+        key = (
+            c.symbol,
+            c.strategy,
+            c.timeframe,
+            c.continuous_symbol,
+            c.entry_source,
+            c.entry_signal_class,
+            c.entry_regime,
+            c.exit_signal_class,
+        )
+        grouped[key].append(c)
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = "src"
-
-    proc = subprocess.run(
-        cmd,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-
-    if proc.returncode != 0:
-        print(proc.stdout)
-        print("VERDICT=SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_FAILED_SCORECARD")
-        return proc.returncode
-
-    rows = []
-    for line in proc.stdout.splitlines():
-        if not line.startswith("SIGNAL_CLASS_EDGE_V1_1_ROW "):
-            continue
-
-        parts = line.split()[1:]
-        row = {}
-        for part in parts:
-            if "=" not in part:
-                continue
-            k, v = part.split("=", 1)
-            row[k] = v
-        rows.append(row)
+    counters = defaultdict(int)
 
     print("SIGNAL_CLASS_STRATEGY_CANDIDATE_ROWS")
 
-    promote = 0
-    research_only = 0
-    quarantine = 0
-    more_data = 0
-    legacy = 0
+    rows = []
+    for key, group in grouped.items():
+        m = metrics(group)
+        action, reason = decision_for(key, m)
+        counters[action] += 1
+        rows.append((key, m, action, reason))
 
-    for row in rows:
-        entry = row.get("entry_signal_class", "UNKNOWN")
-        exit_ = row.get("exit_signal_class", "UNKNOWN")
-        strategy = row.get("strategy", "UNKNOWN")
-        timeframe = row.get("timeframe", "UNKNOWN")
-        family = row.get("family", "UNKNOWN")
-        symbol = row.get("symbol", "UNKNOWN")
-        closed_pairs = int(float(row.get("closed_pairs", "0")))
-        net_pnl = float(row.get("net_pnl", "0"))
-        net_pnl_per_pair = float(row.get("net_pnl_per_pair", "0"))
-        edge_status = row.get("edge_status", "UNKNOWN")
-        commission_drag_raw = row.get("commission_drag", "None")
-        commission_drag = None if commission_drag_raw == "None" else float(commission_drag_raw)
+    rows.sort(
+        key=lambda x: (
+            x[2],
+            -int(x[1]["closed"]),
+            float(x[1]["net"]),
+        )
+    )
 
-        action = "REQUIRE_MORE_DATA"
-        reason = "insufficient_decision_evidence"
-
-        if entry == "UNCLASSIFIED_SIGNAL" or exit_ == "UNCLASSIFIED_SIGNAL" or strategy == "UNKNOWN":
-            action = "LEGACY_DIRTY_DATA"
-            reason = "unclassified_or_unknown_strategy"
-            legacy += 1
-
-        elif edge_status == "EDGE_NEGATIVE":
-            action = "QUARANTINE_SIGNAL_CLASS"
-            reason = "negative_closed_pair_edge"
-            quarantine += 1
-
-        elif edge_status == "EDGE_FLAT_OR_WEAK":
-            action = "KEEP_RESEARCH_ONLY"
-            reason = "flat_or_weak_edge"
-            research_only += 1
-
-        elif edge_status == "EDGE_POSITIVE":
-            if closed_pairs >= 50 and net_pnl > 0 and net_pnl_per_pair > 0:
-                if commission_drag is not None and commission_drag > 0.5:
-                    action = "KEEP_RESEARCH_ONLY"
-                    reason = "positive_but_commission_drag_high"
-                    research_only += 1
-                elif strategy in {"HISTORICAL_BREAKOUT_V1"}:
-                    action = "KEEP_RESEARCH_ONLY"
-                    reason = "historical_only_requires_live_confirmation"
-                    research_only += 1
-                elif "shadow" in strategy.lower():
-                    # SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1_2_GOLD_TELEMETRY_GUARD
-                    # Русский комментарий:
-                    # Shadow-scorecard сам по себе не подтверждает кандидата.
-                    # Если runtime telemetry показывает отрицательную expectancy или PF < 1,
-                    # оставляем сигнал только в research.
-                    if strategy == "gold_short_only_shadow_v1" and gold_telemetry.get("confirmed") != "1":
-                        action = "KEEP_RESEARCH_ONLY"
-                        reason = "gold_shadow_telemetry_not_confirmed"
-                        research_only += 1
-                    else:
-                        action = "PROMOTE_TO_RESEARCH_CANDIDATE"
-                        reason = "positive_shadow_edge_requires_paper_confirmation"
-                        promote += 1
-                elif family in {"ENERGY_GAS", "ENERGY_OIL", "FX_USDRUB"} and net_pnl_per_pair < 0.01:
-                    # SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1_1_STRICT_EDGE_FILTER
-                    # Русский комментарий:
-                    # Микро-edge по фьючерсам и валюте не продвигаем в research candidate.
-                    # Его почти наверняка съедят комиссия, спред и проскальзывание.
-                    action = "KEEP_RESEARCH_ONLY"
-                    reason = "positive_but_micro_edge_below_execution_threshold"
-                    research_only += 1
-                else:
-                    action = "PROMOTE_TO_RESEARCH_CANDIDATE"
-                    reason = "positive_closed_pair_edge"
-                    promote += 1
-            else:
-                action = "REQUIRE_MORE_DATA"
-                reason = "positive_but_sample_too_small"
-                more_data += 1
-
-        else:
-            more_data += 1
+    for key, m, action, reason in rows:
+        symbol, strategy, timeframe, continuous_symbol, entry_source, signal_class, entry_regime, exit_signal_class = key
+        pf = m["profit_factor"]
 
         print(
             "SIGNAL_CLASS_STRATEGY_CANDIDATE_ROW "
-            f"entry_signal_class={entry} "
-            f"exit_signal_class={exit_} "
-            f"family={family} "
+            f"symbol={symbol} "
             f"strategy={strategy} "
             f"timeframe={timeframe} "
-            f"symbol={symbol} "
-            f"closed_pairs={closed_pairs} "
-            f"net_pnl={net_pnl:.6f} "
-            f"net_pnl_per_pair={net_pnl_per_pair:.6f} "
-            f"edge_status={edge_status} "
-            f"action={action} "
+            f"continuous_symbol={continuous_symbol} "
+            f"entry_source={entry_source} "
+            f"signal_class={signal_class} "
+            f"entry_regime={entry_regime} "
+            f"exit_signal_class={exit_signal_class} "
+            f"closed_cycles={m['closed']} "
+            f"wins={m['wins']} "
+            f"losses={m['losses']} "
+            f"winrate={m['winrate']:.4f} "
+            f"profit_factor={'NULL' if pf is None else f'{pf:.6f}'} "
+            f"net_pnl={m['net']:.6f} "
+            f"commission={m['commission']:.6f} "
+            f"avg_net={m['avg_net']:.6f} "
+            f"avg_duration_sec={m['avg_duration']:.2f} "
+            f"planned_action={action} "
             f"reason={reason}"
         )
 
     print()
-    print("SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_SUMMARY")
-    print(f"rows_total={len(rows)}")
-    print(f"promote_to_research_candidate={promote}")
-    print(f"keep_research_only={research_only}")
-    print(f"quarantine_signal_class={quarantine}")
-    print(f"require_more_data={more_data}")
-    print(f"legacy_dirty_data={legacy}")
+    print("SIGNAL_CLASS_STRATEGY_CANDIDATE_SUMMARY")
+    print(f"groups_total={len(grouped)}")
+    print(f"promote_to_research_candidate={counters['PROMOTE_TO_RESEARCH_CANDIDATE']}")
+    print(f"keep_historical_research_only={counters['KEEP_HISTORICAL_RESEARCH_ONLY']}")
+    print(f"historical_review_required={counters['HISTORICAL_REVIEW_REQUIRED']}")
+    print(f"dirty_data_review={counters['DIRTY_DATA_REVIEW']}")
+    print(f"quarantine_signal_class={counters['QUARANTINE_SIGNAL_CLASS']}")
+    print(f"require_more_data={counters['REQUIRE_MORE_DATA']}")
+    print(f"keep_research_only={counters['KEEP_RESEARCH_ONLY']}")
+    print("runtime_changes_required=0")
+    print("execution_changes_required=0")
+    print("db_update=0")
+    print("real_trading_enabled=0")
+    print("execution_enabled=0")
 
-    print("VERDICT=SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_READY")
+    if counters["PROMOTE_TO_RESEARCH_CANDIDATE"] > 0:
+        print("VERDICT=SIGNAL_CLASS_STRATEGY_CANDIDATES_FOUND")
+    elif counters["KEEP_HISTORICAL_RESEARCH_ONLY"] > 0 or counters["DIRTY_DATA_REVIEW"] > 0:
+        print("VERDICT=SIGNAL_CLASS_STRATEGY_NO_CLEAN_CANDIDATES")
+    else:
+        print("VERDICT=SIGNAL_CLASS_STRATEGY_RESEARCH_ONLY")
+
     print("SIGNAL_CLASS_STRATEGY_CANDIDATE_PLAN_V1_OK")
     return 0
 
