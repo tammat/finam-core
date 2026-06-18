@@ -23,6 +23,7 @@ from finam_core.strategy.signal_strategy_discovery_repository_v1 import (
 LOG = logging.getLogger(__name__)
 
 
+from finam_core.storage.trade_context_guard_v1 import TradeContextGuardV1
 class PostgresLogger:
     def __init__(self) -> None:
         # Русский коммент: logger использует DATABASE_URL либо собирает DSN из DB_* переменных.
@@ -190,6 +191,28 @@ class PostgresLogger:
                     payload["timeframe"] = attribution_decision.timeframe
                     payload["continuous_symbol"] = attribution_decision.continuous_symbol
 
+                    # TRADE_CONTEXT_GUARD_WIRE_TO_TRADES_WRITER_V1
+                    # Русский комментарий: финальный writer-level guard перед INSERT INTO trades.
+                    trade_context_decision = TradeContextGuardV1().normalize(
+                        symbol=str(normalized_symbol or ""),
+                        strategy=str(attribution_decision.strategy or ""),
+                        timeframe=str(attribution_decision.timeframe or ""),
+                        continuous_symbol=str(attribution_decision.continuous_symbol or ""),
+                        payload=payload if isinstance(payload, dict) else {},
+                    )
+                    if not trade_context_decision.allowed:
+                        print(
+                            "TRADE_CONTEXT_GUARD_BLOCKED "
+                            f"symbol={normalized_symbol} "
+                            f"reason={trade_context_decision.reason}",
+                            flush=True,
+                        )
+                        return
+
+                    payload["strategy"] = trade_context_decision.strategy
+                    payload["timeframe"] = trade_context_decision.timeframe
+                    payload["continuous_symbol"] = trade_context_decision.continuous_symbol
+
                     cur.execute(
                         """
                         INSERT INTO trades (
@@ -210,9 +233,9 @@ class PostgresLogger:
                             normalized_execution_type,
                             json.dumps(payload, ensure_ascii=False),
                             normalized_execution_type,
-                            attribution_decision.strategy,
-                            attribution_decision.timeframe,
-                            attribution_decision.continuous_symbol,
+                            trade_context_decision.strategy,
+                            trade_context_decision.timeframe,
+                            trade_context_decision.continuous_symbol,
                         ),
                     )
         except Exception as e:

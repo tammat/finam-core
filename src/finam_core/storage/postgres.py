@@ -1,6 +1,7 @@
 import psycopg2
 import numpy as np
 from pathlib import Path
+from finam_core.storage.trade_context_guard_v1 import TradeContextGuardV1
 
 
 def _normalize(value):
@@ -231,6 +232,28 @@ class PostgresStorage:
 
         payload["is_invalid"] = is_invalid
         payload["invalid_reason"] = invalid_reason
+
+        # TRADE_CONTEXT_GUARD_WIRE_TO_TRADES_WRITER_V1
+        # Русский комментарий: финальный writer-level guard перед INSERT INTO trades.
+        trade_context_decision = TradeContextGuardV1().normalize(
+            symbol=str(symbol or ""),
+            strategy=str(strategy or ""),
+            timeframe=str(timeframe or ""),
+            continuous_symbol=str(continuous_symbol or ""),
+            payload=payload if isinstance(payload, dict) else {},
+        )
+        if not trade_context_decision.allowed:
+            raise ValueError(
+                "TRADE_CONTEXT_GUARD_BLOCKED "
+                f"symbol={symbol} reason={trade_context_decision.reason}"
+            )
+
+        strategy = trade_context_decision.strategy
+        timeframe = trade_context_decision.timeframe
+        continuous_symbol = trade_context_decision.continuous_symbol
+        payload["strategy"] = strategy
+        payload["timeframe"] = timeframe
+        payload["continuous_symbol"] = continuous_symbol
 
         with self.conn.cursor() as cur:
             cur.execute(
