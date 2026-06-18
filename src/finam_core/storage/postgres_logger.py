@@ -13,6 +13,12 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime
 
 import psycopg2
+from finam_core.strategy.signal_strategy_attribution_gate_v1 import SignalStrategyAttributionGateV1
+from finam_core.strategy.signal_strategy_discovery_repository_v1 import (
+    SignalStrategyDiscoveryRepositoryV1,
+    build_unresolved_signal_notification_v1,
+    decision_to_payload_v1,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -143,13 +149,55 @@ class PostgresLogger:
                         ),
                     )
 
+                    # WIRE_SIGNAL_STRATEGY_ATTRIBUTION_GATE_TO_STORAGE_WRITER_V1
+                    # Русский комментарий:
+                    # Перед записью trade определяем стратегию из payload/signal context.
+                    # Если стратегия не определена — обычную trade-запись не создаём,
+                    # а сохраняем discovery event и печатаем уведомление для разбора.
+                    attribution_gate = SignalStrategyAttributionGateV1()
+                    attribution_decision = attribution_gate.resolve(
+                        symbol=str(normalized_symbol),
+                        payload=payload if isinstance(payload, dict) else {},
+                    )
+
+                    if not attribution_decision.allowed:
+                        discovery_repo = SignalStrategyDiscoveryRepositoryV1(self.conn)
+                        discovery_payload = decision_to_payload_v1(
+                            attribution_decision,
+                            payload if isinstance(payload, dict) else {},
+                        )
+                        discovery_event_id = discovery_repo.record_unresolved_signal(
+                            symbol=str(normalized_symbol),
+                            reason=attribution_decision.reason,
+                            source=attribution_decision.source,
+                            payload=discovery_payload,
+                            proposed_strategy=attribution_decision.strategy,
+                            proposed_timeframe=attribution_decision.timeframe,
+                            proposed_continuous_symbol=attribution_decision.continuous_symbol,
+                        )
+                        print(
+                            build_unresolved_signal_notification_v1(
+                                event_id=discovery_event_id,
+                                symbol=str(normalized_symbol),
+                                decision=attribution_decision,
+                                payload=payload if isinstance(payload, dict) else {},
+                            ),
+                            flush=True,
+                        )
+                        return
+
+                    payload["strategy"] = attribution_decision.strategy
+                    payload["timeframe"] = attribution_decision.timeframe
+                    payload["continuous_symbol"] = attribution_decision.continuous_symbol
+
                     cur.execute(
                         """
                         INSERT INTO trades (
                             symbol, side, qty, price, commission,
-                            fill_id, origin, payload, created_at, ts, trade_source
+                            fill_id, origin, payload, created_at, ts, trade_source,
+                            strategy, timeframe, continuous_symbol
                         )
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now(),now(),%s)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now(),now(),%s,%s,%s,%s)
                         ON CONFLICT (fill_id) DO NOTHING
                         """,
                         (
@@ -162,6 +210,9 @@ class PostgresLogger:
                             normalized_execution_type,
                             json.dumps(payload, ensure_ascii=False),
                             normalized_execution_type,
+                            attribution_decision.strategy,
+                            attribution_decision.timeframe,
+                            attribution_decision.continuous_symbol,
                         ),
                     )
         except Exception as e:
