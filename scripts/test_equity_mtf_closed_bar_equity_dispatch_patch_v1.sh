@@ -17,12 +17,12 @@ grep -q "PIPE_EQUITY_CLOSED_BAR_NO_SIGNAL" src/finam_core/pipelines/paper_pipeli
 grep -q "PIPE_EQUITY_CLOSED_BAR_SIGNAL" src/finam_core/pipelines/paper_pipeline.py
 grep -q "execution=disabled_trace_only" src/finam_core/pipelines/paper_pipeline.py
 
-if grep -n "PIPE_EQUITY_CLOSED_BAR_SIGNAL" -A40 src/finam_core/pipelines/paper_pipeline.py | grep -q "paper.execute"; then
+if grep -n "def _process_equity_closed_bar_for_paper_signal" -A120 src/finam_core/pipelines/paper_pipeline.py | grep -q "paper.execute"; then
   echo "ERROR: equity trace handler must not call paper.execute"
   exit 1
 fi
 
-if grep -n "PIPE_EQUITY_CLOSED_BAR_SIGNAL" -A40 src/finam_core/pipelines/paper_pipeline.py | grep -q "send_order"; then
+if grep -n "def _process_equity_closed_bar_for_paper_signal" -A120 src/finam_core/pipelines/paper_pipeline.py | grep -q "send_order"; then
   echo "ERROR: equity trace handler must not send orders"
   exit 1
 fi

@@ -849,6 +849,7 @@ class PaperTradingPipeline:
                 )
                 self._process_br_closed_bar_for_paper_signal(bar)
                 self._process_ng_m1_closed_bar_for_paper_signal(bar)
+                self._process_equity_closed_bar_for_paper_signal(bar)
                 LOG.info(
                     "PIPE_MTF_BAR_CLOSED symbol=%s tf=%s ts=%s close=%s volume=%s",
                     bar.symbol,
@@ -8864,6 +8865,120 @@ class PaperTradingPipeline:
             )
 
         return strategies[symbol]
+
+
+    def _process_equity_closed_bar_for_paper_signal(self, bar) -> None:
+        """Русский комментарий: trace-only route закрытых M5 equity-баров.
+
+        Не отправляет заявки, не вызывает paper.execute, не включает real execution.
+        """
+        try:
+            symbol = str(getattr(bar, "symbol", "") or "")
+            timeframe = str(getattr(bar, "timeframe", "") or "").upper()
+
+            if not symbol.endswith("@MISX"):
+                return
+            if timeframe != "M5":
+                return
+
+            strategy_name = self._runtime_strategy_name_for_symbol(symbol)
+
+            if strategy_name != "VOLATILITY_BREAKOUT_EQUITY":
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
+                    f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
+                    "reason=non_volatility_breakout_equity",
+                    flush=True,
+                )
+                return
+
+            strategies = getattr(self, "strategy_by_symbol", None)
+            if strategies is None:
+                strategies = {}
+                self.strategy_by_symbol = strategies
+
+            strategy = strategies.get(symbol)
+            if strategy is None:
+                strategy = StrategyFactory.create(symbol, strategy_name=strategy_name)
+                strategies[symbol] = strategy
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_STRATEGY_CREATED "
+                    f"symbol={symbol} strategy={strategy_name}",
+                    flush=True,
+                )
+
+            close_price = float(getattr(bar, "close_price", 0.0) or 0.0)
+            high_price = float(getattr(bar, "high", close_price) or close_price)
+            low_price = float(getattr(bar, "low", close_price) or close_price)
+            volume = float(getattr(bar, "volume", 0.0) or 0.0)
+            atr_value = max(high_price - low_price, 0.0)
+
+            print(
+                "PIPE_EQUITY_CLOSED_BAR_ROUTE "
+                f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
+                f"ts={getattr(bar, 'ts', None)} close={close_price} volume={volume}",
+                flush=True,
+            )
+
+            if not hasattr(strategy, "on_quote"):
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_NO_ON_QUOTE "
+                    f"symbol={symbol} strategy={strategy_name}",
+                    flush=True,
+                )
+                return
+
+            try:
+                signal = strategy.on_quote(
+                    symbol=symbol,
+                    price=close_price,
+                    high=high_price,
+                    volume=volume,
+                    atr=atr_value,
+                    regime=None,
+                )
+            except TypeError:
+                signal = strategy.on_quote(
+                    {
+                        "symbol": symbol,
+                        "last": close_price,
+                        "price": close_price,
+                        "high": high_price,
+                        "low": low_price,
+                        "volume": volume,
+                        "atr": atr_value,
+                        "timeframe": timeframe,
+                    }
+                )
+
+            if signal is None:
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_NO_SIGNAL "
+                    f"symbol={symbol} timeframe={timeframe} strategy={strategy_name}",
+                    flush=True,
+                )
+                return
+
+            side = str(getattr(signal, "side", "") or "")
+            qty = float(getattr(signal, "qty", 0.0) or 0.0)
+            price = float(getattr(signal, "price", close_price) or close_price)
+            reason = str(getattr(signal, "reason", "") or "equity_closed_bar_signal")
+
+            print(
+                "PIPE_EQUITY_CLOSED_BAR_SIGNAL "
+                f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
+                f"side={side} qty={qty} price={price} reason={reason} "
+                "execution=disabled_trace_only",
+                flush=True,
+            )
+
+        except Exception as exc:
+            print(
+                "PIPE_EQUITY_CLOSED_BAR_ROUTE_ERROR "
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
 
     def _process_ng_m1_closed_bar_for_paper_signal(self, bar) -> None:
         """Русский комментарий: обработка закрытых M1 баров NG для live paper runtime."""
