@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Finam Core multi-asset breakout Telegram sender periodically
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=finam-multi-asset-breakout-telegram.service
+
+[Install]
+WantedBy=timers.target

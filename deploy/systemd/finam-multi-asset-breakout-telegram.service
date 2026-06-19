@@ -1,0 +1,24 @@
+[Unit]
+Description=Finam Core multi-asset breakout Telegram sender
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/deploy/env/.env
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=FUTURES_PREFIXES=BR,NG,GD
+Environment=MULTI_ASSET_TELEGRAM_DRY_RUN=1
+Environment=RUNTIME_ALLOW_TRADING=0
+Environment=EXECUTION_ENABLED=0
+Environment=REAL_TRADING_ENABLED=0
+ExecStart=/opt/finam-core/.venv/bin/python /opt/finam-core/src/scripts/research/build_multi_asset_breakout_telegram_sender_v1.py
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
