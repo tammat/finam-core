@@ -9,6 +9,7 @@ import subprocess
 import psycopg
 import sys
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,6 +20,7 @@ PORT = int(os.getenv("MULTI_ASSET_DASHBOARD_PORT", "8088"))
 V2_SCRIPT = "src/scripts/research/build_multi_asset_breakout_watch_v2.py"
 PLAN_SCRIPT = "src/scripts/research/build_multi_asset_breakout_telegram_notify_plan_v1.py"
 JOURNAL_UNIT = "finam-multi-asset-breakout-telegram.service"
+MSK = ZoneInfo("Europe/Moscow")
 
 
 def run_cmd(cmd: list[str], env_extra: dict[str, str] | None = None) -> tuple[int, str]:
@@ -389,6 +391,7 @@ def collect_payload() -> dict:
         "dashboard": "MULTI_ASSET_BREAKOUT_SIGNAL_QUALITY_OBSERVATION_V1",
         "mode": "read_only_dashboard",
         "port": PORT,
+        "checked_at_msk": datetime.now(MSK).isoformat(),
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "runtime_allow": os.getenv("RUNTIME_ALLOW_TRADING", "0"),
         "execution_enabled": "0",
@@ -686,7 +689,7 @@ th { background: #222; }
 <h1>Наблюдение качества сигналов пробоя V1</h1>
 {menu}
 <div class="card">
-<div>проверено UTC: <span class="mono">{esc(payload.get("checked_at_utc", "UNKNOWN"))}</span></div>
+<div>проверено МСК: <span class="mono">{esc(payload.get("checked_at_msk", "UNKNOWN"))}</span></div>
 <div>исполнение: <span class="good">{esc(payload.get("execution_enabled", "0"))}</span></div>
 <div>реальные сделки: <span class="good">{esc(payload.get("real_trading_enabled", "0"))}</span></div>
 <div>Telegram dry-run: <span class="good">{esc(payload.get("telegram_dry_run", "1"))}</span></div>
