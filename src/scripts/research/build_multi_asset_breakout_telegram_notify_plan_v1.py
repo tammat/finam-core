@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -17,7 +18,7 @@ def run_v2() -> tuple[int, str]:
     env["FUTURES_PREFIXES"] = env.get("FUTURES_PREFIXES", "BR,NG,GD")
 
     result = subprocess.run(
-        ["python3", V2_SCRIPT],
+        [sys.executable, V2_SCRIPT],
         cwd=str(ROOT),
         env=env,
         text=True,
