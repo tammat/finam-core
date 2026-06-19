@@ -634,9 +634,256 @@ th {{ background: #222; }}
 </html>"""
 
 
+def render_page(payload: dict, page: str) -> str:
+    def esc(x: object) -> str:
+        return html.escape(str(x))
+
+    summary = payload.get("summary", {})
+    history = payload.get("history_daily", {})
+    follow = payload.get("follow_through", {})
+    blockers = payload.get("blocker_counts", {})
+    ready_rows = payload.get("ready_rows", [])
+    rows = payload.get("rows", [])
+    journal_lines = payload.get("journal_lines", [])
+
+    menu = """
+<nav class="menu">
+<a href="/summary">Сводка</a>
+<a href="/history">История за день</a>
+<a href="/blockers">Блокировки</a>
+<a href="/ready">Готовые сигналы</a>
+<a href="/rows">Текущая таблица</a>
+<a href="/follow">Follow-through</a>
+<a href="/journal">Журнал Telegram</a>
+<a href="/api/current">API JSON</a>
+</nav>
+"""
+
+    style = """
+<style>
+body { font-family: Arial, sans-serif; margin: 24px; background: #111; color: #eee; }
+h1, h2, h3 { color: #fff; }
+.card { background: #1b1b1b; padding: 16px; margin-bottom: 16px; border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { border-bottom: 1px solid #333; padding: 6px; text-align: left; }
+th { background: #222; }
+.mono { font-family: monospace; font-size: 12px; }
+.menu { background: #1b1b1b; padding: 10px; margin-bottom: 16px; border-radius: 8px; }
+.menu a { color: #7CFC98; margin-right: 16px; text-decoration: none; font-weight: bold; }
+.good { color: #7CFC98; }
+.bad { color: #ff7777; }
+</style>
+"""
+
+    header = f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Finam Core — наблюдение пробоев</title>
+{style}
+</head>
+<body>
+<h1>Наблюдение качества сигналов пробоя V1</h1>
+{menu}
+<div class="card">
+<div>проверено UTC: <span class="mono">{esc(payload.get("checked_at_utc", "UNKNOWN"))}</span></div>
+<div>исполнение: <span class="good">{esc(payload.get("execution_enabled", "0"))}</span></div>
+<div>реальные сделки: <span class="good">{esc(payload.get("real_trading_enabled", "0"))}</span></div>
+<div>Telegram dry-run: <span class="good">{esc(payload.get("telegram_dry_run", "1"))}</span></div>
+</div>
+"""
+
+    footer = "</body></html>"
+
+    if page == "summary":
+        body = f"""
+<div class="card">
+<h2>Сводка</h2>
+<div>инструментов во вселенной: {esc(summary.get("universe_total", "UNKNOWN"))}</div>
+<div>строк наблюдения: {esc(summary.get("rows_total", "UNKNOWN"))}</div>
+<div>акции: {esc(summary.get("equity_rows", "UNKNOWN"))}</div>
+<div>фьючерсы: {esc(summary.get("futures_rows", "UNKNOWN"))}</div>
+<div>готовые пробои: <b>{esc(summary.get("breakout_ready", "UNKNOWN"))}</b></div>
+<div>решение Telegram: <b>{esc(summary.get("telegram_decision", "UNKNOWN"))}</b></div>
+<div>вердикт V2: <span class="mono">{esc(summary.get("v2_verdict", "UNKNOWN"))}</span></div>
+<div>вердикт Telegram-plan: <span class="mono">{esc(summary.get("plan_verdict", "UNKNOWN"))}</span></div>
+</div>
+"""
+    elif page == "history":
+        symbols = history.get("symbols", [])
+        trs = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('symbol', ''))}</td>"
+            f"<td>{esc(r.get('asset_class', ''))}</td>"
+            f"<td>{esc(r.get('timeframe', ''))}</td>"
+            f"<td>{esc(r.get('role', ''))}</td>"
+            f"<td>{esc(r.get('observations', 0))}</td>"
+            f"<td>{esc(r.get('ready_count', 0))}</td>"
+            f"<td>{esc(r.get('no_breakout_count', 0))}</td>"
+            f"<td>{esc(r.get('atr_blocked_count', 0))}</td>"
+            f"<td>{esc(r.get('volume_blocked_count', 0))}</td>"
+            f"<td>{esc(r.get('last_seen', ''))}</td>"
+            "</tr>"
+            for r in symbols
+        ) or "<tr><td colspan='10'>История за сегодня пока пуста</td></tr>"
+
+        body = f"""
+<div class="card">
+<h2>История за день</h2>
+<div>снимков сегодня: <b>{esc(history.get("snapshots_today", 0))}</b></div>
+<div>строк наблюдения сегодня: <b>{esc(history.get("rows_today", 0))}</b></div>
+<div>BREAKOUT_READY сегодня: <b>{esc(history.get("ready_today", 0))}</b></div>
+<div>первый снимок: <span class="mono">{esc(history.get("first_snapshot", "NONE"))}</span></div>
+<div>последний снимок: <span class="mono">{esc(history.get("last_snapshot", "NONE"))}</span></div>
+<h3>Статистика по инструментам</h3>
+<table>
+<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Наблюдений</th><th>Ready</th><th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение</th></tr>
+{trs}
+</table>
+</div>
+"""
+    elif page == "blockers":
+        day = history.get("blockers", {})
+        body = f"""
+<div class="card">
+<h2>Причины блокировки — текущий срез</h2>
+<div>NO_BREAKOUT: {esc(blockers.get("no_breakout", 0))}</div>
+<div>ATR_TOO_LOW: {esc(blockers.get("atr_too_low", 0))}</div>
+<div>VOLUME_TOO_LOW: {esc(blockers.get("volume_too_low", 0))}</div>
+<div>NO_ENOUGH_BARS: {esc(blockers.get("no_enough_bars", 0))}</div>
+</div>
+<div class="card">
+<h2>Причины блокировки — за день</h2>
+<div>NO_BREAKOUT: {esc(day.get("NO_BREAKOUT", 0))}</div>
+<div>ATR_TOO_LOW: {esc(day.get("ATR_TOO_LOW", 0))}</div>
+<div>VOLUME_TOO_LOW: {esc(day.get("VOLUME_TOO_LOW", 0))}</div>
+<div>NO_ENOUGH_BARS: {esc(day.get("NO_ENOUGH_BARS", 0))}</div>
+</div>
+"""
+    elif page == "ready":
+        lis = "\n".join(
+            f"<li>{esc(r.get('symbol'))} {esc(r.get('timeframe'))} {esc(r.get('role'))} close={esc(r.get('close'))} status={esc(r.get('status'))}</li>"
+            for r in ready_rows
+        ) or "<li>Готовых сигналов нет</li>"
+        body = f"""
+<div class="card">
+<h2>Готовые сигналы BREAKOUT_READY</h2>
+<ul>{lis}</ul>
+</div>
+"""
+    elif page == "rows":
+        trs = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('symbol'))}</td>"
+            f"<td>{esc(r.get('asset_class'))}</td>"
+            f"<td>{esc(r.get('timeframe'))}</td>"
+            f"<td>{esc(r.get('role'))}</td>"
+            f"<td>{esc(r.get('close'))}</td>"
+            f"<td>{esc(r.get('prev_high'))}</td>"
+            f"<td>{esc(r.get('breakout_ok'))}</td>"
+            f"<td>{esc(r.get('atr_ok'))}</td>"
+            f"<td>{esc(r.get('volume_ok'))}</td>"
+            f"<td>{esc(r.get('status'))}</td>"
+            "</tr>"
+            for r in rows
+        )
+        body = f"""
+<div class="card">
+<h2>Текущая таблица наблюдения</h2>
+<table>
+<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Закрытие</th><th>Пред. максимум</th><th>Пробой</th><th>ATR</th><th>Объём</th><th>Статус</th></tr>
+{trs}
+</table>
+</div>
+"""
+    elif page == "follow":
+        horizon_rows = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('horizon_min'))}</td>"
+            f"<td>{esc(r.get('rows'))}</td>"
+            f"<td>{esc(r.get('wins'))}</td>"
+            f"<td>{esc(r.get('losses'))}</td>"
+            f"<td>{esc(r.get('waiting'))}</td>"
+            f"<td>{esc(r.get('avg_return_pct'))}</td>"
+            "</tr>"
+            for r in follow.get("horizons", [])
+        ) or "<tr><td colspan='6'>Пока нет BREAKOUT_READY для оценки</td></tr>"
+
+        symbol_rows = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('symbol'))}</td>"
+            f"<td>{esc(r.get('asset_class'))}</td>"
+            f"<td>{esc(r.get('timeframe'))}</td>"
+            f"<td>{esc(r.get('role'))}</td>"
+            f"<td>{esc(r.get('rows'))}</td>"
+            f"<td>{esc(r.get('wins'))}</td>"
+            f"<td>{esc(r.get('losses'))}</td>"
+            f"<td>{esc(r.get('waiting'))}</td>"
+            f"<td>{esc(r.get('avg_return_pct'))}</td>"
+            f"<td>{esc(r.get('last_ready'))}</td>"
+            "</tr>"
+            for r in follow.get("symbols", [])
+        ) or "<tr><td colspan='10'>Пока нет сигналов для оценки</td></tr>"
+
+        body = f"""
+<div class="card">
+<h2>Follow-through scorecard</h2>
+<div>BREAKOUT_READY всего: <b>{esc(follow.get("ready_rows", 0))}</b></div>
+<div>строк scorecard: <b>{esc(follow.get("scorecard_rows_total", 0))}</b></div>
+<div>ожидают будущую цену: <b>{esc(follow.get("waiting_rows", 0))}</b></div>
+<h3>Горизонты 3/5/10/15 минут</h3>
+<table>
+<tr><th>Горизонт, мин</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th></tr>
+{horizon_rows}
+</table>
+<h3>По инструментам</h3>
+<table>
+<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready</th></tr>
+{symbol_rows}
+</table>
+</div>
+"""
+    elif page == "journal":
+        journal = "<br>".join(esc(x) for x in journal_lines[-80:])
+        body = f"""
+<div class="card">
+<h2>Журнал Telegram sender</h2>
+<div class="mono">{journal}</div>
+</div>
+"""
+    else:
+        body = """
+<div class="card">
+<h2>Страница не найдена</h2>
+</div>
+"""
+
+    return header + body + footer
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+
+        page_routes = {
+            "/": "summary",
+            "/current": "summary",
+            "/current/": "summary",
+            "/summary": "summary",
+            "/summary/": "summary",
+            "/history": "history",
+            "/history/": "history",
+            "/blockers": "blockers",
+            "/blockers/": "blockers",
+            "/ready": "ready",
+            "/ready/": "ready",
+            "/rows": "rows",
+            "/rows/": "rows",
+            "/follow": "follow",
+            "/follow/": "follow",
+            "/journal": "journal",
+            "/journal/": "journal",
+        }
 
         try:
             payload = collect_payload()
@@ -646,29 +893,43 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                self.close_connection = True
                 return
 
-            if path in {"/", "/current", "/current/"}:
-                body = render_html(payload).encode("utf-8")
+            if path in page_routes:
+                body = render_page(payload, page_routes[path]).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+                self.close_connection = True
                 return
 
+            body = "страница не найдена".encode("utf-8")
             self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
-            self.wfile.write(b"not found")
+            self.wfile.write(body)
+            self.close_connection = True
 
         except Exception as exc:
             body = f"ошибка_dashboard={type(exc).__name__}:{exc}".encode("utf-8")
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
+            self.close_connection = True
 
     def log_message(self, fmt: str, *args: object) -> None:
         print("MULTI_ASSET_DASHBOARD_HTTP " + fmt % args, flush=True)
