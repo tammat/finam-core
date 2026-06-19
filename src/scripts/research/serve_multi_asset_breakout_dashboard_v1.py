@@ -389,7 +389,7 @@ th {{ background: #222; }}
 <div>BREAKOUT_READY сегодня: <b>{esc(history.get("ready_today", 0))}</b></div>
 <div>первый снимок: <span class="mono">{esc(history.get("first_snapshot", "NONE"))}</span></div>
 <div>последний снимок: <span class="mono">{esc(history.get("last_snapshot", "NONE"))}</span></div>
-<h3>Причины блокировки за день</h3>
+<h3>Причины блокировки — за день</h3>
 <div>NO_BREAKOUT: {esc(history.get("blockers", {}).get("NO_BREAKOUT", 0))}</div>
 <div>ATR_TOO_LOW: {esc(history.get("blockers", {}).get("ATR_TOO_LOW", 0))}</div>
 <div>VOLUME_TOO_LOW: {esc(history.get("blockers", {}).get("VOLUME_TOO_LOW", 0))}</div>
@@ -405,7 +405,7 @@ th {{ background: #222; }}
 </div>
 
 <div class="card">
-<h2 id="blockers">Причины блокировки</h2>
+<h2 id="blockers">Причины блокировки — текущий срез</h2>
 <div>NO_BREAKOUT: {esc(blockers["no_breakout"])}</div>
 <div>ATR_TOO_LOW: {esc(blockers["atr_too_low"])}</div>
 <div>VOLUME_TOO_LOW: {esc(blockers["volume_too_low"])}</div>
