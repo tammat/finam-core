@@ -205,6 +205,147 @@ def collect_daily_history() -> dict:
         }
 
 
+
+def collect_follow_through_scorecard() -> dict:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        return {
+            "available": 0,
+            "error": "DATABASE_URL не задан",
+            "ready_rows": 0,
+            "scorecard_rows_total": 0,
+            "waiting_rows": 0,
+            "horizons": [],
+            "symbols": [],
+        }
+
+    try:
+        with psycopg.connect(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_row_v1
+                    WHERE status LIKE '%BREAKOUT_READY%'
+                    """
+                )
+                ready_rows = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT to_regclass('analytics_multi_asset_breakout_follow_through_v1')
+                    """
+                )
+                scorecard_exists = cur.fetchone()[0] is not None
+
+                if not scorecard_exists:
+                    return {
+                        "available": 1,
+                        "ready_rows": ready_rows,
+                        "scorecard_rows_total": 0,
+                        "waiting_rows": 0,
+                        "horizons": [],
+                        "symbols": [],
+                    }
+
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_follow_through_v1
+                    """
+                )
+                scorecard_rows_total = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_follow_through_v1
+                    WHERE status = 'WAITING_FUTURE_ROW'
+                    """
+                )
+                waiting_rows = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT
+                        horizon_min,
+                        count(*)::int AS rows,
+                        sum(CASE WHEN direction_ok IS TRUE THEN 1 ELSE 0 END)::int AS wins,
+                        sum(CASE WHEN direction_ok IS FALSE THEN 1 ELSE 0 END)::int AS losses,
+                        sum(CASE WHEN status = 'WAITING_FUTURE_ROW' THEN 1 ELSE 0 END)::int AS waiting,
+                        avg(return_pct) AS avg_return_pct
+                    FROM analytics_multi_asset_breakout_follow_through_v1
+                    GROUP BY horizon_min
+                    ORDER BY horizon_min
+                    """
+                )
+                horizons = [
+                    {
+                        "horizon_min": r[0],
+                        "rows": r[1],
+                        "wins": r[2],
+                        "losses": r[3],
+                        "waiting": r[4],
+                        "avg_return_pct": str(r[5]) if r[5] is not None else "NONE",
+                    }
+                    for r in cur.fetchall()
+                ]
+
+                cur.execute(
+                    """
+                    SELECT
+                        symbol,
+                        asset_class,
+                        timeframe,
+                        role,
+                        count(*)::int AS rows,
+                        sum(CASE WHEN direction_ok IS TRUE THEN 1 ELSE 0 END)::int AS wins,
+                        sum(CASE WHEN direction_ok IS FALSE THEN 1 ELSE 0 END)::int AS losses,
+                        sum(CASE WHEN status = 'WAITING_FUTURE_ROW' THEN 1 ELSE 0 END)::int AS waiting,
+                        avg(return_pct) AS avg_return_pct,
+                        max(ready_created_at) AS last_ready
+                    FROM analytics_multi_asset_breakout_follow_through_v1
+                    GROUP BY symbol, asset_class, timeframe, role
+                    ORDER BY rows DESC, symbol, timeframe
+                    LIMIT 50
+                    """
+                )
+                symbols = [
+                    {
+                        "symbol": r[0],
+                        "asset_class": r[1],
+                        "timeframe": r[2],
+                        "role": r[3],
+                        "rows": r[4],
+                        "wins": r[5],
+                        "losses": r[6],
+                        "waiting": r[7],
+                        "avg_return_pct": str(r[8]) if r[8] is not None else "NONE",
+                        "last_ready": str(r[9]) if r[9] else "NONE",
+                    }
+                    for r in cur.fetchall()
+                ]
+
+        return {
+            "available": 1,
+            "ready_rows": ready_rows,
+            "scorecard_rows_total": scorecard_rows_total,
+            "waiting_rows": waiting_rows,
+            "horizons": horizons,
+            "symbols": symbols,
+        }
+    except Exception as exc:
+        return {
+            "available": 0,
+            "error": f"{type(exc).__name__}: {exc}",
+            "ready_rows": 0,
+            "scorecard_rows_total": 0,
+            "waiting_rows": 0,
+            "horizons": [],
+            "symbols": [],
+        }
+
+
 def collect_payload() -> dict:
     v2_code, v2_output = run_cmd([sys.executable, V2_SCRIPT])
     plan_code, plan_output = run_cmd([sys.executable, PLAN_SCRIPT])
@@ -274,6 +415,7 @@ def collect_payload() -> dict:
         "rows": rows,
         "journal_lines": journal_lines,
         "history_daily": collect_daily_history(),
+        "follow_through": collect_follow_through_scorecard(),
         "db_update": 0,
         "execution_changes_required": 0,
         "runtime_changes_required": 0,
@@ -286,6 +428,7 @@ def render_html(payload: dict) -> str:
     ready = payload["ready_rows"]
     blockers = payload["blocker_counts"]
     history = payload["history_daily"]
+    follow = payload["follow_through"]
 
     def esc(x: object) -> str:
         return html.escape(str(x))
@@ -312,6 +455,35 @@ def render_html(payload: dict) -> str:
     ) or "<li>Готовых сигналов нет</li>"
 
     journal_html = "<br>".join(esc(x) for x in payload["journal_lines"][-30:])
+
+    
+    follow_horizon_rows = "\n".join(
+        "<tr>"
+        f"<td>{esc(r.get('horizon_min', ''))}</td>"
+        f"<td>{esc(r.get('rows', 0))}</td>"
+        f"<td>{esc(r.get('wins', 0))}</td>"
+        f"<td>{esc(r.get('losses', 0))}</td>"
+        f"<td>{esc(r.get('waiting', 0))}</td>"
+        f"<td>{esc(r.get('avg_return_pct', 'NONE'))}</td>"
+        "</tr>"
+        for r in follow.get("horizons", [])
+    ) or "<tr><td colspan='6'>Пока нет BREAKOUT_READY для оценки</td></tr>"
+
+    follow_symbol_rows = "\n".join(
+        "<tr>"
+        f"<td>{esc(r.get('symbol', ''))}</td>"
+        f"<td>{esc(r.get('asset_class', ''))}</td>"
+        f"<td>{esc(r.get('timeframe', ''))}</td>"
+        f"<td>{esc(r.get('role', ''))}</td>"
+        f"<td>{esc(r.get('rows', 0))}</td>"
+        f"<td>{esc(r.get('wins', 0))}</td>"
+        f"<td>{esc(r.get('losses', 0))}</td>"
+        f"<td>{esc(r.get('waiting', 0))}</td>"
+        f"<td>{esc(r.get('avg_return_pct', 'NONE'))}</td>"
+        f"<td>{esc(r.get('last_ready', 'NONE'))}</td>"
+        "</tr>"
+        for r in follow.get("symbols", [])
+    ) or "<tr><td colspan='10'>Пока нет сигналов для оценки</td></tr>"
 
     history_symbol_rows = "\n".join(
         "<tr>"
@@ -354,6 +526,7 @@ th {{ background: #222; }}
 <nav class="menu">
 <a href="#summary">Сводка</a>
 <a href="#history">История за день</a>
+<a href="#follow">Follow-through</a>
 <a href="#blockers">Блокировки</a>
 <a href="#ready">Готовые сигналы</a>
 <a href="#rows">Текущая таблица</a>
@@ -401,6 +574,30 @@ th {{ background: #222; }}
 <th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение</th>
 </tr>
 {history_symbol_rows}
+</table>
+</div>
+
+
+<div class="card">
+<h2 id="follow">Follow-through scorecard</h2>
+<div>BREAKOUT_READY всего: <b>{esc(follow.get("ready_rows", 0))}</b></div>
+<div>строк scorecard: <b>{esc(follow.get("scorecard_rows_total", 0))}</b></div>
+<div>ожидают будущую цену: <b>{esc(follow.get("waiting_rows", 0))}</b></div>
+
+<h3>Горизонты 3/5/10/15 минут</h3>
+<table>
+<tr>
+<th>Горизонт, мин</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th>
+</tr>
+{follow_horizon_rows}
+</table>
+
+<h3>По инструментам</h3>
+<table>
+<tr>
+<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready</th>
+</tr>
+{follow_symbol_rows}
 </table>
 </div>
 
