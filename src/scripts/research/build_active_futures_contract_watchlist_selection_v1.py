@@ -203,8 +203,19 @@ def main() -> int:
         if primary:
             selected_for_family.append((primary, "PRIMARY_WATCH"))
 
+            primary_base = str(primary["symbol"]).split("@", 1)[0]
+            for row in rows_sorted:
+                row_base = str(row["symbol"]).split("@", 1)[0]
+                if row is primary:
+                    continue
+                if row_base == primary_base and row["timeframe"] == "M1":
+                    selected_for_family.append((row, "INTRADAY_WATCH"))
+                    break
+
         for row in rows_sorted:
             if row is primary:
+                continue
+            if any(row is selected for selected, _role in selected_for_family):
                 continue
             if row["expiry_bucket"] in {"NEXT", "FAR"}:
                 selected_for_family.append((row, "SECONDARY_WATCH"))
