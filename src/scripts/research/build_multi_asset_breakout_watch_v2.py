@@ -21,6 +21,60 @@ FUTURES_PREFIXES = tuple(
     if x.strip()
 )
 
+
+
+FX_WATCHLIST = [
+    {
+        "symbol": "USDRUBF@RTSX",
+        "timeframe": "M5",
+        "family": "FX_FUTURES",
+        "watch_role": "PRIMARY_WATCH",
+        "watch_source": "fx_watchlist_v1",
+        "expiry_bucket": "NOT_APPLICABLE",
+    },
+    {
+        "symbol": "USDRUBF@RTSX",
+        "timeframe": "M1",
+        "family": "FX_FUTURES",
+        "watch_role": "INTRADAY_WATCH",
+        "watch_source": "fx_watchlist_v1",
+        "expiry_bucket": "NOT_APPLICABLE",
+    },
+    {
+        "symbol": "CNYRUBF@RTSX",
+        "timeframe": "M5",
+        "family": "FX_FUTURES",
+        "watch_role": "PRIMARY_WATCH",
+        "watch_source": "fx_watchlist_v1",
+        "expiry_bucket": "NOT_APPLICABLE",
+    },
+    {
+        "symbol": "CNYRUBF@RTSX",
+        "timeframe": "M1",
+        "family": "FX_FUTURES",
+        "watch_role": "INTRADAY_WATCH",
+        "watch_source": "fx_watchlist_v1",
+        "expiry_bucket": "NOT_APPLICABLE",
+    },
+    {
+        "symbol": "CNYRUB_TOM@MISX",
+        "timeframe": "M5",
+        "family": "FX_SPOT",
+        "watch_role": "PRIMARY_WATCH",
+        "watch_source": "fx_watchlist_v1",
+        "expiry_bucket": "NOT_APPLICABLE",
+    },
+    {
+        "symbol": "CNYRUB_TOM@MISX",
+        "timeframe": "M1",
+        "family": "FX_SPOT",
+        "watch_role": "INTRADAY_WATCH",
+        "watch_source": "fx_watchlist_v1",
+        "expiry_bucket": "NOT_APPLICABLE",
+    },
+]
+
+
 MONTH_CODES = {
     "F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
     "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12,
@@ -35,6 +89,10 @@ def family(symbol: str) -> str:
         return "GAS_FUTURES"
     if s.startswith("GD"):
         return "GOLD_FUTURES"
+    if s.startswith("USDRUBF") or s.startswith("CNYRUBF"):
+        return "FX_FUTURES"
+    if s.startswith("CNYRUB_TOM"):
+        return "FX_SPOT"
     if s.endswith("@MISX"):
         return "EQUITY"
     return "UNKNOWN"
@@ -181,6 +239,43 @@ def selected_futures_contracts(cur) -> list[dict]:
     return selected
 
 
+
+def selected_fx_instruments(cur) -> list[dict]:
+    selected = []
+
+    for item in FX_WATCHLIST:
+        cur.execute(
+            """
+            select count(*)::int as bars, max(ts) as last_ts, avg(volume) as avg_volume
+            from market_bars
+            where symbol = %s
+              and timeframe = %s
+            """,
+            (item["symbol"], item["timeframe"]),
+        )
+        bars, last_ts, avg_volume = cur.fetchone()
+        fresh = freshness(last_ts)
+        candidate = (
+            fresh == "FRESH"
+            and int(bars or 0) >= MIN_BARS
+        )
+
+        if candidate:
+            selected.append(
+                {
+                    **item,
+                    "bars": int(bars or 0),
+                    "last_ts": last_ts,
+                    "avg_volume": float(avg_volume or 0.0),
+                    "liquidity_score": float(avg_volume or 0.0),
+                    "freshness": fresh,
+                    "candidate": True,
+                }
+            )
+
+    return selected
+
+
 def active_equities(cur) -> list[dict]:
     cur.execute(
         """
@@ -313,6 +408,8 @@ def main() -> int:
     print(f"runtime_allow={os.getenv('RUNTIME_ALLOW_TRADING', '0')}")
     print(f"execution_enabled={os.getenv('EXECUTION_ENABLED', '0')}")
     print(f"real_trading_enabled={os.getenv('REAL_TRADING_ENABLED', '0')}")
+    print("orders_create=0")
+    print("execution_intents_create=0")
     print("db_update=0")
     print(f"lookback_bars={LOOKBACK_BARS}")
     print(f"futures_prefixes={','.join(FUTURES_PREFIXES)}")
@@ -323,7 +420,7 @@ def main() -> int:
 
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
-            universe = active_equities(cur) + selected_futures_contracts(cur)
+            universe = active_equities(cur) + selected_futures_contracts(cur) + selected_fx_instruments(cur)
 
             print()
             print("MULTI_ASSET_BREAKOUT_WATCH_V2_UNIVERSE_ROWS")

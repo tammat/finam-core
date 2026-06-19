@@ -20,6 +20,31 @@ class InstrumentSignalProfile:
 
 
 def resolve_instrument_signal_profile(symbol: str, timeframe: str = "M5") -> InstrumentSignalProfile:
+
+    upper_symbol = str(symbol).strip().upper()
+
+    if upper_symbol.startswith("USDRUBF") or upper_symbol.startswith("CNYRUBF"):
+        return InstrumentSignalProfile(
+            asset_class="FX_FUTURES",
+            timeframe=timeframe,
+            atr_min_pct=0.0005,
+            volume_mult=1.0,
+            use_volume_filter=True,
+            breakout_lookback=30,
+            notes="fx_watchlist_v1: watch-only FX futures profile",
+        )
+
+    if upper_symbol.startswith("CNYRUB_TOM"):
+        return InstrumentSignalProfile(
+            asset_class="FX_SPOT",
+            timeframe=timeframe,
+            atr_min_pct=0.0004,
+            volume_mult=1.0,
+            use_volume_filter=True,
+            breakout_lookback=30,
+            notes="fx_watchlist_v1: watch-only FX spot/TOM profile",
+        )
+
     symbol_upper = str(symbol).upper()
     timeframe_upper = str(timeframe).upper()
 
