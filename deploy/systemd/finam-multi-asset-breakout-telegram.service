@@ -13,7 +13,14 @@ Environment=MULTI_ASSET_TELEGRAM_DRY_RUN=1
 Environment=RUNTIME_ALLOW_TRADING=0
 Environment=EXECUTION_ENABLED=0
 Environment=REAL_TRADING_ENABLED=0
-ExecStart=/opt/finam-core/.venv/bin/python /opt/finam-core/src/scripts/research/build_multi_asset_breakout_telegram_sender_v1.py
+ExecStart=/usr/bin/env \
+  PYTHONPATH=/opt/finam-core/src \
+  FUTURES_PREFIXES=BR,NG,GD \
+  MULTI_ASSET_TELEGRAM_DRY_RUN=1 \
+  RUNTIME_ALLOW_TRADING=0 \
+  EXECUTION_ENABLED=0 \
+  REAL_TRADING_ENABLED=0 \
+  /opt/finam-core/.venv/bin/python /opt/finam-core/src/scripts/research/build_multi_asset_breakout_telegram_sender_v1.py
 
 NoNewPrivileges=true
 PrivateTmp=true
