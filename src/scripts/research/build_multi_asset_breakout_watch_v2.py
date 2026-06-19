@@ -157,8 +157,22 @@ def selected_futures_contracts(cur) -> list[dict]:
         if primary:
             selected.append({**primary, "watch_role": "PRIMARY_WATCH", "watch_source": "futures_selection_v1"})
 
+            primary_base = str(primary["symbol"]).split("@", 1)[0]
+            for row in rows_sorted:
+                row_base = str(row["symbol"]).split("@", 1)[0]
+                if row is primary:
+                    continue
+                if row_base == primary_base and row["timeframe"] == "M1":
+                    selected.append({**row, "watch_role": "INTRADAY_WATCH", "watch_source": "futures_selection_v1"})
+                    break
+
         for row in rows_sorted:
             if row is primary:
+                continue
+            if any(
+                row["symbol"] == selected_row["symbol"] and row["timeframe"] == selected_row["timeframe"]
+                for selected_row in selected
+            ):
                 continue
             if row["expiry_bucket"] in {"NEXT", "FAR"}:
                 selected.append({**row, "watch_role": "SECONDARY_WATCH", "watch_source": "futures_selection_v1"})
