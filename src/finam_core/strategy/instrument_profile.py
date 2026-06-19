@@ -56,6 +56,17 @@ def resolve_instrument_signal_profile(symbol: str, timeframe: str = "M5") -> Ins
             notes="Natural Gas futures: выше шум и гэпы, нужен отдельный ATR profile.",
         )
 
+    if symbol_upper.startswith("GD") or "GD@" in symbol_upper:
+        return InstrumentSignalProfile(
+            asset_class="GOLD_FUTURES",
+            timeframe=timeframe_upper,
+            atr_min_pct=0.0010,
+            volume_mult=1.2,
+            breakout_lookback=30,
+            use_volume_filter=True,
+            notes="Gold futures: отдельный профиль, ниже шум, чем NG, но не equity thresholds.",
+        )
+
     if "IMOEX" in symbol_upper or symbol_upper.startswith("MX") or symbol_upper.startswith("MOEX"):
         return InstrumentSignalProfile(
             asset_class="MOEX_INDEX",
