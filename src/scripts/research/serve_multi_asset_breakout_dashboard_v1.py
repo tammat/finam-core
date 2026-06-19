@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -80,8 +81,8 @@ def parse_v2_rows(output: str) -> list[dict[str, str]]:
 
 
 def collect_payload() -> dict:
-    v2_code, v2_output = run_cmd(["python3", V2_SCRIPT])
-    plan_code, plan_output = run_cmd(["python3", PLAN_SCRIPT])
+    v2_code, v2_output = run_cmd([sys.executable, V2_SCRIPT])
+    plan_code, plan_output = run_cmd([sys.executable, PLAN_SCRIPT])
 
     journal_code, journal_output = run_cmd(
         [
@@ -181,7 +182,7 @@ def render_html(payload: dict) -> str:
     ready_html = "\n".join(
         f"<li>{esc(r['symbol'])} {esc(r['timeframe'])} {esc(r['role'])} close={esc(r['close'])} status={esc(r['status'])}</li>"
         for r in ready
-    ) or "<li>Нет BREAKOUT_READY</li>"
+    ) or "<li>Готовых сигналов нет</li>"
 
     journal_html = "<br>".join(esc(x) for x in payload["journal_lines"][-30:])
 
@@ -189,7 +190,7 @@ def render_html(payload: dict) -> str:
 <html>
 <head>
 <meta charset="utf-8">
-<title>Finam Core Multi-Asset Breakout Watch</title>
+<title>Finam Core — наблюдение пробоев</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; background: #111; color: #eee; }}
 h1, h2 {{ color: #fff; }}
@@ -203,30 +204,30 @@ th {{ background: #222; }}
 </style>
 </head>
 <body>
-<h1>Multi-Asset Breakout Signal Quality Observation V1</h1>
+<h1>Наблюдение качества сигналов пробоя V1</h1>
 
 <div class="card">
-<div>checked_at_utc: <span class="mono">{esc(payload["checked_at_utc"])}</span></div>
-<div>mode: <span class="mono">{esc(payload["mode"])}</span></div>
-<div>execution_enabled: <span class="good">{esc(payload["execution_enabled"])}</span></div>
-<div>real_trading_enabled: <span class="good">{esc(payload["real_trading_enabled"])}</span></div>
-<div>telegram_dry_run: <span class="good">{esc(payload["telegram_dry_run"])}</span></div>
+<div>проверено UTC: <span class="mono">{esc(payload["checked_at_utc"])}</span></div>
+<div>режим: <span class="mono">{esc(payload["mode"])}</span></div>
+<div>исполнение: <span class="good">{esc(payload["execution_enabled"])}</span></div>
+<div>реальные сделки: <span class="good">{esc(payload["real_trading_enabled"])}</span></div>
+<div>Telegram dry-run: <span class="good">{esc(payload["telegram_dry_run"])}</span></div>
 </div>
 
 <div class="card">
-<h2>Summary</h2>
-<div>universe_total: {esc(summary["universe_total"])}</div>
-<div>rows_total: {esc(summary["rows_total"])}</div>
-<div>equity_rows: {esc(summary["equity_rows"])}</div>
-<div>futures_rows: {esc(summary["futures_rows"])}</div>
-<div>breakout_ready: <b>{esc(summary["breakout_ready"])}</b></div>
-<div>telegram_decision: <b>{esc(summary["telegram_decision"])}</b></div>
-<div>v2_verdict: <span class="mono">{esc(summary["v2_verdict"])}</span></div>
-<div>plan_verdict: <span class="mono">{esc(summary["plan_verdict"])}</span></div>
+<h2>Сводка</h2>
+<div>инструментов во вселенной: {esc(summary["universe_total"])}</div>
+<div>строк наблюдения: {esc(summary["rows_total"])}</div>
+<div>акции: {esc(summary["equity_rows"])}</div>
+<div>фьючерсы: {esc(summary["futures_rows"])}</div>
+<div>готовые пробои: <b>{esc(summary["breakout_ready"])}</b></div>
+<div>решение Telegram: <b>{esc(summary["telegram_decision"])}</b></div>
+<div>вердикт V2: <span class="mono">{esc(summary["v2_verdict"])}</span></div>
+<div>вердикт Telegram-plan: <span class="mono">{esc(summary["plan_verdict"])}</span></div>
 </div>
 
 <div class="card">
-<h2>Blockers</h2>
+<h2>Причины блокировки</h2>
 <div>NO_BREAKOUT: {esc(blockers["no_breakout"])}</div>
 <div>ATR_TOO_LOW: {esc(blockers["atr_too_low"])}</div>
 <div>VOLUME_TOO_LOW: {esc(blockers["volume_too_low"])}</div>
@@ -234,23 +235,23 @@ th {{ background: #222; }}
 </div>
 
 <div class="card">
-<h2>BREAKOUT_READY</h2>
+<h2>Готовые сигналы BREAKOUT_READY</h2>
 <ul>{ready_html}</ul>
 </div>
 
 <div class="card">
-<h2>Watch Rows</h2>
+<h2>Текущая таблица наблюдения</h2>
 <table>
 <tr>
-<th>Symbol</th><th>Class</th><th>TF</th><th>Role</th><th>Close</th><th>Prev High</th>
-<th>Breakout</th><th>ATR</th><th>Volume</th><th>Status</th>
+<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Закрытие</th><th>Пред. максимум</th>
+<th>Пробой</th><th>ATR</th><th>Объём</th><th>Статус</th>
 </tr>
 {row_html}
 </table>
 </div>
 
 <div class="card">
-<h2>Telegram Sender Journal</h2>
+<h2>Журнал Telegram sender</h2>
 <div class="mono">{journal_html}</div>
 </div>
 
@@ -288,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"not found")
 
         except Exception as exc:
-            body = f"dashboard_error={type(exc).__name__}:{exc}".encode("utf-8")
+            body = f"ошибка_dashboard={type(exc).__name__}:{exc}".encode("utf-8")
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
