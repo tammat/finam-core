@@ -787,7 +787,7 @@ def render_page(payload: dict, page: str) -> str:
 <a href="/history">История за день</a>
 <a href="/blockers">Блокировки</a>
 <a href="/ready">Готовые сигналы</a>
-<a href="/delivery">Доставка ready</a>
+<a href="/delivery">Уведомления</a>
 <a href="/rows">Текущая таблица</a>
 <a href="/follow">Follow-through</a>
 <a href="/journal">Журнал Telegram</a>
@@ -924,20 +924,20 @@ th { background: #222; }
             f"<td>{esc(r.get('delivered_at'))}</td>"
             "</tr>"
             for r in delivery.get("rows", [])
-        ) or "<tr><td colspan='11'>Доставленных ready-событий пока нет</td></tr>"
+        ) or "<tr><td colspan='11'>Обработанных ready-сигналов пока нет</td></tr>"
 
         body = f"""
 <div class="card">
-<h2>Доставка BREAKOUT_READY</h2>
-<div>ready всего: <b>{esc(delivery.get("ready_total", 0))}</b></div>
-<div>доставлено всего: <b>{esc(delivery.get("delivery_total", 0))}</b></div>
-<div>dry-run доставок: <b>{esc(delivery.get("dry_run_total", 0))}</b></div>
-<div>новых недоставленных ready: <b>{esc(delivery.get("undelivered_ready", 0))}</b></div>
-<h3>Последние ready-события</h3>
+<h2>Уведомления по готовым сигналам</h2>
+<div>Готовых сигналов всего: <b>{esc(delivery.get("ready_total", 0))}</b></div>
+<div>Обработано уведомлений: <b>{esc(delivery.get("delivery_total", 0))}</b></div>
+<div>Dry-run уведомлений: <b>{esc(delivery.get("dry_run_total", 0))}</b></div>
+<div>Новых необработанных сигналов: <b>{esc(delivery.get("undelivered_ready", 0))}</b></div>
+<h3>Последние обработанные сигналы</h3>
 <table>
 <tr>
-<th>ready_id</th><th>Инструмент</th><th>ТФ</th><th>Роль</th><th>Статус доставки</th><th>Dry-run</th>
-<th>Причина</th><th>Close</th><th>Prev high</th><th>Ready time</th><th>Delivered time</th>
+<th>ready_id</th><th>Инструмент</th><th>ТФ</th><th>Роль</th><th>Статус уведомления</th><th>Dry-run</th>
+<th>Комментарий</th><th>Close</th><th>Prev high</th><th>Ready time</th><th>Delivered time</th>
 </tr>
 {delivery_rows}
 </table>

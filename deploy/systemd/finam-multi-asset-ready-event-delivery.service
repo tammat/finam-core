@@ -1,0 +1,16 @@
+[Unit]
+Description=Finam Core multi-asset BREAKOUT_READY notification dry-run delivery
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/usr/bin/env \
+  RUNTIME_ALLOW_TRADING=0 \
+  EXECUTION_ENABLED=0 \
+  REAL_TRADING_ENABLED=0 \
+  MULTI_ASSET_READY_EVENT_DRY_RUN=1 \
+  PYTHONPATH=/opt/finam-core/src \
+  /opt/finam-core/.venv/bin/python /opt/finam-core/src/scripts/research/build_multi_asset_breakout_ready_event_delivery_v1.py

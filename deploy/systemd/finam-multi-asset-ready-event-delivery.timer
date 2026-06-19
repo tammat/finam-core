@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Finam Core multi-asset BREAKOUT_READY notification dry-run delivery every 5 minutes
+
+[Timer]
+OnBootSec=90sec
+OnUnitActiveSec=5min
+AccuracySec=15sec
+Unit=finam-multi-asset-ready-event-delivery.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target
