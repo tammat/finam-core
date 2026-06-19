@@ -348,6 +348,136 @@ def collect_follow_through_scorecard() -> dict:
         }
 
 
+
+def collect_ready_delivery_stats() -> dict:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        return {
+            "available": 0,
+            "error": "DATABASE_URL не задан",
+            "ready_total": 0,
+            "delivery_total": 0,
+            "dry_run_total": 0,
+            "undelivered_ready": 0,
+            "rows": [],
+        }
+
+    try:
+        with psycopg.connect(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_row_v1
+                    WHERE status LIKE '%BREAKOUT_READY%'
+                    """
+                )
+                ready_total = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT to_regclass('analytics_multi_asset_breakout_ready_delivery_v1')
+                    """
+                )
+                delivery_table_exists = cur.fetchone()[0] is not None
+
+                if not delivery_table_exists:
+                    return {
+                        "available": 1,
+                        "ready_total": ready_total,
+                        "delivery_total": 0,
+                        "dry_run_total": 0,
+                        "undelivered_ready": ready_total,
+                        "rows": [],
+                    }
+
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_ready_delivery_v1
+                    """
+                )
+                delivery_total = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_ready_delivery_v1
+                    WHERE dry_run IS TRUE
+                    """
+                )
+                dry_run_total = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT count(*)::int
+                    FROM analytics_multi_asset_breakout_row_v1 r
+                    LEFT JOIN analytics_multi_asset_breakout_ready_delivery_v1 d
+                      ON d.ready_row_id = r.id
+                    WHERE r.status LIKE '%BREAKOUT_READY%'
+                      AND d.ready_row_id IS NULL
+                    """
+                )
+                undelivered_ready = int(cur.fetchone()[0] or 0)
+
+                cur.execute(
+                    """
+                    SELECT
+                        d.ready_row_id,
+                        d.symbol,
+                        d.timeframe,
+                        d.role,
+                        d.delivery_status,
+                        d.dry_run,
+                        d.delivery_reason,
+                        d.created_at AS delivered_at,
+                        d.ready_created_at,
+                        d.close,
+                        d.prev_high,
+                        d.status
+                    FROM analytics_multi_asset_breakout_ready_delivery_v1 d
+                    ORDER BY d.created_at DESC, d.ready_row_id DESC
+                    LIMIT 50
+                    """
+                )
+                rows = [
+                    {
+                        "ready_row_id": r[0],
+                        "symbol": r[1],
+                        "timeframe": r[2],
+                        "role": r[3],
+                        "delivery_status": r[4],
+                        "dry_run": bool(r[5]),
+                        "delivery_reason": r[6],
+                        "delivered_at": str(r[7]),
+                        "ready_created_at": str(r[8]),
+                        "close": str(r[9]),
+                        "prev_high": str(r[10]),
+                        "status": r[11],
+                    }
+                    for r in cur.fetchall()
+                ]
+
+        return {
+            "available": 1,
+            "ready_total": ready_total,
+            "delivery_total": delivery_total,
+            "dry_run_total": dry_run_total,
+            "undelivered_ready": undelivered_ready,
+            "rows": rows,
+        }
+    except Exception as exc:
+        return {
+            "available": 0,
+            "error": f"{type(exc).__name__}: {exc}",
+            "ready_total": 0,
+            "delivery_total": 0,
+            "dry_run_total": 0,
+            "undelivered_ready": 0,
+            "rows": [],
+        }
+
+
 def collect_payload() -> dict:
     v2_code, v2_output = run_cmd([sys.executable, V2_SCRIPT])
     plan_code, plan_output = run_cmd([sys.executable, PLAN_SCRIPT])
@@ -419,6 +549,7 @@ def collect_payload() -> dict:
         "journal_lines": journal_lines,
         "history_daily": collect_daily_history(),
         "follow_through": collect_follow_through_scorecard(),
+        "ready_delivery": collect_ready_delivery_stats(),
         "db_update": 0,
         "execution_changes_required": 0,
         "runtime_changes_required": 0,
@@ -648,6 +779,7 @@ def render_page(payload: dict, page: str) -> str:
     ready_rows = payload.get("ready_rows", [])
     rows = payload.get("rows", [])
     journal_lines = payload.get("journal_lines", [])
+    delivery = payload.get("ready_delivery", {})
 
     menu = """
 <nav class="menu">
@@ -655,6 +787,7 @@ def render_page(payload: dict, page: str) -> str:
 <a href="/history">История за день</a>
 <a href="/blockers">Блокировки</a>
 <a href="/ready">Готовые сигналы</a>
+<a href="/delivery">Доставка ready</a>
 <a href="/rows">Текущая таблица</a>
 <a href="/follow">Follow-through</a>
 <a href="/journal">Журнал Telegram</a>
@@ -774,6 +907,43 @@ th { background: #222; }
 <ul>{lis}</ul>
 </div>
 """
+
+    elif page == "delivery":
+        delivery_rows = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('ready_row_id'))}</td>"
+            f"<td>{esc(r.get('symbol'))}</td>"
+            f"<td>{esc(r.get('timeframe'))}</td>"
+            f"<td>{esc(r.get('role'))}</td>"
+            f"<td>{esc(r.get('delivery_status'))}</td>"
+            f"<td>{esc(r.get('dry_run'))}</td>"
+            f"<td>{esc(r.get('delivery_reason'))}</td>"
+            f"<td>{esc(r.get('close'))}</td>"
+            f"<td>{esc(r.get('prev_high'))}</td>"
+            f"<td>{esc(r.get('ready_created_at'))}</td>"
+            f"<td>{esc(r.get('delivered_at'))}</td>"
+            "</tr>"
+            for r in delivery.get("rows", [])
+        ) or "<tr><td colspan='11'>Доставленных ready-событий пока нет</td></tr>"
+
+        body = f"""
+<div class="card">
+<h2>Доставка BREAKOUT_READY</h2>
+<div>ready всего: <b>{esc(delivery.get("ready_total", 0))}</b></div>
+<div>доставлено всего: <b>{esc(delivery.get("delivery_total", 0))}</b></div>
+<div>dry-run доставок: <b>{esc(delivery.get("dry_run_total", 0))}</b></div>
+<div>новых недоставленных ready: <b>{esc(delivery.get("undelivered_ready", 0))}</b></div>
+<h3>Последние ready-события</h3>
+<table>
+<tr>
+<th>ready_id</th><th>Инструмент</th><th>ТФ</th><th>Роль</th><th>Статус доставки</th><th>Dry-run</th>
+<th>Причина</th><th>Close</th><th>Prev high</th><th>Ready time</th><th>Delivered time</th>
+</tr>
+{delivery_rows}
+</table>
+</div>
+"""
+
     elif page == "rows":
         trs = "\n".join(
             "<tr>"
@@ -880,6 +1050,8 @@ class Handler(BaseHTTPRequestHandler):
             "/blockers/": "blockers",
             "/ready": "ready",
             "/ready/": "ready",
+            "/delivery": "delivery",
+            "/delivery/": "delivery",
             "/rows": "rows",
             "/rows/": "rows",
             "/follow": "follow",
