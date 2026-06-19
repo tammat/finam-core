@@ -23,6 +23,27 @@ JOURNAL_UNIT = "finam-multi-asset-breakout-telegram.service"
 MSK = ZoneInfo("Europe/Moscow")
 
 
+def format_msk_time(value: object) -> str:
+    """Единый вывод времени на dashboard в московском времени."""
+    if value is None:
+        return "NONE"
+
+    raw = str(value).strip()
+    if not raw or raw.upper() in {"NONE", "NULL"}:
+        return "NONE"
+
+    try:
+        normalized = raw.replace(" ", "T")
+        if normalized.endswith("+00"):
+            normalized = normalized + ":00"
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(MSK).strftime("%Y-%m-%d %H:%M:%S MSK")
+    except Exception:
+        return raw
+
+
 def run_cmd(cmd: list[str], env_extra: dict[str, str] | None = None) -> tuple[int, str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = "src"
@@ -630,7 +651,7 @@ def render_html(payload: dict) -> str:
         f"<td>{esc(r.get('no_breakout_count', 0))}</td>"
         f"<td>{esc(r.get('atr_blocked_count', 0))}</td>"
         f"<td>{esc(r.get('volume_blocked_count', 0))}</td>"
-        f"<td>{esc(r.get('last_seen', ''))}</td>"
+        f"<td>{format_msk_time(r.get('last_seen', ''))}</td>"
         "</tr>"
         for r in history.get("symbols", [])
     ) or "<tr><td colspan='10'>История за сегодня пока пуста</td></tr>"
@@ -694,8 +715,8 @@ th {{ background: #222; }}
 <div>снимков сегодня: <b>{esc(history.get("snapshots_today", 0))}</b></div>
 <div>строк наблюдения сегодня: <b>{esc(history.get("rows_today", 0))}</b></div>
 <div>BREAKOUT_READY сегодня: <b>{esc(history.get("ready_today", 0))}</b></div>
-<div>первый снимок: <span class="mono">{esc(history.get("first_snapshot", "NONE"))}</span></div>
-<div>последний снимок: <span class="mono">{esc(history.get("last_snapshot", "NONE"))}</span></div>
+<div>первый снимок: <span class="mono">{format_msk_time(history.get("first_snapshot", "NONE"))}</span></div>
+<div>последний снимок: <span class="mono">{format_msk_time(history.get("last_snapshot", "NONE"))}</span></div>
 <h3>Причины блокировки — за день</h3>
 <div>NO_BREAKOUT: {esc(history.get("blockers", {}).get("NO_BREAKOUT", 0))}</div>
 <div>ATR_TOO_LOW: {esc(history.get("blockers", {}).get("ATR_TOO_LOW", 0))}</div>
@@ -705,7 +726,7 @@ th {{ background: #222; }}
 <table>
 <tr>
 <th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Наблюдений</th><th>Ready</th>
-<th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение</th>
+<th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение, МСК</th>
 </tr>
 {history_symbol_rows}
 </table>
@@ -729,7 +750,7 @@ th {{ background: #222; }}
 <h3>По инструментам</h3>
 <table>
 <tr>
-<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready</th>
+<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready, МСК</th>
 </tr>
 {follow_symbol_rows}
 </table>
@@ -822,7 +843,7 @@ th { background: #222; }
 <h1>Наблюдение качества сигналов пробоя V1</h1>
 {menu}
 <div class="card">
-<div>проверено МСК: <span class="mono">{esc(payload.get("checked_at_msk", "UNKNOWN"))}</span></div>
+<div>проверено МСК: <span class="mono">{format_msk_time(payload.get("checked_at_msk", "UNKNOWN"))}</span></div>
 <div>исполнение: <span class="good">{esc(payload.get("execution_enabled", "0"))}</span></div>
 <div>реальные сделки: <span class="good">{esc(payload.get("real_trading_enabled", "0"))}</span></div>
 <div>Telegram dry-run: <span class="good">{esc(payload.get("telegram_dry_run", "1"))}</span></div>
@@ -858,7 +879,7 @@ th { background: #222; }
             f"<td>{esc(r.get('no_breakout_count', 0))}</td>"
             f"<td>{esc(r.get('atr_blocked_count', 0))}</td>"
             f"<td>{esc(r.get('volume_blocked_count', 0))}</td>"
-            f"<td>{esc(r.get('last_seen', ''))}</td>"
+            f"<td>{format_msk_time(r.get('last_seen', ''))}</td>"
             "</tr>"
             for r in symbols
         ) or "<tr><td colspan='10'>История за сегодня пока пуста</td></tr>"
@@ -869,11 +890,11 @@ th { background: #222; }
 <div>снимков сегодня: <b>{esc(history.get("snapshots_today", 0))}</b></div>
 <div>строк наблюдения сегодня: <b>{esc(history.get("rows_today", 0))}</b></div>
 <div>BREAKOUT_READY сегодня: <b>{esc(history.get("ready_today", 0))}</b></div>
-<div>первый снимок: <span class="mono">{esc(history.get("first_snapshot", "NONE"))}</span></div>
-<div>последний снимок: <span class="mono">{esc(history.get("last_snapshot", "NONE"))}</span></div>
+<div>первый снимок: <span class="mono">{format_msk_time(history.get("first_snapshot", "NONE"))}</span></div>
+<div>последний снимок: <span class="mono">{format_msk_time(history.get("last_snapshot", "NONE"))}</span></div>
 <h3>Статистика по инструментам</h3>
 <table>
-<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Наблюдений</th><th>Ready</th><th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение</th></tr>
+<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Наблюдений</th><th>Ready</th><th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение, МСК</th></tr>
 {trs}
 </table>
 </div>
@@ -920,8 +941,8 @@ th { background: #222; }
             f"<td>{esc(r.get('delivery_reason'))}</td>"
             f"<td>{esc(r.get('close'))}</td>"
             f"<td>{esc(r.get('prev_high'))}</td>"
-            f"<td>{esc(r.get('ready_created_at'))}</td>"
-            f"<td>{esc(r.get('delivered_at'))}</td>"
+            f"<td>{format_msk_time(r.get('ready_created_at'))}</td>"
+            f"<td>{format_msk_time(r.get('delivered_at'))}</td>"
             "</tr>"
             for r in delivery.get("rows", [])
         ) or "<tr><td colspan='11'>Обработанных ready-сигналов пока нет</td></tr>"
@@ -937,7 +958,7 @@ th { background: #222; }
 <table>
 <tr>
 <th>ready_id</th><th>Инструмент</th><th>ТФ</th><th>Роль</th><th>Статус уведомления</th><th>Dry-run</th>
-<th>Комментарий</th><th>Close</th><th>Prev high</th><th>Ready time</th><th>Delivered time</th>
+<th>Комментарий</th><th>Close</th><th>Prev high</th><th>Время сигнала, МСК</th><th>Время обработки, МСК</th>
 </tr>
 {delivery_rows}
 </table>
@@ -993,7 +1014,7 @@ th { background: #222; }
             f"<td>{esc(r.get('losses'))}</td>"
             f"<td>{esc(r.get('waiting'))}</td>"
             f"<td>{esc(r.get('avg_return_pct'))}</td>"
-            f"<td>{esc(r.get('last_ready'))}</td>"
+            f"<td>{format_msk_time(r.get('last_ready'))}</td>"
             "</tr>"
             for r in follow.get("symbols", [])
         ) or "<tr><td colspan='10'>Пока нет сигналов для оценки</td></tr>"
@@ -1011,7 +1032,7 @@ th { background: #222; }
 </table>
 <h3>По инструментам</h3>
 <table>
-<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready</th></tr>
+<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready, МСК</th></tr>
 {symbol_rows}
 </table>
 </div>
