@@ -1,0 +1,35 @@
+[Unit]
+Description=Finam Core multi-asset breakout dashboard on 8088
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/deploy/env/.env
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=FUTURES_PREFIXES=BR,NG,GD
+Environment=MULTI_ASSET_DASHBOARD_PORT=8088
+Environment=MULTI_ASSET_TELEGRAM_DRY_RUN=1
+Environment=RUNTIME_ALLOW_TRADING=0
+Environment=EXECUTION_ENABLED=0
+Environment=REAL_TRADING_ENABLED=0
+ExecStart=/usr/bin/env \
+  PYTHONPATH=/opt/finam-core/src \
+  FUTURES_PREFIXES=BR,NG,GD \
+  MULTI_ASSET_DASHBOARD_PORT=8088 \
+  MULTI_ASSET_TELEGRAM_DRY_RUN=1 \
+  RUNTIME_ALLOW_TRADING=0 \
+  EXECUTION_ENABLED=0 \
+  REAL_TRADING_ENABLED=0 \
+  /opt/finam-core/.venv/bin/python /opt/finam-core/src/scripts/research/serve_multi_asset_breakout_dashboard_v1.py
+Restart=always
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
