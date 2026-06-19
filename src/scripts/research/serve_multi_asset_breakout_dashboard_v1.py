@@ -23,6 +23,45 @@ JOURNAL_UNIT = "finam-multi-asset-breakout-telegram.service"
 MSK = ZoneInfo("Europe/Moscow")
 
 
+
+def load_edge_scorecard_v1() -> dict:
+    # Загружаем edge scorecard через отдельный read-only builder.
+    import json
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "src/scripts/research/build_multi_asset_breakout_edge_scorecard_v1.py",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd="/opt/finam-core",
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as exc:
+        return {"verdict": "EDGE_SCORECARD_LOAD_EXCEPTION", "error": str(exc)}
+
+    if proc.returncode != 0:
+        return {
+            "verdict": "EDGE_SCORECARD_LOAD_FAILED",
+            "error": proc.stderr[-1000:],
+        }
+
+    raw = proc.stdout
+    start = raw.find("{")
+    end = raw.rfind("}")
+
+    if start < 0 or end < 0:
+        return {"verdict": "EDGE_SCORECARD_JSON_NOT_FOUND"}
+
+    return json.loads(raw[start:end + 1])
+
+
 def format_msk_time(value: object) -> str:
     """Единый вывод времени на dashboard в московском времени."""
     if value is None:
@@ -571,6 +610,7 @@ def collect_payload() -> dict:
         "history_daily": collect_daily_history(),
         "follow_through": collect_follow_through_scorecard(),
         "ready_delivery": collect_ready_delivery_stats(),
+        "edge_scorecard": load_edge_scorecard_v1(),
         "db_update": 0,
         "execution_changes_required": 0,
         "runtime_changes_required": 0,
@@ -801,6 +841,7 @@ def render_page(payload: dict, page: str) -> str:
     rows = payload.get("rows", [])
     journal_lines = payload.get("journal_lines", [])
     delivery = payload.get("ready_delivery", {})
+    edge = payload.get("edge_scorecard", {})
 
     menu = """
 <nav class="menu">
@@ -1037,6 +1078,51 @@ th { background: #222; }
 </table>
 </div>
 """
+    elif page == "edge":
+        edge_rows = edge.get("scorecard", []) or []
+        edge_trs = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('symbol', ''))}</td>"
+            f"<td>{esc(r.get('asset_class', ''))}</td>"
+            f"<td>{esc(r.get('timeframe', ''))}</td>"
+            f"<td>{esc(r.get('observations_total', 0))}</td>"
+            f"<td>{esc(r.get('ready_total', 0))}</td>"
+            f"<td>{esc(r.get('ready_rate_pct', 0))}</td>"
+            f"<td>{esc(r.get('follow_rows', 0))}</td>"
+            f"<td>{esc(r.get('ret_3m_avg', ''))}</td>"
+            f"<td>{esc(r.get('ret_5m_avg', ''))}</td>"
+            f"<td>{esc(r.get('ret_10m_avg', ''))}</td>"
+            f"<td>{esc(r.get('ret_15m_avg', ''))}</td>"
+            f"<td>{esc(r.get('winrate_5m', ''))}</td>"
+            f"<td>{esc(r.get('edge_status', ''))}</td>"
+            "</tr>"
+            for r in edge_rows
+        ) or "<tr><td colspan='13'>Edge scorecard пока пуст</td></tr>"
+
+        body = f"""
+<div class="card">
+<h2>Edge Scorecard V1</h2>
+<div>вердикт: <span class="mono">{esc(edge.get("verdict", "UNKNOWN"))}</span></div>
+<div>наблюдений: <b>{esc(edge.get("observations_total", 0))}</b></div>
+<div>READY: <b>{esc(edge.get("ready_total", 0))}</b></div>
+<div>EDGE_POSITIVE: <b>{esc(edge.get("edge_positive", 0))}</b></div>
+<div>EDGE_NEGATIVE: <b>{esc(edge.get("edge_negative", 0))}</b></div>
+<div>INSUFFICIENT_DATA: <b>{esc(edge.get("insufficient_data", 0))}</b></div>
+</div>
+<div class="card">
+<h3>Таблица edge по инструментам</h3>
+<table>
+<tr>
+<th>Инструмент</th><th>Класс</th><th>ТФ</th>
+<th>Наблюдений</th><th>READY</th><th>READY %</th>
+<th>Follow rows</th>
+<th>Ret 3m</th><th>Ret 5m</th><th>Ret 10m</th><th>Ret 15m</th>
+<th>Winrate 5m</th><th>Статус Edge</th>
+</tr>
+{edge_trs}
+</table>
+</div>
+"""
     elif page == "journal":
         journal = "<br>".join(esc(x) for x in journal_lines[-80:])
         body = f"""
@@ -1077,6 +1163,8 @@ class Handler(BaseHTTPRequestHandler):
             "/rows/": "rows",
             "/follow": "follow",
             "/follow/": "follow",
+            "/edge": "edge",
+            "/edge/": "edge",
             "/journal": "journal",
             "/journal/": "journal",
         }
