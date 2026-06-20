@@ -62,6 +62,51 @@ def load_edge_scorecard_v1() -> dict:
     return json.loads(raw[start:end + 1])
 
 
+def load_compression_expansion_v1() -> dict:
+    # Русский комментарий: загружаем compression/expansion через отдельный read-only builder.
+    import json
+    import subprocess
+    import sys
+
+    cmd = [
+        sys.executable,
+        "src/scripts/research/build_multi_asset_compression_expansion_watch_v1.py",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd="/opt/finam-core",
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as exc:
+        return {"verdict": "COMPRESSION_EXPANSION_LOAD_EXCEPTION", "error": str(exc)}
+
+    if proc.returncode != 0:
+        return {
+            "verdict": "COMPRESSION_EXPANSION_LOAD_FAILED",
+            "error": proc.stderr[-1000:],
+        }
+
+    raw = proc.stdout
+    start_json = raw.find("{")
+    end_json = raw.rfind("}")
+
+    if start_json < 0 or end_json < 0:
+        return {"verdict": "COMPRESSION_EXPANSION_JSON_NOT_FOUND"}
+
+    try:
+        return json.loads(raw[start_json:end_json + 1])
+    except Exception as exc:
+        return {
+            "verdict": "COMPRESSION_EXPANSION_JSON_PARSE_FAILED",
+            "error": str(exc),
+            "raw_tail": raw[-1000:],
+        }
+
+
 def format_msk_time(value: object) -> str:
     """Единый вывод времени на dashboard в московском времени."""
     if value is None:
@@ -611,6 +656,7 @@ def collect_payload() -> dict:
         "follow_through": collect_follow_through_scorecard(),
         "ready_delivery": collect_ready_delivery_stats(),
         "edge_scorecard": load_edge_scorecard_v1(),
+        "compression_expansion": load_compression_expansion_v1(),
         "db_update": 0,
         "execution_changes_required": 0,
         "runtime_changes_required": 0,
@@ -842,6 +888,7 @@ def render_page(payload: dict, page: str) -> str:
     journal_lines = payload.get("journal_lines", [])
     delivery = payload.get("ready_delivery", {})
     edge_scorecard = payload.get("edge_scorecard", {})
+    compression_expansion = payload.get("compression_expansion", {})
     edge = payload.get("edge_scorecard", {})
 
     menu = """
@@ -854,6 +901,7 @@ def render_page(payload: dict, page: str) -> str:
 <a href="/rows">Текущая таблица</a>
 <a href="/follow">Follow-through</a>
 <a href="/edge">Edge</a>
+<a href="/compression">Compression</a>
 <a href="/journal">Журнал Telegram</a>
 <a href="/api/current">API JSON</a>
 </nav>
@@ -1125,6 +1173,48 @@ th { background: #222; }
 </table>
 </div>
 """
+    
+    elif page == "compression":
+        compression_rows = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('symbol', ''))}</td>"
+            f"<td>{esc(r.get('asset_class', ''))}</td>"
+            f"<td>{esc(r.get('timeframe', ''))}</td>"
+            f"<td>{esc(r.get('status', ''))}</td>"
+            f"<td>{esc(r.get('compression_score', 0))}</td>"
+            f"<td>{esc(r.get('expansion_score', 0))}</td>"
+            f"<td>{esc(r.get('last_close', ''))}</td>"
+            f"<td>{esc(r.get('range_high', ''))}</td>"
+            f"<td>{esc(r.get('range_low', ''))}</td>"
+            f"<td>{esc(r.get('volume_ratio', ''))}</td>"
+            "</tr>"
+            for r in compression_expansion.get("rows", [])
+        ) or "<tr><td colspan='10'>Compression scorecard пока пуст</td></tr>"
+
+        body = f"""
+<div class="card">
+<h2>Compression / Expansion Watch V1</h2>
+<div>вердикт: <span class="mono">{esc(compression_expansion.get("verdict", "UNKNOWN"))}</span></div>
+<div>строк: <b>{esc(compression_expansion.get("rows_total", 0))}</b></div>
+<div>акции: <b>{esc(compression_expansion.get("equities_total", 0))}</b></div>
+<div>фьючерсы/FX: <b>{esc(compression_expansion.get("futures_total", 0))}</b></div>
+<div>индексы: <b>{esc(compression_expansion.get("indexes_total", 0))}</b></div>
+<div>сжатие: <b>{esc(compression_expansion.get("compression_count", 0))}</b></div>
+<div>кандидаты расширения: <b>{esc(compression_expansion.get("expansion_candidate_count", 0))}</b></div>
+<div>без данных: <b>{esc(compression_expansion.get("no_bars", 0))}</b></div>
+
+<h3>Таблица Compression / Expansion</h3>
+<table>
+<tr>
+<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Статус</th>
+<th>Compression</th><th>Expansion</th><th>Close</th>
+<th>Range high</th><th>Range low</th><th>Volume ratio</th>
+</tr>
+{compression_rows}
+</table>
+</div>
+"""
+
     elif page == "journal":
         journal = "<br>".join(esc(x) for x in journal_lines[-80:])
         body = f"""
@@ -1167,6 +1257,8 @@ class Handler(BaseHTTPRequestHandler):
             "/follow/": "follow",
             "/edge": "edge",
             "/edge/": "edge",
+            "/compression": "compression",
+            "/compression/": "compression",
             "/journal": "journal",
             "/journal/": "journal",
         }
