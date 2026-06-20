@@ -7,8 +7,8 @@ import sys
 import psycopg2
 import psycopg2.extras
 
-REMOVE_SYMBOLS = ["EUTR@MISX"]
-REVIEW_SYMBOLS = ["SBERP@MISX", "VTBR@MISX", "SFIN@MISX"]
+REMOVE_SYMBOLS = []
+REVIEW_SYMBOLS = ["EUTR@MISX", "SBERP@MISX", "VTBR@MISX", "SFIN@MISX"]
 
 def main() -> int:
     dsn = os.environ.get("DATABASE_URL")
