@@ -77,8 +77,26 @@ def main() -> int:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute(sql_migrate)
-            cur.execute(sql_sync)
-            inserted = cur.rowcount
+
+            cur.execute("""
+                SELECT count(*)
+                FROM runtime_active_universe
+                WHERE is_enabled = true
+                  AND source = 'runtime_universe_allocator_v2'
+            """)
+            allocator_rows = int(cur.fetchone()[0] or 0)
+
+            if allocator_rows > 0:
+                inserted = 0
+                print(
+                    "SYNC_RUNTIME_ACTIVE_UNIVERSE_FROM_STRATEGY_SELECTION_QUARANTINED "
+                    f"reason=allocator_v2_is_primary allocator_rows={allocator_rows}",
+                    flush=True,
+                )
+            else:
+                cur.execute(sql_sync)
+                inserted = cur.rowcount
+
         conn.commit()
 
     print(
