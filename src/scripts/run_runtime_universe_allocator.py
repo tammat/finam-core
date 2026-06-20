@@ -4,13 +4,19 @@ import os
 
 from finam_core.runtime.runtime_universe_allocator import RuntimeUniverseAllocator
 from finam_core.storage.postgres_logger import PostgresLogger
+import os
 
 
 def main() -> int:
     max_symbols = int(os.getenv("RUNTIME_ACTIVE_UNIVERSE_LIMIT", "5"))
     min_score = float(os.getenv("RUNTIME_ACTIVE_UNIVERSE_MIN_SCORE", "0.35"))
 
-    allocator = RuntimeUniverseAllocator(PostgresLogger())
+    dsn = os.getenv("DATABASE_URL", "").strip()
+    if not dsn:
+        raise RuntimeError("DATABASE_URL is required for runtime universe allocator")
+    pg_logger = PostgresLogger()
+    print(f"RUNTIME_UNIVERSE_ALLOCATOR_DB_DSN database_url={pg_logger.database_url}", flush=True)
+    allocator = RuntimeUniverseAllocator(pg_logger)
     active_count = allocator.allocate(max_symbols=max_symbols, min_score=min_score)
 
     print(
