@@ -1396,6 +1396,171 @@ a {{ margin-right: 12px; }}
 
 
 
+
+def render_rs_breakout_confirmation_page(payload: dict | None = None) -> str:
+    def esc(x):
+        import html
+        return html.escape("" if x is None else str(x))
+
+    rows = []
+    diagnostic = "OK"
+    verdict = "RS_BREAKOUT_CONFIRMATION_COLLECTING"
+
+    try:
+        import os
+        import psycopg
+        from psycopg.rows import dict_row
+
+        dsn = os.getenv("DATABASE_URL")
+        if not dsn:
+            raise RuntimeError("DATABASE_URL_NOT_SET")
+
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    with rs as (
+                        select
+                            id, symbol, selection, filter_name,
+                            source_ts, return_pct, status
+                        from analytics_futures_rs_bottom_paper_observation_v1
+                        where status in ('SUCCESS','FAILURE','WAITING')
+                    ),
+                    breakout_confirm as (
+                        select
+                            rs.id as rs_id,
+                            count(*)::int as breakout_rows,
+                            min(br.created_at) as first_breakout_time
+                        from rs
+                        join analytics_multi_asset_breakout_row_v1 br
+                          on br.symbol = rs.symbol
+                         and br.created_at >= rs.source_ts
+                         and br.created_at <= rs.source_ts + interval '240 minutes'
+                         and (br.status = 'BREAKOUT_READY' or br.breakout_ok = true)
+                        group by rs.id
+                    ),
+                    classified as (
+                        select
+                            rs.*,
+                            case when bc.rs_id is not null then 'RS_PLUS_BREAKOUT' else 'RS_ONLY' end as bucket,
+                            bc.breakout_rows,
+                            bc.first_breakout_time
+                        from rs
+                        left join breakout_confirm bc on bc.rs_id = rs.id
+                    )
+                    select
+                        bucket,
+                        selection,
+                        filter_name,
+                        count(*)::int as observations,
+                        count(*) filter (where status='WAITING')::int as waiting,
+                        count(*) filter (where status in ('SUCCESS','FAILURE'))::int as completed,
+                        count(*) filter (where status='SUCCESS')::int as wins,
+                        count(*) filter (where status='FAILURE')::int as losses,
+                        avg(return_pct) filter (where status in ('SUCCESS','FAILURE')) as avg_return_pct,
+                        sum(return_pct) filter (where status='SUCCESS') as positive_sum,
+                        sum(return_pct) filter (where status='FAILURE') as negative_sum
+                    from classified
+                    group by bucket, selection, filter_name
+                    order by bucket, selection, filter_name
+                """)
+                rows = [dict(r) for r in cur.fetchall()]
+
+        for r in rows:
+            pos = r.get("positive_sum") or 0
+            neg = abs(r.get("negative_sum") or 0)
+            r["profit_factor"] = None if neg == 0 else pos / neg
+
+            completed = int(r.get("completed") or 0)
+            pf = r["profit_factor"]
+
+            if completed < 10:
+                r["row_verdict"] = "НЕДОСТАТОЧНО_ДАННЫХ"
+            elif pf is None:
+                r["row_verdict"] = "НЕТ_PF"
+            elif pf >= 1.30:
+                r["row_verdict"] = "ПОДТВЕРЖДЕНИЕ_УЛУЧШАЕТ_EDGE"
+            elif pf >= 1.00:
+                r["row_verdict"] = "ПОДТВЕРЖДЕНИЕ_СЛАБОЕ"
+            else:
+                r["row_verdict"] = "ПОДТВЕРЖДЕНИЕ_НЕ_УЛУЧШАЕТ_EDGE"
+
+        if any(r.get("bucket") == "RS_PLUS_BREAKOUT" for r in rows):
+            verdict = "RS_BREAKOUT_CONFIRMATION_HAS_CONFIRMATIONS"
+
+    except Exception as exc:
+        diagnostic = f"{type(exc).__name__}: {exc}"
+        rows = []
+        verdict = "ERROR"
+
+    table_rows = ""
+    for r in rows:
+        table_rows += (
+            "<tr>"
+            f"<td>{esc(r.get('bucket'))}</td>"
+            f"<td>{esc(r.get('selection'))}</td>"
+            f"<td>{esc(r.get('filter_name'))}</td>"
+            f"<td>{esc(r.get('observations'))}</td>"
+            f"<td>{esc(r.get('waiting'))}</td>"
+            f"<td>{esc(r.get('completed'))}</td>"
+            f"<td>{esc(r.get('wins'))}</td>"
+            f"<td>{esc(r.get('losses'))}</td>"
+            f"<td>{esc(r.get('avg_return_pct'))}</td>"
+            f"<td>{esc(r.get('profit_factor'))}</td>"
+            f"<td>{esc(r.get('row_verdict'))}</td>"
+            "</tr>"
+        )
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='11'>Нет данных RS Breakout Confirmation</td></tr>"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="60">
+<title>RS Breakout Confirmation</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+.card {{ border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ddd; padding: 6px 8px; }}
+th {{ background: #f3f3f3; }}
+a {{ margin-right: 12px; }}
+</style>
+</head>
+<body>
+<nav>
+<a href="/summary">Сводка</a>
+<a href="/rs-bottom-paper">RS Bottom Paper</a>
+<a href="/rs-bottom-forward">RS Bottom Forward</a>
+<a href="/rs-breakout-confirmation">RS Breakout Confirmation</a>
+<a href="/edge">Технический рейтинг</a>
+<a href="/api/current">API JSON</a>
+</nav>
+
+<div class="card">
+<h2>RS Breakout Confirmation</h2>
+<div>Автообновление: <b>60 секунд</b></div>
+<div>Диагностика: <b>{esc(diagnostic)}</b></div>
+<div>Окно подтверждения: <b>240 минут</b></div>
+<div>Строк: <b>{esc(len(rows))}</b></div>
+<div>Вердикт: <b>{esc(verdict)}</b></div>
+</div>
+
+<div class="card">
+<table>
+<tr>
+<th>Корзина</th><th>Селекция</th><th>Фильтр</th><th>Наблюдений</th>
+<th>Ожидают</th><th>Completed</th><th>Успешно</th><th>Неуспешно</th>
+<th>Avg Return</th><th>PF</th><th>Вердикт строки</th>
+</tr>
+{table_rows}
+</table>
+</div>
+</body>
+</html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -1440,6 +1605,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
+
+
+            if path in {"/rs-breakout-confirmation", "/rs-breakout-confirmation/"}:
+                body = render_rs_breakout_confirmation_page(None).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
             if path in {"/rs-bottom-forward", "/rs-bottom-forward/"}:
                 body = render_rs_bottom_forward_page(payload).encode("utf-8")
