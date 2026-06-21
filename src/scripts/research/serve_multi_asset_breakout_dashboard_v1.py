@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import psycopg
+from psycopg.rows import dict_row
 import sys
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -67,7 +68,6 @@ def load_compression_history_v1() -> dict:
     # Русский комментарий: читаем историю compression/expansion напрямую из PostgreSQL.
     import os
     import psycopg
-    from psycopg.rows import dict_row
 
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
