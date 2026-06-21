@@ -53,11 +53,22 @@ def run_step(step: list[str]) -> bool:
     result = subprocess.run(cmd, cwd="/opt/finam-core", env=env, check=False)
 
     ok = result.returncode == 0
+
+    # Русский комментарий: readiness-gates в paper/research режиме не должны валить observation.
+    # Они блокируют только переход к real execution, но сбор статистики должен продолжаться.
+    soft_readiness_steps = {
+        "src/scripts/research/build_real_trading_readiness_gates_v1.py",
+        "src/scripts/research/build_monday_paper_startup_readiness_v1.py",
+    }
+
+    effective_ok = ok or step[0] in soft_readiness_steps
+
     print(
-        f"MOEX_SESSION_STEP_DONE ok={ok} code={result.returncode} step={step[0]}",
+        f"MOEX_SESSION_STEP_DONE ok={ok} effective_ok={effective_ok} "
+        f"code={result.returncode} step={step[0]}",
         flush=True,
     )
-    return ok
+    return effective_ok
 
 
 def main() -> int:
