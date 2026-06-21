@@ -1065,8 +1065,33 @@ def render_page(payload: dict, page: str) -> str:
 """
 
     elif page == "edge":
-        body += "<h2>Рейтинг Edge</h2>"
-        body += f"<pre>{esc(edge)}</pre>"
+        body += "<h2>Технический рейтинг готовности</h2>"
+        body += "<p>Это не подтверждённый торговый edge, а рейтинг близости инструмента к пробою и качества наблюдений.</p>"
+
+        rows = edge.get("rows", []) if isinstance(edge, dict) else []
+        body += """
+<table>
+<tr>
+<th>Инструмент</th><th>Наблюдений</th><th>Близко к пробою</th>
+<th>Готовых пробоев</th><th>Нет баров</th><th>Follow rows</th>
+<th>Средняя доходность</th><th>Рейтинг</th><th>Последнее наблюдение</th>
+</tr>
+"""
+        for r in rows:
+            body += (
+                "<tr>"
+                f"<td>{esc(r.get('symbol'))}</td>"
+                f"<td>{esc(r.get('observations'))}</td>"
+                f"<td>{esc(r.get('close_to_breakout'))}</td>"
+                f"<td>{esc(r.get('breakout_ready'))}</td>"
+                f"<td>{esc(r.get('no_bars'))}</td>"
+                f"<td>{esc(r.get('follow_rows'))}</td>"
+                f"<td>{esc(r.get('avg_return_pct'))}</td>"
+                f"<td>{esc(r.get('edge_score'))}</td>"
+                f"<td>{format_msk_time(r.get('last_seen'))}</td>"
+                "</tr>"
+            )
+        body += "</table>"
 
     elif page == "journal":
         body += "<h2>Журнал Telegram / dashboard</h2>"
