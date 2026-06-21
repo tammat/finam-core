@@ -985,9 +985,9 @@ def render_page(payload: dict, page: str) -> str:
 <a href="/delivery">Уведомления</a>
 <a href="/rows">Текущая таблица</a>
 <a href="/follow">Follow-through</a>
-<a href="/edge">Edge</a>
-<a href="/compression">Compression</a>
-<a href="/compression-history">Compression History</a>
+<a href="/edge">Рейтинг Edge</a>
+<a href="/compression">Сжатие</a>
+<a href="/compression-history">История сжатия</a>
 <a href="/journal">Журнал Telegram</a>
 <a href="/api/current">API JSON</a>
 </nav>
@@ -1033,7 +1033,14 @@ th { background: #222; }
         body = f"""
 <div class="card">
 <h2>Сводка</h2>
-<div>инструментов во вселенной: {esc(summary.get("universe_total", "UNKNOWN"))}</div>
+<div>инструментов во вселенной: {esc(summary.get("universe_total", "UNKNOWN"))}
+<h3>Сжатие / расширение</h3>
+<div>снимков истории: <b>{esc(compression_history.get("snapshots", 0))}</b></div>
+<div>строк истории: <b>{esc(compression_history.get("rows", 0))}</b></div>
+<div>событий сжатия: <b>{esc(compression_history.get("compression_rows", 0))}</b></div>
+<div>кандидатов расширения: <b>{esc(compression_history.get("expansion_rows", 0))}</b></div>
+<div>последний снимок, МСК: <b>{format_msk_time(compression_history.get("last_snapshot", ""))}</b></div>
+</div>
 <div>строк наблюдения: {esc(summary.get("rows_total", "UNKNOWN"))}</div>
 <div>акции: {esc(summary.get("equity_rows", "UNKNOWN"))}</div>
 <div>фьючерсы: {esc(summary.get("futures_rows", "UNKNOWN"))}</div>
@@ -1293,7 +1300,7 @@ th { background: #222; }
 <table>
 <tr>
 <th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Статус</th>
-<th>Compression</th><th>Expansion</th><th>Close</th>
+<th>Сжатие</th><th>Expansion</th><th>Close</th>
 <th>Range high</th><th>Range low</th><th>Volume ratio</th>
 </tr>
 {compression_rows}
@@ -1346,7 +1353,7 @@ th { background: #222; }
 <table>
 <tr>
 <th>ID</th><th>Время, МСК</th><th>Rows</th><th>Equities</th><th>Futures/FX</th><th>Indexes</th>
-<th>Compression</th><th>Expansion</th><th>No setup</th><th>Verdict</th>
+<th>Сжатие</th><th>Expansion</th><th>No setup</th><th>Verdict</th>
 </tr>
 {snapshot_rows}
 </table>
