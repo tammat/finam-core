@@ -13,7 +13,7 @@ LOOKBACK_BARS = {
     "M5": 12,
 }
 
-FUTURE_PREFIXES = ("NG", "BR", "GD", "GL", "SV")
+FUTURE_PREFIXES = ("NG", "BR", "GD", "GL", "SV", "USDRUBF")
 
 
 def pct_change(first, last):
@@ -48,6 +48,7 @@ def main() -> int:
                     or symbol like 'GD%@RTSX'
                     or symbol like 'GL%@RTSX'
                     or symbol like 'SV%@RTSX'
+                    or symbol = 'USDRUBF@RTSX'
                   )
                 group by symbol, timeframe
                 having count(*) >= 15
