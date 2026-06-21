@@ -1,0 +1,20 @@
+[Unit]
+Description=Finam Core Multi Asset Compression Expansion History Snapshot
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finam
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=-/opt/finam-core/.env
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=RUNTIME_ALLOW_TRADING=0
+Environment=EXECUTION_ENABLED=0
+Environment=REAL_TRADING_ENABLED=0
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/research/build_multi_asset_compression_expansion_history_v1.py --migrate --save
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
