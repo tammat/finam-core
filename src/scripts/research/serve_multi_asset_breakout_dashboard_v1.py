@@ -747,6 +747,38 @@ def collect_payload() -> dict:
     }
 
 
+def load_rs_bottom_paper(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            select
+                count(*)::int as signals_total,
+                count(*) filter (where status='WAITING')::int as waiting,
+                count(*) filter (where status='SUCCESS')::int as success,
+                count(*) filter (where status='FAILURE')::int as failure,
+                round(avg(return_pct), 6) as avg_return_pct,
+                max(source_ts) as last_signal_time
+            from analytics_futures_rs_bottom_paper_observation_v1
+        """)
+        summary = cur.fetchone()
+
+        cur.execute("""
+            select
+                symbol, family, selection, filter_name,
+                source_ts, source_close, horizon_min,
+                future_ts, future_close, return_pct, status
+            from analytics_futures_rs_bottom_paper_observation_v1
+            order by source_ts desc
+            limit 100
+        """)
+        rows = cur.fetchall()
+
+    return {
+        "summary": dict(summary) if summary else {},
+        "rows": [dict(r) for r in rows],
+    }
+
+
+
 def render_html(payload: dict) -> str:
     summary = payload["summary"]
     rows = payload["rows"]
@@ -755,6 +787,7 @@ def render_html(payload: dict) -> str:
     history = payload["history_daily"]
     follow = payload["follow_through"]
 
+    
     def esc(x: object) -> str:
         return html.escape(str(x))
 
@@ -959,431 +992,117 @@ th {{ background: #222; }}
 </html>"""
 
 
-def render_page(payload: dict, page: str) -> str:
+
+
+def safe_load_rs_bottom_paper():
+    try:
+        dsn = os.getenv("DATABASE_URL")
+        if not dsn:
+            return {
+                "summary": {
+                    "signals_total": 0,
+                    "waiting": 0,
+                    "success": 0,
+                    "failure": 0,
+                    "avg_return_pct": "",
+                    "last_signal_time": "",
+                },
+                "rows": [],
+                "error": "DATABASE_URL_NOT_SET",
+            }
+
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            return load_rs_bottom_paper(conn)
+    except Exception as exc:
+        return {
+            "summary": {
+                "signals_total": 0,
+                "waiting": 0,
+                "success": 0,
+                "failure": 0,
+                "avg_return_pct": "",
+                "last_signal_time": "",
+            },
+            "rows": [],
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def render_rs_bottom_paper_page(payload: dict) -> str:
     def esc(x: object) -> str:
-        return html.escape(str(x))
+        return html.escape("" if x is None else str(x))
 
-    summary = payload.get("summary", {})
-    history = payload.get("history_daily", {})
-    follow = payload.get("follow_through", {})
-    blockers = payload.get("blocker_counts", {})
-    ready_rows = payload.get("ready_rows", [])
-    rows = payload.get("rows", [])
-    journal_lines = payload.get("journal_lines", [])
-    delivery = payload.get("ready_delivery", {})
-    edge_scorecard = payload.get("edge_scorecard", {})
-    compression_expansion = payload.get("compression_expansion", {})
-    compression_history = payload.get("compression_history", {})
-    edge = payload.get("edge_scorecard", {})
+    rsb = safe_load_rs_bottom_paper()
+    sm = rsb.get("summary", {})
+    rows = rsb.get("rows", [])
 
-    menu = """
-<nav class="menu">
-<a href="/summary">Сводка</a>
-<a href="/history">История за день</a>
-<a href="/blockers">Блокировки</a>
-<a href="/ready">Готовые сигналы</a>
-<a href="/delivery">Уведомления</a>
-<a href="/rows">Текущая таблица</a>
-<a href="/follow">Follow-through</a>
-<a href="/edge">Рейтинг Edge</a>
-<a href="/compression">Сжатие</a>
-<a href="/compression-history">История сжатия</a>
-<a href="/journal">Журнал Telegram</a>
-<a href="/api/current">API JSON</a>
-</nav>
-"""
+    rows_html = ""
+    for r in rows:
+        rows_html += "<tr>"
+        rows_html += f"<td>{esc(r.get('symbol'))}</td>"
+        rows_html += f"<td>{esc(r.get('selection'))}</td>"
+        rows_html += f"<td>{esc(r.get('filter_name'))}</td>"
+        rows_html += f"<td>{format_msk_time(r.get('source_ts'))}</td>"
+        rows_html += f"<td>{esc(r.get('source_close'))}</td>"
+        rows_html += f"<td>{esc(r.get('return_pct'))}</td>"
+        rows_html += f"<td>{esc(r.get('status'))}</td>"
+        rows_html += "</tr>"
 
-    style = """
-<style>
-body { font-family: Arial, sans-serif; margin: 24px; background: #111; color: #eee; }
-h1, h2, h3 { color: #fff; }
-.card { background: #1b1b1b; padding: 16px; margin-bottom: 16px; border-radius: 8px; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { border-bottom: 1px solid #333; padding: 6px; text-align: left; }
-th { background: #222; }
-.mono { font-family: monospace; font-size: 12px; }
-.menu { background: #1b1b1b; padding: 10px; margin-bottom: 16px; border-radius: 8px; }
-.menu a { color: #7CFC98; margin-right: 16px; text-decoration: none; font-weight: bold; }
-.good { color: #7CFC98; }
-.bad { color: #ff7777; }
-</style>
-"""
+    if not rows_html:
+        rows_html = "<tr><td colspan='7'>Нет forward-сигналов</td></tr>"
 
-    header = f"""<!doctype html>
+    return f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Finam Core — наблюдение пробоев</title>
-{style}
+<title>RS Bottom Paper</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+.card {{ border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ddd; padding: 6px 8px; }}
+th {{ background: #f3f3f3; }}
+a {{ margin-right: 12px; }}
+</style>
 </head>
 <body>
-<h1>Наблюдение качества сигналов пробоя V1</h1>
-{menu}
-<div class="card">
-<div>проверено МСК: <span class="mono">{format_msk_time(payload.get("checked_at_msk", "UNKNOWN"))}</span></div>
-<div>исполнение: <span class="good">{esc(payload.get("execution_enabled", "0"))}</span></div>
-<div>реальные сделки: <span class="good">{esc(payload.get("real_trading_enabled", "0"))}</span></div>
-<div>Telegram dry-run: <span class="good">{esc(payload.get("telegram_dry_run", "1"))}</span></div>
-</div>
-"""
+<nav>
+<a href="/summary">Сводка</a>
+<a href="/compression-history">История сжатия</a>
+<a href="/edge">Рейтинг Edge</a>
+<a href="/rs-bottom-paper">RS Bottom Paper</a>
+<a href="/api/current">API JSON</a>
+</nav>
 
-    footer = "</body></html>"
+<div class="card">
+<h2>RS Bottom Paper</h2>
+<div>signals_total: <b>{esc(sm.get('signals_total', 0))}</b></div>
+<div>WAITING: <b>{esc(sm.get('waiting', 0))}</b></div>
+<div>SUCCESS: <b>{esc(sm.get('success', 0))}</b></div>
+<div>FAILURE: <b>{esc(sm.get('failure', 0))}</b></div>
+<div>avg_return_pct: <b>{esc(sm.get('avg_return_pct', ''))}</b></div>
+<div>last_signal_time, МСК: <b>{format_msk_time(sm.get('last_signal_time'))}</b></div>\n<div>RS Bottom Paper diagnostic: <b>{esc(rsb.get('error', 'OK'))}</b></div>
+</div>
 
-    if page == "summary":
-        body = f"""
 <div class="card">
-<h2>Сводка</h2>
-<div>инструментов во вселенной: {esc(summary.get("universe_total", "UNKNOWN"))}
-<h3>Сжатие / расширение</h3>
-<div>снимков истории: <b>{esc(compression_history.get("snapshots", 0))}</b></div>
-<div>строк истории: <b>{esc(compression_history.get("rows", 0))}</b></div>
-<div>событий сжатия: <b>{esc(compression_history.get("compression_rows", 0))}</b></div>
-<div>кандидатов расширения: <b>{esc(compression_history.get("expansion_rows", 0))}</b></div>
-<div>последний снимок, МСК: <b>{format_msk_time(compression_history.get("last_snapshot", ""))}</b></div>
+<h3>Historical Edge Reference</h3>
+<div>BOTTOM1 + COMPRESSION_RANGE + 240m: <b>PF=1.5233</b>, avg_return=+0.199297%</div>
+<div>BOTTOM1 + REVERSAL_UP_CLOSE + 240m: <b>PF=1.4019</b>, avg_return=+0.157168%</div>
+<div>BOTTOM1 + ALL + 240m: <b>PF=1.3903</b>, avg_return=+0.150831%</div>
 </div>
-<div>строк наблюдения: {esc(summary.get("rows_total", "UNKNOWN"))}</div>
-<div>акции: {esc(summary.get("equity_rows", "UNKNOWN"))}</div>
-<div>фьючерсы: {esc(summary.get("futures_rows", "UNKNOWN"))}</div>
-<div>готовые пробои: <b>{esc(summary.get("breakout_ready", "UNKNOWN"))}</b></div>
-<div>решение Telegram: <b>{esc(summary.get("telegram_decision", "UNKNOWN"))}</b></div>
-<div>вердикт V2: <span class="mono">{esc(summary.get("v2_verdict", "UNKNOWN"))}</span></div>
-<div>вердикт Telegram-plan: <span class="mono">{esc(summary.get("plan_verdict", "UNKNOWN"))}</span></div>
-</div>
-"""
-    elif page == "history":
-        symbols = history.get("symbols", [])
-        trs = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('symbol', ''))}</td>"
-            f"<td>{esc(r.get('asset_class', ''))}</td>"
-            f"<td>{esc(r.get('timeframe', ''))}</td>"
-            f"<td>{esc(r.get('role', ''))}</td>"
-            f"<td>{esc(r.get('observations', 0))}</td>"
-            f"<td>{esc(r.get('ready_count', 0))}</td>"
-            f"<td>{esc(r.get('no_breakout_count', 0))}</td>"
-            f"<td>{esc(r.get('atr_blocked_count', 0))}</td>"
-            f"<td>{esc(r.get('volume_blocked_count', 0))}</td>"
-            f"<td>{format_msk_time(r.get('last_seen', ''))}</td>"
-            "</tr>"
-            for r in symbols
-        ) or "<tr><td colspan='10'>История за сегодня пока пуста</td></tr>"
 
-        body = f"""
 <div class="card">
-<h2>История за день</h2>
-<div>снимков сегодня: <b>{esc(history.get("snapshots_today", 0))}</b></div>
-<div>строк наблюдения сегодня: <b>{esc(history.get("rows_today", 0))}</b></div>
-<div>BREAKOUT_READY сегодня: <b>{esc(history.get("ready_today", 0))}</b></div>
-<div>первый снимок: <span class="mono">{format_msk_time(history.get("first_snapshot", "NONE"))}</span></div>
-<div>последний снимок: <span class="mono">{format_msk_time(history.get("last_snapshot", "NONE"))}</span></div>
-<h3>Статистика по инструментам</h3>
-<table>
-<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Наблюдений</th><th>Ready</th><th>No breakout</th><th>ATR blocked</th><th>Volume blocked</th><th>Последнее наблюдение, МСК</th></tr>
-{trs}
-</table>
-</div>
-"""
-    elif page == "blockers":
-        day = history.get("blockers", {})
-        body = f"""
-<div class="card">
-<h2>Причины блокировки — текущий срез</h2>
-<div>NO_BREAKOUT: {esc(blockers.get("no_breakout", 0))}</div>
-<div>ATR_TOO_LOW: {esc(blockers.get("atr_too_low", 0))}</div>
-<div>VOLUME_TOO_LOW: {esc(blockers.get("volume_too_low", 0))}</div>
-<div>NO_ENOUGH_BARS: {esc(blockers.get("no_enough_bars", 0))}</div>
-</div>
-<div class="card">
-<h2>Причины блокировки — за день</h2>
-<div>NO_BREAKOUT: {esc(day.get("NO_BREAKOUT", 0))}</div>
-<div>ATR_TOO_LOW: {esc(day.get("ATR_TOO_LOW", 0))}</div>
-<div>VOLUME_TOO_LOW: {esc(day.get("VOLUME_TOO_LOW", 0))}</div>
-<div>NO_ENOUGH_BARS: {esc(day.get("NO_ENOUGH_BARS", 0))}</div>
-</div>
-"""
-    elif page == "ready":
-        lis = "\n".join(
-            f"<li>{esc(r.get('symbol'))} {esc(r.get('timeframe'))} {esc(r.get('role'))} close={esc(r.get('close'))} status={esc(r.get('status'))}</li>"
-            for r in ready_rows
-        ) or "<li>Готовых сигналов нет</li>"
-        body = f"""
-<div class="card">
-<h2>Готовые сигналы BREAKOUT_READY</h2>
-<ul>{lis}</ul>
-</div>
-"""
-
-    elif page == "delivery":
-        delivery_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('ready_row_id'))}</td>"
-            f"<td>{esc(r.get('symbol'))}</td>"
-            f"<td>{esc(r.get('timeframe'))}</td>"
-            f"<td>{esc(r.get('role'))}</td>"
-            f"<td>{esc(r.get('delivery_status'))}</td>"
-            f"<td>{esc(r.get('dry_run'))}</td>"
-            f"<td>{esc(r.get('delivery_reason'))}</td>"
-            f"<td>{esc(r.get('close'))}</td>"
-            f"<td>{esc(r.get('prev_high'))}</td>"
-            f"<td>{format_msk_time(r.get('ready_created_at'))}</td>"
-            f"<td>{format_msk_time(r.get('delivered_at'))}</td>"
-            "</tr>"
-            for r in delivery.get("rows", [])
-        ) or "<tr><td colspan='11'>Обработанных ready-сигналов пока нет</td></tr>"
-
-        body = f"""
-<div class="card">
-<h2>Уведомления по готовым сигналам</h2>
-<div>Готовых сигналов всего: <b>{esc(delivery.get("ready_total", 0))}</b></div>
-<div>Обработано уведомлений: <b>{esc(delivery.get("delivery_total", 0))}</b></div>
-<div>Dry-run уведомлений: <b>{esc(delivery.get("dry_run_total", 0))}</b></div>
-<div>Новых необработанных сигналов: <b>{esc(delivery.get("undelivered_ready", 0))}</b></div>
-<h3>Последние обработанные сигналы</h3>
+<h3>Forward-сигналы</h3>
 <table>
 <tr>
-<th>ready_id</th><th>Инструмент</th><th>ТФ</th><th>Роль</th><th>Статус уведомления</th><th>Dry-run</th>
-<th>Комментарий</th><th>Close</th><th>Prev high</th><th>Время сигнала, МСК</th><th>Время обработки, МСК</th>
+<th>Инструмент</th><th>Selection</th><th>Filter</th>
+<th>Source time</th><th>Source close</th><th>Return %</th><th>Status</th>
 </tr>
-{delivery_rows}
+{rows_html}
 </table>
 </div>
-"""
-
-    elif page == "rows":
-        trs = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('symbol'))}</td>"
-            f"<td>{esc(r.get('asset_class'))}</td>"
-            f"<td>{esc(r.get('timeframe'))}</td>"
-            f"<td>{esc(r.get('role'))}</td>"
-            f"<td>{esc(r.get('close'))}</td>"
-            f"<td>{esc(r.get('prev_high'))}</td>"
-            f"<td>{esc(r.get('breakout_ok'))}</td>"
-            f"<td>{esc(r.get('atr_ok'))}</td>"
-            f"<td>{esc(r.get('volume_ok'))}</td>"
-            f"<td>{esc(r.get('status'))}</td>"
-            "</tr>"
-            for r in rows
-        )
-        body = f"""
-<div class="card">
-<h2>Текущая таблица наблюдения</h2>
-<table>
-<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Закрытие</th><th>Пред. максимум</th><th>Пробой</th><th>ATR</th><th>Объём</th><th>Статус</th></tr>
-{trs}
-</table>
-</div>
-"""
-    elif page == "follow":
-        horizon_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('horizon_min'))}</td>"
-            f"<td>{esc(r.get('rows'))}</td>"
-            f"<td>{esc(r.get('wins'))}</td>"
-            f"<td>{esc(r.get('losses'))}</td>"
-            f"<td>{esc(r.get('waiting'))}</td>"
-            f"<td>{esc(r.get('avg_return_pct'))}</td>"
-            "</tr>"
-            for r in follow.get("horizons", [])
-        ) or "<tr><td colspan='6'>Пока нет BREAKOUT_READY для оценки</td></tr>"
-
-        symbol_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('symbol'))}</td>"
-            f"<td>{esc(r.get('asset_class'))}</td>"
-            f"<td>{esc(r.get('timeframe'))}</td>"
-            f"<td>{esc(r.get('role'))}</td>"
-            f"<td>{esc(r.get('rows'))}</td>"
-            f"<td>{esc(r.get('wins'))}</td>"
-            f"<td>{esc(r.get('losses'))}</td>"
-            f"<td>{esc(r.get('waiting'))}</td>"
-            f"<td>{esc(r.get('avg_return_pct'))}</td>"
-            f"<td>{format_msk_time(r.get('last_ready'))}</td>"
-            "</tr>"
-            for r in follow.get("symbols", [])
-        ) or "<tr><td colspan='10'>Пока нет сигналов для оценки</td></tr>"
-
-        body = f"""
-<div class="card">
-<h2>Follow-through scorecard</h2>
-<div>BREAKOUT_READY всего: <b>{esc(follow.get("ready_rows", 0))}</b></div>
-<div>строк scorecard: <b>{esc(follow.get("scorecard_rows_total", 0))}</b></div>
-<div>ожидают будущую цену: <b>{esc(follow.get("waiting_rows", 0))}</b></div>
-<h3>Горизонты 3/5/10/15 минут</h3>
-<table>
-<tr><th>Горизонт, мин</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th></tr>
-{horizon_rows}
-</table>
-<h3>По инструментам</h3>
-<table>
-<tr><th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready, МСК</th></tr>
-{symbol_rows}
-</table>
-</div>
-"""
-    elif page == "edge":
-        edge_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('symbol', ''))}</td>"
-            f"<td>{esc(r.get('priority', ''))}</td>"
-            f"<td>{esc(r.get('runtime_score', ''))}</td>"
-            f"<td>{esc(r.get('observations', 0))}</td>"
-            f"<td>{esc(r.get('close_to_breakout', 0))}</td>"
-            f"<td>{esc(r.get('breakout_ready', 0))}</td>"
-            f"<td>{esc(r.get('follow_rows', 0))}</td>"
-            f"<td>{esc(r.get('follow_success', 0))}</td>"
-            f"<td>{esc(r.get('follow_failure', 0))}</td>"
-            f"<td>{esc(r.get('avg_return_pct', 0))}</td>"
-            f"<td>{esc(r.get('close_rate', 0))}</td>"
-            f"<td>{esc(r.get('ready_rate', 0))}</td>"
-            f"<td>{esc(r.get('follow_winrate', 0))}</td>"
-            f"<td><b>{esc(r.get('edge_score', 0))}</b></td>"
-            f"<td>{format_msk_time(r.get('last_seen', ''))}</td>"
-            "</tr>"
-            for r in edge_scorecard.get("rows", [])
-        ) or "<tr><td colspan='15'>Edge scorecard пока пуст</td></tr>"
-
-        body = f"""
-<div class="card">
-<h2>Edge Scorecard 8 equities V1</h2>
-<div>вердикт: <span class="mono">{esc(edge_scorecard.get("verdict", "UNKNOWN"))}</span></div>
-<div>runtime equities: <b>{esc(edge_scorecard.get("runtime_equities", 0))}</b></div>
-<div>строк scorecard: <b>{esc(edge_scorecard.get("scorecard_rows", 0))}</b></div>
-<div>equities with READY: <b>{esc(edge_scorecard.get("equities_with_ready", 0))}</b></div>
-<div>equities with follow-through: <b>{esc(edge_scorecard.get("equities_with_follow", 0))}</b></div>
-<div>top edge symbol: <b>{esc(edge_scorecard.get("top_edge_symbol", "NONE"))}</b></div>
-<div>top edge score: <b>{esc(edge_scorecard.get("top_edge_score", "NONE"))}</b></div>
-
-<h3>Таблица edge по 8 акциям</h3>
-<table>
-<tr>
-<th>Инструмент</th><th>Priority</th><th>Runtime score</th><th>Наблюдений</th>
-<th>Close to breakout</th><th>READY</th><th>Follow rows</th>
-<th>Follow success</th><th>Follow failure</th><th>Avg return %</th>
-<th>Close rate</th><th>Ready rate</th><th>Follow winrate</th><th>Edge score</th><th>Последнее наблюдение, МСК</th>
-</tr>
-{edge_rows}
-</table>
-</div>
-"""
-    
-    elif page == "compression":
-        compression_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('symbol', ''))}</td>"
-            f"<td>{esc(r.get('asset_class', ''))}</td>"
-            f"<td>{esc(r.get('timeframe', ''))}</td>"
-            f"<td>{esc(r.get('status', ''))}</td>"
-            f"<td>{esc(r.get('compression_score', 0))}</td>"
-            f"<td>{esc(r.get('expansion_score', 0))}</td>"
-            f"<td>{esc(r.get('last_close', ''))}</td>"
-            f"<td>{esc(r.get('range_high', ''))}</td>"
-            f"<td>{esc(r.get('range_low', ''))}</td>"
-            f"<td>{esc(r.get('volume_ratio', ''))}</td>"
-            "</tr>"
-            for r in compression_expansion.get("rows", [])
-        ) or "<tr><td colspan='10'>Compression scorecard пока пуст</td></tr>"
-
-        body = f"""
-<div class="card">
-<h2>Compression / Expansion Watch V1</h2>
-<div>вердикт: <span class="mono">{esc(compression_expansion.get("verdict", "UNKNOWN"))}</span></div>
-<div>строк: <b>{esc(compression_expansion.get("rows_total", 0))}</b></div>
-<div>акции: <b>{esc(compression_expansion.get("equities_total", 0))}</b></div>
-<div>фьючерсы/FX: <b>{esc(compression_expansion.get("futures_total", 0))}</b></div>
-<div>индексы: <b>{esc(compression_expansion.get("indexes_total", 0))}</b></div>
-<div>сжатие: <b>{esc(compression_expansion.get("compression_count", 0))}</b></div>
-<div>кандидаты расширения: <b>{esc(compression_expansion.get("expansion_candidate_count", 0))}</b></div>
-<div>без данных: <b>{esc(compression_expansion.get("no_bars", 0))}</b></div>
-
-<h3>Таблица Compression / Expansion</h3>
-<table>
-<tr>
-<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Статус</th>
-<th>Сжатие</th><th>Expansion</th><th>Close</th>
-<th>Range high</th><th>Range low</th><th>Volume ratio</th>
-</tr>
-{compression_rows}
-</table>
-</div>
-"""
-
-    
-    elif page == "compression_history":
-        snapshot_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('id', ''))}</td>"
-            f"<td>{format_msk_time(r.get('created_at', ''))}</td>"
-            f"<td>{esc(r.get('rows_total', 0))}</td>"
-            f"<td>{esc(r.get('equities_total', 0))}</td>"
-            f"<td>{esc(r.get('futures_total', 0))}</td>"
-            f"<td>{esc(r.get('indexes_total', 0))}</td>"
-            f"<td>{esc(r.get('compression_count', 0))}</td>"
-            f"<td>{esc(r.get('expansion_candidate_count', 0))}</td>"
-            f"<td>{esc(r.get('no_setup', 0))}</td>"
-            f"<td>{esc(r.get('verdict', ''))}</td>"
-            "</tr>"
-            for r in compression_history.get("snapshot_rows", [])
-        ) or "<tr><td colspan='10'>История snapshot пока пуста</td></tr>"
-
-        top_rows = "\n".join(
-            "<tr>"
-            f"<td>{esc(r.get('symbol', ''))}</td>"
-            f"<td>{esc(r.get('asset_class', ''))}</td>"
-            f"<td>{esc(r.get('compression_hits', 0))}</td>"
-            f"<td>{esc(r.get('expansion_hits', 0))}</td>"
-            f"<td>{esc(r.get('no_setup_hits', 0))}</td>"
-            f"<td>{format_msk_time(r.get('last_seen', ''))}</td>"
-            "</tr>"
-            for r in compression_history.get("top_symbols", [])
-        ) or "<tr><td colspan='6'>История инструментов пока пуста</td></tr>"
-
-        body = f"""
-<div class="card">
-<h2>Compression / Expansion History V1</h2>
-<div>вердикт: <span class="mono">{esc(compression_history.get("verdict", "UNKNOWN"))}</span></div>
-<div>snapshots: <b>{esc(compression_history.get("snapshots", 0))}</b></div>
-<div>history rows: <b>{esc(compression_history.get("rows", 0))}</b></div>
-<div>compression rows: <b>{esc(compression_history.get("compression_rows", 0))}</b></div>
-<div>expansion rows: <b>{esc(compression_history.get("expansion_rows", 0))}</b></div>
-<div>no setup rows: <b>{esc(compression_history.get("no_setup_rows", 0))}</b></div>
-<div>last snapshot, МСК: <b>{format_msk_time(compression_history.get("last_snapshot", ""))}</b></div>
-
-<h3>Последние snapshot</h3>
-<table>
-<tr>
-<th>ID</th><th>Время, МСК</th><th>Rows</th><th>Equities</th><th>Futures/FX</th><th>Indexes</th>
-<th>Сжатие</th><th>Expansion</th><th>No setup</th><th>Verdict</th>
-</tr>
-{snapshot_rows}
-</table>
-
-<h3>Топ инструментов по истории</h3>
-<table>
-<tr>
-<th>Инструмент</th><th>Класс</th><th>Compression hits</th><th>Expansion hits</th><th>No setup hits</th><th>Last seen, МСК</th>
-</tr>
-{top_rows}
-</table>
-</div>
-"""
-
-    elif page == "journal":
-        journal = "<br>".join(esc(x) for x in journal_lines[-80:])
-        body = f"""
-<div class="card">
-<h2>Журнал Telegram sender</h2>
-<div class="mono">{journal}</div>
-</div>
-"""
-    else:
-        body = """
-<div class="card">
-<h2>Страница не найдена</h2>
-</div>
-"""
-
-    return header + body + footer
+</body>
+</html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1420,6 +1139,15 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             payload = collect_payload()
+
+            if path in {"/rs-bottom-paper", "/rs-bottom-paper/"}:
+                body = render_rs_bottom_paper_page(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
             if path in {"/api/current", "/api/current/"}:
                 body = json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode("utf-8")
