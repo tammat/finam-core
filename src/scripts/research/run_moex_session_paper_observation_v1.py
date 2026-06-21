@@ -23,9 +23,10 @@ STEPS = [
 def session_flags() -> tuple[bool, bool, bool]:
     now = datetime.now(MSK)
 
-    # Русский комментарий: суббота и воскресенье исключаются из наблюдения.
+    # Русский комментарий: выходные разрешены только для research/paper observation, без торговли.
     if now.weekday() >= 5:
-        return False, False, False
+        weekend_observation = time(10, 0) <= now.time() <= time(19, 0)
+        return False, False, weekend_observation
 
     # Русский комментарий: акции наблюдаем с ранней сессии, фьючерсы — с основной FORTS-сессии.
     equity_session = time(6, 50) <= now.time() <= time(18, 50)
@@ -37,7 +38,6 @@ def session_flags() -> tuple[bool, bool, bool]:
 
 def is_moex_session_now() -> bool:
     return session_flags()[2]
-
 
 def run_step(step: list[str]) -> bool:
     cmd = [sys.executable, *step]
