@@ -988,6 +988,20 @@ th {{ background: #222; }}
 <div class="mono">{journal_html}</div>
 </div>
 
+
+<div class="card">
+<h3>RS Bottom Forward Scorecard</h3>
+<div>Диагностика scorecard: <b>{esc(forward.get('error', 'OK'))}</b></div>
+<table>
+<tr>
+<th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
+<th>Успешно</th><th>Неуспешно</th><th>Завершено</th>
+<th>PF forward</th><th>PF исторический</th><th>Средняя доходность</th><th>Вердикт</th>
+</tr>
+{forward_rows_html}
+</table>
+</div>
+
 </body>
 </html>"""
 
@@ -1028,28 +1042,148 @@ def safe_load_rs_bottom_paper():
         }
 
 
+def render_page(payload: dict, page: str) -> str:
+    # Русский комментарий: совместимость со старой маршрутизацией dashboard 8088.
+    return render_html(payload)
+
+
+def safe_load_rs_bottom_forward_scorecard():
+    try:
+        import os
+        import psycopg
+        from psycopg.rows import dict_row
+
+        dsn = os.getenv("DATABASE_URL")
+        if not dsn:
+            return {"rows": [], "error": "DATABASE_URL_NOT_SET"}
+
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    select
+                        selection,
+                        filter_name,
+                        signals_total,
+                        waiting,
+                        success,
+                        failure,
+                        completed,
+                        winrate,
+                        avg_return_pct,
+                        profit_factor_forward,
+                        profit_factor_historical,
+                        historical_avg_return_pct,
+                        pf_deviation_pct,
+                        return_deviation_pct,
+                        verdict
+                    from analytics_futures_rs_bottom_forward_scorecard_v1
+                    order by profit_factor_historical desc nulls last, selection, filter_name
+                """)
+                return {"rows": [dict(r) for r in cur.fetchall()], "error": "OK"}
+    except Exception as exc:
+        return {"rows": [], "error": f"{type(exc).__name__}: {exc}"}
+
+
+
 def render_rs_bottom_paper_page(payload: dict) -> str:
     def esc(x: object) -> str:
         return html.escape("" if x is None else str(x))
 
-    rsb = safe_load_rs_bottom_paper()
-    sm = rsb.get("summary", {})
-    rows = rsb.get("rows", [])
+    paper_summary = {
+        "signals_total": 0,
+        "waiting": 0,
+        "success": 0,
+        "failure": 0,
+        "avg_return_pct": "",
+        "last_signal_time": "",
+    }
+    paper_rows = []
+    scorecard_rows = []
+    diagnostic = "OK"
 
-    rows_html = ""
-    for r in rows:
-        rows_html += "<tr>"
-        rows_html += f"<td>{esc(r.get('symbol'))}</td>"
-        rows_html += f"<td>{esc(r.get('selection'))}</td>"
-        rows_html += f"<td>{esc(r.get('filter_name'))}</td>"
-        rows_html += f"<td>{format_msk_time(r.get('source_ts'))}</td>"
-        rows_html += f"<td>{esc(r.get('source_close'))}</td>"
-        rows_html += f"<td>{esc(r.get('return_pct'))}</td>"
-        rows_html += f"<td>{esc(r.get('status'))}</td>"
-        rows_html += "</tr>"
+    try:
+        import os
+        import psycopg
+        from psycopg.rows import dict_row
 
-    if not rows_html:
-        rows_html = "<tr><td colspan='7'>Нет forward-сигналов</td></tr>"
+        dsn = os.getenv("DATABASE_URL")
+        if not dsn:
+            diagnostic = "DATABASE_URL_NOT_SET"
+        else:
+            with psycopg.connect(dsn, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        select
+                            count(*)::int as signals_total,
+                            count(*) filter (where status='WAITING')::int as waiting,
+                            count(*) filter (where status='SUCCESS')::int as success,
+                            count(*) filter (where status='FAILURE')::int as failure,
+                            round(avg(return_pct), 6) as avg_return_pct,
+                            max(source_ts) as last_signal_time
+                        from analytics_futures_rs_bottom_paper_observation_v1
+                    """)
+                    paper_summary = dict(cur.fetchone())
+
+                    cur.execute("""
+                        select
+                            symbol, selection, filter_name, source_ts,
+                            source_close, return_pct, status
+                        from analytics_futures_rs_bottom_paper_observation_v1
+                        order by source_ts desc
+                        limit 100
+                    """)
+                    paper_rows = [dict(r) for r in cur.fetchall()]
+
+                    cur.execute("""
+                        select
+                            selection, filter_name, signals_total, waiting,
+                            success, failure, completed,
+                            profit_factor_forward,
+                            profit_factor_historical,
+                            avg_return_pct,
+                            verdict
+                        from analytics_futures_rs_bottom_forward_scorecard_v1
+                        order by profit_factor_historical desc nulls last
+                    """)
+                    scorecard_rows = [dict(r) for r in cur.fetchall()]
+    except Exception as exc:
+        diagnostic = f"{type(exc).__name__}: {exc}"
+
+    paper_rows_html = ""
+    for r in paper_rows:
+        paper_rows_html += (
+            "<tr>"
+            f"<td>{esc(r.get('symbol'))}</td>"
+            f"<td>{esc(r.get('selection'))}</td>"
+            f"<td>{esc(r.get('filter_name'))}</td>"
+            f"<td>{format_msk_time(r.get('source_ts'))}</td>"
+            f"<td>{esc(r.get('source_close'))}</td>"
+            f"<td>{esc(r.get('return_pct'))}</td>"
+            f"<td>{esc(r.get('status'))}</td>"
+            "</tr>"
+        )
+    if not paper_rows_html:
+        paper_rows_html = "<tr><td colspan='7'>Нет forward-сигналов</td></tr>"
+
+    scorecard_rows_html = ""
+    for r in scorecard_rows:
+        scorecard_rows_html += (
+            "<tr>"
+            f"<td>{esc(r.get('selection'))}</td>"
+            f"<td>{esc(r.get('filter_name'))}</td>"
+            f"<td>{esc(r.get('signals_total'))}</td>"
+            f"<td>{esc(r.get('waiting'))}</td>"
+            f"<td>{esc(r.get('success'))}</td>"
+            f"<td>{esc(r.get('failure'))}</td>"
+            f"<td>{esc(r.get('completed'))}</td>"
+            f"<td>{esc(r.get('profit_factor_forward'))}</td>"
+            f"<td>{esc(r.get('profit_factor_historical'))}</td>"
+            f"<td>{esc(r.get('avg_return_pct'))}</td>"
+            f"<td>{esc(r.get('verdict'))}</td>"
+            "</tr>"
+        )
+    if not scorecard_rows_html:
+        scorecard_rows_html = "<tr><td colspan='11'>Нет данных forward-scorecard</td></tr>"
 
     return f"""<!doctype html>
 <html>
@@ -1076,34 +1210,39 @@ a {{ margin-right: 12px; }}
 
 <div class="card">
 <h2>RS Bottom Paper</h2>
-<div>signals_total: <b>{esc(sm.get('signals_total', 0))}</b></div>
-<div>WAITING: <b>{esc(sm.get('waiting', 0))}</b></div>
-<div>SUCCESS: <b>{esc(sm.get('success', 0))}</b></div>
-<div>FAILURE: <b>{esc(sm.get('failure', 0))}</b></div>
-<div>avg_return_pct: <b>{esc(sm.get('avg_return_pct', ''))}</b></div>
-<div>last_signal_time, МСК: <b>{format_msk_time(sm.get('last_signal_time'))}</b></div>\n<div>RS Bottom Paper diagnostic: <b>{esc(rsb.get('error', 'OK'))}</b></div>
+<div>Всего сигналов: <b>{esc(paper_summary.get('signals_total'))}</b></div>
+<div>Ожидают: <b>{esc(paper_summary.get('waiting'))}</b></div>
+<div>Успешно: <b>{esc(paper_summary.get('success'))}</b></div>
+<div>Неуспешно: <b>{esc(paper_summary.get('failure'))}</b></div>
+<div>Средняя доходность: <b>{esc(paper_summary.get('avg_return_pct'))}</b></div>
+<div>Последний сигнал, МСК: <b>{format_msk_time(paper_summary.get('last_signal_time'))}</b></div>
+<div>Диагностика: <b>{esc(diagnostic)}</b></div>
 </div>
 
 <div class="card">
-<h3>Historical Edge Reference</h3>
-<div>BOTTOM1 + COMPRESSION_RANGE + 240m: <b>PF=1.5233</b>, avg_return=+0.199297%</div>
-<div>BOTTOM1 + REVERSAL_UP_CLOSE + 240m: <b>PF=1.4019</b>, avg_return=+0.157168%</div>
-<div>BOTTOM1 + ALL + 240m: <b>PF=1.3903</b>, avg_return=+0.150831%</div>
+<h3>RS Bottom Forward Scorecard</h3>
+<table>
+<tr>
+<th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
+<th>Успешно</th><th>Неуспешно</th><th>Завершено</th>
+<th>PF forward</th><th>PF исторический</th><th>Средняя доходность</th><th>Вердикт</th>
+</tr>
+{scorecard_rows_html}
+</table>
 </div>
 
 <div class="card">
 <h3>Forward-сигналы</h3>
 <table>
 <tr>
-<th>Инструмент</th><th>Selection</th><th>Filter</th>
-<th>Source time</th><th>Source close</th><th>Return %</th><th>Status</th>
+<th>Инструмент</th><th>Селекция</th><th>Фильтр</th>
+<th>Время сигнала</th><th>Цена сигнала</th><th>Доходность %</th><th>Статус</th>
 </tr>
-{rows_html}
+{paper_rows_html}
 </table>
 </div>
 </body>
 </html>"""
-
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
