@@ -13,6 +13,55 @@ from psycopg.rows import dict_row
 SCORECARD_SCRIPT = "src/scripts/research/build_rs_bottom_forward_scorecard_v1.py"
 
 
+def send_telegram_alert_if_configured(message: str) -> bool:
+    # Русский комментарий: отправка разрешена только при явно заданных TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID.
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
+    if not token or not chat_id:
+        print("telegram_alert_status=SKIPPED_NO_CONFIG")
+        return False
+
+    try:
+        import requests
+
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        response = requests.post(
+            url,
+            json={
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+
+        ok = response.status_code == 200
+        print(f"telegram_alert_status={'SENT' if ok else 'FAILED'}")
+        print(f"telegram_alert_http_status={response.status_code}")
+        return ok
+
+    except Exception as exc:
+        print(f"telegram_alert_status=ERROR")
+        print(f"telegram_alert_error={type(exc).__name__}:{exc}")
+        return False
+
+
+def build_completed_alert_message(updated: int, summary: dict) -> str:
+    # Русский комментарий: сообщение только информационное; заявок и execution intents не создаёт.
+    return (
+        "RS Bottom Forward: завершены новые наблюдения\n"
+        f"Обновлено сигналов: {updated}\n"
+        f"Всего: {summary['rows_total']}\n"
+        f"Ожидают: {summary['waiting']}\n"
+        f"Успешно: {summary['success']}\n"
+        f"Неуспешно: {summary['failure']}\n"
+        "Действие: проверить dashboard /rs-bottom-paper"
+    )
+
+
+
 def dec(v):
     if v is None:
         return None
@@ -168,6 +217,13 @@ def main() -> int:
     print(f"rows_waiting={summary['waiting']}")
     print(f"rows_success={summary['success']}")
     print(f"rows_failure={summary['failure']}")
+
+    telegram_sent = False
+    if updated > 0:
+        message = build_completed_alert_message(updated, summary)
+        telegram_sent = send_telegram_alert_if_configured(message)
+
+    print(f"telegram_alert_sent={int(telegram_sent)}")
 
     for r in score_rows:
         print(
