@@ -1042,48 +1042,71 @@ def safe_load_rs_bottom_paper():
         }
 
 
+
 def render_page(payload: dict, page: str) -> str:
-    # Русский комментарий: совместимость со старой маршрутизацией dashboard 8088.
-    return render_html(payload)
+    def esc(x: object) -> str:
+        return html.escape("" if x is None else str(x))
 
+    summary = payload.get("summary", {})
+    rows = payload.get("rows", [])
+    journal = payload.get("journal_lines", [])
+    compression_history = payload.get("compression_history", {})
+    edge = payload.get("edge_scorecard", {})
 
-def safe_load_rs_bottom_forward_scorecard():
-    try:
-        import os
-        import psycopg
-        from psycopg.rows import dict_row
+    body = ""
 
-        dsn = os.getenv("DATABASE_URL")
-        if not dsn:
-            return {"rows": [], "error": "DATABASE_URL_NOT_SET"}
+    if page == "summary":
+        body += f"""
+<h2>Сводка dashboard</h2>
+<div>Вердикт: <b>{esc(summary.get('plan_verdict', summary.get('verdict', '')))}</b></div>
+<div>Готовые сигналы: <b>{esc(summary.get('breakout_ready', 0))}</b></div>
+<div>Исполнение включено: <b>{esc(summary.get('execution_enabled', 0))}</b></div>
+<div>Реальная торговля: <b>{esc(summary.get('real_trading_enabled', 0))}</b></div>
+"""
 
-        with psycopg.connect(dsn, row_factory=dict_row) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    select
-                        selection,
-                        filter_name,
-                        signals_total,
-                        waiting,
-                        success,
-                        failure,
-                        completed,
-                        winrate,
-                        avg_return_pct,
-                        profit_factor_forward,
-                        profit_factor_historical,
-                        historical_avg_return_pct,
-                        pf_deviation_pct,
-                        return_deviation_pct,
-                        verdict
-                    from analytics_futures_rs_bottom_forward_scorecard_v1
-                    order by profit_factor_historical desc nulls last, selection, filter_name
-                """)
-                return {"rows": [dict(r) for r in cur.fetchall()], "error": "OK"}
-    except Exception as exc:
-        return {"rows": [], "error": f"{type(exc).__name__}: {exc}"}
+    elif page == "edge":
+        body += "<h2>Рейтинг Edge</h2>"
+        body += f"<pre>{esc(edge)}</pre>"
 
+    elif page == "journal":
+        body += "<h2>Журнал Telegram / dashboard</h2>"
+        body += "<pre>" + esc("\n".join(journal[-100:])) + "</pre>"
 
+    elif page == "compression-history":
+        body += "<h2>История сжатия / расширения</h2>"
+        body += f"""
+<div>Снимков: <b>{esc(compression_history.get('snapshots', 0))}</b></div>
+<div>Строк: <b>{esc(compression_history.get('rows', 0))}</b></div>
+<div>Сжатие: <b>{esc(compression_history.get('compression_rows', 0))}</b></div>
+<div>Расширение: <b>{esc(compression_history.get('expansion_rows', 0))}</b></div>
+"""
+
+    else:
+        body += f"<h2>Страница {esc(page)}</h2><pre>{esc(payload)}</pre>"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Finam Core Dashboard</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+a {{ margin-right: 12px; }}
+pre {{ white-space: pre-wrap; }}
+</style>
+</head>
+<body>
+<nav>
+<a href="/summary">Сводка</a>
+<a href="/edge">Рейтинг Edge</a>
+<a href="/compression-history">История сжатия</a>
+<a href="/journal">Журнал</a>
+<a href="/rs-bottom-paper">RS Bottom Paper</a>
+<a href="/api/current">API JSON</a>
+</nav>
+{body}
+</body>
+</html>"""
 
 def render_rs_bottom_paper_page(payload: dict) -> str:
     def esc(x: object) -> str:
