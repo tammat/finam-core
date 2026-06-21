@@ -1237,6 +1237,7 @@ def render_rs_bottom_paper_page(payload: dict) -> str:
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="refresh" content="60">
 <title>RS Bottom Paper</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
@@ -1258,6 +1259,7 @@ a {{ margin-right: 12px; }}
 
 <div class="card">
 <h2>RS Bottom Paper</h2>
+<div>Автообновление страницы: <b>60 секунд</b></div>
 <div>Всего сигналов: <b>{esc(paper_summary.get('signals_total'))}</b></div>
 <div>Ожидают: <b>{esc(paper_summary.get('waiting'))}</b></div>
 <div>Успешно: <b>{esc(paper_summary.get('success'))}</b></div>
