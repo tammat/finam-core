@@ -161,6 +161,7 @@ def main() -> int:
 
     print(f"waiting_checked={checked}")
     print(f"waiting_updated={updated}")
+    print(f"completed_alert_required={int(updated > 0)}")
     print(f"still_waiting={still_waiting}")
     print(f"scorecard_ok={int(scorecard_ok)}")
     print(f"rows_total={summary['rows_total']}")
@@ -188,7 +189,12 @@ def main() -> int:
         print("TEST_RS_BOTTOM_FORWARD_HEALTHCHECK_V1_OK")
         return 1
 
-    print("VERDICT=RS_BOTTOM_FORWARD_HEALTHCHECK_READY")
+    
+    if updated > 0:
+        print("VERDICT=RS_BOTTOM_FORWARD_COMPLETED_ALERT_REQUIRED")
+    else:
+        print("VERDICT=RS_BOTTOM_FORWARD_HEALTHCHECK_READY")
+
     print("TEST_RS_BOTTOM_FORWARD_HEALTHCHECK_V1_OK")
     return 0
 
