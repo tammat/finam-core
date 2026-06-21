@@ -1319,6 +1319,83 @@ a {{ margin-right: 12px; }}
 </body>
 </html>"""
 
+
+def render_rs_bottom_forward_page(payload: dict) -> str:
+    def esc(x):
+        import html
+        return html.escape("" if x is None else str(x))
+
+    rs = payload.get("rs_bottom_forward", {})
+    rows = rs.get("rows", [])
+
+    table_rows = ""
+    for r in rows:
+        table_rows += (
+            "<tr>"
+            f"<td>{esc(r.get('selection'))}</td>"
+            f"<td>{esc(r.get('filter_name'))}</td>"
+            f"<td>{esc(r.get('signals_total'))}</td>"
+            f"<td>{esc(r.get('waiting'))}</td>"
+            f"<td>{esc(r.get('success'))}</td>"
+            f"<td>{esc(r.get('failure'))}</td>"
+            f"<td>{esc(r.get('completed'))}</td>"
+            f"<td>{esc(r.get('profit_factor_forward'))}</td>"
+            f"<td>{esc(r.get('profit_factor_historical'))}</td>"
+            f"<td>{esc(r.get('avg_return_pct'))}</td>"
+            f"<td>{esc(r.get('verdict'))}</td>"
+            "</tr>"
+        )
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='11'>Нет данных forward scorecard</td></tr>"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="60">
+<title>RS Bottom Forward</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+.card {{ border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ddd; padding: 6px 8px; }}
+th {{ background: #f3f3f3; }}
+a {{ margin-right: 12px; }}
+</style>
+</head>
+<body>
+<nav>
+<a href="/summary">Сводка</a>
+<a href="/rs-bottom-paper">RS Bottom Paper</a>
+<a href="/rs-bottom-forward">RS Bottom Forward</a>
+<a href="/edge">Технический рейтинг</a>
+<a href="/api/current">API JSON</a>
+</nav>
+
+<div class="card">
+<h2>RS Bottom Forward Accumulation</h2>
+<div>Автообновление: <b>60 секунд</b></div>
+<div>Диагностика: <b>{esc(rs.get('diagnostic'))}</b></div>
+<div>Completed total: <b>{esc(rs.get('completed_total'))}</b></div>
+<div>Вердикт: <b>{esc(rs.get('verdict'))}</b></div>
+</div>
+
+<div class="card">
+<table>
+<tr>
+<th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
+<th>Успешно</th><th>Неуспешно</th><th>Completed</th>
+<th>PF Forward</th><th>PF Historical</th><th>Avg Return</th><th>Вердикт строки</th>
+</tr>
+{table_rows}
+</table>
+</div>
+</body>
+</html>"""
+
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -1356,6 +1433,16 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/rs-bottom-paper", "/rs-bottom-paper/"}:
                 body = render_rs_bottom_paper_page(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+
+            if path in {"/rs-bottom-forward", "/rs-bottom-forward/"}:
+                body = render_rs_bottom_forward_page(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -1425,56 +1512,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-def render_rs_bottom_forward_page(payload: dict) -> str:
 
-    rows = payload.get("rs_bottom_forward", {}).get("rows", [])
-
-    table_rows = ""
-
-    for r in rows:
-        table_rows += (
-            "<tr>"
-            f"<td>{r.get('selection')}</td>"
-            f"<td>{r.get('filter_name')}</td>"
-            f"<td>{r.get('signals_total')}</td>"
-            f"<td>{r.get('waiting')}</td>"
-            f"<td>{r.get('success')}</td>"
-            f"<td>{r.get('failure')}</td>"
-            f"<td>{r.get('completed')}</td>"
-            f"<td>{r.get('profit_factor_forward')}</td>"
-            f"<td>{r.get('profit_factor_historical')}</td>"
-            "</tr>"
-        )
-
-    return f"""
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="refresh" content="60">
-<title>RS Bottom Forward</title>
-</head>
-<body>
-
-<h2>RS Bottom Forward Accumulation</h2>
-
-<table border="1">
-<tr>
-<th>Selection</th>
-<th>Filter</th>
-<th>Signals</th>
-<th>Waiting</th>
-<th>Success</th>
-<th>Failure</th>
-<th>Completed</th>
-<th>PF Forward</th>
-<th>PF Historical</th>
-</tr>
-
-{table_rows}
-
-</table>
-
-</body>
-</html>
-"""
