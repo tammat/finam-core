@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Finam Core MOEX Session Paper Observation every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+Unit=finam-moex-session-paper-observation.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target
