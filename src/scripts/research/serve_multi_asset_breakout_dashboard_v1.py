@@ -747,6 +747,31 @@ def collect_payload() -> dict:
     }
 
 
+
+def load_rs_bottom_forward(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            select
+                selection,
+                filter_name,
+                signals_total,
+                waiting,
+                success,
+                failure,
+                completed,
+                profit_factor_forward,
+                profit_factor_historical,
+                avg_return_pct
+            from analytics_futures_rs_bottom_forward_scorecard_v1
+            order by profit_factor_historical desc nulls last
+        """)
+
+        rows = cur.fetchall()
+
+    return {
+        "rows": [dict(r) for r in rows]
+    }
+
 def load_rs_bottom_paper(conn):
     with conn.cursor() as cur:
         cur.execute("""
@@ -1398,3 +1423,58 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def render_rs_bottom_forward_page(payload: dict) -> str:
+
+    rows = payload.get("rs_bottom_forward", {}).get("rows", [])
+
+    table_rows = ""
+
+    for r in rows:
+        table_rows += (
+            "<tr>"
+            f"<td>{r.get('selection')}</td>"
+            f"<td>{r.get('filter_name')}</td>"
+            f"<td>{r.get('signals_total')}</td>"
+            f"<td>{r.get('waiting')}</td>"
+            f"<td>{r.get('success')}</td>"
+            f"<td>{r.get('failure')}</td>"
+            f"<td>{r.get('completed')}</td>"
+            f"<td>{r.get('profit_factor_forward')}</td>"
+            f"<td>{r.get('profit_factor_historical')}</td>"
+            "</tr>"
+        )
+
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="60">
+<title>RS Bottom Forward</title>
+</head>
+<body>
+
+<h2>RS Bottom Forward Accumulation</h2>
+
+<table border="1">
+<tr>
+<th>Selection</th>
+<th>Filter</th>
+<th>Signals</th>
+<th>Waiting</th>
+<th>Success</th>
+<th>Failure</th>
+<th>Completed</th>
+<th>PF Forward</th>
+<th>PF Historical</th>
+</tr>
+
+{table_rows}
+
+</table>
+
+</body>
+</html>
+"""
