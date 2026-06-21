@@ -14,6 +14,7 @@ STEPS = [
     ["src/scripts/research/build_multi_asset_breakout_signal_quality_history_v1.py", "--save"],
     ["src/scripts/research/build_multi_asset_compression_expansion_history_v1.py", "--migrate", "--save"],
     ["src/scripts/research/build_multi_asset_compression_follow_through_market_bars_v2.py", "--migrate", "--save"],
+    ["src/scripts/research/build_futures_rs_bottom_paper_observation_v1.py"],
     ["src/scripts/research/build_real_trading_readiness_gates_v1.py"],
     ["src/scripts/research/build_monday_paper_startup_readiness_v1.py"],
 ]
