@@ -62,6 +62,89 @@ def load_edge_scorecard_v1() -> dict:
     return json.loads(raw[start:end + 1])
 
 
+
+def load_compression_history_v1() -> dict:
+    # Русский комментарий: читаем историю compression/expansion напрямую из PostgreSQL.
+    import os
+    import psycopg
+    from psycopg.rows import dict_row
+
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        return {"verdict": "COMPRESSION_HISTORY_DATABASE_URL_NOT_SET"}
+
+    try:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    select
+                      count(*)::int as snapshots,
+                      max(created_at) as last_snapshot
+                    from analytics_multi_asset_compression_snapshot_v1
+                """)
+                summary = dict(cur.fetchone())
+
+                cur.execute("""
+                    select
+                      count(*)::int as rows,
+                      count(*) filter (where status='COMPRESSION')::int as compression_rows,
+                      count(*) filter (where status='EXPANSION_CANDIDATE')::int as expansion_rows,
+                      count(*) filter (where status='NO_SETUP')::int as no_setup_rows,
+                      max(created_at) as last_row
+                    from analytics_multi_asset_compression_row_v1
+                """)
+                rows_summary = dict(cur.fetchone())
+
+                cur.execute("""
+                    select
+                      id,
+                      created_at,
+                      rows_total,
+                      equities_total,
+                      futures_total,
+                      indexes_total,
+                      compression_count,
+                      expansion_candidate_count,
+                      no_setup,
+                      no_bars,
+                      verdict
+                    from analytics_multi_asset_compression_snapshot_v1
+                    order by created_at desc
+                    limit 20
+                """)
+                snapshots = [dict(r) for r in cur.fetchall()]
+
+                cur.execute("""
+                    select
+                      symbol,
+                      asset_class,
+                      count(*) filter (where status='COMPRESSION')::int as compression_hits,
+                      count(*) filter (where status='EXPANSION_CANDIDATE')::int as expansion_hits,
+                      count(*) filter (where status='NO_SETUP')::int as no_setup_hits,
+                      max(created_at) as last_seen
+                    from analytics_multi_asset_compression_row_v1
+                    group by symbol, asset_class
+                    order by expansion_hits desc, compression_hits desc, symbol
+                    limit 50
+                """)
+                top_symbols = [dict(r) for r in cur.fetchall()]
+
+        return {
+            "verdict": "MULTI_ASSET_COMPRESSION_EXPANSION_HISTORY_DASHBOARD_READY",
+            "snapshots": summary.get("snapshots", 0),
+            "last_snapshot": summary.get("last_snapshot"),
+            "rows": rows_summary.get("rows", 0),
+            "compression_rows": rows_summary.get("compression_rows", 0),
+            "expansion_rows": rows_summary.get("expansion_rows", 0),
+            "no_setup_rows": rows_summary.get("no_setup_rows", 0),
+            "last_row": rows_summary.get("last_row"),
+            "snapshot_rows": snapshots,
+            "top_symbols": top_symbols,
+        }
+    except Exception as exc:
+        return {"verdict": "COMPRESSION_HISTORY_LOAD_FAILED", "error": str(exc)}
+
+
 def load_compression_expansion_v1() -> dict:
     # Русский комментарий: загружаем compression/expansion через отдельный read-only builder.
     import json
@@ -657,6 +740,7 @@ def collect_payload() -> dict:
         "ready_delivery": collect_ready_delivery_stats(),
         "edge_scorecard": load_edge_scorecard_v1(),
         "compression_expansion": load_compression_expansion_v1(),
+        "compression_history": load_compression_history_v1(),
         "db_update": 0,
         "execution_changes_required": 0,
         "runtime_changes_required": 0,
@@ -889,6 +973,7 @@ def render_page(payload: dict, page: str) -> str:
     delivery = payload.get("ready_delivery", {})
     edge_scorecard = payload.get("edge_scorecard", {})
     compression_expansion = payload.get("compression_expansion", {})
+    compression_history = payload.get("compression_history", {})
     edge = payload.get("edge_scorecard", {})
 
     menu = """
@@ -902,6 +987,7 @@ def render_page(payload: dict, page: str) -> str:
 <a href="/follow">Follow-through</a>
 <a href="/edge">Edge</a>
 <a href="/compression">Compression</a>
+<a href="/compression-history">Compression History</a>
 <a href="/journal">Журнал Telegram</a>
 <a href="/api/current">API JSON</a>
 </nav>
@@ -1215,6 +1301,66 @@ th { background: #222; }
 </div>
 """
 
+    
+    elif page == "compression_history":
+        snapshot_rows = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('id', ''))}</td>"
+            f"<td>{format_msk_time(r.get('created_at', ''))}</td>"
+            f"<td>{esc(r.get('rows_total', 0))}</td>"
+            f"<td>{esc(r.get('equities_total', 0))}</td>"
+            f"<td>{esc(r.get('futures_total', 0))}</td>"
+            f"<td>{esc(r.get('indexes_total', 0))}</td>"
+            f"<td>{esc(r.get('compression_count', 0))}</td>"
+            f"<td>{esc(r.get('expansion_candidate_count', 0))}</td>"
+            f"<td>{esc(r.get('no_setup', 0))}</td>"
+            f"<td>{esc(r.get('verdict', ''))}</td>"
+            "</tr>"
+            for r in compression_history.get("snapshot_rows", [])
+        ) or "<tr><td colspan='10'>История snapshot пока пуста</td></tr>"
+
+        top_rows = "\n".join(
+            "<tr>"
+            f"<td>{esc(r.get('symbol', ''))}</td>"
+            f"<td>{esc(r.get('asset_class', ''))}</td>"
+            f"<td>{esc(r.get('compression_hits', 0))}</td>"
+            f"<td>{esc(r.get('expansion_hits', 0))}</td>"
+            f"<td>{esc(r.get('no_setup_hits', 0))}</td>"
+            f"<td>{format_msk_time(r.get('last_seen', ''))}</td>"
+            "</tr>"
+            for r in compression_history.get("top_symbols", [])
+        ) or "<tr><td colspan='6'>История инструментов пока пуста</td></tr>"
+
+        body = f"""
+<div class="card">
+<h2>Compression / Expansion History V1</h2>
+<div>вердикт: <span class="mono">{esc(compression_history.get("verdict", "UNKNOWN"))}</span></div>
+<div>snapshots: <b>{esc(compression_history.get("snapshots", 0))}</b></div>
+<div>history rows: <b>{esc(compression_history.get("rows", 0))}</b></div>
+<div>compression rows: <b>{esc(compression_history.get("compression_rows", 0))}</b></div>
+<div>expansion rows: <b>{esc(compression_history.get("expansion_rows", 0))}</b></div>
+<div>no setup rows: <b>{esc(compression_history.get("no_setup_rows", 0))}</b></div>
+<div>last snapshot, МСК: <b>{format_msk_time(compression_history.get("last_snapshot", ""))}</b></div>
+
+<h3>Последние snapshot</h3>
+<table>
+<tr>
+<th>ID</th><th>Время, МСК</th><th>Rows</th><th>Equities</th><th>Futures/FX</th><th>Indexes</th>
+<th>Compression</th><th>Expansion</th><th>No setup</th><th>Verdict</th>
+</tr>
+{snapshot_rows}
+</table>
+
+<h3>Топ инструментов по истории</h3>
+<table>
+<tr>
+<th>Инструмент</th><th>Класс</th><th>Compression hits</th><th>Expansion hits</th><th>No setup hits</th><th>Last seen, МСК</th>
+</tr>
+{top_rows}
+</table>
+</div>
+"""
+
     elif page == "journal":
         journal = "<br>".join(esc(x) for x in journal_lines[-80:])
         body = f"""
@@ -1259,6 +1405,8 @@ class Handler(BaseHTTPRequestHandler):
             "/edge/": "edge",
             "/compression": "compression",
             "/compression/": "compression",
+            "/compression-history": "compression_history",
+            "/compression-history/": "compression_history",
             "/journal": "journal",
             "/journal/": "journal",
         }
@@ -1267,7 +1415,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = collect_payload()
 
             if path in {"/api/current", "/api/current/"}:
-                body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+                body = json.dumps(payload, ensure_ascii=False, indent=2, default=str).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
