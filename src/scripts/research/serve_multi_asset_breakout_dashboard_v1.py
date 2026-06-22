@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import psycopg2
 import re
 import subprocess
 import psycopg
@@ -705,6 +706,19 @@ def collect_payload() -> dict:
         )
     ][-80:]
 
+    rs_bottom_forward = {}
+    try:
+        dsn = os.getenv("DATABASE_URL")
+        if dsn:
+            with psycopg2.connect(dsn) as conn:
+                rs_bottom_forward = load_rs_bottom_forward(conn)
+    except Exception as exc:
+        rs_bottom_forward = {
+            "error": f"{type(exc).__name__}:{exc}",
+            "rows": [],
+            "scorecard_rows": [],
+        }
+
     return {
         "dashboard": "MULTI_ASSET_BREAKOUT_SIGNAL_QUALITY_OBSERVATION_V1",
         "mode": "read_only_dashboard",
@@ -739,6 +753,7 @@ def collect_payload() -> dict:
         "follow_through": collect_follow_through_scorecard(),
         "ready_delivery": collect_ready_delivery_stats(),
         "breakout_readiness_scorecard": load_breakout_readiness_scorecard_v1(),
+        "rs_bottom_forward": rs_bottom_forward,
         "compression_expansion": load_compression_expansion_v1(),
         "compression_history": load_compression_history_v1(),
         "db_update": 0,
@@ -767,9 +782,10 @@ def load_rs_bottom_forward(conn):
         """)
 
         rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
 
     return {
-        "rows": [dict(r) for r in rows]
+        "rows": [dict(zip(cols, r)) for r in rows]
     }
 
 def load_rs_bottom_paper(conn):
@@ -1327,6 +1343,97 @@ a {{ margin-right: 12px; }}
 </html>"""
 
 
+
+def render_rs_bottom_forward_leaderboard_page(payload: dict | None = None) -> str:
+    import html
+
+    def esc(v):
+        return html.escape("" if v is None else str(v))
+
+    rs = {}
+    if payload:
+        rs = payload.get("rs_bottom_forward", {}) or {}
+
+    rows = rs.get("scorecard_rows", []) or rs.get("rows", []) or []
+
+    def pf(x):
+        try:
+            return float(x or 0)
+        except Exception:
+            return 0.0
+
+    leaders = sorted(
+        rows,
+        key=lambda r: (pf(r.get("profit_factor_forward")), int(r.get("completed") or 0)),
+        reverse=True,
+    )
+
+    cards = []
+    for i, r in enumerate(leaders[:10], start=1):
+        completed = int(r.get("completed") or 0)
+        pf_forward = pf(r.get("profit_factor_forward"))
+        verdict = str(r.get("verdict") or ("EDGE_ПОДТВЕРЖДЕН" if pf_forward > 1 and completed >= 10 else ""))
+
+        if "EDGE_ПОДТВЕРЖДЕН" in verdict and completed >= 10:
+            status = "🟢 Подтверждённый кандидат"
+        elif completed < 10:
+            status = "🟡 Недостаточно завершённых наблюдений"
+        else:
+            status = "⚪ Наблюдение"
+
+        cards.append(f"""
+        <div class="card">
+          <h3>#{i} {esc(r.get('selection'))} / {esc(r.get('filter_name'))}</h3>
+          <div><b>Статус:</b> {status}</div>
+          <div><b>PF форвардной проверки:</b> {esc(r.get('profit_factor_forward'))}</div>
+          <div><b>PF исторический:</b> {esc(r.get('profit_factor_historical'))}</div>
+          <div><b>Завершено:</b> {esc(completed)}</div>
+          <div><b>Ожидает:</b> {esc(r.get('waiting'))}</div>
+          <div><b>Успешно:</b> {esc(r.get('success'))}</div>
+          <div><b>Неуспешно:</b> {esc(r.get('failure'))}</div>
+          <div><b>Средняя доходность:</b> {esc(r.get('avg_return_pct'))}</div>
+        </div>
+        """)
+
+    if not cards:
+        cards.append("<div class='card'>Нет данных форвардной проверки.</div>")
+
+    conclusion = """
+    <div class="card">
+      <h2>Выводы</h2>
+      <p><b>Главный вывод:</b> первые форвардные наблюдения уже появились, поэтому проект перешёл от поиска гипотез к проверке торгового преимущества.</p>
+      <p><b>Кандидаты:</b> приоритет имеют строки RS Bottom с selection=BOTTOM3 и фильтрами REVERSAL_UP_CLOSE / COMPRESSION_RANGE.</p>
+      <p><b>Ограничение:</b> высокий PF forward пока не означает готовность к реальной торговле. Требуется устойчивость на большем числе завершённых наблюдений, контроль комиссий, проскальзывания и out-of-sample.</p>
+      <p><b>Решение:</b> реальные сделки не включать. Продолжать накопление forward-статистики.</p>
+    </div>
+    """
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Лидеры исследований</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 14px; background: #fafafa; color: #111; }}
+.card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
+.nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+</style>
+</head>
+<body>
+<div class="nav">
+<a href="/mobile">Главная</a>
+<a href="/leaderboard">Лидеры исследований</a>
+<a href="/leaderboard">Лидеры</a> <a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
+<a href="/edge">Готовность к пробою</a>
+</div>
+
+<h1>🏆 Лидеры исследований</h1>
+{conclusion}
+{''.join(cards)}
+</body>
+</html>"""
+
 def render_rs_bottom_forward_page(payload: dict) -> str:
     def esc(x):
         import html
@@ -1879,6 +1986,16 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/rs-breakout-confirmation", "/rs-breakout-confirmation/"}:
                 body = render_rs_breakout_confirmation_page(None).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+
+            if path in {"/leaderboard", "/leaderboard/"}:
+                body = render_rs_bottom_forward_leaderboard_page(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
