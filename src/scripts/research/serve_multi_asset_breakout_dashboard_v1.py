@@ -1120,7 +1120,14 @@ def render_page(payload: dict, page: str) -> str:
 
     elif page == "journal":
         body += "<h2>Журнал Telegram / dashboard</h2>"
-        body += "<pre>" + esc("\n".join(journal[-100:])) + "</pre>"
+
+        body += """
+        <div class="card">
+        <b>Журнал системы</b><br>
+        Последние события доступны только в административном режиме.
+        </div>
+        """
+
 
     elif page == "compression-history":
         body += "<h2>История сжатия / расширения</h2>"
