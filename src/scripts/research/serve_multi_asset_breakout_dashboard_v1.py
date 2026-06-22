@@ -1362,29 +1362,38 @@ def render_rs_bottom_forward_leaderboard_page(payload: dict | None = None) -> st
         except Exception:
             return 0.0
 
-    leaders = sorted(
-        rows,
-        key=lambda r: (pf(r.get("profit_factor_forward")), int(r.get("completed") or 0)),
-        reverse=True,
-    )
+    def quality(row):
+        completed = int(row.get("completed") or 0)
+        success = int(row.get("success") or 0)
+        failure = int(row.get("failure") or 0)
+        pf_forward = pf(row.get("profit_factor_forward"))
+
+        anomaly = pf_forward > 50 or failure == 0
+
+        if anomaly:
+            return 0.0, "⚠ Статистическая аномалия"
+        if completed >= 20 and success >= 3 and failure >= 1 and pf_forward >= 1.2:
+            score = min(completed, 50) * 0.4 + min(success, 20) * 0.3 + min(pf_forward, 10) * 0.3
+            return score, "🟢 Подтверждённый кандидат"
+        if completed >= 10 and success >= 3 and pf_forward >= 1.0:
+            score = min(completed, 50) * 0.25 + min(success, 20) * 0.25 + min(pf_forward, 10) * 0.2
+            return score, "🟡 Перспективный кандидат"
+
+        return min(completed, 50) * 0.1, "⚪ Наблюдение"
+
+    leaders = sorted(rows, key=lambda r: quality(r)[0], reverse=True)
 
     cards = []
     for i, r in enumerate(leaders[:10], start=1):
         completed = int(r.get("completed") or 0)
         pf_forward = pf(r.get("profit_factor_forward"))
-        verdict = str(r.get("verdict") or ("EDGE_ПОДТВЕРЖДЕН" if pf_forward > 1 and completed >= 10 else ""))
-
-        if "EDGE_ПОДТВЕРЖДЕН" in verdict and completed >= 10:
-            status = "🟢 Подтверждённый кандидат"
-        elif completed < 10:
-            status = "🟡 Недостаточно завершённых наблюдений"
-        else:
-            status = "⚪ Наблюдение"
+        quality_score, status = quality(r)
 
         cards.append(f"""
         <div class="card">
           <h3>#{i} {esc(r.get('selection'))} / {esc(r.get('filter_name'))}</h3>
           <div><b>Статус:</b> {status}</div>
+          <div><b>Quality score:</b> {esc(round(quality_score, 4))}</div>
           <div><b>PF форвардной проверки:</b> {esc(r.get('profit_factor_forward'))}</div>
           <div><b>PF исторический:</b> {esc(r.get('profit_factor_historical'))}</div>
           <div><b>Завершено:</b> {esc(completed)}</div>
