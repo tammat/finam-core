@@ -1877,6 +1877,31 @@ def render_equities_dashboard_v1(payload: dict | None = None) -> str:
     dsn = os.getenv("DATABASE_URL")
     rows = []
     error = ""
+    clean_runtime = 0
+    legacy_runtime = 0
+
+    if dsn:
+        try:
+            import subprocess
+            import re
+
+            audit = subprocess.run(
+                [
+                    "/opt/finam-core/venv/bin/python3",
+                    "src/scripts/research/build_equities_clean_trade_source_audit_v1.py",
+                ],
+                cwd="/opt/finam-core",
+                text=True,
+                capture_output=True,
+                timeout=60,
+            )
+            audit_raw = (audit.stdout or "") + "\n" + (audit.stderr or "")
+            m = re.search(r"clean_runtime=(\d+) .*legacy_or_unknown=(\d+)", audit_raw)
+            if m:
+                clean_runtime = int(m.group(1))
+                legacy_runtime = int(m.group(2))
+        except Exception:
+            pass
 
     if dsn:
         try:
@@ -1971,6 +1996,13 @@ th {{ background: #f3f3f3; }}
 </div>
 
 {error_html}
+
+<div class="card">
+  <h2>Классификация сделок</h2>
+  <div><b>Чистые runtime сделки:</b> {clean_runtime}</div>
+  <div><b>Legacy/Fallback сделки:</b> {legacy_runtime}</div>
+  <div><b>Вывод:</b> исторические и legacy-сделки не используются для оценки edge по VOLATILITY_BREAKOUT_EQUITY.</div>
+</div>
 
 <div class="card">
   <h2>Активная вселенная акций</h2>
