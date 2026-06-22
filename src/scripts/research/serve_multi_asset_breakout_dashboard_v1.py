@@ -1698,7 +1698,7 @@ def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
 
     try:
         p = subprocess.run(
-            ["python3", "src/scripts/research/build_brent_rollover_edge_v1.py"],
+            ["/opt/finam-core/venv/bin/python3", "src/scripts/research/build_brent_rollover_edge_v1.py"],
             cwd="/opt/finam-core",
             env=env,
             capture_output=True,
@@ -1721,7 +1721,7 @@ def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
                     k, v = part.split("=", 1)
                     d[k] = v
             rows.append(d)
-        elif line.startswith("rollover_verdict="):
+        elif "rollover_verdict=" in line:
             verdict = line.split("=", 1)[1]
 
     row_html = ""
@@ -1737,6 +1737,12 @@ def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
             f"<td><b>{esc(r.get('profit_factor'))}</b></td>"
             "</tr>"
         )
+
+    if verdict == "UNKNOWN" and "rollover_verdict=" in raw:
+        verdict = raw.split("rollover_verdict=", 1)[1].split()[0]
+
+    if verdict == "UNKNOWN" and "BRENT_ROLLOVER_ROW" in raw:
+        verdict = "ДАННЫЕ_ЕСТЬ_ВЕРДИКТ_НЕ_РАСПОЗНАН"
 
     if not row_html:
         row_html = "<tr><td colspan='7'>Нет данных</td></tr>"
