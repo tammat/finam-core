@@ -1698,7 +1698,7 @@ def render_brent_rollover_breakout_readiness_page(payload: dict | None = None) -
 
     try:
         p = subprocess.run(
-            ["/opt/finam-core/venv/bin/python3", "src/scripts/research/build_brent_rollover_breakout_readiness_v1.py"],
+            ["/opt/finam-core/venv/bin/python3", "src/scripts/research/build_brent_rollover_edge_v1.py"],
             cwd="/opt/finam-core",
             env=env,
             capture_output=True,
