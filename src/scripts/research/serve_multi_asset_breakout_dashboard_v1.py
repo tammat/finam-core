@@ -1827,6 +1827,148 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 
 
+
+def render_rs_bottom_clean_subset_dashboard_v1(payload: dict | None = None) -> str:
+    import html
+    import os
+    import re
+    import subprocess
+
+    def esc(v):
+        return html.escape("" if v is None else str(v))
+
+    env = os.environ.copy()
+    env.setdefault("RUNTIME_ALLOW_TRADING", "0")
+    env.setdefault("EXECUTION_ENABLED", "0")
+    env.setdefault("REAL_TRADING_ENABLED", "0")
+
+    proc = subprocess.run(
+        [
+            "/opt/finam-core/venv/bin/python3",
+            "src/scripts/research/build_rs_bottom_clean_subset_replay_v1.py",
+        ],
+        cwd="/opt/finam-core",
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+
+    raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
+
+    summary = {}
+    symbols = []
+
+    for line in raw.splitlines():
+        if line.startswith("CLEAN_SUBSET_ROW "):
+            summary = dict(re.findall(r"([a-zA-Z_]+)=([^ ]+)", line))
+        elif line.startswith("CLEAN_SYMBOL_ROW "):
+            symbols.append(dict(re.findall(r"([a-zA-Z_]+)=([^ ]+)", line)))
+
+    brn6 = next((r for r in symbols if r.get("symbol") == "BRN6@RTSX"), {})
+
+    symbol_rows = ""
+    for r in symbols:
+        symbol_rows += f"""
+        <tr>
+          <td>{esc(r.get('symbol'))}</td>
+          <td>{esc(r.get('completed'))}</td>
+          <td>{esc(r.get('success'))}</td>
+          <td>{esc(r.get('failure'))}</td>
+          <td>{esc(r.get('real_pf'))}</td>
+          <td>{esc(r.get('expectancy'))}</td>
+        </tr>
+        """
+
+    if not symbol_rows:
+        symbol_rows = "<tr><td colspan='6'>Нет данных по инструментам.</td></tr>"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RS Bottom — очищенная версия</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 14px; background: #fafafa; color: #111; }}
+.card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
+.nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 13px; background: white; }}
+th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
+th {{ background: #f3f3f3; }}
+.bad {{ color: #a00000; font-weight: bold; }}
+.warn {{ color: #9a6a00; font-weight: bold; }}
+</style>
+</head>
+<body>
+<div class="nav">
+<a href="/mobile">Главная</a>
+<a href="/leaderboard">Лидеры исследований</a>
+<a href="/edge-stability">Устойчивость преимущества</a>
+<a href="/rs-bottom-clean">RS Bottom очищенный</a>
+</div>
+
+<h1>RS Bottom — очищенная версия</h1>
+
+<div class="card">
+  <h2>Статус исследования</h2>
+  <div><b>Полная версия:</b> <span class="bad">отклонена</span></div>
+  <div><b>Очищенная версия:</b> <span class="warn">исследовательский кандидат</span></div>
+  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+</div>
+
+<div class="card">
+  <h2>Что исключено</h2>
+  <div>NG-контракты: исключены</div>
+  <div>Фильтр сжатия: исключён</div>
+  <div>12:00 МСК: исключено</div>
+</div>
+
+<div class="card">
+  <h2>Очищенная выборка</h2>
+  <div><b>Всего сигналов:</b> {esc(summary.get('signals'))}</div>
+  <div><b>Ожидают завершения:</b> {esc(summary.get('waiting'))}</div>
+  <div><b>Завершено наблюдений:</b> {esc(summary.get('completed'))}</div>
+  <div><b>Успешно:</b> {esc(summary.get('success'))}</div>
+  <div><b>Неуспешно:</b> {esc(summary.get('failure'))}</div>
+  <div><b>Доля успешных:</b> {esc(summary.get('winrate'))}</div>
+  <div><b>Реальный коэффициент прибыли:</b> {esc(summary.get('real_pf'))}</div>
+  <div><b>Математическое ожидание:</b> {esc(summary.get('expectancy'))}</div>
+</div>
+
+<div class="card">
+  <h2>Лучший инструмент</h2>
+  <div><b>Инструмент:</b> {esc(brn6.get('symbol', 'BRN6@RTSX'))}</div>
+  <div><b>Завершено:</b> {esc(brn6.get('completed'))}</div>
+  <div><b>Успешно:</b> {esc(brn6.get('success'))}</div>
+  <div><b>Неуспешно:</b> {esc(brn6.get('failure'))}</div>
+  <div><b>Реальный коэффициент прибыли:</b> {esc(brn6.get('real_pf'))}</div>
+  <div><b>Математическое ожидание:</b> {esc(brn6.get('expectancy'))}</div>
+</div>
+
+<div class="card">
+  <h2>Инструменты очищенной выборки</h2>
+  <table>
+    <tr>
+      <th>Инструмент</th>
+      <th>Завершено</th>
+      <th>Успешно</th>
+      <th>Неуспешно</th>
+      <th>Реальный коэффициент прибыли</th>
+      <th>Математическое ожидание</th>
+    </tr>
+    {symbol_rows}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Ограничение</h2>
+  <p>Очищенная версия остаётся исследовательским кандидатом. Для допуска к торговле требуется накопить не менее 100 завершённых наблюдений и повторно проверить устойчивость результата.</p>
+</div>
+
+</body>
+</html>"""
+
 def render_edge_stability_page_ru_v1(payload: dict | None = None) -> str:
     import html
     import os
@@ -2177,6 +2319,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
+
+            if path in {"/rs-bottom-clean", "/rs-bottom-clean/"}:
+                body = render_rs_bottom_clean_subset_dashboard_v1(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
             if path in {"/edge-stability", "/edge-stability/"}:
                 body = render_edge_stability_page_ru_v1(payload).encode("utf-8")
