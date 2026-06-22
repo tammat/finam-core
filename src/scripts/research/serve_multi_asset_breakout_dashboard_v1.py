@@ -1642,6 +1642,29 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
   <div class="note">Главный блокер: нет forward-подтверждения edge.</div>
 </div>
 
+
+<div class="card">
+  <div class="title">🟢 ТЕКУЩИЙ КАНДИДАТ НА EDGE</div>
+  <div class="status">RS Bottom Futures</div>
+  <div class="metric">Исторический PF: 1.5233</div>
+  <div class="metric">Forward: ожидают=2, успех=0, ошибка=0, завершено=0</div>
+  <div class="note">Статус: ожидание forward-подтверждения.</div>
+</div>
+
+<div class="card">
+  <div class="title">📊 Источник edge</div>
+  <div class="metric">🥇 BRQ6 — PF 5.15</div>
+  <div class="metric">🥈 NGV6 — PF 3.03</div>
+  <div class="metric">🥉 GLM6 — PF 2.14</div>
+  <div class="note">Вердикт: CONTRACT_SPECIFIC_ANOMALY. Требуется forward-проверка.</div>
+</div>
+
+<div class="card">
+  <div class="title">🎯 Следующий контроль</div>
+  <div class="status">RS_BOTTOM_FIRST_COMPLETED_FORWARD_V1</div>
+  <div class="note">Условие: success + failure >= 1. После события пересчитать PF_forward.</div>
+</div>
+
 <h2>Фьючерсы</h2>
 {cards(futures)}
 
