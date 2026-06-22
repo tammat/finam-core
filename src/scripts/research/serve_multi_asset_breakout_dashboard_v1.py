@@ -1314,7 +1314,7 @@ a {{ margin-right: 12px; }}
 </div>
 
 <div class="card">
-<h3>Forward-сигналы</h3>
+<h3>Сигналы форвардной проверки</h3>
 <table>
 <tr>
 <th>Инструмент</th><th>Селекция</th><th>Фильтр</th>
@@ -1393,7 +1393,7 @@ a {{ margin-right: 12px; }}
 <tr>
 <th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
 <th>Успешно</th><th>Неуспешно</th><th>Завершено</th>
-<th>PF Forward</th><th>PF Historical</th><th>Avg Return</th><th>Вердикт строки</th>
+<th>PF форвардной проверки</th><th>PF исторический</th><th>Средняя доходность</th><th>Вердикт строки</th>
 </tr>
 {table_rows}
 </table>
@@ -1559,7 +1559,7 @@ a {{ margin-right: 12px; }}
 <tr>
 <th>Корзина</th><th>Селекция</th><th>Фильтр</th><th>Наблюдений</th>
 <th>Ожидают</th><th>Завершено</th><th>Успешно</th><th>Неуспешно</th>
-<th>Avg Return</th><th>PF</th><th>Вердикт строки</th>
+<th>Средняя доходность</th><th>PF</th><th>Вердикт строки</th>
 </tr>
 {table_rows}
 </table>
