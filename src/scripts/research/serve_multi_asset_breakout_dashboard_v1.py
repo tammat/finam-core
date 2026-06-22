@@ -914,7 +914,7 @@ th {{ background: #222; }}
 <a href="#ready">Готовые сигналы</a>
 <a href="#rows">Текущая таблица</a>
 <a href="#journal">Журнал Telegram</a>
-<a href="/api/current">API JSON</a>
+<a href="/api/current">Сервисный API</a>
 </nav>
 
 <div class="card">
@@ -1132,7 +1132,7 @@ def render_page(payload: dict, page: str) -> str:
 """
 
     else:
-        body += f"<h2>Страница {esc(page)}</h2><pre>{esc(payload)}</pre>"
+        body += f"<h2>Страница {esc(page)}</h2><div class=\"card\">Нет подготовленного представления для этой страницы.</div>"
 
     return f"""<!doctype html>
 <html>
@@ -1152,7 +1152,7 @@ pre {{ white-space: pre-wrap; }}
 <a href="/compression-history">История сжатия</a>
 <a href="/journal">Журнал</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
-<a href="/api/current">API JSON</a>
+<a href="/api/current">Сервисный API</a>
 </nav>
 {body}
 </body>
@@ -1279,7 +1279,7 @@ a {{ margin-right: 12px; }}
 <a href="/compression-history">История сжатия</a>
 <a href="/edge">Техническая готовность к пробою</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
-<a href="/api/current">API JSON</a>
+<a href="/api/current">Сервисный API</a>
 </nav>
 
 <div class="card">
@@ -1370,7 +1370,7 @@ a {{ margin-right: 12px; }}
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
 <a href="/rs-bottom-forward">RS Bottom Forward</a>
 <a href="/edge">Технический рейтинг</a>
-<a href="/api/current">API JSON</a>
+<a href="/api/current">Сервисный API</a>
 </nav>
 
 <div class="card">
@@ -1535,7 +1535,7 @@ a {{ margin-right: 12px; }}
 <a href="/rs-bottom-forward">RS Bottom Forward</a>
 <a href="/rs-breakout-confirmation">RS Breakout Confirmation</a>
 <a href="/edge">Технический рейтинг</a>
-<a href="/api/current">API JSON</a>
+<a href="/api/current">Сервисный API</a>
 </nav>
 
 <div class="card">
@@ -1768,7 +1768,7 @@ th {{ background: #f3f3f3; }}
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/rs-bottom-forward">RS Forward</a>
-<a href="/brent-rollover-breakout_readiness">Brent Rollover</a>
+<a href="/brent-rollover-edge">Brent Rollover</a>
 <a href="/api/current">API</a>
 </div>
 
@@ -1796,8 +1796,7 @@ th {{ background: #f3f3f3; }}
 </div>
 
 <div class="card">
-<h3>Сырой вывод</h3>
-<div class="mono">{esc(raw[-5000:])}</div>
+<div><b>Статус:</b> данные рассчитаны автоматически. Сервисный JSON доступен только через /api/current.</div>
 </div>
 
 </body>
@@ -1886,7 +1885,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
 
-            if path in {"/brent-rollover-breakout_readiness", "/brent-rollover-breakout_readiness/"}:
+            if path in {"/brent-rollover-edge", "/brent-rollover-edge/"}:
+                body = render_brent_rollover_breakout_readiness_page(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+
+            if path in {"/brent-rollover-edge", "/brent-rollover-edge/"}:
                 body = render_brent_rollover_breakout_readiness_page(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
