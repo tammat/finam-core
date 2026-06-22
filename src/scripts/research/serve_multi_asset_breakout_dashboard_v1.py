@@ -1841,6 +1841,7 @@ def dashboard_nav_ru(active: str = "") -> str:
         ("/leaderboard", "Лидеры исследований"),
         ("/edge-stability", "Устойчивость преимущества"),
         ("/rs-bottom-clean", "RS Bottom очищенный"),
+        ("/equities", "Акции"),
         ("/rs-bottom-forward", "Форвардная проверка RS Bottom"),
         ("/rs-breakout-confirmation", "RS + пробой"),
         ("/brent-rollover-edge", "Brent rollover"),
@@ -1863,6 +1864,137 @@ def fmt_dashboard_number(v, digits: int = 3):
     except Exception:
         return "" if v is None else str(v)
 
+
+
+def render_equities_dashboard_v1(payload: dict | None = None) -> str:
+    import html
+    import os
+    import psycopg2
+
+    def esc(v):
+        return html.escape("" if v is None else str(v))
+
+    dsn = os.getenv("DATABASE_URL")
+    rows = []
+    error = ""
+
+    if dsn:
+        try:
+            with psycopg2.connect(dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        with universe as (
+                            select
+                                symbol,
+                                strategy,
+                                timeframe
+                            from runtime_active_universe
+                            where symbol like '%%@MISX'
+                        ),
+                        bars as (
+                            select
+                                symbol,
+                                count(*) filter (where timeframe='M1')::int as m1_bars,
+                                count(*) filter (where timeframe='M5')::int as m5_bars,
+                                max(ts) as last_bar_ts
+                            from market_bars
+                            where symbol like '%%@MISX'
+                            group by symbol
+                        )
+                        select
+                            u.symbol,
+                            u.strategy,
+                            u.timeframe,
+                            coalesce(b.m1_bars, 0) as m1_bars,
+                            coalesce(b.m5_bars, 0) as m5_bars,
+                            b.last_bar_ts
+                        from universe u
+                        left join bars b on b.symbol=u.symbol
+                        order by u.symbol
+                    """)
+                    rows = cur.fetchall()
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+
+    table_rows = ""
+    for r in rows:
+        symbol, strategy, timeframe, m1, m5, last_ts = r
+
+        if not last_ts:
+            status = "🔴 Нет баров"
+        else:
+            status = "⚪ Сбор статистики"
+
+        table_rows += f"""
+        <tr>
+          <td>{esc(symbol)}</td>
+          <td>{esc(strategy)}</td>
+          <td>{esc(timeframe)}</td>
+          <td>{esc(m1)}</td>
+          <td>{esc(m5)}</td>
+          <td>{esc(last_ts)}</td>
+          <td>{status}</td>
+        </tr>
+        """
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='7'>Нет активных акций или есть ошибка чтения схемы.</td></tr>"
+
+    error_html = f"<div class='card'><b>Диагностика:</b> {esc(error)}</div>" if error else ""
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Акции</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 14px; background: #fafafa; color: #111; }}
+.card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
+.nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 13px; background: white; }}
+th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
+th {{ background: #f3f3f3; }}
+.bad {{ color: #a00000; font-weight: bold; }}
+</style>
+</head>
+<body>
+{dashboard_nav_ru("Акции")}
+
+<h1>Акции</h1>
+
+<div class="card">
+  <h2>Статус направления</h2>
+  <div><b>Режим:</b> сбор статистики</div>
+  <div><b>Стратегия:</b> VOLATILITY_BREAKOUT_EQUITY</div>
+  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+</div>
+
+{error_html}
+
+<div class="card">
+  <h2>Активная вселенная акций</h2>
+  <table>
+    <tr>
+      <th>Инструмент</th>
+      <th>Стратегия</th>
+      <th>ТФ</th>
+      <th>Баров M1</th>
+      <th>Баров M5</th>
+      <th>Последний бар</th>
+      <th>Статус</th>
+    </tr>
+    {table_rows}
+  </table>
+</div>
+
+<div class="card">
+  <h2>Вывод</h2>
+  <p>Раздел акций находится в режиме наблюдения. Реальная торговля отключена. Основной контроль: наличие баров и накопление статистики.</p>
+</div>
+
+</body>
+</html>"""
 
 def render_rs_bottom_clean_subset_dashboard_v1(payload: dict | None = None) -> str:
     import html
@@ -2375,6 +2507,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
+
+            if path in {"/equities", "/equities/"}:
+                body = render_equities_dashboard_v1(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
             if path in {"/rs-bottom-clean", "/rs-bottom-clean/"}:
                 body = render_rs_bottom_clean_subset_dashboard_v1(payload).encode("utf-8")
