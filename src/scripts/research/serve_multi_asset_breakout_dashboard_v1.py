@@ -1562,32 +1562,33 @@ a {{ margin-right: 12px; }}
 
 
 
+
 def render_mobile_research_summary_page(payload: dict | None = None) -> str:
     def esc(x):
         import html
         return html.escape("" if x is None else str(x))
 
     futures = [
-        ("RS Bottom Futures", "ГЛАВНЫЙ КАНДИДАТ", "PF hist 1.5233", "Forward: waiting=2, completed=0"),
-        ("RS + Breakout Confirmation", "СБОР СТАТИСТИКИ", "PF forward: нет", "Ждём completed"),
-        ("NG Breakout", "ОТКЛОНЕНО", "PF < 1", "Fee drag dominates"),
-        ("BR Breakout", "RESEARCH ONLY", "Edge не подтверждён", "Не допускать к real"),
-        ("USDRUB Regime", "BLOCKED", "Отрицательный результат", "Runtime guard"),
+        ("🟢", "RS Bottom Futures", "ГЛАВНЫЙ КАНДИДАТ", "PF исторический 1.5233", "Forward: ожидают=2, завершено=0"),
+        ("🟡", "RS + Breakout Confirmation", "СБОР СТАТИСТИКИ", "PF forward: нет", "Ждём завершённых наблюдений"),
+        ("🔴", "NG Breakout", "ОТКЛОНЕНО", "PF < 1", "Комиссии съели результат"),
+        ("🔴", "BR Breakout", "ИССЛЕДОВАНИЕ ЗАВЕРШЕНО", "Edge не подтверждён", "Не допускать к реальной торговле"),
+        ("⛔", "USDRUB Regime", "ЗАБЛОКИРОВАНО", "Отрицательный результат", "Остановлено через runtime guard"),
     ]
 
     equities = [
-        ("Equity RS Bottom Absolute", "СЛАБЫЙ ЭФФЕКТ", "BOTTOM1 60m PF 1.0443", "Недостаточно для стратегии"),
-        ("Equity RS vs IMOEX", "ОТРИЦАТЕЛЬНО", "BOTTOM1 60m PF 0.9065", "Фильтр ухудшил результат"),
-        ("Equity Volatility Breakout", "OBSERVATION", "Edge не подтверждён", "Сигналы блокируются фильтрами"),
-        ("Multi-Asset Breakout Equity", "СБОР ДАННЫХ", "breakout_ready=0", "Нужна статистика"),
+        ("🟡", "Акции: RS Bottom Absolute", "СЛАБЫЙ ЭФФЕКТ", "BOTTOM1 60м PF 1.0443", "Недостаточно для стратегии"),
+        ("🔴", "Акции: RS vs IMOEX", "ОТРИЦАТЕЛЬНО", "BOTTOM1 60м PF 0.9065", "Фильтр ухудшил результат"),
+        ("⚪", "Акции: Volatility Breakout", "НАБЛЮДЕНИЕ", "Edge не подтверждён", "Сигналы блокируются фильтрами"),
+        ("⚪", "Акции: Multi-Asset Breakout", "СБОР ДАННЫХ", "breakout_ready=0", "Нужна статистика"),
     ]
 
     def cards(rows):
         out = ""
-        for name, status, metric, note in rows:
+        for icon, name, status, metric, note in rows:
             out += f"""
 <div class="card">
-  <div class="title">{esc(name)}</div>
+  <div class="title"><span class="icon">{esc(icon)}</span> {esc(name)}</div>
   <div class="status">{esc(status)}</div>
   <div class="metric">{esc(metric)}</div>
   <div class="note">{esc(note)}</div>
@@ -1601,35 +1602,43 @@ def render_mobile_research_summary_page(payload: dict | None = None) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="60">
-<title>Finam Core Mobile</title>
+<title>Finam Core — мобильная сводка</title>
 <style>
-body {{ font-family: Arial, sans-serif; margin: 12px; background: #fafafa; }}
+body {{ font-family: Arial, sans-serif; margin: 12px; background: #fafafa; color: #111; }}
 h1 {{ font-size: 22px; margin: 8px 0 12px; }}
 h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 .card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 8px 0; }}
 .title {{ font-weight: bold; font-size: 16px; }}
+.icon {{ font-size: 18px; }}
 .status {{ margin-top: 6px; font-weight: bold; }}
 .metric {{ margin-top: 6px; }}
 .note {{ margin-top: 6px; color: #555; font-size: 14px; }}
 .nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+.legend {{ font-size: 13px; color: #555; line-height: 1.45; }}
 </style>
 </head>
 <body>
 <div class="nav">
-<a href="/summary">Сводка</a>
-<a href="/mobile">Mobile</a>
+<a href="/mobile">Главная</a>
+<a href="/summary">Техсводка</a>
 <a href="/rs-bottom-forward">RS Forward</a>
+<a href="/rs-breakout-confirmation">RS + Breakout</a>
 <a href="/api/current">API</a>
 </div>
 
-<h1>Finam Core: исследования</h1>
+<h1>Finam Core: мобильная сводка</h1>
 
 <div class="card">
-  <div class="title">Общий статус</div>
+  <div class="title">Индикаторы</div>
+  <div class="legend">🟢 перспективно / 🟡 сбор статистики / 🔴 отрицательно / ⚪ наблюдение / ⛔ заблокировано</div>
+</div>
+
+<div class="card">
+  <div class="title">Общий статус проекта</div>
   <div class="metric">Инфраструктура: 95%</div>
   <div class="metric">Dashboard: 95%</div>
   <div class="metric">Research: 95%</div>
-  <div class="metric">Real Trading: 25%</div>
+  <div class="metric">Реальная торговля: 25%</div>
   <div class="note">Главный блокер: нет forward-подтверждения edge.</div>
 </div>
 
