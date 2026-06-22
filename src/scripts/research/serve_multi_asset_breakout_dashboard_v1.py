@@ -1681,6 +1681,123 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 </html>"""
 
 
+
+def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
+    import html
+    import os
+    import subprocess
+
+    def esc(x):
+        return html.escape("" if x is None else str(x))
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = "src"
+    env["RUNTIME_ALLOW_TRADING"] = "0"
+    env["EXECUTION_ENABLED"] = "0"
+    env["REAL_TRADING_ENABLED"] = "0"
+
+    try:
+        p = subprocess.run(
+            ["python3", "src/scripts/research/build_brent_rollover_edge_v1.py"],
+            cwd="/opt/finam-core",
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        raw = p.stdout if p.returncode == 0 else (p.stdout + "\n" + p.stderr)
+    except Exception as exc:
+        raw = f"ошибка_dashboard={type(exc).__name__}:{exc}"
+
+    rows = []
+    verdict = "UNKNOWN"
+
+    for line in raw.splitlines():
+        if line.startswith("BRENT_ROLLOVER_ROW "):
+            d = {}
+            for part in line.split()[1:]:
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    d[k] = v
+            rows.append(d)
+        elif line.startswith("rollover_verdict="):
+            verdict = line.split("=", 1)[1]
+
+    row_html = ""
+    for r in rows:
+        row_html += (
+            "<tr>"
+            f"<td>{esc(r.get('symbol'))}</td>"
+            f"<td>{esc(r.get('observations'))}</td>"
+            f"<td>{esc(r.get('wins'))}</td>"
+            f"<td>{esc(r.get('losses'))}</td>"
+            f"<td>{esc(r.get('winrate'))}</td>"
+            f"<td>{esc(r.get('avg_return_pct'))}</td>"
+            f"<td><b>{esc(r.get('profit_factor'))}</b></td>"
+            "</tr>"
+        )
+
+    if not row_html:
+        row_html = "<tr><td colspan='7'>Нет данных</td></tr>"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="3600">
+<title>Brent Rollover Edge</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 16px; background: #fafafa; color: #111; }}
+.card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 13px; }}
+th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
+th {{ background: #f3f3f3; }}
+.nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+.mono {{ white-space: pre-wrap; font-family: monospace; font-size: 12px; }}
+</style>
+</head>
+<body>
+<div class="nav">
+<a href="/mobile">Главная</a>
+<a href="/rs-bottom-forward">RS Forward</a>
+<a href="/brent-rollover-edge">Brent Rollover</a>
+<a href="/api/current">API</a>
+</div>
+
+<h1>Brent Rollover Edge</h1>
+
+<div class="card">
+  <div><b>Паттерн:</b> BOTTOM1 + COMPRESSION_RANGE + 240m</div>
+  <div><b>Вердикт:</b> {esc(verdict)}</div>
+  <div><b>Автообновление:</b> 1 раз в час</div>
+</div>
+
+<div class="card">
+<table>
+<tr>
+<th>Контракт</th>
+<th>Наблюдений</th>
+<th>Успех</th>
+<th>Ошибка</th>
+<th>Winrate</th>
+<th>Avg return %</th>
+<th>PF</th>
+</tr>
+{row_html}
+</table>
+</div>
+
+<div class="card">
+<h3>Сырой вывод</h3>
+<div class="mono">{esc(raw[-5000:])}</div>
+</div>
+
+</body>
+</html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -1755,6 +1872,16 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/mobile", "/mobile/"}:
                 body = render_mobile_research_summary_page(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+
+            if path in {"/brent-rollover-edge", "/brent-rollover-edge/"}:
+                body = render_brent_rollover_edge_page(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
