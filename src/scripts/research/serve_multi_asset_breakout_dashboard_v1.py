@@ -1826,6 +1826,181 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 
 
+
+def render_edge_stability_page_ru_v1(payload: dict | None = None) -> str:
+    import html
+    import os
+    import re
+    import subprocess
+
+    def esc(v):
+        return html.escape("" if v is None else str(v))
+
+    def status_ru(v):
+        mapping = {
+            "EDGE_STABLE_REAL_PF": "🟢 Устойчивое торговое преимущество",
+            "EDGE_MIXED_REAL_PF": "⚪ Смешанный результат",
+            "EDGE_BROKEN_REAL_PF": "🔴 Преимущество не подтверждено",
+            "EDGE_DECAYING_REAL_PF": "🟡 Преимущество ослабевает",
+            "EDGE_STABLE": "🟢 Устойчивое торговое преимущество",
+            "EDGE_WEAK_POSITIVE": "🟡 Слабое положительное преимущество",
+            "EDGE_BROKEN": "🔴 Преимущество не подтверждено",
+            "EDGE_MIXED": "⚪ Смешанный результат",
+            "INSUFFICIENT_DATA": "⚪ Недостаточно данных",
+        }
+        return mapping.get(str(v), esc(v))
+
+    env = os.environ.copy()
+    env.setdefault("RUNTIME_ALLOW_TRADING", "0")
+    env.setdefault("EXECUTION_ENABLED", "0")
+    env.setdefault("REAL_TRADING_ENABLED", "0")
+
+    proc = subprocess.run(
+        [
+            "/opt/finam-core/venv/bin/python3",
+            "src/scripts/research/build_edge_stability_report_v1_1_real_pf.py",
+        ],
+        cwd="/opt/finam-core",
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+
+    raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
+
+    rows = []
+    current = None
+
+    for line in raw.splitlines():
+        if line.startswith("CANDIDATE "):
+            m = re.search(r"selection=([^ ]+) filter=([^ ]+)", line)
+            if m:
+                current = {
+                    "selection": m.group(1),
+                    "filter": m.group(2),
+                }
+
+        elif line.startswith("WINDOW=ALL ") and current:
+            d = dict(re.findall(r"([a-zA-Z_]+)=([^ ]+)", line))
+            current.update(d)
+
+        elif line.startswith("EDGE_VERDICT ") and current:
+            m = re.search(r"verdict=([^ ]+)", line)
+            current["verdict"] = m.group(1) if m else ""
+            rows.append(current)
+            current = None
+
+    def to_float(x):
+        try:
+            return float(x or 0)
+        except Exception:
+            return 0.0
+
+    rows = sorted(
+        rows,
+        key=lambda r: (
+            to_float(r.get("real_pf")),
+            int(r.get("completed") or 0),
+            to_float(r.get("expectancy")),
+        ),
+        reverse=True,
+    )
+
+    leader = rows[0] if rows else {}
+
+    table_rows = ""
+    for r in rows:
+        table_rows += f"""
+        <tr>
+          <td>{esc(r.get('selection'))}</td>
+          <td>{esc(r.get('filter'))}</td>
+          <td>{esc(r.get('completed'))}</td>
+          <td>{esc(r.get('success'))}</td>
+          <td>{esc(r.get('failure'))}</td>
+          <td>{esc(r.get('winrate'))}</td>
+          <td>{esc(r.get('real_pf'))}</td>
+          <td>{esc(r.get('expectancy'))}</td>
+          <td>{status_ru(r.get('verdict'))}</td>
+        </tr>
+        """
+
+    if not table_rows:
+        table_rows = "<tr><td colspan='9'>Нет данных для отчёта устойчивости.</td></tr>"
+
+    leader_html = f"""
+    <div class="card">
+      <h2>🏆 Лучший результат исследования</h2>
+      <div><b>Селекция:</b> {esc(leader.get('selection', 'нет данных'))}</div>
+      <div><b>Фильтр:</b> {esc(leader.get('filter', 'нет данных'))}</div>
+      <div><b>Завершено наблюдений:</b> {esc(leader.get('completed', 0))}</div>
+      <div><b>Доля успешных сигналов:</b> {esc(leader.get('winrate', 0))}</div>
+      <div><b>Реальный коэффициент прибыли:</b> {esc(leader.get('real_pf', 0))}</div>
+      <div><b>Математическое ожидание:</b> {esc(leader.get('expectancy', 0))}</div>
+      <div><b>Статус:</b> {status_ru(leader.get('verdict', ''))}</div>
+    </div>
+    """
+
+    conclusion = """
+    <div class="card">
+      <h2>Выводы</h2>
+      <p><b>Основной кандидат:</b> BOTTOM3 / REVERSAL_UP_CLOSE.</p>
+      <p><b>Резервный кандидат:</b> BOTTOM1 / REVERSAL_UP_CLOSE, но выборка меньше.</p>
+      <p><b>BOTTOM3 / COMPRESSION_RANGE</b> показывает слабое положительное преимущество после пересчёта реального коэффициента прибыли.</p>
+      <p><b>Реальная торговля:</b> отключена. Для допуска нужны более длинная статистика, контроль комиссий, проскальзывания и проверка устойчивости вне текущего короткого периода.</p>
+    </div>
+    """
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Устойчивость торгового преимущества</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 14px; background: #fafafa; color: #111; }}
+.card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
+.nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 13px; background: white; }}
+th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
+th {{ background: #f3f3f3; }}
+</style>
+</head>
+<body>
+<div class="nav">
+<a href="/mobile">Главная</a>
+<a href="/leaderboard">Лидеры исследований</a>
+<a href="/edge-stability">Устойчивость преимущества</a>
+<a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
+</div>
+
+<h1>Устойчивость торгового преимущества</h1>
+
+{leader_html}
+
+<div class="card">
+  <h2>Рейтинг кандидатов</h2>
+  <table>
+    <tr>
+      <th>Селекция</th>
+      <th>Фильтр</th>
+      <th>Завершено</th>
+      <th>Успешно</th>
+      <th>Неуспешно</th>
+      <th>Доля успешных</th>
+      <th>Реальный PF</th>
+      <th>Матожидание</th>
+      <th>Статус</th>
+    </tr>
+    {table_rows}
+  </table>
+</div>
+
+{conclusion}
+
+</body>
+</html>"""
+
 def render_brent_rollover_breakout_readiness_page(payload: dict | None = None) -> str:
     import html
     import os
@@ -2002,6 +2177,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
 
+
+            if path in {"/edge-stability", "/edge-stability/"}:
+                body = render_edge_stability_page_ru_v1(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
 
             if path in {"/leaderboard", "/leaderboard/"}:
                 body = render_rs_bottom_forward_leaderboard_page(payload).encode("utf-8")
