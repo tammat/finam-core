@@ -25,7 +25,7 @@ root_code="$(curl -sS -o /tmp/dashboard_root_body -w "%{http_code}" http://127.0
 root_follow="$(curl -fsSL http://127.0.0.1:8088/ || true)"
 
 root_ok=0
-if [ "$root_code" = "302" ] && echo "$root_follow" | grep -q "Finam Core: исследования"; then
+if [ "$root_code" = "302" ] && echo "$root_follow" | grep -q "мобильная сводка"; then
   root_ok=1
 else
   failures=$((failures + 1))
