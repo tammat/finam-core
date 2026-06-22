@@ -1625,6 +1625,27 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 </style>
 </head>
 <body>
+
+<div class="card">
+  <h2>📈 Монитор пробоя</h2>
+  <div>Техническая готовность инструментов к пробою. Это не подтверждённое торговое преимущество.</div>
+  <div><a href="/edge">Открыть техническую готовность к пробою</a></div>
+</div>
+
+<div class="card">
+  <h2>🧪 Исследование преимущества</h2>
+  <div>RS Bottom Futures, forward-наблюдения и источник потенциального преимущества.</div>
+  <div><a href="/rs-bottom-forward">RS Bottom Forward</a></div>
+  <div><a href="/rs-breakout-confirmation">RS + пробой</a></div>
+  <div><a href="/brent-rollover-edge">Brent rollover</a></div>
+</div>
+
+<div class="card">
+  <h2>🟢 Состояние системы</h2>
+  <div>Dashboard, данные, исследовательский контур, исполнение и реальные сделки.</div>
+  <div>Исполнение: выключено. Реальные сделки: выключены.</div>
+</div>
+
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/summary">Техсводка</a>
