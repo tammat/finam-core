@@ -1015,7 +1015,7 @@ th {{ background: #222; }}
 
 
 <div class="card">
-<h3>RS Bottom Forward Scorecard</h3>
+<h3>Форвардная проверка RS Bottom Scorecard</h3>
 <div>Диагностика scorecard: <b>{esc(forward.get('error', 'OK'))}</b></div>
 <table>
 <tr>
@@ -1145,7 +1145,7 @@ def render_page(payload: dict, page: str) -> str:
 <html>
 <head>
 <meta charset="utf-8">
-<title>Finam Core Dashboard</title>
+<title>Панель аналитики Finam Core</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 a {{ margin-right: 12px; }}
@@ -1302,7 +1302,7 @@ a {{ margin-right: 12px; }}
 </div>
 
 <div class="card">
-<h3>RS Bottom Forward Scorecard</h3>
+<h3>Форвардная проверка RS Bottom Scorecard</h3>
 <table>
 <tr>
 <th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
@@ -1361,7 +1361,7 @@ def render_rs_bottom_forward_page(payload: dict) -> str:
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="60">
-<title>RS Bottom Forward</title>
+<title>Форвардная проверка RS Bottom</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 .card {{ border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
@@ -1375,16 +1375,16 @@ a {{ margin-right: 12px; }}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
-<a href="/rs-bottom-forward">RS Bottom Forward</a>
+<a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
 <a href="/edge">Технический рейтинг</a>
 <a href="/api/current">Сервисный API</a>
 </nav>
 
 <div class="card">
-<h2>RS Bottom Forward Accumulation</h2>
+<h2>Форвардная проверка RS Bottom Accumulation</h2>
 <div>Автообновление: <b>60 секунд</b></div>
 <div>Диагностика: <b>{esc(rs.get('diagnostic'))}</b></div>
-<div>Completed total: <b>{esc(rs.get('completed_total'))}</b></div>
+<div>Завершено total: <b>{esc(rs.get('completed_total'))}</b></div>
 <div>Вердикт: <b>{esc(rs.get('verdict'))}</b></div>
 </div>
 
@@ -1392,7 +1392,7 @@ a {{ margin-right: 12px; }}
 <table>
 <tr>
 <th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
-<th>Успешно</th><th>Неуспешно</th><th>Completed</th>
+<th>Успешно</th><th>Неуспешно</th><th>Завершено</th>
 <th>PF Forward</th><th>PF Historical</th><th>Avg Return</th><th>Вердикт строки</th>
 </tr>
 {table_rows}
@@ -1539,7 +1539,7 @@ a {{ margin-right: 12px; }}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
-<a href="/rs-bottom-forward">RS Bottom Forward</a>
+<a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
 <a href="/rs-breakout-confirmation">RS Breakout Confirmation</a>
 <a href="/edge">Технический рейтинг</a>
 <a href="/api/current">Сервисный API</a>
@@ -1558,7 +1558,7 @@ a {{ margin-right: 12px; }}
 <table>
 <tr>
 <th>Корзина</th><th>Селекция</th><th>Фильтр</th><th>Наблюдений</th>
-<th>Ожидают</th><th>Completed</th><th>Успешно</th><th>Неуспешно</th>
+<th>Ожидают</th><th>Завершено</th><th>Успешно</th><th>Неуспешно</th>
 <th>Avg Return</th><th>PF</th><th>Вердикт строки</th>
 </tr>
 {table_rows}
@@ -1635,7 +1635,7 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 <div class="card">
   <h2>🧪 Исследование преимущества</h2>
   <div>RS Bottom Futures, forward-наблюдения и источник потенциального преимущества.</div>
-  <div><a href="/rs-bottom-forward">RS Bottom Forward</a></div>
+  <div><a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a></div>
   <div><a href="/rs-breakout-confirmation">RS + пробой</a></div>
   <div><a href="/brent-rollover-edge">Brent rollover</a></div>
 </div>
@@ -1781,7 +1781,7 @@ def render_brent_rollover_breakout_readiness_page(payload: dict | None = None) -
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="3600">
-<title>Brent Rollover Готовность к пробою</title>
+<title>Переносимость Brent Готовность к пробою</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 16px; background: #fafafa; color: #111; }}
 .card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
@@ -1796,11 +1796,11 @@ th {{ background: #f3f3f3; }}
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/rs-bottom-forward">RS Forward</a>
-<a href="/brent-rollover-edge">Brent Rollover</a>
+<a href="/brent-rollover-edge">Переносимость Brent</a>
 <a href="/api/current">API</a>
 </div>
 
-<h1>Brent Rollover Готовность к пробою</h1>
+<h1>Переносимость Brent Готовность к пробою</h1>
 
 <div class="card">
   <div><b>Паттерн:</b> BOTTOM1 + COMPRESSION_RANGE + 240m</div>
