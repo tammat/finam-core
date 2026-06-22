@@ -1714,6 +1714,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
 
+
+            if path in {"/", ""}:
+                self.send_response(302)
+                self.send_header("Location", "/mobile")
+                self.end_headers()
+                return
+
             if path in {"/mobile", "/mobile/"}:
                 body = render_mobile_research_summary_page(payload).encode("utf-8")
                 self.send_response(200)
