@@ -15,6 +15,7 @@ TARGETS = ["NVTK@MISX", "OZON@MISX", "T@MISX", "X5@MISX"]
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--symbols", default=",".join(TARGETS))
     args = parser.parse_args()
 
     dsn = os.environ.get("DATABASE_URL")
@@ -29,7 +30,9 @@ def main() -> int:
 
     with psycopg2.connect(dsn) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            for symbol in TARGETS:
+            targets = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
+
+            for symbol in targets:
                 cur.execute(
                     """
                     select count(*) as m1_bars
@@ -217,7 +220,7 @@ def main() -> int:
         "runtime_changed": 0,
         "execution_changed": 0,
         "telegram_send": 0,
-        "targets_total": len(TARGETS),
+        "targets_total": len(targets),
         "total_m1_bars": total_m1,
         "total_planned_m5_bars": total_planned_m5,
         "total_affected_m5_bars": total_inserted,
