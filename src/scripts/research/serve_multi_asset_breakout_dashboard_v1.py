@@ -1129,7 +1129,7 @@ def render_page(payload: dict, page: str) -> str:
         """
 
 
-    elif page == "compression-history":
+    elif page == "compression_history":
         body += "<h2>История сжатия / расширения</h2>"
         body += f"""
 <div>Снимков: <b>{esc(compression_history.get('snapshots', 0))}</b></div>
