@@ -1856,6 +1856,24 @@ def render_rs_bottom_clean_subset_dashboard_v1(payload: dict | None = None) -> s
 
     raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
 
+    acc_proc = subprocess.run(
+        [
+            "/opt/finam-core/venv/bin/python3",
+            "src/scripts/research/build_rs_bottom_clean_subset_forward_accumulation_v1.py",
+        ],
+        cwd="/opt/finam-core",
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+
+    acc_raw = (acc_proc.stdout or "") + "\n" + (acc_proc.stderr or "")
+    accumulation = {}
+    for acc_line in acc_raw.splitlines():
+        if acc_line.startswith("ACCUMULATION_ROW "):
+            accumulation = dict(re.findall(r"([a-zA-Z_]+)=([^ ]+)", acc_line))
+
     summary = {}
     symbols = []
 
@@ -1959,6 +1977,17 @@ th {{ background: #f3f3f3; }}
     </tr>
     {symbol_rows}
   </table>
+</div>
+
+<div class="card">
+  <h2>Накопление статистики</h2>
+  <div><b>Цель завершённых наблюдений:</b> {esc(accumulation.get('target_completed', 100))}</div>
+  <div><b>Сейчас завершено:</b> {esc(accumulation.get('completed'))}</div>
+  <div><b>Осталось до цели:</b> {esc(accumulation.get('remaining'))}</div>
+  <div><b>Реальный коэффициент прибыли:</b> {esc(accumulation.get('real_pf'))}</div>
+  <div><b>Математическое ожидание:</b> {esc(accumulation.get('expectancy'))}</div>
+  <div><b>Решение:</b> продолжать накопление статистики</div>
+  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
 </div>
 
 <div class="card">
