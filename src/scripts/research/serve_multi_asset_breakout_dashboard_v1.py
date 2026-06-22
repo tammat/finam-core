@@ -1429,10 +1429,12 @@ body {{ font-family: Arial, sans-serif; margin: 14px; background: #fafafa; color
 .nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
 </style>
 </head>
-<body>
+<body>\n{dashboard_nav_ru('Лидеры исследований')}
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/leaderboard">Лидеры исследований</a>
+<a href="/edge-stability">Устойчивость преимущества</a>
+<a href="/rs-bottom-clean">RS Bottom очищенный</a>
 <a href="/leaderboard">Лидеры</a> <a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
 <a href="/edge">Готовность к пробою</a>
 </div>
@@ -1751,7 +1753,10 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 <div class="card">
   <h2>🧪 Исследование преимущества</h2>
   <div>RS Bottom Futures, форвардные наблюдения и источник потенциального преимущества.</div>
+  <div><a href="/leaderboard">Лидеры исследований</a></div>
+  <div><a href="/edge-stability">Устойчивость преимущества</a></div>
   <div><a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a></div>
+  <div><a href="/rs-bottom-clean">RS Bottom очищенный</a></div>
   <div><a href="/rs-breakout-confirmation">RS + пробой</a></div>
   <div><a href="/brent-rollover-edge">Переносимость Brent</a></div>
 </div>
@@ -1830,17 +1835,23 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 
 def dashboard_nav_ru(active: str = "") -> str:
+    """Единое пользовательское меню dashboard 8088."""
     items = [
         ("/mobile", "🏠 Главная"),
         ("/leaderboard", "Лидеры исследований"),
         ("/edge-stability", "Устойчивость преимущества"),
         ("/rs-bottom-clean", "RS Bottom очищенный"),
-        ("/rs-bottom-forward", "Форвардная проверка"),
+        ("/rs-bottom-forward", "Форвардная проверка RS Bottom"),
+        ("/rs-breakout-confirmation", "RS + пробой"),
+        ("/brent-rollover-edge", "Brent rollover"),
+        ("/compression-history", "История сжатия"),
     ]
+
     links = []
     for href, title in items:
         cls = " style='font-weight:bold;text-decoration:underline;'" if title == active else ""
         links.append(f"<a{cls} href='{href}'>{title}</a>")
+
     return "<div class='nav'>" + " ".join(links) + "</div>"
 
 
@@ -2159,12 +2170,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
-<div class="nav">
-<a href="/mobile">Главная</a>
-<a href="/leaderboard">Лидеры исследований</a>
-<a href="/edge-stability">Устойчивость преимущества</a>
-<a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
-</div>
+{dashboard_nav_ru("Устойчивость преимущества")}
 
 <h1>Устойчивость торгового преимущества</h1>
 
