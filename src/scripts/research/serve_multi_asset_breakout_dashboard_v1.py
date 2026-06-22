@@ -1561,6 +1561,94 @@ a {{ margin-right: 12px; }}
 </html>"""
 
 
+
+def render_mobile_research_summary_page(payload: dict | None = None) -> str:
+    def esc(x):
+        import html
+        return html.escape("" if x is None else str(x))
+
+    futures = [
+        ("RS Bottom Futures", "ГЛАВНЫЙ КАНДИДАТ", "PF hist 1.5233", "Forward: waiting=2, completed=0"),
+        ("RS + Breakout Confirmation", "СБОР СТАТИСТИКИ", "PF forward: нет", "Ждём completed"),
+        ("NG Breakout", "ОТКЛОНЕНО", "PF < 1", "Fee drag dominates"),
+        ("BR Breakout", "RESEARCH ONLY", "Edge не подтверждён", "Не допускать к real"),
+        ("USDRUB Regime", "BLOCKED", "Отрицательный результат", "Runtime guard"),
+    ]
+
+    equities = [
+        ("Equity RS Bottom Absolute", "СЛАБЫЙ ЭФФЕКТ", "BOTTOM1 60m PF 1.0443", "Недостаточно для стратегии"),
+        ("Equity RS vs IMOEX", "ОТРИЦАТЕЛЬНО", "BOTTOM1 60m PF 0.9065", "Фильтр ухудшил результат"),
+        ("Equity Volatility Breakout", "OBSERVATION", "Edge не подтверждён", "Сигналы блокируются фильтрами"),
+        ("Multi-Asset Breakout Equity", "СБОР ДАННЫХ", "breakout_ready=0", "Нужна статистика"),
+    ]
+
+    def cards(rows):
+        out = ""
+        for name, status, metric, note in rows:
+            out += f"""
+<div class="card">
+  <div class="title">{esc(name)}</div>
+  <div class="status">{esc(status)}</div>
+  <div class="metric">{esc(metric)}</div>
+  <div class="note">{esc(note)}</div>
+</div>
+"""
+        return out
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="60">
+<title>Finam Core Mobile</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 12px; background: #fafafa; }}
+h1 {{ font-size: 22px; margin: 8px 0 12px; }}
+h2 {{ font-size: 18px; margin: 18px 0 8px; }}
+.card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 8px 0; }}
+.title {{ font-weight: bold; font-size: 16px; }}
+.status {{ margin-top: 6px; font-weight: bold; }}
+.metric {{ margin-top: 6px; }}
+.note {{ margin-top: 6px; color: #555; font-size: 14px; }}
+.nav a {{ display: inline-block; margin: 4px 8px 8px 0; }}
+</style>
+</head>
+<body>
+<div class="nav">
+<a href="/summary">Сводка</a>
+<a href="/mobile">Mobile</a>
+<a href="/rs-bottom-forward">RS Forward</a>
+<a href="/api/current">API</a>
+</div>
+
+<h1>Finam Core: исследования</h1>
+
+<div class="card">
+  <div class="title">Общий статус</div>
+  <div class="metric">Инфраструктура: 95%</div>
+  <div class="metric">Dashboard: 95%</div>
+  <div class="metric">Research: 95%</div>
+  <div class="metric">Real Trading: 25%</div>
+  <div class="note">Главный блокер: нет forward-подтверждения edge.</div>
+</div>
+
+<h2>Фьючерсы</h2>
+{cards(futures)}
+
+<h2>Акции</h2>
+{cards(equities)}
+
+<div class="card">
+  <div class="title">Следующий контроль</div>
+  <div class="status">RS_BOTTOM_FIRST_COMPLETED_FORWARD_V1</div>
+  <div class="note">Условие: success + failure >= 1</div>
+</div>
+
+</body>
+</html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -1618,6 +1706,16 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/rs-bottom-forward", "/rs-bottom-forward/"}:
                 body = render_rs_bottom_forward_page(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+
+            if path in {"/mobile", "/mobile/"}:
+                body = render_mobile_research_summary_page(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
