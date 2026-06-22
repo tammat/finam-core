@@ -1518,14 +1518,14 @@ def render_rs_breakout_confirmation_page(payload: dict | None = None) -> str:
         )
 
     if not table_rows:
-        table_rows = "<tr><td colspan='11'>Нет данных RS Breakout Confirmation</td></tr>"
+        table_rows = "<tr><td colspan='11'>Нет данных RS подтверждение пробоем</td></tr>"
 
     return f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="60">
-<title>RS Breakout Confirmation</title>
+<title>RS подтверждение пробоем</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 .card {{ border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }}
@@ -1540,13 +1540,13 @@ a {{ margin-right: 12px; }}
 <a href="/summary">Сводка</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
 <a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a>
-<a href="/rs-breakout-confirmation">RS Breakout Confirmation</a>
+<a href="/rs-breakout-confirmation">RS подтверждение пробоем</a>
 <a href="/edge">Технический рейтинг</a>
 <a href="/api/current">Сервисный API</a>
 </nav>
 
 <div class="card">
-<h2>RS Breakout Confirmation</h2>
+<h2>RS подтверждение пробоем</h2>
 <div>Автообновление: <b>60 секунд</b></div>
 <div>Диагностика: <b>{esc(diagnostic)}</b></div>
 <div>Окно подтверждения: <b>240 минут</b></div>
@@ -1576,18 +1576,18 @@ def render_mobile_research_summary_page(payload: dict | None = None) -> str:
         return html.escape("" if x is None else str(x))
 
     futures = [
-        ("🟢", "RS Bottom Futures", "ГЛАВНЫЙ КАНДИДАТ", "PF исторический 1.5233", "Forward: ожидают=2, завершено=0"),
-        ("🟡", "RS + Breakout Confirmation", "СБОР СТАТИСТИКИ", "PF forward: нет", "Ждём завершённых наблюдений"),
-        ("🔴", "NG Breakout", "ОТКЛОНЕНО", "PF < 1", "Комиссии съели результат"),
-        ("🔴", "BR Breakout", "ИССЛЕДОВАНИЕ ЗАВЕРШЕНО", "Готовность к пробою не подтверждён", "Не допускать к реальной торговле"),
+        ("🟢", "RS Bottom Futures", "ГЛАВНЫЙ КАНДИДАТ", "PF исторический 1.5233", "Форвардная проверка: ожидают=2, завершено=0"),
+        ("🟡", "RS + подтверждение пробоем", "СБОР СТАТИСТИКИ", "PF форвардная проверка: нет", "Ждём завершённых наблюдений"),
+        ("🔴", "NG: пробой", "ОТКЛОНЕНО", "PF < 1", "Комиссии съели результат"),
+        ("🔴", "BR: пробой", "ИССЛЕДОВАНИЕ ЗАВЕРШЕНО", "готовность к пробою не подтверждена", "Не допускать к реальной торговле"),
         ("⛔", "USDRUB Regime", "ЗАБЛОКИРОВАНО", "Отрицательный результат", "Остановлено через runtime guard"),
     ]
 
     equities = [
         ("🟡", "Акции: RS Bottom Absolute", "СЛАБЫЙ ЭФФЕКТ", "BOTTOM1 60м PF 1.0443", "Недостаточно для стратегии"),
         ("🔴", "Акции: RS vs IMOEX", "ОТРИЦАТЕЛЬНО", "BOTTOM1 60м PF 0.9065", "Фильтр ухудшил результат"),
-        ("⚪", "Акции: Volatility Breakout", "НАБЛЮДЕНИЕ", "Готовность к пробою не подтверждён", "Сигналы блокируются фильтрами"),
-        ("⚪", "Акции: Multi-Asset Breakout", "СБОР ДАННЫХ", "breakout_ready=0", "Нужна статистика"),
+        ("⚪", "Акции: Пробой волатильности", "НАБЛЮДЕНИЕ", "готовность к пробою не подтверждена", "Сигналы блокируются фильтрами"),
+        ("⚪", "Акции: Мультиактивный пробой", "СБОР ДАННЫХ", "готовых пробоев=0", "Нужна статистика"),
     ]
 
     def cards(rows):
@@ -1634,23 +1634,23 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 <div class="card">
   <h2>🧪 Исследование преимущества</h2>
-  <div>RS Bottom Futures, forward-наблюдения и источник потенциального преимущества.</div>
+  <div>RS Bottom Futures, форвардные наблюдения и источник потенциального преимущества.</div>
   <div><a href="/rs-bottom-forward">Форвардная проверка RS Bottom</a></div>
   <div><a href="/rs-breakout-confirmation">RS + пробой</a></div>
-  <div><a href="/brent-rollover-edge">Brent rollover</a></div>
+  <div><a href="/brent-rollover-edge">Переносимость Brent</a></div>
 </div>
 
 <div class="card">
   <h2>🟢 Состояние системы</h2>
-  <div>Dashboard, данные, исследовательский контур, исполнение и реальные сделки.</div>
+  <div>Панель аналитики, данные, исследовательский контур, исполнение и реальные сделки.</div>
   <div>Исполнение: выключено. Реальные сделки: выключены.</div>
 </div>
 
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/summary">Техсводка</a>
-<a href="/rs-bottom-forward">RS Forward</a>
-<a href="/rs-breakout-confirmation">RS + Breakout</a>
+<a href="/rs-bottom-forward">RS: форвардная проверка</a>
+<a href="/rs-breakout-confirmation">RS + пробой</a>
 <a href="/api/current">API</a>
 </div>
 
@@ -1664,10 +1664,10 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 <div class="card">
   <div class="title">Общий статус проекта</div>
   <div class="metric">Инфраструктура: 95%</div>
-  <div class="metric">Dashboard: 95%</div>
+  <div class="metric">Панель аналитики: 95%</div>
   <div class="metric">Research: 95%</div>
   <div class="metric">Реальная торговля: 25%</div>
-  <div class="note">Главный блокер: нет forward-подтверждения breakout_readiness.</div>
+  <div class="note">Главный блокер: нет форвардного подтверждения breakout_readiness.</div>
 </div>
 
 
@@ -1675,16 +1675,16 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
   <div class="title">🟢 ТЕКУЩИЙ КАНДИДАТ НА EDGE</div>
   <div class="status">RS Bottom Futures</div>
   <div class="metric">Исторический PF: 1.5233</div>
-  <div class="metric">Forward: ожидают=2, успех=0, ошибка=0, завершено=0</div>
-  <div class="note">Статус: ожидание forward-подтверждения.</div>
+  <div class="metric">Форвардная проверка: ожидают=2, успех=0, ошибка=0, завершено=0</div>
+  <div class="note">Статус: ожидание форвардного подтверждения.</div>
 </div>
 
 <div class="card">
-  <div class="title">📊 Источник breakout_readiness</div>
+  <div class="title">📊 Источник потенциального преимущества</div>
   <div class="metric">🥇 BRQ6 — PF 5.15</div>
   <div class="metric">🥈 NGV6 — PF 3.03</div>
   <div class="metric">🥉 GLM6 — PF 2.14</div>
-  <div class="note">Вердикт: CONTRACT_SPECIFIC_ANOMALY. Требуется forward-проверка.</div>
+  <div class="note">Вердикт: CONTRACT_SPECIFIC_ANOMALY. Требуется форвардная проверка.</div>
 </div>
 
 <div class="card">
@@ -1795,7 +1795,7 @@ th {{ background: #f3f3f3; }}
 <body>
 <div class="nav">
 <a href="/mobile">Главная</a>
-<a href="/rs-bottom-forward">RS Forward</a>
+<a href="/rs-bottom-forward">RS: форвардная проверка</a>
 <a href="/brent-rollover-edge">Переносимость Brent</a>
 <a href="/api/current">API</a>
 </div>
