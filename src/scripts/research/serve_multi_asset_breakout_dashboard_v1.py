@@ -1828,6 +1828,31 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 
 
+
+def dashboard_nav_ru(active: str = "") -> str:
+    items = [
+        ("/mobile", "🏠 Главная"),
+        ("/leaderboard", "Лидеры исследований"),
+        ("/edge-stability", "Устойчивость преимущества"),
+        ("/rs-bottom-clean", "RS Bottom очищенный"),
+        ("/rs-bottom-forward", "Форвардная проверка"),
+    ]
+    links = []
+    for href, title in items:
+        cls = " style='font-weight:bold;text-decoration:underline;'" if title == active else ""
+        links.append(f"<a{cls} href='{href}'>{title}</a>")
+    return "<div class='nav'>" + " ".join(links) + "</div>"
+
+
+def fmt_dashboard_number(v, digits: int = 3):
+    try:
+        if v is None or v == "":
+            return ""
+        return f"{float(v):.{digits}f}"
+    except Exception:
+        return "" if v is None else str(v)
+
+
 def render_rs_bottom_clean_subset_dashboard_v1(payload: dict | None = None) -> str:
     import html
     import os
@@ -1893,8 +1918,8 @@ def render_rs_bottom_clean_subset_dashboard_v1(payload: dict | None = None) -> s
           <td>{esc(r.get('completed'))}</td>
           <td>{esc(r.get('success'))}</td>
           <td>{esc(r.get('failure'))}</td>
-          <td>{esc(r.get('real_pf'))}</td>
-          <td>{esc(r.get('expectancy'))}</td>
+          <td>{esc(fmt_dashboard_number(r.get('real_pf')))}</td>
+          <td>{esc(fmt_dashboard_number(r.get('expectancy')))}</td>
         </tr>
         """
 
@@ -1919,12 +1944,8 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
-<div class="nav">
-<a href="/mobile">Главная</a>
-<a href="/leaderboard">Лидеры исследований</a>
-<a href="/edge-stability">Устойчивость преимущества</a>
-<a href="/rs-bottom-clean">RS Bottom очищенный</a>
-</div>
+{dashboard_nav_ru("RS Bottom очищенный")}
+<div class="card"><b>Навигация:</b> Главная → RS Bottom очищенный</div>
 
 <h1>RS Bottom — очищенная версия</h1>
 
@@ -1949,9 +1970,9 @@ th {{ background: #f3f3f3; }}
   <div><b>Завершено наблюдений:</b> {esc(summary.get('completed'))}</div>
   <div><b>Успешно:</b> {esc(summary.get('success'))}</div>
   <div><b>Неуспешно:</b> {esc(summary.get('failure'))}</div>
-  <div><b>Доля успешных:</b> {esc(summary.get('winrate'))}</div>
-  <div><b>Реальный коэффициент прибыли:</b> {esc(summary.get('real_pf'))}</div>
-  <div><b>Математическое ожидание:</b> {esc(summary.get('expectancy'))}</div>
+  <div><b>Доля успешных:</b> {esc(fmt_dashboard_number(summary.get('winrate')))}</div>
+  <div><b>Реальный коэффициент прибыли:</b> {esc(fmt_dashboard_number(summary.get('real_pf')))}</div>
+  <div><b>Математическое ожидание:</b> {esc(fmt_dashboard_number(summary.get('expectancy')))}</div>
 </div>
 
 <div class="card">
@@ -1960,8 +1981,8 @@ th {{ background: #f3f3f3; }}
   <div><b>Завершено:</b> {esc(brn6.get('completed'))}</div>
   <div><b>Успешно:</b> {esc(brn6.get('success'))}</div>
   <div><b>Неуспешно:</b> {esc(brn6.get('failure'))}</div>
-  <div><b>Реальный коэффициент прибыли:</b> {esc(brn6.get('real_pf'))}</div>
-  <div><b>Математическое ожидание:</b> {esc(brn6.get('expectancy'))}</div>
+  <div><b>Реальный коэффициент прибыли:</b> {esc(fmt_dashboard_number(brn6.get('real_pf')))}</div>
+  <div><b>Математическое ожидание:</b> {esc(fmt_dashboard_number(brn6.get('expectancy')))}</div>
 </div>
 
 <div class="card">
@@ -1984,8 +2005,8 @@ th {{ background: #f3f3f3; }}
   <div><b>Цель завершённых наблюдений:</b> {esc(accumulation.get('target_completed', 100))}</div>
   <div><b>Сейчас завершено:</b> {esc(accumulation.get('completed'))}</div>
   <div><b>Осталось до цели:</b> {esc(accumulation.get('remaining'))}</div>
-  <div><b>Реальный коэффициент прибыли:</b> {esc(accumulation.get('real_pf'))}</div>
-  <div><b>Математическое ожидание:</b> {esc(accumulation.get('expectancy'))}</div>
+  <div><b>Реальный коэффициент прибыли:</b> {esc(fmt_dashboard_number(accumulation.get('real_pf')))}</div>
+  <div><b>Математическое ожидание:</b> {esc(fmt_dashboard_number(accumulation.get('expectancy')))}</div>
   <div><b>Решение:</b> продолжать накопление статистики</div>
   <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
 </div>
@@ -2090,8 +2111,8 @@ def render_edge_stability_page_ru_v1(payload: dict | None = None) -> str:
           <td>{esc(r.get('success'))}</td>
           <td>{esc(r.get('failure'))}</td>
           <td>{esc(r.get('winrate'))}</td>
-          <td>{esc(r.get('real_pf'))}</td>
-          <td>{esc(r.get('expectancy'))}</td>
+          <td>{esc(fmt_dashboard_number(r.get('real_pf')))}</td>
+          <td>{esc(fmt_dashboard_number(r.get('expectancy')))}</td>
           <td>{status_ru(r.get('verdict'))}</td>
         </tr>
         """
