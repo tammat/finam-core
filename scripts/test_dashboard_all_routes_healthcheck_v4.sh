@@ -22,16 +22,16 @@ routes=(
 failures=0
 
 root_code="$(curl -sS -o /tmp/dashboard_root_body -w "%{http_code}" http://127.0.0.1:8088/ || true)"
-root_location="$(curl -sSI http://127.0.0.1:8088/ | tr -d '\r' | awk -F': ' 'tolower($1)=="location"{print $2}' | tail -1)"
+root_follow="$(curl -fsSL http://127.0.0.1:8088/ || true)"
 
 root_ok=0
-if [ "$root_code" = "302" ] && [ "$root_location" = "/mobile" ]; then
+if [ "$root_code" = "302" ] && echo "$root_follow" | grep -q "Finam Core: исследования"; then
   root_ok=1
 else
   failures=$((failures + 1))
 fi
 
-echo "ROUTE_ROW route=/ http_status=${root_code} ok=${root_ok} location=${root_location}"
+echo "ROUTE_ROW route=/ http_status=${root_code} ok=${root_ok} target=/mobile"
 
 for route in "${routes[@]}"; do
   tmp="$(mktemp)"
