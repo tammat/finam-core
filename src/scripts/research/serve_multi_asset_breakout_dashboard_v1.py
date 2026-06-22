@@ -25,15 +25,15 @@ MSK = ZoneInfo("Europe/Moscow")
 
 
 
-def load_edge_scorecard_v1() -> dict:
-    # Загружаем edge scorecard через отдельный read-only builder.
+def load_breakout_readiness_scorecard_v1() -> dict:
+    # Загружаем breakout_readiness scorecard через отдельный read-only builder.
     import json
     import subprocess
     import sys
 
     cmd = [
         sys.executable,
-        "src/scripts/research/build_multi_asset_breakout_edge_scorecard_8_equities_v1.py",
+        "src/scripts/research/build_multi_asset_breakout_breakout_readiness_scorecard_8_equities_v1.py",
     ]
 
     try:
@@ -738,7 +738,7 @@ def collect_payload() -> dict:
         "history_daily": collect_daily_history(),
         "follow_through": collect_follow_through_scorecard(),
         "ready_delivery": collect_ready_delivery_stats(),
-        "edge_scorecard": load_edge_scorecard_v1(),
+        "breakout_readiness_scorecard": load_breakout_readiness_scorecard_v1(),
         "compression_expansion": load_compression_expansion_v1(),
         "compression_history": load_compression_history_v1(),
         "db_update": 0,
@@ -970,7 +970,7 @@ th {{ background: #222; }}
 <h3>Горизонты 3/5/10/15 минут</h3>
 <table>
 <tr>
-<th>Горизонт, мин</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th>
+<th>Горизонт, мин</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность после сигнала</th>
 </tr>
 {follow_horizon_rows}
 </table>
@@ -978,7 +978,7 @@ th {{ background: #222; }}
 <h3>По инструментам</h3>
 <table>
 <tr>
-<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность</th><th>Последний ready, МСК</th>
+<th>Инструмент</th><th>Класс</th><th>ТФ</th><th>Роль</th><th>Строк</th><th>Успех</th><th>Неуспех</th><th>Ожидание</th><th>Средняя доходность после сигнала</th><th>Последний ready, МСК</th>
 </tr>
 {follow_symbol_rows}
 </table>
@@ -1021,7 +1021,7 @@ th {{ background: #222; }}
 <tr>
 <th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
 <th>Успешно</th><th>Неуспешно</th><th>Завершено</th>
-<th>PF forward</th><th>PF исторический</th><th>Средняя доходность</th><th>Вердикт</th>
+<th>PF forward</th><th>PF исторический</th><th>Средняя доходность после сигнала</th><th>Вердикт</th>
 </tr>
 {forward_rows_html}
 </table>
@@ -1076,7 +1076,7 @@ def render_page(payload: dict, page: str) -> str:
     rows = payload.get("rows", [])
     journal = payload.get("journal_lines", [])
     compression_history = payload.get("compression_history", {})
-    edge = payload.get("edge_scorecard", {})
+    breakout_readiness = payload.get("breakout_readiness_scorecard", {})
 
     body = ""
 
@@ -1091,15 +1091,15 @@ def render_page(payload: dict, page: str) -> str:
 
     elif page == "edge":
         body += "<h2>Технический рейтинг готовности</h2>"
-        body += "<p>Это не подтверждённый торговый edge, а рейтинг близости инструмента к пробою и качества наблюдений.</p>"
+        body += "<p>Это не подтверждённый торговый breakout_readiness, а рейтинг близости инструмента к пробою и качества наблюдений.</p>"
 
-        rows = edge.get("rows", []) if isinstance(edge, dict) else []
+        rows = breakout_readiness.get("rows", []) if isinstance(breakout_readiness, dict) else []
         body += """
 <table>
 <tr>
 <th>Инструмент</th><th>Наблюдений</th><th>Близко к пробою</th>
-<th>Готовых пробоев</th><th>Нет баров</th><th>Follow rows</th>
-<th>Средняя доходность</th><th>Рейтинг</th><th>Последнее наблюдение</th>
+<th>Готовых пробоев</th><th>Нет баров</th><th>Постконтроль</th>
+<th>Средняя доходность после сигнала</th><th>Готовность</th><th>Последнее наблюдение</th>
 </tr>
 """
         for r in rows:
@@ -1112,7 +1112,7 @@ def render_page(payload: dict, page: str) -> str:
                 f"<td>{esc(r.get('no_bars'))}</td>"
                 f"<td>{esc(r.get('follow_rows'))}</td>"
                 f"<td>{esc(r.get('avg_return_pct'))}</td>"
-                f"<td>{esc(r.get('edge_score'))}</td>"
+                f"<td>{esc(r.get('breakout_readiness_score'))}</td>"
                 f"<td>{format_msk_time(r.get('last_seen'))}</td>"
                 "</tr>"
             )
@@ -1148,7 +1148,7 @@ pre {{ white-space: pre-wrap; }}
 <body>
 <nav>
 <a href="/summary">Сводка</a>
-<a href="/edge">Рейтинг Edge</a>
+<a href="/edge">Техническая готовность к пробою</a>
 <a href="/compression-history">История сжатия</a>
 <a href="/journal">Журнал</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
@@ -1277,7 +1277,7 @@ a {{ margin-right: 12px; }}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/compression-history">История сжатия</a>
-<a href="/edge">Рейтинг Edge</a>
+<a href="/edge">Техническая готовность к пробою</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
 <a href="/api/current">API JSON</a>
 </nav>
@@ -1289,7 +1289,7 @@ a {{ margin-right: 12px; }}
 <div>Ожидают: <b>{esc(paper_summary.get('waiting'))}</b></div>
 <div>Успешно: <b>{esc(paper_summary.get('success'))}</b></div>
 <div>Неуспешно: <b>{esc(paper_summary.get('failure'))}</b></div>
-<div>Средняя доходность: <b>{esc(paper_summary.get('avg_return_pct'))}</b></div>
+<div>Средняя доходность после сигнала: <b>{esc(paper_summary.get('avg_return_pct'))}</b></div>
 <div>Последний сигнал, МСК: <b>{format_msk_time(paper_summary.get('last_signal_time'))}</b></div>
 <div>Диагностика: <b>{esc(diagnostic)}</b></div>
 </div>
@@ -1300,7 +1300,7 @@ a {{ margin-right: 12px; }}
 <tr>
 <th>Селекция</th><th>Фильтр</th><th>Всего</th><th>Ожидают</th>
 <th>Успешно</th><th>Неуспешно</th><th>Завершено</th>
-<th>PF forward</th><th>PF исторический</th><th>Средняя доходность</th><th>Вердикт</th>
+<th>PF forward</th><th>PF исторический</th><th>Средняя доходность после сигнала</th><th>Вердикт</th>
 </tr>
 {scorecard_rows_html}
 </table>
@@ -1572,14 +1572,14 @@ def render_mobile_research_summary_page(payload: dict | None = None) -> str:
         ("🟢", "RS Bottom Futures", "ГЛАВНЫЙ КАНДИДАТ", "PF исторический 1.5233", "Forward: ожидают=2, завершено=0"),
         ("🟡", "RS + Breakout Confirmation", "СБОР СТАТИСТИКИ", "PF forward: нет", "Ждём завершённых наблюдений"),
         ("🔴", "NG Breakout", "ОТКЛОНЕНО", "PF < 1", "Комиссии съели результат"),
-        ("🔴", "BR Breakout", "ИССЛЕДОВАНИЕ ЗАВЕРШЕНО", "Edge не подтверждён", "Не допускать к реальной торговле"),
+        ("🔴", "BR Breakout", "ИССЛЕДОВАНИЕ ЗАВЕРШЕНО", "Готовность к пробою не подтверждён", "Не допускать к реальной торговле"),
         ("⛔", "USDRUB Regime", "ЗАБЛОКИРОВАНО", "Отрицательный результат", "Остановлено через runtime guard"),
     ]
 
     equities = [
         ("🟡", "Акции: RS Bottom Absolute", "СЛАБЫЙ ЭФФЕКТ", "BOTTOM1 60м PF 1.0443", "Недостаточно для стратегии"),
         ("🔴", "Акции: RS vs IMOEX", "ОТРИЦАТЕЛЬНО", "BOTTOM1 60м PF 0.9065", "Фильтр ухудшил результат"),
-        ("⚪", "Акции: Volatility Breakout", "НАБЛЮДЕНИЕ", "Edge не подтверждён", "Сигналы блокируются фильтрами"),
+        ("⚪", "Акции: Volatility Breakout", "НАБЛЮДЕНИЕ", "Готовность к пробою не подтверждён", "Сигналы блокируются фильтрами"),
         ("⚪", "Акции: Multi-Asset Breakout", "СБОР ДАННЫХ", "breakout_ready=0", "Нужна статистика"),
     ]
 
@@ -1639,7 +1639,7 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
   <div class="metric">Dashboard: 95%</div>
   <div class="metric">Research: 95%</div>
   <div class="metric">Реальная торговля: 25%</div>
-  <div class="note">Главный блокер: нет forward-подтверждения edge.</div>
+  <div class="note">Главный блокер: нет forward-подтверждения breakout_readiness.</div>
 </div>
 
 
@@ -1652,7 +1652,7 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 </div>
 
 <div class="card">
-  <div class="title">📊 Источник edge</div>
+  <div class="title">📊 Источник breakout_readiness</div>
   <div class="metric">🥇 BRQ6 — PF 5.15</div>
   <div class="metric">🥈 NGV6 — PF 3.03</div>
   <div class="metric">🥉 GLM6 — PF 2.14</div>
@@ -1682,7 +1682,7 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 
 
-def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
+def render_brent_rollover_breakout_readiness_page(payload: dict | None = None) -> str:
     import html
     import os
     import subprocess
@@ -1698,7 +1698,7 @@ def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
 
     try:
         p = subprocess.run(
-            ["/opt/finam-core/venv/bin/python3", "src/scripts/research/build_brent_rollover_edge_v1.py"],
+            ["/opt/finam-core/venv/bin/python3", "src/scripts/research/build_brent_rollover_breakout_readiness_v1.py"],
             cwd="/opt/finam-core",
             env=env,
             capture_output=True,
@@ -1753,7 +1753,7 @@ def render_brent_rollover_edge_page(payload: dict | None = None) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="3600">
-<title>Brent Rollover Edge</title>
+<title>Brent Rollover Готовность к пробою</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 16px; background: #fafafa; color: #111; }}
 .card {{ background: white; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin: 10px 0; }}
@@ -1768,11 +1768,11 @@ th {{ background: #f3f3f3; }}
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/rs-bottom-forward">RS Forward</a>
-<a href="/brent-rollover-edge">Brent Rollover</a>
+<a href="/brent-rollover-breakout_readiness">Brent Rollover</a>
 <a href="/api/current">API</a>
 </div>
 
-<h1>Brent Rollover Edge</h1>
+<h1>Brent Rollover Готовность к пробою</h1>
 
 <div class="card">
   <div><b>Паттерн:</b> BOTTOM1 + COMPRESSION_RANGE + 240m</div>
@@ -1886,8 +1886,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
 
-            if path in {"/brent-rollover-edge", "/brent-rollover-edge/"}:
-                body = render_brent_rollover_edge_page(payload).encode("utf-8")
+            if path in {"/brent-rollover-breakout_readiness", "/brent-rollover-breakout_readiness/"}:
+                body = render_brent_rollover_breakout_readiness_page(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
