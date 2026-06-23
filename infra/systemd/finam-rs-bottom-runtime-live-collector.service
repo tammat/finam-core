@@ -1,0 +1,12 @@
+[Unit]
+Description=Finam RS Bottom Runtime Live Collector V1
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/opt/finam-core/venv/bin/python /opt/finam-core/src/scripts/research/run_rs_bottom_runtime_live_collector_v1.py
+User=alex
+Group=alex
