@@ -3020,10 +3020,21 @@ th {{ background: #f3f3f3; }}
 </div>
 
 <div class="card">
-  <h2>Runtime decision</h2>
+  <h2>EDGE HEALTH</h2>
   <div><b>CONFIRMED:</b> <span class="good">{", ".join(confirmed) or "нет"}</span></div>
   <div><b>WATCH:</b> <span class="warn">{", ".join(watch) or "нет"}</span></div>
   <div><b>REJECT:</b> {", ".join(reject) or "нет"}</div>
+  <div><b>Collector:</b> systemd timer каждые 5 минут</div>
+  <div><b>Freshness:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
+  <div><b>Last update:</b> автообновление страницы каждые 30 секунд</div>
+  <div><b>Risk mode:</b> <span class="bad">исполнение и реальные заявки отключены</span></div>
+</div>
+
+<div class="card">
+  <h2>Performance summary</h2>
+  <div><b>Критерий CONFIRMED:</b> completed ≥ 15, PF ≥ 1.5, expectancy &gt; 0</div>
+  <div><b>Критерий WATCH:</b> completed ≥ 15, PF ≥ 1.0, expectancy &gt; 0</div>
+  <div><b>Основной риск:</b> деградация PF и рост max drawdown на новой выборке</div>
 </div>
 
 {error_html}
