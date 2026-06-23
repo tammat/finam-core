@@ -2826,6 +2826,194 @@ th {{ background: #f3f3f3; }}
 """
 
 
+
+def load_rs_bottom_runtime_dry_run_dashboard_v1():
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        return {"rows": [], "error": "DATABASE_URL_NOT_SET"}
+
+    try:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    with base as (
+                        select
+                            symbol,
+                            family,
+                            signal_ts,
+                            return_pct,
+                            status
+                        from analytics_rs_bottom_runtime_dry_run_v1
+                        where strategy = 'RS_BOTTOM_RUNTIME_DRY_RUN_V1'
+                          and symbol in ('GDU6@RTSX','GLU6@RTSX','NGM6@RTSX')
+                          and horizon_min = 240
+                          and selection = 'BOTTOM3'
+                          and filter_name = 'COMPRESSION_RANGE'
+                    ),
+                    completed as (
+                        select *
+                        from base
+                        where status in ('SUCCESS','FAILURE')
+                          and return_pct is not null
+                    ),
+                    curve as (
+                        select
+                            symbol,
+                            signal_ts,
+                            sum(return_pct) over (
+                                partition by symbol
+                                order by signal_ts
+                                rows between unbounded preceding and current row
+                            ) as equity
+                        from completed
+                    ),
+                    curve_with_peak as (
+                        select
+                            symbol,
+                            signal_ts,
+                            equity,
+                            max(equity) over (
+                                partition by symbol
+                                order by signal_ts
+                                rows between unbounded preceding and current row
+                            ) as peak_equity
+                        from curve
+                    ),
+                    dd as (
+                        select
+                            symbol,
+                            min(equity - peak_equity) as max_drawdown
+                        from curve_with_peak
+                        group by symbol
+                    ),
+                    agg as (
+                        select
+                            b.symbol,
+                            coalesce(max(b.family), 'UNKNOWN') as family,
+                            count(*)::int as signals_total,
+                            count(*) filter (where b.status='SUCCESS')::int as success,
+                            count(*) filter (where b.status='FAILURE')::int as failure,
+                            count(*) filter (where b.status='WAITING')::int as waiting,
+                            count(*) filter (where b.status in ('SUCCESS','FAILURE'))::int as completed,
+                            avg(b.return_pct) filter (where b.status in ('SUCCESS','FAILURE')) as expectancy,
+                            case
+                                when abs(sum(least(b.return_pct, 0)) filter (where b.status in ('SUCCESS','FAILURE'))) > 0
+                                then
+                                    sum(greatest(b.return_pct, 0)) filter (where b.status in ('SUCCESS','FAILURE'))
+                                    / abs(sum(least(b.return_pct, 0)) filter (where b.status in ('SUCCESS','FAILURE')))
+                                else null
+                            end as profit_factor,
+                            avg(case when b.status='SUCCESS' then 1.0 when b.status='FAILURE' then 0.0 else null end) as winrate,
+                            min(b.signal_ts) as first_ts,
+                            max(b.signal_ts) as last_ts
+                        from base b
+                        group by b.symbol
+                    )
+                    select agg.*, dd.max_drawdown
+                    from agg
+                    left join dd using (symbol)
+                    order by profit_factor desc nulls last, completed desc
+                """)
+                return {"rows": [dict(r) for r in cur.fetchall()], "error": None}
+    except Exception as exc:
+        return {"rows": [], "error": str(exc)}
+
+
+def render_rs_bottom_runtime_dry_run_dashboard_v1():
+    data = load_rs_bottom_runtime_dry_run_dashboard_v1()
+    rows = data.get("rows") or []
+    error = data.get("error")
+
+    trs = []
+    confirmed = []
+    watch = []
+    reject = []
+
+    for r in rows:
+        completed = int(r.get("completed") or 0)
+        pf = float(r.get("profit_factor") or 0)
+        expectancy = float(r.get("expectancy") or 0)
+
+        if completed >= 15 and pf >= 1.5 and expectancy > 0:
+            verdict = "CONFIRMED"
+            confirmed.append(r.get("symbol"))
+        elif completed >= 15 and pf >= 1.0 and expectancy > 0:
+            verdict = "WATCH"
+            watch.append(r.get("symbol"))
+        else:
+            verdict = "REJECT"
+            reject.append(r.get("symbol"))
+
+        trs.append(
+            "<tr>"
+            f"<td>{r.get('symbol')}</td>"
+            f"<td>{r.get('family')}</td>"
+            f"<td>{r.get('signals_total')}</td>"
+            f"<td>{r.get('completed')}</td>"
+            f"<td>{r.get('success')}</td>"
+            f"<td>{r.get('failure')}</td>"
+            f"<td>{r.get('waiting')}</td>"
+            f"<td>{r.get('expectancy')}</td>"
+            f"<td>{r.get('profit_factor')}</td>"
+            f"<td>{r.get('winrate')}</td>"
+            f"<td>{r.get('max_drawdown')}</td>"
+            f"<td><b>{verdict}</b></td>"
+            "</tr>"
+        )
+
+    table_rows = "\n".join(trs) or "<tr><td colspan='12'>Нет данных</td></tr>"
+    error_html = f"<div style='color:#b00020'>Ошибка: {error}</div>" if error else ""
+
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="30">
+<title>RS Bottom Runtime Dry Run V1</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+table {{ border-collapse: collapse; width: 100%; margin-bottom: 22px; }}
+td, th {{ border: 1px solid #ddd; padding: 6px; }}
+th {{ background: #f3f3f3; }}
+.card {{ border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; }}
+.bad {{ color: #b00020; font-weight: bold; }}
+.good {{ color: #166534; font-weight: bold; }}
+.warn {{ color: #92400e; font-weight: bold; }}
+</style>
+</head>
+<body>
+<h1>RS Bottom Runtime Dry Run V1</h1>
+
+<div class="card">
+  <div><b>Режим:</b> SHADOW</div>
+  <div><b>Исполнение:</b> <span class="bad">отключено</span></div>
+  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Paper orders:</b> <span class="bad">не создаются</span></div>
+  <div><b>Источник:</b> analytics_rs_bottom_runtime_dry_run_v1</div>
+  <div><b>Автообновление:</b> 30 секунд</div>
+</div>
+
+<div class="card">
+  <h2>Runtime decision</h2>
+  <div><b>CONFIRMED:</b> <span class="good">{", ".join(confirmed) or "нет"}</span></div>
+  <div><b>WATCH:</b> <span class="warn">{", ".join(watch) or "нет"}</span></div>
+  <div><b>REJECT:</b> {", ".join(reject) or "нет"}</div>
+</div>
+
+{error_html}
+
+<table>
+<tr>
+<th>Symbol</th><th>Family</th><th>Signals</th><th>Completed</th><th>Success</th><th>Failure</th><th>Waiting</th>
+<th>Expectancy</th><th>PF</th><th>Winrate</th><th>Max DD</th><th>Verdict</th>
+</tr>
+{table_rows}
+</table>
+</body>
+</html>
+"""
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -2920,6 +3108,15 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/rs-bottom-contract-rolling", "/rs-bottom-contract-rolling/"}:
                 body = render_rs_bottom_contract_rolling_dashboard_v1().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path in {"/rs-bottom-runtime-dry-run", "/rs-bottom-runtime-dry-run/"}:
+                body = render_rs_bottom_runtime_dry_run_dashboard_v1().encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
