@@ -1993,6 +1993,9 @@ th {{ background: #f3f3f3; }}
   <div><b>Режим:</b> сбор статистики</div>
   <div><b>Стратегия:</b> VOLATILITY_BREAKOUT_EQUITY</div>
   <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Исполнение:</b> отключено</div>
+  <div><b>Сигналы:</b> режим наблюдения</div>
+  <div><b>Статус:</b> торговля по акциям не ведётся</div>
 </div>
 
 {error_html}
@@ -2002,6 +2005,7 @@ th {{ background: #f3f3f3; }}
   <div><b>Чистые runtime сделки:</b> {clean_runtime}</div>
   <div><b>Legacy/Fallback сделки:</b> {legacy_runtime}</div>
   <div><b>Вывод:</b> исторические и legacy-сделки не используются для оценки edge по VOLATILITY_BREAKOUT_EQUITY.</div>
+  <div><b>Важно:</b> наличие legacy-сделок не означает, что сейчас идёт торговля.</div>
 </div>
 
 <div class="card">
