@@ -922,6 +922,7 @@ th {{ background: #222; }}
 </style>
 </head>
 <body>
+{dashboard_home_link_v1()}
 <h1>Наблюдение качества сигналов пробоя V1</h1>
 <nav class="menu">
 <a href="#summary">Сводка</a>
@@ -2611,6 +2612,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_home_link_v1()}
 <h1>RS Bottom: rolling-аудит контрактов</h1>
 <div class="card">
   <div><b>Режим:</b> research only</div>
@@ -2797,6 +2799,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_home_link_v1()}
 <h1>Active Futures Universe Live V1</h1>
 
 <div class="card">
@@ -2999,6 +3002,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_home_link_v1()}
 <h1>RS Bottom Runtime Dry Run V1</h1>
 
 <div class="card">
@@ -3031,6 +3035,11 @@ th {{ background: #f3f3f3; }}
 </body>
 </html>
 """
+
+
+def dashboard_home_link_v1():
+    return '<div style="margin:0 0 16px 0;"><a href="/">← Главная</a></div>'
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
