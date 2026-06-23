@@ -2629,6 +2629,166 @@ th {{ background: #f3f3f3; }}
 </html>
 """
 
+
+def load_active_futures_universe_dashboard_v1():
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        return {"rows": [], "error": "DATABASE_URL_NOT_SET"}
+
+    try:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    with src as (
+                        select
+                            case
+                                when left(symbol, 2) = 'BR' then 'BRENT_FUTURES'
+                                when left(symbol, 2) = 'NG' then 'GAS_FUTURES'
+                                when left(symbol, 2) in ('GD','GL') then 'GOLD_FUTURES'
+                                when left(symbol, 7) = 'USDRUBF' then 'FX_FUTURES'
+                                else 'OTHER'
+                            end as family,
+                            symbol,
+                            return_pct,
+                            status,
+                            source_ts
+                        from analytics_futures_rs_bottom_paper_observation_v1
+                        where selection = 'BOTTOM3'
+                          and filter_name = 'COMPRESSION_RANGE'
+                          and status in ('SUCCESS','FAILURE')
+                          and return_pct is not null
+                          and extract(hour from source_ts at time zone 'Europe/Moscow')::int not in (12,13,14)
+                    ),
+                    agg as (
+                        select
+                            family,
+                            symbol,
+                            count(*)::int as completed,
+                            count(*) filter (where status='SUCCESS')::int as success,
+                            count(*) filter (where status='FAILURE')::int as failure,
+                            avg(return_pct) as expectancy,
+                            case
+                                when abs(sum(least(return_pct, 0))) > 0
+                                then sum(greatest(return_pct, 0)) / abs(sum(least(return_pct, 0)))
+                                else null
+                            end as profit_factor,
+                            avg(case when status='SUCCESS' then 1.0 else 0.0 end) as winrate,
+                            min(source_ts) as first_ts,
+                            max(source_ts) as last_ts
+                        from src
+                        group by family, symbol
+                    )
+                    select *
+                    from agg
+                    order by family, profit_factor desc nulls last, completed desc
+                """)
+                return {"rows": [dict(r) for r in cur.fetchall()], "error": None}
+    except Exception as exc:
+        return {"rows": [], "error": str(exc)}
+
+
+def active_futures_classification_v1(profit_factor, completed):
+    pf = float(profit_factor or 0)
+    completed = int(completed or 0)
+    if completed < 10 and pf > 1.0:
+        return "WATCH_ONLY"
+    if completed >= 15 and pf >= 1.5:
+        return "PRIMARY"
+    if completed >= 15 and pf >= 1.0:
+        return "SECONDARY"
+    return "REJECT"
+
+
+def render_active_futures_universe_dashboard_v1():
+    data = load_active_futures_universe_dashboard_v1()
+    rows = data.get("rows") or []
+    error = data.get("error")
+
+    groups = {"PRIMARY": [], "SECONDARY": [], "WATCH_ONLY": [], "REJECT": []}
+    for r in rows:
+        c = active_futures_classification_v1(r.get("profit_factor"), r.get("completed"))
+        groups.setdefault(c, []).append(r)
+
+    def render_group(title):
+        trs = []
+        for r in groups.get(title, []):
+            trs.append(
+                "<tr>"
+                f"<td>{r.get('family')}</td>"
+                f"<td>{r.get('symbol')}</td>"
+                f"<td>{r.get('completed')}</td>"
+                f"<td>{r.get('success')}</td>"
+                f"<td>{r.get('failure')}</td>"
+                f"<td>{r.get('expectancy')}</td>"
+                f"<td>{r.get('profit_factor')}</td>"
+                f"<td>{r.get('winrate')}</td>"
+                f"<td>{r.get('first_ts')}</td>"
+                f"<td>{r.get('last_ts')}</td>"
+                "</tr>"
+            )
+        body = "\\n".join(trs) or "<tr><td colspan='10'>Нет данных</td></tr>"
+        return f"""
+<h2>{title}</h2>
+<table>
+<tr>
+<th>Family</th><th>Symbol</th><th>Completed</th><th>Success</th><th>Failure</th>
+<th>Expectancy</th><th>PF</th><th>Winrate</th><th>First</th><th>Last</th>
+</tr>
+{body}
+</table>
+"""
+
+    error_html = f"<div style='color:#b00020'>Ошибка: {error}</div>" if error else ""
+
+    primary_symbols = ", ".join([r.get("symbol") for r in groups["PRIMARY"]]) or "нет"
+    secondary_symbols = ", ".join([r.get("symbol") for r in groups["SECONDARY"]]) or "нет"
+    watch_symbols = ", ".join([r.get("symbol") for r in groups["WATCH_ONLY"]]) or "нет"
+    reject_symbols = ", ".join([r.get("symbol") for r in groups["REJECT"]]) or "нет"
+
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Active Futures Universe V1</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+table {{ border-collapse: collapse; width: 100%; margin-bottom: 22px; }}
+td, th {{ border: 1px solid #ddd; padding: 6px; }}
+th {{ background: #f3f3f3; }}
+.card {{ border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; }}
+.bad {{ color: #b00020; font-weight: bold; }}
+.good {{ color: #166534; font-weight: bold; }}
+</style>
+</head>
+<body>
+<h1>Active Futures Universe V1</h1>
+
+<div class="card">
+  <div><b>Режим:</b> read-only research</div>
+  <div><b>Исполнение:</b> отключено</div>
+  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Источник:</b> RS Bottom BOTTOM3 + COMPRESSION_RANGE; исключены 12, 13, 14 МСК</div>
+</div>
+
+<div class="card">
+  <h2>Runtime recommendation</h2>
+  <div><b>PRIMARY:</b> <span class="good">{primary_symbols}</span></div>
+  <div><b>SECONDARY:</b> {secondary_symbols}</div>
+  <div><b>WATCH_ONLY:</b> {watch_symbols}</div>
+  <div><b>REJECT:</b> {reject_symbols}</div>
+</div>
+
+{error_html}
+{render_group("PRIMARY")}
+{render_group("SECONDARY")}
+{render_group("WATCH_ONLY")}
+{render_group("REJECT")}
+</body>
+</html>
+"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -2723,6 +2883,15 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/rs-bottom-contract-rolling", "/rs-bottom-contract-rolling/"}:
                 body = render_rs_bottom_contract_rolling_dashboard_v1().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path in {"/active-futures-universe", "/active-futures-universe/"}:
+                body = render_active_futures_universe_dashboard_v1().encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
