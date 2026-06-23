@@ -2841,6 +2841,7 @@ def load_rs_bottom_runtime_dry_run_dashboard_v1():
                             symbol,
                             family,
                             signal_ts,
+                            created_at,
                             return_pct,
                             status
                         from analytics_rs_bottom_runtime_dry_run_v1
@@ -2909,9 +2910,20 @@ def load_rs_bottom_runtime_dry_run_dashboard_v1():
                         from base b
                         group by b.symbol
                     )
-                    select agg.*, dd.max_drawdown
+                    select
+                        agg.*,
+                        dd.max_drawdown,
+                        max(base.signal_ts) as last_signal_ts,
+                        max(base.created_at) as last_created_at,
+                        count(*) filter (where base.created_at >= now() - interval '90 minutes')::int as fresh_created_rows,
+                        count(*) filter (where base.status='WAITING')::int as waiting_rows_freshness
                     from agg
                     left join dd using (symbol)
+                    left join base using (symbol)
+                    group by
+                        agg.symbol, agg.family, agg.signals_total, agg.success, agg.failure,
+                        agg.waiting, agg.completed, agg.expectancy, agg.profit_factor,
+                        agg.winrate, agg.first_ts, agg.last_ts, dd.max_drawdown
                     order by profit_factor desc nulls last, completed desc
                 """)
                 return {"rows": [dict(r) for r in cur.fetchall()], "error": None}
@@ -2957,6 +2969,10 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
             f"<td>{r.get('profit_factor')}</td>"
             f"<td>{r.get('winrate')}</td>"
             f"<td>{r.get('max_drawdown')}</td>"
+            f"<td>{r.get('fresh_created_rows') or 0}</td>"
+            f"<td>{r.get('waiting_rows_freshness') or 0}</td>"
+            f"<td>{r.get('last_signal_ts')}</td>"
+            f"<td>{r.get('last_created_at')}</td>"
             f"<td><b>{verdict}</b></td>"
             "</tr>"
         )
@@ -2992,6 +3008,7 @@ th {{ background: #f3f3f3; }}
   <div><b>Paper orders:</b> <span class="bad">не создаются</span></div>
   <div><b>Источник:</b> analytics_rs_bottom_runtime_dry_run_v1</div>
   <div><b>Автообновление:</b> 30 секунд</div>
+  <div><b>Freshness:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
 </div>
 
 <div class="card">
@@ -3006,7 +3023,8 @@ th {{ background: #f3f3f3; }}
 <table>
 <tr>
 <th>Symbol</th><th>Family</th><th>Signals</th><th>Completed</th><th>Success</th><th>Failure</th><th>Waiting</th>
-<th>Expectancy</th><th>PF</th><th>Winrate</th><th>Max DD</th><th>Verdict</th>
+<th>Expectancy</th><th>PF</th><th>Winrate</th><th>Max DD</th>
+<th>Fresh rows 90m</th><th>Waiting</th><th>Last signal</th><th>Last created</th><th>Verdict</th>
 </tr>
 {table_rows}
 </table>
