@@ -905,6 +905,7 @@ def render_html(payload: dict) -> str:
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="refresh" content="30">
 <title>Finam Core — наблюдение пробоев</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; background: #111; color: #eee; }}
@@ -2659,7 +2660,10 @@ def load_active_futures_universe_dashboard_v1():
                           and return_pct is not null
                           and extract(hour from source_ts at time zone 'Europe/Moscow')::int not in (12,13,14)
                     ),
-                    agg as (
+                    latest as (
+                        select max(source_ts) as as_of from src
+                    ),
+                    hist_agg as (
                         select
                             family,
                             symbol,
@@ -2677,9 +2681,40 @@ def load_active_futures_universe_dashboard_v1():
                             max(source_ts) as last_ts
                         from src
                         group by family, symbol
+                    ),
+                    live_agg as (
+                        select
+                            family,
+                            symbol,
+                            count(*)::int as live_completed,
+                            count(*) filter (where status='SUCCESS')::int as live_success,
+                            count(*) filter (where status='FAILURE')::int as live_failure,
+                            avg(return_pct) as live_expectancy,
+                            case
+                                when abs(sum(least(return_pct, 0))) > 0
+                                then sum(greatest(return_pct, 0)) / abs(sum(least(return_pct, 0)))
+                                else null
+                            end as live_profit_factor,
+                            avg(case when status='SUCCESS' then 1.0 else 0.0 end) as live_winrate,
+                            min(source_ts) as live_first_ts,
+                            max(source_ts) as live_last_ts
+                        from src
+                        where source_ts >= (select as_of - interval '24 hours' from latest)
+                        group by family, symbol
                     )
-                    select *
-                    from agg
+                    select
+                        hist_agg.*,
+                        live_agg.live_completed,
+                        live_agg.live_success,
+                        live_agg.live_failure,
+                        live_agg.live_expectancy,
+                        live_agg.live_profit_factor,
+                        live_agg.live_winrate,
+                        live_agg.live_first_ts,
+                        live_agg.live_last_ts,
+                        (select as_of from latest) as as_of
+                    from hist_agg
+                    left join live_agg using (family, symbol)
                     order by family, profit_factor desc nulls last, completed desc
                 """)
                 return {"rows": [dict(r) for r in cur.fetchall()], "error": None}
@@ -2717,13 +2752,13 @@ def render_active_futures_universe_dashboard_v1():
                 f"<td>{r.get('family')}</td>"
                 f"<td>{r.get('symbol')}</td>"
                 f"<td>{r.get('completed')}</td>"
-                f"<td>{r.get('success')}</td>"
-                f"<td>{r.get('failure')}</td>"
-                f"<td>{r.get('expectancy')}</td>"
                 f"<td>{r.get('profit_factor')}</td>"
-                f"<td>{r.get('winrate')}</td>"
-                f"<td>{r.get('first_ts')}</td>"
-                f"<td>{r.get('last_ts')}</td>"
+                f"<td>{r.get('expectancy')}</td>"
+                f"<td>{r.get('live_completed') or 0}</td>"
+                f"<td>{r.get('live_profit_factor')}</td>"
+                f"<td>{r.get('live_expectancy')}</td>"
+                f"<td>{r.get('live_last_ts')}</td>"
+                f"<td>{r.get('as_of')}</td>"
                 "</tr>"
             )
         body = "\\n".join(trs) or "<tr><td colspan='10'>Нет данных</td></tr>"
@@ -2731,8 +2766,8 @@ def render_active_futures_universe_dashboard_v1():
 <h2>{title}</h2>
 <table>
 <tr>
-<th>Family</th><th>Symbol</th><th>Completed</th><th>Success</th><th>Failure</th>
-<th>Expectancy</th><th>PF</th><th>Winrate</th><th>First</th><th>Last</th>
+<th>Family</th><th>Symbol</th><th>Hist completed</th><th>Hist PF</th><th>Hist expectancy</th>
+<th>Live completed 24h</th><th>Live PF</th><th>Live expectancy</th><th>Live last</th><th>As of</th>
 </tr>
 {body}
 </table>
@@ -2750,7 +2785,7 @@ def render_active_futures_universe_dashboard_v1():
 <html>
 <head>
 <meta charset="utf-8">
-<title>Active Futures Universe V1</title>
+<title>Active Futures Universe Live V1</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 table {{ border-collapse: collapse; width: 100%; margin-bottom: 22px; }}
@@ -2762,13 +2797,15 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
-<h1>Active Futures Universe V1</h1>
+<h1>Active Futures Universe Live V1</h1>
 
 <div class="card">
   <div><b>Режим:</b> read-only research</div>
   <div><b>Исполнение:</b> отключено</div>
   <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
   <div><b>Источник:</b> RS Bottom BOTTOM3 + COMPRESSION_RANGE; исключены 12, 13, 14 МСК</div>
+  <div><b>Live-окно:</b> последние 24 часа от максимального source_ts</div>
+  <div><b>Автообновление:</b> каждые 30 секунд</div>
 </div>
 
 <div class="card">
