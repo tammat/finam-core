@@ -3163,6 +3163,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
             if path in {"/", ""}:
+                body = render_rs_bottom_runtime_dry_run_dashboard_v1().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if False and path in {"/", ""}:
                 self.send_response(302)
                 self.send_header("Location", "/mobile")
                 self.end_headers()
