@@ -922,6 +922,7 @@ th {{ background: #222; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
 <h1>Наблюдение качества сигналов пробоя V1</h1>
 <nav class="menu">
@@ -2612,6 +2613,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
 <h1>RS Bottom: rolling-аудит контрактов</h1>
 <div class="card">
@@ -2799,6 +2801,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
 <h1>Active Futures Universe Live V1</h1>
 
@@ -3002,6 +3005,7 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
 <h1>RS Bottom Runtime Dry Run V1</h1>
 
@@ -3034,6 +3038,24 @@ th {{ background: #f3f3f3; }}
 </table>
 </body>
 </html>
+"""
+
+
+
+def dashboard_main_navigation_v1():
+    return """
+<div style="border:1px solid #ddd; padding:10px; margin:0 0 16px 0;">
+  <b>Меню 8088:</b>
+  <a href="/">Главная</a> |
+  <a href="/rs-bottom-runtime-dry-run">RS Bottom runtime</a> |
+  <a href="/active-futures-universe">Активные фьючерсы</a> |
+  <a href="/equities">Акции</a> |
+  <a href="/rs-bottom-forward">История RS Bottom</a> |
+  <a href="/rs-bottom-clean">RS Bottom очищенный</a> |
+  <a href="/leaderboard">Лидеры</a> |
+  <a href="/edge-stability">Стабильность edge</a> |
+  <a href="/rs-bottom-paper">RS Bottom paper</a>
+</div>
 """
 
 
