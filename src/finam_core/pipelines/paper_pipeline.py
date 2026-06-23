@@ -4122,7 +4122,11 @@ class PaperTradingPipeline:
                 strategy=str(
                     raw_intent.get("strategy")
                     if isinstance(raw_intent, dict) and raw_intent.get("strategy")
-                    else self._strategy_name_for_symbol(str(sym))
+                    else (
+                        self._runtime_strategy_name_for_symbol(str(sym))
+                        if str(sym).endswith("@MISX")
+                        else self._strategy_name_for_symbol(str(sym))
+                    )
                 ),
                 timeframe=str(raw_intent.get("timeframe") or "LIVE") if isinstance(raw_intent, dict) else "LIVE",
                 side=(
@@ -4146,7 +4150,11 @@ class PaperTradingPipeline:
                 strategy=str(
                     raw_intent.get("strategy")
                     if isinstance(raw_intent, dict) and raw_intent.get("strategy")
-                    else self._strategy_name_for_symbol(str(sym))
+                    else (
+                        self._runtime_strategy_name_for_symbol(str(sym))
+                        if str(sym).endswith("@MISX")
+                        else self._strategy_name_for_symbol(str(sym))
+                    )
                 ),
                 timeframe=str(raw_intent.get("timeframe") or "LIVE") if isinstance(raw_intent, dict) else "LIVE",
                 side=(
@@ -4518,7 +4526,11 @@ class PaperTradingPipeline:
             runtime_strategy_for_guard = str(
                 intent.get("strategy")
                 or intent_features.get("strategy")
-                or self._strategy_name_for_symbol(str(sym))
+                or (
+                    self._runtime_strategy_name_for_symbol(str(sym))
+                    if str(sym).endswith("@MISX")
+                    else self._strategy_name_for_symbol(str(sym))
+                )
             )
 
             runtime_blocked, runtime_block_reason = self._is_runtime_strategy_blocked_v1(
@@ -6604,7 +6616,18 @@ class PaperTradingPipeline:
 
             features = intent.setdefault("features", {})
             symbol = str(intent.get("symbol") or "")
-            strategy = str(features.get("strategy") or intent.get("strategy") or self._strategy_name_for_symbol(symbol))
+            # EQUITY_ADVISORY_RUNTIME_STRATEGY_PATCH_V1
+            # Русский комментарий: для @MISX advisory должен использовать runtime strategy,
+            # иначе guard/advisory снова уходит в legacy MEAN_REVERSION/TREND_PULLBACK.
+            strategy = str(
+                features.get("strategy")
+                or intent.get("strategy")
+                or (
+                    self._runtime_strategy_name_for_symbol(symbol)
+                    if str(symbol).endswith("@MISX")
+                    else self._strategy_name_for_symbol(symbol)
+                )
+            )
 
             regime_ru = str(
                 features.get("institutional_flow_regime_ru")
@@ -7308,17 +7331,53 @@ class PaperTradingPipeline:
         """Русский комментарий: возвращает strategy из runtime_active_universe для equity-symbol.
 
         Метод используется только для @MISX в runtime symbol add path.
+        # EQUITY_NO_LEGACY_FALLBACK_FOR_MISX_V1
         При любой ошибке мягко возвращается legacy _strategy_name_for_symbol,
         чтобы не ломать paper runtime.
         """
         try:
             symbol_key = str(symbol or "").strip()
             if not symbol_key.endswith("@MISX"):
-                return self._strategy_name_for_symbol(symbol_key)
+                return self._strategy_name_for_symbol(symbol_key, _allow_equity_runtime=False)
+
+            # EQUITY_RUNTIME_STRATEGY_RESOLVER_DATABASE_URL_PATCH_V1
+            # Русский комментарий: для @MISX сначала пробуем прямое чтение runtime_active_universe
+            # через DATABASE_URL, чтобы не зависеть от pg_logger connection lifecycle.
+            try:
+                import os
+                import psycopg2
+
+                dsn = os.getenv("DATABASE_URL")
+                if dsn:
+                    with psycopg2.connect(dsn) as _conn:
+                        with _conn.cursor() as _cur:
+                            _cur.execute(
+                                """
+                                select strategy
+                                from runtime_active_universe
+                                where symbol = %s
+                                  and coalesce(is_enabled, true) = true
+                                order by updated_at desc nulls last
+                                limit 1
+                                """,
+                                (symbol_key,),
+                            )
+                            _row = _cur.fetchone()
+                            if _row and str(_row[0] or "").strip():
+                                return str(_row[0]).strip()
+            except Exception as exc:
+                try:
+                    self._log_dedup(
+                        f"PIPE_RUNTIME_EQUITY_STRATEGY_RESOLVER_DATABASE_URL_ERROR:{symbol_key}",
+                        f"PIPE_RUNTIME_EQUITY_STRATEGY_RESOLVER_DATABASE_URL_ERROR symbol={symbol_key} error={type(exc).__name__}:{exc}",
+                        heartbeat_sec=300,
+                    )
+                except Exception:
+                    pass
 
             pg_logger = getattr(self, "pg_logger", None)
             if pg_logger is None:
-                return self._strategy_name_for_symbol(symbol_key)
+                return "VOLATILITY_BREAKOUT_EQUITY"
 
             conn = (
                 getattr(pg_logger, "conn", None)
@@ -7356,7 +7415,7 @@ class PaperTradingPipeline:
                         pass
 
             if conn is None:
-                return self._strategy_name_for_symbol(symbol_key)
+                return "VOLATILITY_BREAKOUT_EQUITY"
 
             try:
                 with conn.cursor() as cur:
@@ -7382,13 +7441,13 @@ class PaperTradingPipeline:
                         pass
 
             if not row:
-                return self._strategy_name_for_symbol(symbol_key)
+                return "VOLATILITY_BREAKOUT_EQUITY"
 
             runtime_strategy = str(row[0] or "").strip()
             if runtime_strategy:
                 return runtime_strategy
 
-            return self._strategy_name_for_symbol(symbol_key)
+            return "VOLATILITY_BREAKOUT_EQUITY"
 
         except Exception as exc:
             try:
@@ -7400,11 +7459,30 @@ class PaperTradingPipeline:
             except Exception:
                 pass
 
-            return self._strategy_name_for_symbol(str(symbol or ""))
+            return "VOLATILITY_BREAKOUT_EQUITY"
 
 
-    def _strategy_name_for_symbol(self, symbol: str) -> str:
-        """Русский комментарий: возвращает имя стратегии с учётом dynamic_watchlist."""
+    def _strategy_name_for_symbol(self, symbol: str, *, _allow_equity_runtime: bool = True) -> str:
+        """Русский комментарий: возвращает имя стратегии.
+
+        Для @MISX приоритет — runtime_active_universe.strategy.
+        Legacy symbol_strategy_map используется только как fallback.
+        """
+        symbol_key = str(symbol or "").strip()
+
+        if _allow_equity_runtime and symbol_key.endswith("@MISX"):
+            try:
+                return str(self._runtime_strategy_name_for_symbol(symbol_key))
+            except Exception as exc:
+                try:
+                    self._log_dedup(
+                        f"PIPE_EQUITY_RUNTIME_STRATEGY_NAME_FALLBACK:{symbol_key}",
+                        f"PIPE_EQUITY_RUNTIME_STRATEGY_NAME_FALLBACK symbol={symbol_key} error={type(exc).__name__}:{exc}",
+                        heartbeat_sec=300,
+                    )
+                except Exception:
+                    pass
+
         try:
             from finam_core.strategy.dynamic_strategy_resolver import DynamicStrategyResolver
 
@@ -7413,18 +7491,18 @@ class PaperTradingPipeline:
                 resolver = DynamicStrategyResolver(getattr(self, "pg_logger", None))
                 self.dynamic_strategy_resolver = resolver
 
-            return str(resolver.strategy_for_symbol(symbol))
+            return str(resolver.strategy_for_symbol(symbol_key))
 
         except Exception as exc:
             self._log_dedup(
-                f"PIPE_DYNAMIC_STRATEGY_RESOLVER_ERROR:{symbol}",
-                f"PIPE_DYNAMIC_STRATEGY_RESOLVER_ERROR symbol={symbol} error={type(exc).__name__}:{exc}",
+                f"PIPE_DYNAMIC_STRATEGY_RESOLVER_ERROR:{symbol_key}",
+                f"PIPE_DYNAMIC_STRATEGY_RESOLVER_ERROR symbol={symbol_key} error={type(exc).__name__}:{exc}",
                 heartbeat_sec=300,
             )
 
             try:
                 from finam_core.strategy.symbol_strategy_map import SYMBOL_STRATEGY_MAP, DEFAULT_STRATEGY
-                return str(SYMBOL_STRATEGY_MAP.get(symbol, DEFAULT_STRATEGY))
+                return str(SYMBOL_STRATEGY_MAP.get(symbol_key, DEFAULT_STRATEGY))
             except Exception:
                 return "default"
 
@@ -8882,6 +8960,39 @@ class PaperTradingPipeline:
                 return
 
             strategy_name = self._runtime_strategy_name_for_symbol(symbol)
+
+            # EQUITY_STRATEGY_CACHE_REBIND_PATCH_V1
+            # Русский комментарий: если strategy_by_symbol уже содержит legacy instance,
+            # но runtime_active_universe требует VOLATILITY_BREAKOUT_EQUITY,
+            # пересоздаём стратегию, чтобы не оставаться на MEAN_REVERSION/TREND_PULLBACK.
+            try:
+                cached_strategy = self.strategy_by_symbol.get(symbol)
+                cached_name = str(
+                    getattr(cached_strategy, "name", "")
+                    or getattr(cached_strategy, "strategy_name", "")
+                    or cached_strategy.__class__.__name__
+                )
+                if (
+                    strategy_name == "VOLATILITY_BREAKOUT_EQUITY"
+                    and cached_strategy is not None
+                    and "VolatilityBreakout" not in cached_name
+                    and cached_name != "VOLATILITY_BREAKOUT_EQUITY"
+                ):
+                    self.strategy_by_symbol[symbol] = StrategyFactory.create(
+                        symbol,
+                        strategy_name=strategy_name,
+                    )
+                    print(
+                        "PIPE_EQUITY_STRATEGY_CACHE_REBOUND "
+                        f"symbol={symbol} old_strategy={cached_name} new_strategy={strategy_name}",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    "PIPE_EQUITY_STRATEGY_CACHE_REBIND_ERROR "
+                    f"symbol={symbol} strategy={strategy_name} error={type(exc).__name__}:{exc}",
+                    flush=True,
+                )
 
             if strategy_name != "VOLATILITY_BREAKOUT_EQUITY":
                 print(
