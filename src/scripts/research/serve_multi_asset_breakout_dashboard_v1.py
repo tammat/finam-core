@@ -2488,6 +2488,147 @@ th {{ background: #f3f3f3; }}
 </html>"""
 
 
+
+def load_rs_bottom_contract_rolling_dashboard_v1():
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        return {"rows": [], "error": "DATABASE_URL_NOT_SET"}
+
+    try:
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    with src as (
+                        select
+                            case
+                                when left(symbol, 2) = 'BR' then 'BRENT_FUTURES'
+                                when left(symbol, 2) = 'NG' then 'GAS_FUTURES'
+                                when left(symbol, 2) in ('GD','GL') then 'GOLD_FUTURES'
+                                when left(symbol, 7) = 'USDRUBF' then 'FX_FUTURES'
+                                else 'OTHER'
+                            end as family,
+                            symbol,
+                            return_pct,
+                            status,
+                            source_ts
+                        from analytics_futures_rs_bottom_paper_observation_v1
+                        where selection = 'BOTTOM3'
+                          and filter_name = 'COMPRESSION_RANGE'
+                          and status in ('SUCCESS','FAILURE')
+                          and return_pct is not null
+                          and extract(hour from source_ts at time zone 'Europe/Moscow')::int not in (12,13,14)
+                    ),
+                    agg as (
+                        select
+                            family,
+                            symbol,
+                            count(*)::int as completed,
+                            count(*) filter (where status='SUCCESS')::int as success,
+                            count(*) filter (where status='FAILURE')::int as failure,
+                            avg(return_pct) as expectancy,
+                            case
+                                when abs(sum(least(return_pct, 0))) > 0
+                                then sum(greatest(return_pct, 0)) / abs(sum(least(return_pct, 0)))
+                                else null
+                            end as profit_factor,
+                            avg(case when status='SUCCESS' then 1.0 else 0.0 end) as winrate
+                        from src
+                        group by family, symbol
+                    ),
+                    fam as (
+                        select family, max(profit_factor) as best_pf
+                        from agg
+                        group by family
+                    )
+                    select
+                        agg.*,
+                        fam.best_pf,
+                        case
+                            when fam.best_pf > 0 and agg.profit_factor is not null
+                            then (fam.best_pf - agg.profit_factor) / fam.best_pf
+                            else null
+                        end as degradation_pct
+                    from agg
+                    join fam using (family)
+                    order by family, profit_factor desc nulls last, completed desc
+                """)
+                return {"rows": [dict(r) for r in cur.fetchall()], "error": None}
+    except Exception as exc:
+        return {"rows": [], "error": str(exc)}
+
+
+def render_rs_bottom_contract_rolling_dashboard_v1():
+    data = load_rs_bottom_contract_rolling_dashboard_v1()
+    rows = data.get("rows") or []
+    error = data.get("error")
+
+    trs = []
+    for r in rows:
+        completed = int(r.get("completed") or 0)
+        pf = r.get("profit_factor")
+        pf_num = float(pf) if pf is not None else 0.0
+
+        if completed < 10:
+            verdict = "WATCH_LOW_SAMPLE"
+        elif pf_num >= 1.5:
+            verdict = "PRIMARY"
+        elif pf_num >= 1.0:
+            verdict = "SECONDARY"
+        else:
+            verdict = "REJECT"
+
+        trs.append(
+            "<tr>"
+            f"<td>{r.get('family')}</td>"
+            f"<td>{r.get('symbol')}</td>"
+            f"<td>{completed}</td>"
+            f"<td>{r.get('success')}</td>"
+            f"<td>{r.get('failure')}</td>"
+            f"<td>{r.get('expectancy')}</td>"
+            f"<td>{r.get('profit_factor')}</td>"
+            f"<td>{r.get('winrate')}</td>"
+            f"<td>{r.get('degradation_pct')}</td>"
+            f"<td><b>{verdict}</b></td>"
+            "</tr>"
+        )
+
+    error_html = f"<div style='color:#b00020'>Ошибка: {error}</div>" if error else ""
+    table_rows = "\\n".join(trs) or "<tr><td colspan='10'>Нет данных</td></tr>"
+
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>RS Bottom rolling audit</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+table {{ border-collapse: collapse; width: 100%; }}
+td, th {{ border: 1px solid #ddd; padding: 6px; }}
+th {{ background: #f3f3f3; }}
+.card {{ border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; }}
+</style>
+</head>
+<body>
+<h1>RS Bottom: rolling-аудит контрактов</h1>
+<div class="card">
+  <div><b>Режим:</b> research only</div>
+  <div><b>Исполнение:</b> отключено</div>
+  <div><b>Реальная торговля:</b> запрещена</div>
+  <div><b>Фильтр:</b> BOTTOM3 + COMPRESSION_RANGE; исключены 12, 13, 14 МСК</div>
+</div>
+{error_html}
+<table>
+<tr>
+<th>Family</th><th>Symbol</th><th>Completed</th><th>Success</th><th>Failure</th>
+<th>Expectancy</th><th>PF</th><th>Winrate</th><th>Degradation</th><th>Verdict</th>
+</tr>
+{table_rows}
+</table>
+</body>
+</html>
+"""
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -2573,6 +2714,15 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/leaderboard", "/leaderboard/"}:
                 body = render_rs_bottom_forward_leaderboard_page(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path in {"/rs-bottom-contract-rolling", "/rs-bottom-contract-rolling/"}:
+                body = render_rs_bottom_contract_rolling_dashboard_v1().encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
