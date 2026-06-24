@@ -1172,6 +1172,8 @@ pre {{ white-space: pre-wrap; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/edge">Техническая готовность к пробою</a>
@@ -1300,6 +1302,8 @@ a {{ margin-right: 12px; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/compression-history">История сжатия</a>
@@ -1493,6 +1497,8 @@ a {{ margin-right: 12px; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
@@ -1657,6 +1663,8 @@ a {{ margin-right: 12px; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 <nav>
 <a href="/summary">Сводка</a>
 <a href="/rs-bottom-paper">RS Bottom Paper</a>
@@ -1746,6 +1754,8 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 
 <div class="card">
   <h2>📈 Монитор пробоя</h2>
@@ -1987,6 +1997,8 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 {dashboard_nav_ru("Акции")}
 
 <h1>Акции</h1>
@@ -2139,6 +2151,8 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 {dashboard_nav_ru("RS Bottom очищенный")}
 <div class="card"><b>Навигация:</b> Главная → RS Bottom очищенный</div>
 
@@ -2354,6 +2368,8 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 {dashboard_nav_ru("Устойчивость преимущества")}
 
 <h1>Устойчивость торгового преимущества</h1>
@@ -2466,6 +2482,8 @@ th {{ background: #f3f3f3; }}
 </style>
 </head>
 <body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
 <div class="nav">
 <a href="/mobile">Главная</a>
 <a href="/rs-bottom-forward">RS: форвардная проверка</a>
@@ -3118,6 +3136,23 @@ def dashboard_home_link_v1():
     return '<div style="margin:0 0 16px 0;"><a href="/">← Главная</a></div>'
 
 
+
+def inject_dashboard_navigation_v1(html: str) -> str:
+    if "Меню 8088" in html:
+        return html
+
+    nav = dashboard_main_navigation_v1() + "\n" + dashboard_home_link_v1() + "\n"
+
+    if "<body>" in html:
+        return html.replace("<body>", "<body>\n" + nav, 1)
+    if "<body " in html:
+        idx = html.find(">", html.find("<body "))
+        if idx != -1:
+            return html[:idx + 1] + "\n" + nav + html[idx + 1:]
+
+    return nav + html
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -3154,7 +3189,7 @@ class Handler(BaseHTTPRequestHandler):
             payload = collect_payload()
 
             if path in {"/rs-bottom-paper", "/rs-bottom-paper/"}:
-                body = render_rs_bottom_paper_page(payload).encode("utf-8")
+                body = inject_dashboard_navigation_v1(render_rs_bottom_paper_page(payload)).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -3202,7 +3237,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path in {"/leaderboard", "/leaderboard/"}:
-                body = render_rs_bottom_forward_leaderboard_page(payload).encode("utf-8")
+                body = inject_dashboard_navigation_v1(render_rs_bottom_forward_leaderboard_page(payload)).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -3238,7 +3273,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path in {"/rs-bottom-forward", "/rs-bottom-forward/"}:
-                body = render_rs_bottom_forward_page(payload).encode("utf-8")
+                body = inject_dashboard_navigation_v1(render_rs_bottom_forward_page(payload)).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
