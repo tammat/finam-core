@@ -3151,6 +3151,114 @@ def fmt_pct_v1(value, digits=2):
         return str(value)
 
 
+
+def is_ios_mobile_request_v1(user_agent: str | None) -> bool:
+    ua = (user_agent or "").lower()
+    return (
+        "iphone" in ua
+        or "ipad" in ua
+        or "ipod" in ua
+        or ("mobile" in ua and "safari" in ua)
+    )
+
+
+def finam_core_mobile_shell_v1(title: str, body: str) -> str:
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>{title}</title>
+<style>
+body {{
+  font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+  margin: 10px;
+  background: #0f172a;
+  color: #e5e7eb;
+}}
+a {{ color: #93c5fd; text-decoration: none; }}
+.card {{
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}}
+.kpi {{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}}
+.kpi div {{
+  background: #020617;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 10px;
+}}
+table {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}}
+td, th {{
+  border-bottom: 1px solid #334155;
+  padding: 5px;
+}}
+th {{ color: #cbd5e1; }}
+.good {{ color: #22c55e; font-weight: bold; }}
+.warn {{ color: #facc15; font-weight: bold; }}
+.bad {{ color: #f87171; font-weight: bold; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <b>Finam Core</b><br>
+  <a href="/">Главная</a> ·
+  <a href="/active-futures-universe">Фьючерсы</a> ·
+  <a href="/equities">Акции</a> ·
+  <a href="/archive">Архив</a>
+</div>
+{body}
+</body>
+</html>
+"""
+
+
+def finam_core_desktop_shell_v1(title: str, body: str) -> str:
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="30">
+<title>{title}</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+table {{ border-collapse: collapse; width: 100%; margin-bottom: 22px; }}
+td, th {{ border: 1px solid #ddd; padding: 6px; }}
+th {{ background: #f3f3f3; }}
+.card {{ border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; }}
+.good {{ color: #166534; font-weight: bold; }}
+.warn {{ color: #92400e; font-weight: bold; }}
+.bad {{ color: #991b1b; font-weight: bold; }}
+</style>
+</head>
+<body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
+{body}
+</body>
+</html>
+"""
+
+
+def finam_core_shell_v1(title: str, body: str, user_agent: str | None = None) -> str:
+    if is_ios_mobile_request_v1(user_agent):
+        return finam_core_mobile_shell_v1(title, body)
+    return finam_core_desktop_shell_v1(title, body)
+
 def dashboard_main_navigation_v1():
     return """
 <div style="border:1px solid #ddd; padding:10px; margin:0 0 16px 0;">
@@ -3210,6 +3318,35 @@ def inject_dashboard_navigation_v1(html: str) -> str:
     return nav + html
 
 
+
+
+def render_finam_core_mobile_home_v1(payload: dict | None = None) -> str:
+    return """
+<div class="card">
+  <h1>Finam Core</h1>
+  <div class="good">🟢 ОК: GDU6, GLU6</div>
+  <div class="warn">🟡 Набл.: NGM6</div>
+  <div class="bad">🔴 Сделки отключены</div>
+</div>
+
+<div class="card">
+  <h2>Кратко</h2>
+  <div class="kpi">
+    <div><b>Доход</b><br>см. главную</div>
+    <div><b>Чистый доход</b><br>с комиссией</div>
+    <div><b>PF</b><br>по таблице</div>
+    <div><b>Просадка</b><br>контроль риска</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Действия</h2>
+  <div><a href="/">Полная главная</a></div>
+  <div><a href="/active-futures-universe">Фьючерсы</a></div>
+  <div><a href="/equities">Акции</a></div>
+  <div><a href="/archive">Архив</a></div>
+</div>
+"""
 
 def render_dashboard_archive_v1():
     return f"""
@@ -3373,6 +3510,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
             if path in {"/", ""}:
+                user_agent = self.headers.get("User-Agent")
+                if is_ios_mobile_request_v1(user_agent):
+                    html = finam_core_shell_v1("Finam Core Mobile", render_finam_core_mobile_home_v1(), user_agent)
+                    self.send_html_v1(html)
+                    return
+
                 body = dashboard_format_all_utc_timestamps_to_msk_v1(render_rs_bottom_runtime_dry_run_dashboard_v1()).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
