@@ -250,7 +250,7 @@ def parse_field(line: str, key: str) -> str:
 def parse_v2_rows(output: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for line in output.splitlines():
-        if not line.startswith("MULTI_ASSET_BREAKOUT_WATCH_V2_ROW "):
+        if not line.startswith("MULTI_ASSET_BREAKOUT_НАБЛЮДЕНИЕ_V2_ROW "):
             continue
         rows.append(
             {
@@ -729,7 +729,7 @@ def collect_payload() -> dict:
         "execution_enabled": "0",
         "real_trading_enabled": "0",
         "telegram_dry_run": os.getenv("MULTI_ASSET_TELEGRAM_DRY_RUN", "1"),
-        "v2_ok": int(v2_code == 0 and "MULTI_ASSET_BREAKOUT_WATCH_V2_OK" in v2_output),
+        "v2_ok": int(v2_code == 0 and "MULTI_ASSET_BREAKOUT_НАБЛЮДЕНИЕ_V2_OK" in v2_output),
         "plan_ok": int(plan_code == 0 and "MULTI_ASSET_BREAKOUT_TELEGRAM_NOTIFY_PLAN_V1_OK" in plan_output),
         "summary": {
             "universe_total": parse_key(v2_output, "universe_total"),
@@ -2005,11 +2005,11 @@ th {{ background: #f3f3f3; }}
 
 <div class="card">
   <h2>СТАТУС АКЦИЙ</h2>
-  <div><b>Режим:</b> Research Only</div>
-  <div><b>Edge:</b> <span class="bad">не подтвержден</span></div>
+  <div><b>Режим:</b> Только исследование</div>
+  <div><b>Преимущество:</b> <span class="bad">не подтвержден</span></div>
   <div><b>Виртуальные сделки:</b> не выполняются</div>
-  <div><b>Paper execution:</b> отключен</div>
-  <div><b>Runtime execution:</b> отключен</div>
+  <div><b>Бумажное исполнение:</b> отключен</div>
+  <div><b>Runtime-исполнение:</b> отключен</div>
   <div><b>PnL:</b> не рассчитывается, так как виртуальные сделки по акциям не создаются</div>
   <div><b>Причина:</b> PF &lt; 1, expectancy &lt; 0 по последней проверке VOLATILITY_BREAKOUT_EQUITY</div>
   <div><b>Вердикт:</b> Акции не являются runtime-кандидатами</div>
@@ -2020,7 +2020,7 @@ th {{ background: #f3f3f3; }}
   <h2>Статус направления</h2>
   <div><b>Режим:</b> сбор статистики</div>
   <div><b>Стратегия:</b> VOLATILITY_BREAKOUT_EQUITY</div>
-  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Реальная торговля:</b> {dashboard_badge_v1("запрещена", "bad")}</div>
   <div><b>Исполнение:</b> отключено</div>
   <div><b>Сигналы:</b> режим наблюдения</div>
   <div><b>Статус:</b> торговля по акциям не ведётся</div>
@@ -2162,7 +2162,7 @@ th {{ background: #f3f3f3; }}
   <h2>Статус исследования</h2>
   <div><b>Полная версия:</b> <span class="bad">отклонена</span></div>
   <div><b>Очищенная версия:</b> <span class="warn">исследовательский кандидат</span></div>
-  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Реальная торговля:</b> {dashboard_badge_v1("запрещена", "bad")}</div>
 </div>
 
 <div class="card">
@@ -2217,7 +2217,7 @@ th {{ background: #f3f3f3; }}
   <div><b>Реальный коэффициент прибыли:</b> {esc(fmt_dashboard_number(accumulation.get('real_pf')))}</div>
   <div><b>Математическое ожидание:</b> {esc(fmt_dashboard_number(accumulation.get('expectancy')))}</div>
   <div><b>Решение:</b> продолжать накопление статистики</div>
-  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Реальная торговля:</b> {dashboard_badge_v1("запрещена", "bad")}</div>
 </div>
 
 <div class="card">
@@ -2506,7 +2506,7 @@ th {{ background: #f3f3f3; }}
 <th>Наблюдений</th>
 <th>Успех</th>
 <th>Ошибка</th>
-<th>Winrate</th>
+<th>Доля успеха</th>
 <th>Avg return %</th>
 <th>PF</th>
 </tr>
@@ -2603,13 +2603,13 @@ def render_rs_bottom_contract_rolling_dashboard_v1():
         pf_num = float(pf) if pf is not None else 0.0
 
         if completed < 10:
-            verdict = "WATCH_LOW_SAMPLE"
+            verdict = "НАБЛЮДЕНИЕ_LOW_SAMPLE"
         elif pf_num >= 1.5:
             verdict = "PRIMARY"
         elif pf_num >= 1.0:
             verdict = "SECONDARY"
         else:
-            verdict = "REJECT"
+            verdict = "ОТКЛОНЕНО"
 
         trs.append(
             "<tr>"
@@ -2622,7 +2622,7 @@ def render_rs_bottom_contract_rolling_dashboard_v1():
             f"<td>{fmt_num_v1(r.get('profit_factor'))}</td>"
             f"<td>{fmt_pct_v1(r.get('winrate'))}</td>"
             f"<td>{r.get('degradation_pct')}</td>"
-            f"<td><b>{verdict}</b></td>"
+            f"<td>{dashboard_verdict_badge_v1(verdict)}</td>"
             "</tr>"
         )
 
@@ -2656,8 +2656,8 @@ th {{ background: #f3f3f3; }}
 {error_html}
 <table>
 <tr>
-<th>Family</th><th>Symbol</th><th>Completed</th><th>Success</th><th>Failure</th>
-<th>Expectancy</th><th>PF</th><th>Winrate</th><th>Degradation</th><th>Verdict</th>
+<th>Семейство</th><th>Инструмент</th><th>Завершено</th><th>Успех</th><th>Ошибка</th>
+<th>Средний результат</th><th>PF</th><th>Доля успеха</th><th>Degradation</th><th>Статус</th>
 </tr>
 {table_rows}
 </table>
@@ -2761,12 +2761,12 @@ def active_futures_classification_v1(profit_factor, completed):
     pf = float(profit_factor or 0)
     completed = int(completed or 0)
     if completed < 10 and pf > 1.0:
-        return "WATCH_ONLY"
+        return "НАБЛЮДЕНИЕ_ONLY"
     if completed >= 15 and pf >= 1.5:
         return "PRIMARY"
     if completed >= 15 and pf >= 1.0:
         return "SECONDARY"
-    return "REJECT"
+    return "ОТКЛОНЕНО"
 
 
 def render_active_futures_universe_dashboard_v1():
@@ -2774,7 +2774,7 @@ def render_active_futures_universe_dashboard_v1():
     rows = data.get("rows") or []
     error = data.get("error")
 
-    groups = {"PRIMARY": [], "SECONDARY": [], "WATCH_ONLY": [], "REJECT": []}
+    groups = {"PRIMARY": [], "SECONDARY": [], "НАБЛЮДЕНИЕ_ONLY": [], "ОТКЛОНЕНО": []}
     for r in rows:
         c = active_futures_classification_v1(r.get("profit_factor"), r.get("completed"))
         groups.setdefault(c, []).append(r)
@@ -2801,7 +2801,7 @@ def render_active_futures_universe_dashboard_v1():
 <h2>{title}</h2>
 <table>
 <tr>
-<th>Family</th><th>Symbol</th><th>Hist completed</th><th>Hist PF</th><th>Hist expectancy</th>
+<th>Семейство</th><th>Инструмент</th><th>Hist completed</th><th>Hist PF</th><th>Hist expectancy</th>
 <th>Live completed 24h</th><th>Live PF</th><th>Live expectancy</th><th>Live last</th><th>As of</th>
 </tr>
 {body}
@@ -2812,8 +2812,8 @@ def render_active_futures_universe_dashboard_v1():
 
     primary_symbols = ", ".join([r.get("symbol") for r in groups["PRIMARY"]]) or "нет"
     secondary_symbols = ", ".join([r.get("symbol") for r in groups["SECONDARY"]]) or "нет"
-    watch_symbols = ", ".join([r.get("symbol") for r in groups["WATCH_ONLY"]]) or "нет"
-    reject_symbols = ", ".join([r.get("symbol") for r in groups["REJECT"]]) or "нет"
+    watch_symbols = ", ".join([r.get("symbol") for r in groups["НАБЛЮДЕНИЕ_ONLY"]]) or "нет"
+    reject_symbols = ", ".join([r.get("symbol") for r in groups["ОТКЛОНЕНО"]]) or "нет"
 
     return f"""
 <!doctype html>
@@ -2839,7 +2839,7 @@ th {{ background: #f3f3f3; }}
 <div class="card">
   <div><b>Режим:</b> read-only research</div>
   <div><b>Исполнение:</b> отключено</div>
-  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
+  <div><b>Реальная торговля:</b> {dashboard_badge_v1("запрещена", "bad")}</div>
   <div><b>Источник:</b> RS Bottom BOTTOM3 + COMPRESSION_RANGE; исключены 12, 13, 14 МСК</div>
   <div><b>Live-окно:</b> последние 24 часа от максимального source_ts</div>
   <div><b>Автообновление:</b> каждые 30 секунд</div>
@@ -2849,15 +2849,15 @@ th {{ background: #f3f3f3; }}
   <h2>Runtime recommendation</h2>
   <div><b>PRIMARY:</b> <span class="good">{primary_symbols}</span></div>
   <div><b>SECONDARY:</b> {secondary_symbols}</div>
-  <div><b>WATCH_ONLY:</b> {watch_symbols}</div>
+  <div><b>НАБЛЮДЕНИЕ_ONLY:</b> {watch_symbols}</div>
   <div><b>ОТКЛОНЕНО:</b> {reject_symbols}</div>
 </div>
 
 {error_html}
 {render_group("PRIMARY")}
 {render_group("SECONDARY")}
-{render_group("WATCH_ONLY")}
-{render_group("REJECT")}
+{render_group("НАБЛЮДЕНИЕ_ONLY")}
+{render_group("ОТКЛОНЕНО")}
 </body>
 </html>
 """
@@ -2955,7 +2955,16 @@ def load_rs_bottom_runtime_dry_run_dashboard_v1():
                         count(*) filter (where base.created_at >= now() - interval '90 minutes')::int as fresh_created_rows,
                         count(*) filter (where base.status='WAITING')::int as waiting_rows_freshness,
                         sum(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE')) as gross_pnl,
-                        avg(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE')) as avg_pnl
+                        avg(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE')) as avg_pnl,
+                        count(*) filter (where base.status in ('SUCCESS','FAILURE')) * 0.02 as commission_pct,
+                        (
+                            sum(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE'))
+                            - count(*) filter (where base.status in ('SUCCESS','FAILURE')) * 0.02
+                        ) as net_pnl,
+                        (
+                            avg(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE'))
+                            - 0.02
+                        ) as avg_net_pnl
                     from agg
                     left join dd using (symbol)
                     left join base using (symbol)
@@ -2986,13 +2995,13 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
         expectancy = float(r.get("expectancy") or 0)
 
         if completed >= 15 and pf >= 1.5 and expectancy > 0:
-            verdict = "CONFIRMED"
+            verdict = "ПОДТВЕРЖДЕНО"
             confirmed.append(r.get("symbol"))
         elif completed >= 15 and pf >= 1.0 and expectancy > 0:
-            verdict = "WATCH"
+            verdict = "НАБЛЮДЕНИЕ"
             watch.append(r.get("symbol"))
         else:
-            verdict = "REJECT"
+            verdict = "ОТКЛОНЕНО"
             reject.append(r.get("symbol"))
 
         trs.append(
@@ -3010,11 +3019,14 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
             f"<td>{fmt_num_v1(r.get('max_drawdown'))}</td>"
             f"<td>{fmt_num_v1(r.get('gross_pnl'))}</td>"
             f"<td>{fmt_num_v1(r.get('avg_pnl'))}</td>"
+            f"<td>{fmt_num_v1(r.get('commission_pct'))}</td>"
+            f"<td>{fmt_num_v1(r.get('net_pnl'))}</td>"
+            f"<td>{fmt_num_v1(r.get('avg_net_pnl'))}</td>"
             f"<td>{r.get('fresh_created_rows') or 0}</td>"
             f"<td>{r.get('waiting_rows_freshness') or 0}</td>"
             f"<td>{r.get('last_signal_ts')}</td>"
             f"<td>{r.get('last_created_at')}</td>"
-            f"<td><b>{verdict}</b></td>"
+            f"<td>{dashboard_verdict_badge_v1(verdict)}</td>"
             "</tr>"
         )
 
@@ -3027,7 +3039,7 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="30">
-<title>RS Bottom Runtime Dry Run V1</title>
+<title>RS Bottom: наблюдение без сделок V1</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 table {{ border-collapse: collapse; width: 100%; margin-bottom: 22px; }}
@@ -3042,13 +3054,13 @@ th {{ background: #f3f3f3; }}
 <body>
 {dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
-<h1>RS Bottom Runtime Dry Run V1</h1>
+<h1>RS Bottom: наблюдение без сделок V1</h1>
 
 <div class="card">
   <div><b>Режим:</b> SHADOW</div>
-  <div><b>Исполнение:</b> <span class="bad">отключено</span></div>
-  <div><b>Реальная торговля:</b> <span class="bad">запрещена</span></div>
-  <div><b>Paper orders:</b> <span class="bad">не создаются</span></div>
+  <div><b>Исполнение:</b> {dashboard_badge_v1("отключено", "bad")}</div>
+  <div><b>Реальная торговля:</b> {dashboard_badge_v1("запрещена", "bad")}</div>
+  <div><b>Paper orders:</b> {dashboard_badge_v1("не создаются", "bad")}</div>
   <div><b>Источник:</b> analytics_rs_bottom_runtime_dry_run_v1</div>
   <div><b>Автообновление:</b> 30 секунд</div>
   <div><b>Актуальность:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
@@ -3064,13 +3076,13 @@ th {{ background: #f3f3f3; }}
 
 <div class="card">
   <h2>Состояние edge</h2>
-  <div><b>ПОДТВЕРЖДЕНО:</b> <span class="good">{", ".join(confirmed) or "нет"}</span></div>
-  <div><b>НАБЛЮДЕНИЕ:</b> <span class="warn">{", ".join(watch) or "нет"}</span></div>
+  <div><b>ПОДТВЕРЖДЕНО:</b> {dashboard_badge_v1(", ".join(confirmed) or "нет", "good")}</div>
+  <div><b>НАБЛЮДЕНИЕ:</b> {dashboard_badge_v1(", ".join(watch) or "нет", "warn")}</div>
   <div><b>ОТКЛОНЕНО:</b> {", ".join(reject) or "нет"}</div>
   <div><b>Сборщик данных:</b> systemd timer каждые 5 минут</div>
   <div><b>Актуальность:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
   <div><b>Обновление:</b> автообновление страницы каждые 30 секунд</div>
-  <div><b>Режим риска:</b> <span class="bad">исполнение и реальные заявки отключены</span></div>
+  <div><b>Режим риска:</b> {dashboard_badge_v1("исполнение и реальные заявки отключены", "bad")}</div>
 </div>
 
 <div class="card">
@@ -3084,9 +3096,9 @@ th {{ background: #f3f3f3; }}
 
 <table>
 <tr>
-<th>Symbol</th><th>Family</th><th>Signals</th><th>Completed</th><th>Success</th><th>Failure</th><th>Waiting</th>
+<th>Инструмент</th><th>Семейство</th><th>Сигналы</th><th>Завершено</th><th>Успех</th><th>Ошибка</th><th>Ожидание</th>
 <th>Средний результат</th><th>PF</th><th>Доля успеха</th><th>Макс. просадка</th>
-<th>PnL всего</th><th>PnL средний</th>
+<th>Доход, %</th><th>Средний, %</th><th>Комиссия, %</th><th>Чистый доход, %</th><th>Чистый средний, %</th>
 <th>Свежие строки 90м</th><th>Ожидание</th><th>Последний сигнал</th><th>Последнее обновление</th><th>Статус</th>
 </tr>
 {table_rows}
@@ -3096,6 +3108,30 @@ th {{ background: #f3f3f3; }}
 """
 
 
+
+
+
+def dashboard_badge_v1(label: str, kind: str = "neutral") -> str:
+    colors = {
+        "good": ("#166534", "#dcfce7"),
+        "warn": ("#92400e", "#fef3c7"),
+        "bad": ("#991b1b", "#fee2e2"),
+        "neutral": ("#374151", "#f3f4f6"),
+    }
+    fg, bg = colors.get(kind, colors["neutral"])
+    return (
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;'
+        f'font-weight:bold;color:{fg};background:{bg};">{label}</span>'
+    )
+
+def dashboard_verdict_badge_v1(verdict: str) -> str:
+    mapping = {
+        "ПОДТВЕРЖДЕНО": ("ПОДТВЕРЖДЕНО", "good"),
+        "НАБЛЮДЕНИЕ": ("НАБЛЮДЕНИЕ", "warn"),
+        "ОТКЛОНЕНО": ("ОТКЛОНЕНО", "bad"),
+    }
+    label, kind = mapping.get(str(verdict), (str(verdict), "neutral"))
+    return dashboard_badge_v1(label, kind)
 
 
 def fmt_num_v1(value, digits=2, suffix=""):
@@ -3120,17 +3156,13 @@ def dashboard_main_navigation_v1():
 <div style="border:1px solid #ddd; padding:10px; margin:0 0 16px 0;">
   <b>Меню 8088:</b>
   <a href="/">Главная</a> |
-  <a href="/rs-bottom-runtime-dry-run">RS Bottom runtime</a> |
-  <a href="/active-futures-universe">Активные фьючерсы</a> |
+  <a href="/active-futures-universe">Фьючерсы</a> |
   <a href="/equities">Акции</a> |
-  <a href="/rs-bottom-forward">История RS Bottom</a> |
-  <a href="/rs-bottom-clean">RS Bottom очищенный</a> |
-  <a href="/leaderboard">Лидеры</a> |
-  <a href="/edge-stability">Стабильность edge</a> |
-  <a href="/rs-bottom-paper">RS Bottom paper</a>
+  <a href="/rs-bottom-forward">История</a> |
+  <a href="/edge-stability">Edge</a> |
+  <a href="/archive">Архив</a>
 </div>
 """
-
 
 def dashboard_home_link_v1():
     return '<div style="margin:0 0 16px 0;"><a href="/">← Главная</a></div>'
@@ -3152,6 +3184,39 @@ def inject_dashboard_navigation_v1(html: str) -> str:
 
     return nav + html
 
+
+
+def render_dashboard_archive_v1():
+    return f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Архив 8088</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+.card {{ border:1px solid #ddd; padding:12px; margin-bottom:16px; }}
+a {{ margin-right: 14px; }}
+</style>
+</head>
+<body>
+{dashboard_main_navigation_v1()}
+{dashboard_home_link_v1()}
+<h1>Архив 8088</h1>
+
+<div class="card">
+  <h2>Исторические и служебные страницы</h2>
+  <div><a href="/rs-bottom-clean">RS Bottom очищенный</a></div>
+  <div><a href="/rs-bottom-paper">RS Bottom paper</a></div>
+  <div><a href="/leaderboard">Лидеры исследований</a></div>
+  <div><a href="/rs-breakout-confirmation">RS + пробой</a></div>
+  <div><a href="/brent-rollover-edge">Переносимость Brent</a></div>
+  <div><a href="/mobile">Мобильная сводка</a></div>
+  <div><a href="/api/current">Сервисный API</a></div>
+</div>
+</body>
+</html>
+"""
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
@@ -3247,6 +3312,15 @@ class Handler(BaseHTTPRequestHandler):
 
             if path in {"/rs-bottom-contract-rolling", "/rs-bottom-contract-rolling/"}:
                 body = render_rs_bottom_contract_rolling_dashboard_v1().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if path in {"/archive", "/archive/"}:
+                body = render_dashboard_archive_v1().encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
