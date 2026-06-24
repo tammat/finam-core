@@ -2819,7 +2819,7 @@ th {{ background: #f3f3f3; }}
   <div><b>PRIMARY:</b> <span class="good">{primary_symbols}</span></div>
   <div><b>SECONDARY:</b> {secondary_symbols}</div>
   <div><b>WATCH_ONLY:</b> {watch_symbols}</div>
-  <div><b>REJECT:</b> {reject_symbols}</div>
+  <div><b>ОТКЛОНЕНО:</b> {reject_symbols}</div>
 </div>
 
 {error_html}
@@ -2922,7 +2922,9 @@ def load_rs_bottom_runtime_dry_run_dashboard_v1():
                         max(base.signal_ts) as last_signal_ts,
                         max(base.created_at) as last_created_at,
                         count(*) filter (where base.created_at >= now() - interval '90 minutes')::int as fresh_created_rows,
-                        count(*) filter (where base.status='WAITING')::int as waiting_rows_freshness
+                        count(*) filter (where base.status='WAITING')::int as waiting_rows_freshness,
+                        sum(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE')) as gross_pnl,
+                        avg(base.return_pct) filter (where base.status in ('SUCCESS','FAILURE')) as avg_pnl
                     from agg
                     left join dd using (symbol)
                     left join base using (symbol)
@@ -2975,6 +2977,8 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
             f"<td>{fmt_num_v1(r.get('profit_factor'))}</td>"
             f"<td>{fmt_pct_v1(r.get('winrate'))}</td>"
             f"<td>{fmt_num_v1(r.get('max_drawdown'))}</td>"
+            f"<td>{fmt_num_v1(r.get('gross_pnl'))}</td>"
+            f"<td>{fmt_num_v1(r.get('avg_pnl'))}</td>"
             f"<td>{r.get('fresh_created_rows') or 0}</td>"
             f"<td>{r.get('waiting_rows_freshness') or 0}</td>"
             f"<td>{r.get('last_signal_ts')}</td>"
@@ -3016,24 +3020,32 @@ th {{ background: #f3f3f3; }}
   <div><b>Paper orders:</b> <span class="bad">не создаются</span></div>
   <div><b>Источник:</b> analytics_rs_bottom_runtime_dry_run_v1</div>
   <div><b>Автообновление:</b> 30 секунд</div>
-  <div><b>Freshness:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
+  <div><b>Актуальность:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
 </div>
 
 <div class="card">
-  <h2>EDGE HEALTH</h2>
-  <div><b>CONFIRMED:</b> <span class="good">{", ".join(confirmed) or "нет"}</span></div>
-  <div><b>WATCH:</b> <span class="warn">{", ".join(watch) or "нет"}</span></div>
-  <div><b>REJECT:</b> {", ".join(reject) or "нет"}</div>
-  <div><b>Collector:</b> systemd timer каждые 5 минут</div>
-  <div><b>Freshness:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
-  <div><b>Last update:</b> автообновление страницы каждые 30 секунд</div>
-  <div><b>Risk mode:</b> <span class="bad">исполнение и реальные заявки отключены</span></div>
+  <h2>Индикаторы</h2>
+  <div><b>EDGE:</b> <span class="good">есть подтверждённые кандидаты</span></div>
+  <div><b>АКТУАЛЬНОСТЬ:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
+  <div><b>РИСК:</b> <span class="bad">исполнение, реальные заявки и paper orders отключены</span></div>
+  <div><b>СБОР ДАННЫХ:</b> systemd timer каждые 5 минут</div>
 </div>
 
 <div class="card">
-  <h2>Performance summary</h2>
-  <div><b>Критерий CONFIRMED:</b> completed ≥ 15, PF ≥ 1.5, expectancy &gt; 0</div>
-  <div><b>Критерий WATCH:</b> completed ≥ 15, PF ≥ 1.0, expectancy &gt; 0</div>
+  <h2>Состояние edge</h2>
+  <div><b>ПОДТВЕРЖДЕНО:</b> <span class="good">{", ".join(confirmed) or "нет"}</span></div>
+  <div><b>НАБЛЮДЕНИЕ:</b> <span class="warn">{", ".join(watch) or "нет"}</span></div>
+  <div><b>ОТКЛОНЕНО:</b> {", ".join(reject) or "нет"}</div>
+  <div><b>Сборщик данных:</b> systemd timer каждые 5 минут</div>
+  <div><b>Актуальность:</b> fresh rows за 90 минут + WAITING-наблюдения</div>
+  <div><b>Обновление:</b> автообновление страницы каждые 30 секунд</div>
+  <div><b>Режим риска:</b> <span class="bad">исполнение и реальные заявки отключены</span></div>
+</div>
+
+<div class="card">
+  <h2>Сводка эффективности</h2>
+  <div><b>Критерий ПОДТВЕРЖДЕНО:</b> completed ≥ 15, PF ≥ 1.5, expectancy &gt; 0</div>
+  <div><b>Критерий НАБЛЮДЕНИЕ:</b> completed ≥ 15, PF ≥ 1.0, expectancy &gt; 0</div>
   <div><b>Основной риск:</b> деградация PF и рост max drawdown на новой выборке</div>
 </div>
 
@@ -3042,8 +3054,9 @@ th {{ background: #f3f3f3; }}
 <table>
 <tr>
 <th>Symbol</th><th>Family</th><th>Signals</th><th>Completed</th><th>Success</th><th>Failure</th><th>Waiting</th>
-<th>Expectancy</th><th>PF</th><th>Winrate</th><th>Max DD</th>
-<th>Fresh rows 90m</th><th>Waiting</th><th>Last signal</th><th>Last created</th><th>Verdict</th>
+<th>Средний результат</th><th>PF</th><th>Доля успеха</th><th>Макс. просадка</th>
+<th>PnL всего</th><th>PnL средний</th>
+<th>Свежие строки 90м</th><th>Ожидание</th><th>Последний сигнал</th><th>Последнее обновление</th><th>Статус</th>
 </tr>
 {table_rows}
 </table>
