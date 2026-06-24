@@ -2779,7 +2779,7 @@ def render_active_futures_universe_dashboard_v1():
         c = active_futures_classification_v1(r.get("profit_factor"), r.get("completed"))
         groups.setdefault(c, []).append(r)
 
-    def render_group(title):
+    def render_group(title, rows=None):
         trs = []
         for r in groups.get(title, []):
             trs.append(
@@ -2801,8 +2801,8 @@ def render_active_futures_universe_dashboard_v1():
 <h2>{title}</h2>
 <table>
 <tr>
-<th>Семейство</th><th>Инструмент</th><th>Hist completed</th><th>Hist PF</th><th>Hist expectancy</th>
-<th>Live completed 24h</th><th>Live PF</th><th>Live expectancy</th><th>Live last</th><th>As of</th>
+<th>Семейство</th><th>Инструмент</th><th>История</th><th>PF ист.</th><th>Средний ист., %</th>
+<th>24ч</th><th>PF 24ч</th><th>Средний 24ч, %</th><th>Последний сигнал</th><th>Обновлено</th>
 </tr>
 {body}
 </table>
@@ -2847,15 +2847,15 @@ th {{ background: #f3f3f3; }}
 
 <div class="card">
   <h2>Runtime recommendation</h2>
-  <div><b>PRIMARY:</b> <span class="good">{primary_symbols}</span></div>
-  <div><b>SECONDARY:</b> {secondary_symbols}</div>
+  <div><b>🟢 ОК:</b> <span class="good">{primary_symbols}</span></div>
+  <div><b>🟡 Вторичн.:</b> {secondary_symbols}</div>
   <div><b>НАБЛЮДЕНИЕ_ONLY:</b> {watch_symbols}</div>
   <div><b>ОТКЛОНЕНО:</b> {reject_symbols}</div>
 </div>
 
 {error_html}
-{render_group("PRIMARY")}
-{render_group("SECONDARY")}
+{render_group("🟢 ОК", groups["PRIMARY"])}
+{render_group("🟡 Вторичн.", groups["SECONDARY"])}
 {render_group("НАБЛЮДЕНИЕ_ONLY")}
 {render_group("ОТКЛОНЕНО")}
 </body>
