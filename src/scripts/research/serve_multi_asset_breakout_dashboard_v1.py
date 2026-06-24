@@ -3169,7 +3169,32 @@ def dashboard_home_link_v1():
 
 
 
+
+def dashboard_format_all_utc_timestamps_to_msk_v1(html: str) -> str:
+    import re
+    import datetime as _dt
+
+    pattern = re.compile(
+        r'(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\+00:00'
+    )
+
+    months = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+
+    def repl(m):
+        try:
+            dt = _dt.datetime.fromisoformat(
+                f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}+00:00"
+            )
+            msk = dt.astimezone(_dt.timezone(_dt.timedelta(hours=3)))
+            return f"{msk.day:02d}.{months[msk.month - 1]}.{msk.year} {msk.hour:02d}:{msk.minute:02d} МСК"
+        except Exception:
+            return m.group(0)
+
+    return pattern.sub(repl, html)
+
+
 def inject_dashboard_navigation_v1(html: str) -> str:
+    html = dashboard_format_all_utc_timestamps_to_msk_v1(html)
     if "Finam Core" in html:
         return html
 
@@ -3329,7 +3354,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path in {"/rs-bottom-runtime-dry-run", "/rs-bottom-runtime-dry-run/"}:
-                body = render_rs_bottom_runtime_dry_run_dashboard_v1().encode("utf-8")
+                body = dashboard_format_all_utc_timestamps_to_msk_v1(render_rs_bottom_runtime_dry_run_dashboard_v1()).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -3358,7 +3383,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
             if path in {"/", ""}:
-                body = render_rs_bottom_runtime_dry_run_dashboard_v1().encode("utf-8")
+                body = dashboard_format_all_utc_timestamps_to_msk_v1(render_rs_bottom_runtime_dry_run_dashboard_v1()).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
