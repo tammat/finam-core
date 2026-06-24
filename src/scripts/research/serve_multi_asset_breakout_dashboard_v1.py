@@ -3244,6 +3244,16 @@ a {{ margin-right: 14px; }}
 """
 
 class Handler(BaseHTTPRequestHandler):
+
+    def send_html_v1(self, html: str) -> None:
+        html = dashboard_format_all_utc_timestamps_to_msk_v1(html)
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
 
@@ -3300,12 +3310,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
             if path in {"/equities", "/equities/"}:
-                body = render_equities_dashboard_v1(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.send_html_v1(inject_dashboard_navigation_v1(render_equities_dashboard_v1(payload)))
                 return
 
             if path in {"/rs-bottom-clean", "/rs-bottom-clean/"}:
@@ -3336,21 +3341,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path in {"/rs-bottom-contract-rolling", "/rs-bottom-contract-rolling/"}:
-                body = render_rs_bottom_contract_rolling_dashboard_v1().encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.send_html_v1(render_rs_bottom_contract_rolling_dashboard_v1())
                 return
 
             if path in {"/archive", "/archive/"}:
-                body = render_dashboard_archive_v1().encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.send_html_v1(render_dashboard_archive_v1())
                 return
 
             if path in {"/rs-bottom-runtime-dry-run", "/rs-bottom-runtime-dry-run/"}:
@@ -3363,12 +3358,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path in {"/active-futures-universe", "/active-futures-universe/"}:
-                body = render_active_futures_universe_dashboard_v1().encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.send_html_v1(render_active_futures_universe_dashboard_v1())
                 return
 
             if path in {"/rs-bottom-forward", "/rs-bottom-forward/"}:
