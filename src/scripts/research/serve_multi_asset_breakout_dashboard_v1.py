@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 
 ROOT = Path("/opt/finam-core")
-PORT = int(os.getenv("MULTI_ASSET_DASHBOARD_PORT", "Finam Core"))
+PORT = int(os.getenv("MULTI_ASSET_DASHBOARD_PORT", "8088"))
 V2_SCRIPT = "src/scripts/research/build_multi_asset_breakout_watch_v2.py"
 PLAN_SCRIPT = "src/scripts/research/build_multi_asset_breakout_telegram_notify_plan_v1.py"
 JOURNAL_UNIT = "finam-multi-asset-breakout-telegram.service"
@@ -3111,6 +3111,10 @@ th {{ background: #f3f3f3; }}
 
 
 
+
+def fmt_msk_dt_v1(value):
+    return dashboard_format_all_utc_timestamps_to_msk_v1(str(value)) if value is not None else "—"
+
 def dashboard_badge_v1(label: str, kind: str = "neutral") -> str:
     colors = {
         "good": ("#166534", "#dcfce7"),
@@ -3321,23 +3325,69 @@ def inject_dashboard_navigation_v1(html: str) -> str:
 
 
 def render_finam_core_mobile_home_v1(payload: dict | None = None) -> str:
-    return """
+    try:
+        data = load_rs_bottom_runtime_dry_run_dashboard_v1()
+        rows = data.get("rows") or []
+    except Exception as exc:
+        return f"""
 <div class="card">
   <h1>Finam Core</h1>
-  <div class="good">🟢 ОК: GDU6, GLU6</div>
-  <div class="warn">🟡 Набл.: NGM6</div>
+  <div class="bad">🔴 Ошибка загрузки мобильных метрик</div>
+  <div>{str(exc)}</div>
+</div>
+"""
+
+    ok = []
+    watch = []
+    cards = []
+
+    for r in rows:
+        completed = int(r.get("completed") or 0)
+        pf = float(r.get("profit_factor") or 0)
+        expectancy = float(r.get("expectancy") or 0)
+        symbol = r.get("symbol") or "UNKNOWN"
+
+        if completed >= 15 and pf >= 1.5 and expectancy > 0:
+            status = "🟢 ОК"
+            ok.append(symbol)
+        elif completed >= 15 and pf >= 1.0 and expectancy > 0:
+            status = "🟡 Набл."
+            watch.append(symbol)
+        else:
+            status = "🔴 Откл."
+
+        cards.append(
+            "<div class='card'>"
+            f"<h2>{symbol}</h2>"
+            f"<div>{status}</div>"
+            f"<div>Доход: <b>{fmt_num_v1(r.get('gross_pnl'))}%</b></div>"
+            f"<div>Комиссия: <b>{fmt_num_v1(r.get('commission_pct'))}%</b></div>"
+            f"<div>Чистый доход: <b>{fmt_num_v1(r.get('net_pnl'))}%</b></div>"
+            f"<div>PF: <b>{fmt_num_v1(r.get('profit_factor'))}</b></div>"
+            f"<div>Просадка: <b>{fmt_num_v1(r.get('max_drawdown'))}%</b></div>"
+            f"<div>Обновлено: <b>{fmt_msk_dt_v1(r.get('last_created_at'))}</b></div>"
+            "</div>"
+        )
+
+    return f"""
+<div class="card">
+  <h1>Finam Core</h1>
+  <div class="good">🟢 ОК: {", ".join(ok) or "нет"}</div>
+  <div class="warn">🟡 Набл.: {", ".join(watch) or "нет"}</div>
   <div class="bad">🔴 Сделки отключены</div>
 </div>
 
 <div class="card">
   <h2>Кратко</h2>
   <div class="kpi">
-    <div><b>Доход</b><br>см. главную</div>
-    <div><b>Чистый доход</b><br>с комиссией</div>
-    <div><b>PF</b><br>по таблице</div>
-    <div><b>Просадка</b><br>контроль риска</div>
+    <div><b>ОК</b><br>{len(ok)}</div>
+    <div><b>Набл.</b><br>{len(watch)}</div>
+    <div><b>Режим</b><br>Shadow</div>
+    <div><b>Заявки</b><br>Откл.</div>
   </div>
 </div>
+
+{''.join(cards)}
 
 <div class="card">
   <h2>Действия</h2>
