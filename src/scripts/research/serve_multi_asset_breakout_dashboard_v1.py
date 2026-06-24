@@ -2587,9 +2587,9 @@ def render_rs_bottom_contract_rolling_dashboard_v1():
             f"<td>{completed}</td>"
             f"<td>{r.get('success')}</td>"
             f"<td>{r.get('failure')}</td>"
-            f"<td>{r.get('expectancy')}</td>"
-            f"<td>{r.get('profit_factor')}</td>"
-            f"<td>{r.get('winrate')}</td>"
+            f"<td>{fmt_num_v1(r.get('expectancy'))}</td>"
+            f"<td>{fmt_num_v1(r.get('profit_factor'))}</td>"
+            f"<td>{fmt_pct_v1(r.get('winrate'))}</td>"
             f"<td>{r.get('degradation_pct')}</td>"
             f"<td><b>{verdict}</b></td>"
             "</tr>"
@@ -2756,11 +2756,11 @@ def render_active_futures_universe_dashboard_v1():
                 f"<td>{r.get('family')}</td>"
                 f"<td>{r.get('symbol')}</td>"
                 f"<td>{r.get('completed')}</td>"
-                f"<td>{r.get('profit_factor')}</td>"
-                f"<td>{r.get('expectancy')}</td>"
+                f"<td>{fmt_num_v1(r.get('profit_factor'))}</td>"
+                f"<td>{fmt_num_v1(r.get('expectancy'))}</td>"
                 f"<td>{r.get('live_completed') or 0}</td>"
-                f"<td>{r.get('live_profit_factor')}</td>"
-                f"<td>{r.get('live_expectancy')}</td>"
+                f"<td>{fmt_num_v1(r.get('live_profit_factor'))}</td>"
+                f"<td>{fmt_num_v1(r.get('live_expectancy'))}</td>"
                 f"<td>{r.get('live_last_ts')}</td>"
                 f"<td>{r.get('as_of')}</td>"
                 "</tr>"
@@ -2971,10 +2971,10 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
             f"<td>{r.get('success')}</td>"
             f"<td>{r.get('failure')}</td>"
             f"<td>{r.get('waiting')}</td>"
-            f"<td>{r.get('expectancy')}</td>"
-            f"<td>{r.get('profit_factor')}</td>"
-            f"<td>{r.get('winrate')}</td>"
-            f"<td>{r.get('max_drawdown')}</td>"
+            f"<td>{fmt_num_v1(r.get('expectancy'))}</td>"
+            f"<td>{fmt_num_v1(r.get('profit_factor'))}</td>"
+            f"<td>{fmt_pct_v1(r.get('winrate'))}</td>"
+            f"<td>{fmt_num_v1(r.get('max_drawdown'))}</td>"
             f"<td>{r.get('fresh_created_rows') or 0}</td>"
             f"<td>{r.get('waiting_rows_freshness') or 0}</td>"
             f"<td>{r.get('last_signal_ts')}</td>"
@@ -3051,6 +3051,24 @@ th {{ background: #f3f3f3; }}
 </html>
 """
 
+
+
+
+def fmt_num_v1(value, digits=2, suffix=""):
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value):.{digits}f}{suffix}"
+    except Exception:
+        return str(value)
+
+def fmt_pct_v1(value, digits=2):
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value) * 100:.{digits}f}%"
+    except Exception:
+        return str(value)
 
 
 def dashboard_main_navigation_v1():
