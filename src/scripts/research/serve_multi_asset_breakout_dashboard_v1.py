@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 
 ROOT = Path("/opt/finam-core")
-PORT = int(os.getenv("MULTI_ASSET_DASHBOARD_PORT", "8088"))
+PORT = int(os.getenv("MULTI_ASSET_DASHBOARD_PORT", "Finam Core"))
 V2_SCRIPT = "src/scripts/research/build_multi_asset_breakout_watch_v2.py"
 PLAN_SCRIPT = "src/scripts/research/build_multi_asset_breakout_telegram_notify_plan_v1.py"
 JOURNAL_UNIT = "finam-multi-asset-breakout-telegram.service"
@@ -1848,7 +1848,7 @@ h2 {{ font-size: 18px; margin: 18px 0 8px; }}
 
 
 def dashboard_nav_ru(active: str = "") -> str:
-    """Единое пользовательское меню dashboard 8088."""
+    """Единое пользовательское меню dashboard Finam Core."""
     items = [
         ("/mobile", "🏠 Главная"),
         ("/leaderboard", "Лидеры исследований"),
@@ -3039,7 +3039,7 @@ def render_rs_bottom_runtime_dry_run_dashboard_v1():
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="30">
-<title>RS Bottom: наблюдение без сделок V1</title>
+<title>Finam Core: наблюдение за edge</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 table {{ border-collapse: collapse; width: 100%; margin-bottom: 22px; }}
@@ -3054,7 +3054,7 @@ th {{ background: #f3f3f3; }}
 <body>
 {dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
-<h1>RS Bottom: наблюдение без сделок V1</h1>
+<h1>Finam Core: наблюдение за edge</h1>
 
 <div class="card">
   <div><b>Режим:</b> SHADOW</div>
@@ -3154,7 +3154,7 @@ def fmt_pct_v1(value, digits=2):
 def dashboard_main_navigation_v1():
     return """
 <div style="border:1px solid #ddd; padding:10px; margin:0 0 16px 0;">
-  <b>Меню 8088:</b>
+  <b>Finam Core:</b>
   <a href="/">Главная</a> |
   <a href="/active-futures-universe">Фьючерсы</a> |
   <a href="/equities">Акции</a> |
@@ -3170,7 +3170,7 @@ def dashboard_home_link_v1():
 
 
 def inject_dashboard_navigation_v1(html: str) -> str:
-    if "Меню 8088" in html:
+    if "Finam Core" in html:
         return html
 
     nav = dashboard_main_navigation_v1() + "\n" + dashboard_home_link_v1() + "\n"
@@ -3192,7 +3192,7 @@ def render_dashboard_archive_v1():
 <html>
 <head>
 <meta charset="utf-8">
-<title>Архив 8088</title>
+<title>Архив Finam Core</title>
 <style>
 body {{ font-family: Arial, sans-serif; margin: 24px; }}
 .card {{ border:1px solid #ddd; padding:12px; margin-bottom:16px; }}
@@ -3202,7 +3202,7 @@ a {{ margin-right: 14px; }}
 <body>
 {dashboard_main_navigation_v1()}
 {dashboard_home_link_v1()}
-<h1>Архив 8088</h1>
+<h1>Архив Finam Core</h1>
 
 <div class="card">
   <h2>Исторические и служебные страницы</h2>
