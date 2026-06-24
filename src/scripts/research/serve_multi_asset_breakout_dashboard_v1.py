@@ -2757,17 +2757,20 @@ def load_active_futures_universe_dashboard_v1():
         return {"rows": [], "error": str(exc)}
 
 
-def active_futures_classification_v1(profit_factor, completed):
+def active_futures_classification_v1(profit_factor, completed, expectancy=None):
     pf = float(profit_factor or 0)
     completed = int(completed or 0)
-    if completed < 10 and pf > 1.0:
-        return "НАБЛЮДЕНИЕ_ONLY"
-    if completed >= 15 and pf >= 1.5:
-        return "PRIMARY"
-    if completed >= 15 and pf >= 1.0:
-        return "SECONDARY"
-    return "ОТКЛОНЕНО"
+    exp = float(expectancy or 0)
 
+    # Единый источник статуса для страницы фьючерсов — live 24h.
+    # История остаётся справочной и не повышает статус до ОК.
+    if completed >= 20 and pf >= 1.5 and exp > 0:
+        return "PRIMARY"
+    if completed >= 10 and pf >= 1.0 and exp > 0:
+        return "SECONDARY"
+    if completed < 10 and pf > 1.0 and exp > 0:
+        return "WATCH_ONLY"
+    return "REJECT"
 
 def render_active_futures_universe_dashboard_v1():
     data = load_active_futures_universe_dashboard_v1()
@@ -2776,7 +2779,7 @@ def render_active_futures_universe_dashboard_v1():
 
     groups = {"PRIMARY": [], "SECONDARY": [], "НАБЛЮДЕНИЕ_ONLY": [], "ОТКЛОНЕНО": []}
     for r in rows:
-        c = active_futures_classification_v1(r.get("profit_factor"), r.get("completed"))
+        c = active_futures_classification_v1(r.get("live_profit_factor"), r.get("live_completed"), r.get("live_expectancy"))
         groups.setdefault(c, []).append(r)
 
     def render_group(title, rows=None):
@@ -2840,7 +2843,7 @@ th {{ background: #f3f3f3; }}
   <div><b>Режим:</b> read-only research</div>
   <div><b>Исполнение:</b> отключено</div>
   <div><b>Реальная торговля:</b> {dashboard_badge_v1("запрещена", "bad")}</div>
-  <div><b>Источник:</b> RS Bottom BOTTOM3 + COMPRESSION_RANGE; исключены 12, 13, 14 МСК</div>
+  <div><b>Источник статуса:</b> live 24h; история показана справочно. Данные: RS Bottom BOTTOM3 + COMPRESSION_RANGE; исключены 12, 13, 14 МСК</div>
   <div><b>Live-окно:</b> последние 24 часа от максимального source_ts</div>
   <div><b>Автообновление:</b> каждые 30 секунд</div>
 </div>
