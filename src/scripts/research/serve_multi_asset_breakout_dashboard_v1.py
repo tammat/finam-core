@@ -2781,7 +2781,7 @@ def render_active_futures_universe_dashboard_v1():
 
     def render_group(title, rows=None):
         trs = []
-        for r in groups.get(title, []):
+        for r in (rows if rows is not None else groups.get(title, [])):
             trs.append(
                 "<tr>"
                 f"<td>{r.get('family')}</td>"
