@@ -820,6 +820,91 @@ def load_rs_bottom_paper(conn):
 
 
 
+
+def _gold_esc_v1(x):
+    import html
+    return html.escape("" if x is None else str(x))
+
+
+def fetch_gold_session_guard_status_v1():
+    try:
+        import os
+        import psycopg
+        from psycopg.rows import dict_row
+
+        dsn = os.environ.get("DATABASE_URL")
+        if not dsn:
+            return {"status": "DATABASE_URL_NOT_SET", "audit_total": 0, "audit_24h": 0, "rows": []}
+
+        with psycopg.connect(dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    select count(*)::int as cnt
+                    from runtime_guard_pre_signal_block_audit_v1
+                    where block_reason='gold_evening_session'
+                """)
+                audit_total = cur.fetchone()["cnt"]
+
+                cur.execute("""
+                    select count(*)::int as cnt
+                    from runtime_guard_pre_signal_block_audit_v1
+                    where block_reason='gold_evening_session'
+                      and created_at >= now() - interval '24 hour'
+                """)
+                audit_24h = cur.fetchone()["cnt"]
+
+                cur.execute("""
+                    select symbol, strategy, timeframe, ts, block_type, block_reason, created_at
+                    from runtime_guard_pre_signal_block_audit_v1
+                    where block_reason='gold_evening_session'
+                    order by created_at desc
+                    limit 5
+                """)
+                rows = [dict(r) for r in cur.fetchall()]
+
+        return {"status": "OK", "audit_total": audit_total, "audit_24h": audit_24h, "rows": rows}
+    except Exception as exc:
+        return {"status": f"ERROR:{type(exc).__name__}:{exc}", "audit_total": 0, "audit_24h": 0, "rows": []}
+
+
+def render_gold_session_guard_status_card_v1():
+    data = fetch_gold_session_guard_status_v1()
+    rows = data.get("rows") or []
+
+    if rows:
+        latest_rows = "".join(
+            "<tr>"
+            f"<td>{_gold_esc_v1(r.get('symbol'))}</td>"
+            f"<td>{_gold_esc_v1(r.get('strategy'))}</td>"
+            f"<td>{_gold_esc_v1(r.get('timeframe'))}</td>"
+            f"<td>{_gold_esc_v1(r.get('ts'))}</td>"
+            f"<td>{_gold_esc_v1(r.get('block_type'))}</td>"
+            f"<td>{_gold_esc_v1(r.get('block_reason'))}</td>"
+            "</tr>"
+            for r in rows
+        )
+    else:
+        latest_rows = "<tr><td colspan='6'>Срабатываний пока нет</td></tr>"
+
+    return f"""
+<div class="card">
+  <h2>🟡 Gold session guard: shadow</h2>
+  <div><b>Режим:</b> shadow-наблюдение</div>
+  <div><b>Блокировка:</b> отключена по умолчанию</div>
+  <div><b>Правило:</b> GDU6/GLU6 после 19:00 МСК → BLOCK_EVENING_SESSION</div>
+  <div><b>Всего audit-строк:</b> {_gold_esc_v1(data.get('audit_total'))}</div>
+  <div><b>Audit за 24ч:</b> {_gold_esc_v1(data.get('audit_24h'))}</div>
+  <div><b>Статус:</b> {_gold_esc_v1(data.get('status'))}</div>
+  <table>
+    <tr>
+      <th>Инструмент</th><th>Стратегия</th><th>ТФ</th><th>Время сигнала</th><th>Тип блока</th><th>Причина</th>
+    </tr>
+    {latest_rows}
+  </table>
+</div>
+"""
+
+
 def render_html(payload: dict) -> str:
     summary = payload["summary"]
     rows = payload["rows"]
@@ -1046,6 +1131,8 @@ th {{ background: #222; }}
 </table>
 </div>
 
+
+{render_gold_session_guard_status_card_v1()}
 </body>
 </html>"""
 
@@ -1183,6 +1270,7 @@ pre {{ white-space: pre-wrap; }}
 <a href="/api/current">Сервисный API</a>
 </nav>
 {body}
+{render_gold_session_guard_status_card_v1()}
 </body>
 </html>"""
 
@@ -3095,6 +3183,8 @@ th {{ background: #f3f3f3; }}
   <div><b>Основной риск:</b> деградация PF и рост max drawdown на новой выборке</div>
 </div>
 
+{render_gold_session_guard_status_card_v1()}
+
 {error_html}
 
 <table>
@@ -3398,6 +3488,8 @@ def render_finam_core_mobile_home_v1(payload: dict | None = None) -> str:
   <div><a href="/active-futures-universe">Фьючерсы</a></div>
   <div><a href="/equities">Акции</a></div>
   <div><a href="/archive">Архив</a></div>
+
+{render_gold_session_guard_status_card_v1()}
 </div>
 """
 
