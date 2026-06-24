@@ -1992,6 +1992,19 @@ th {{ background: #f3f3f3; }}
 <h1>Акции</h1>
 
 <div class="card">
+  <h2>СТАТУС АКЦИЙ</h2>
+  <div><b>Режим:</b> Research Only</div>
+  <div><b>Edge:</b> <span class="bad">не подтвержден</span></div>
+  <div><b>Виртуальные сделки:</b> не выполняются</div>
+  <div><b>Paper execution:</b> отключен</div>
+  <div><b>Runtime execution:</b> отключен</div>
+  <div><b>PnL:</b> не рассчитывается, так как виртуальные сделки по акциям не создаются</div>
+  <div><b>Причина:</b> PF &lt; 1, expectancy &lt; 0 по последней проверке VOLATILITY_BREAKOUT_EQUITY</div>
+  <div><b>Вердикт:</b> Акции не являются runtime-кандидатами</div>
+</div>
+
+
+<div class="card">
   <h2>Статус направления</h2>
   <div><b>Режим:</b> сбор статистики</div>
   <div><b>Стратегия:</b> VOLATILITY_BREAKOUT_EQUITY</div>
