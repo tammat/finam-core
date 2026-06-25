@@ -1,5 +1,4 @@
 from datetime import timedelta
-
 import psycopg2
 
 
@@ -7,11 +6,10 @@ class MarketStateTradeLinker:
     """
     Связывает сделки с ближайшими снимками состояния рынка.
 
-    ВАЖНО:
-    - только research.*;
-    - Runtime не изменяется;
-    - Execution не изменяется;
-    - идемпотентная запись.
+    V1 безопасно обрабатывает отсутствие research.trade_facts:
+    - не падает;
+    - фиксирует linked_rows=0;
+    - Runtime/Execution не затрагивает.
     """
 
     def __init__(self, database_url: str, max_snapshot_age_seconds: int = 300):
@@ -23,12 +21,29 @@ class MarketStateTradeLinker:
         self.database_url = database_url
         self.max_snapshot_age = timedelta(seconds=max_snapshot_age_seconds)
 
-    def run(self) -> int:
+    def _table_exists(self, cur, schema: str, table: str) -> bool:
+        cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema=%s
+                  AND table_name=%s
+            );
+            """,
+            (schema, table),
+        )
+        return bool(cur.fetchone()[0])
 
+    def run(self) -> int:
         linked = 0
 
         with psycopg2.connect(self.database_url) as conn:
             with conn.cursor() as cur:
+                if not self._table_exists(cur, "research", "trade_facts"):
+                    print("BLOCKER=RESEARCH_TRADE_FACTS_TABLE_NOT_FOUND")
+                    print("linked_rows=0")
+                    return 0
 
                 cur.execute(
                     """
@@ -39,79 +54,55 @@ class MarketStateTradeLinker:
                         entry_ts,
                         exit_ts
                     FROM research.trade_facts
-                    WHERE payload->>'trade_source_class'
-                        ='RUNTIME_OR_PAPER_CLEAN_ENOUGH'
+                    WHERE payload->>'trade_source_class'='RUNTIME_OR_PAPER_CLEAN_ENOUGH'
                     ORDER BY entry_ts;
                     """
                 )
 
                 trades = cur.fetchall()
 
-                for trade in trades:
-
-                    trade_id, symbol, timeframe, entry_ts, exit_ts = trade
-
+                for trade_id, symbol, timeframe, entry_ts, exit_ts in trades:
                     cur.execute(
                         """
-                        SELECT
-                            snapshot_id,
-                            compact_signature
+                        SELECT snapshot_id, compact_signature
                         FROM research.market_state_snapshots_v1
-                        WHERE
-                            symbol=%s
-                            AND timeframe=%s
-                            AND snapshot_ts<=%s
+                        WHERE symbol=%s
+                          AND timeframe=%s
+                          AND snapshot_ts<=%s
                         ORDER BY snapshot_ts DESC
                         LIMIT 1;
                         """,
-                        (
-                            symbol,
-                            timeframe,
-                            entry_ts,
-                        ),
+                        (symbol, timeframe, entry_ts),
                     )
 
                     row = cur.fetchone()
-
                     if row is None:
                         continue
 
                     entry_snapshot_id, entry_signature = row
-
                     exit_snapshot_id = None
                     exit_signature = None
 
                     if exit_ts is not None:
-
                         cur.execute(
                             """
-                            SELECT
-                                snapshot_id,
-                                compact_signature
+                            SELECT snapshot_id, compact_signature
                             FROM research.market_state_snapshots_v1
-                            WHERE
-                                symbol=%s
-                                AND timeframe=%s
-                                AND snapshot_ts<=%s
+                            WHERE symbol=%s
+                              AND timeframe=%s
+                              AND snapshot_ts<=%s
                             ORDER BY snapshot_ts DESC
                             LIMIT 1;
                             """,
-                            (
-                                symbol,
-                                timeframe,
-                                exit_ts,
-                            ),
+                            (symbol, timeframe, exit_ts),
                         )
-
                         row2 = cur.fetchone()
-
                         if row2:
                             exit_snapshot_id, exit_signature = row2
 
                     cur.execute(
                         """
-                        INSERT INTO research.trade_state_snapshots_v1
-                        (
+                        INSERT INTO research.trade_state_snapshots_v1 (
                             trade_id,
                             symbol,
                             timeframe,
@@ -125,19 +116,9 @@ class MarketStateTradeLinker:
                             link_quality,
                             link_reason
                         )
-                        VALUES
-                        (
-                            %s,%s,%s,%s,%s,
-                            %s,%s,%s,%s,
-                            0,
-                            %s,
-                            %s
-                        )
-
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,0,%s,%s)
                         ON CONFLICT(trade_id)
-
                         DO UPDATE SET
-
                             entry_snapshot_id=EXCLUDED.entry_snapshot_id,
                             exit_snapshot_id=EXCLUDED.exit_snapshot_id,
                             entry_compact_signature=EXCLUDED.entry_compact_signature,
@@ -164,4 +145,5 @@ class MarketStateTradeLinker:
 
             conn.commit()
 
+        print(f"linked_rows={linked}")
         return linked
