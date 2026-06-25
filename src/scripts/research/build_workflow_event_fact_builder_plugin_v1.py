@@ -27,7 +27,7 @@ def update_pipeline(cur, result) -> None:
         UPDATE warehouse.fact_pipeline_runs_v1
         SET
             pipeline_status=%s,
-            rows_out=%s,
+            rows_out=GREATEST(rows_out, %s),
             duplicate_rows=%s,
             error_rows=%s,
             health_score=%s,
