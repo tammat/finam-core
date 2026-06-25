@@ -69,3 +69,106 @@ Trading Core — Freeze. Research Platform — Active Expansion. Knowledge Platf
 ## 15. Архитектура подчиняется прибыли
 
 Finam_Core строится не ради самой сложной платформы и не ради красивой архитектуры. Архитектура — инструмент достижения прибыли с контролируемым риском.
+
+---
+
+## 16. Ценность архитектуры
+
+Любое новое архитектурное решение должно удовлетворять хотя бы одному из условий:
+
+- приближает проект к получению стабильной прибыли;
+- уменьшает риск торговли;
+- уменьшает стоимость исследований;
+- сокращает время поиска статистически подтвержденного edge;
+- повышает воспроизводимость результатов.
+
+Если ни одно из условий не выполняется, изменение считается низкоприоритетным и откладывается.
+
+---
+
+## 17. Целевая архитектура Research Platform V1
+
+Research Platform является независимой исследовательской подсистемой Finam_Core.
+
+Назначение Research Platform:
+
+- накопление знаний о рынке;
+- проверка гипотез;
+- поиск статистически подтвержденного edge;
+- подготовка решений для Trading Core.
+
+Research Platform не имеет права изменять Runtime напрямую.
+
+### Целевая структура
+
+research.market_state_domains_v1
+
+research.market_state_groups_v1
+
+research.market_state_dictionary_v1
+
+research.market_state_glossary_ru_v1
+
+research.market_state_algorithms_v1
+
+research.market_state_algorithm_mapping_v1
+
+research.market_state_snapshots_v1
+
+research.market_state_snapshot_values_v1
+
+research.trade_state_snapshots_v1
+
+research.market_state_transitions_v1
+
+research.state_edge_scorecards_v1
+
+research.strategy_state_matrix_v1
+
+research.research_hypotheses_v1
+
+research.research_experiments_v1
+
+research.research_decisions_v1
+
+### Основные правила Research Platform
+
+rule=ontology_is_single_source_of_truth
+
+rule=all_state_values_are_rows
+
+rule=all_terms_have_ru_glossary
+
+rule=all_states_have_algorithm
+
+rule=snapshots_are_immutable
+
+rule=trade_links_to_snapshots
+
+rule=edge_calculated_from_market_states
+
+rule=no_runtime_execution_changes
+
+rule=no_table_without_business_purpose
+
+---
+
+## Статус документа
+
+Настоящий документ является архитектурной конституцией проекта Finam_Core.
+
+Статус:
+
+LOCKED
+
+Изменение документа допускается исключительно при наличии одновременно следующих условий:
+
+- статистического подтверждения либо объективного архитектурного основания;
+- анализа влияния на существующую систему;
+- документированного архитектурного решения;
+- фиксации причины изменения в журнале исследований.
+
+Во всех остальных случаях документ считается неизменяемым.
+
+Все дальнейшие решения проекта должны соответствовать настоящему документу.
+
