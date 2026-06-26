@@ -1,0 +1,20 @@
+[Unit]
+Description=MarketCore Knowledge Coverage UI
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alex
+Group=alex
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/systemd/marketcore-knowledge-ui.env
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/research/serve_knowledge_coverage_ui_v2.py
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
