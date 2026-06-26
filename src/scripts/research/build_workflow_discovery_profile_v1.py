@@ -11,6 +11,7 @@ from marketcore.catalog.discovery.executor import DiscoveryExecutor
 from marketcore.catalog.discovery.plugins.postgres_discovery import PostgresDiscovery
 from marketcore.catalog.discovery.plugins.python_discovery import PythonDiscovery
 from marketcore.catalog.discovery.plugins.bash_discovery import BashDiscovery
+from marketcore.catalog.discovery.plugins.systemd_discovery import SystemdDiscovery
 from marketcore.catalog.writer.catalog_writer import CatalogWriter
 
 
@@ -43,6 +44,7 @@ def main() -> int:
         PostgresDiscovery(db_url()),
         PythonDiscovery("."),
         BashDiscovery("."),
+        SystemdDiscovery("."),
     ])
     objects = executor.run(context)
 
@@ -76,7 +78,7 @@ def main() -> int:
             """)
             categories = cur.fetchall()
 
-    print("=== WORKFLOW_DISCOVERY_PROFILE_V1_1 ===")
+    print("=== WORKFLOW_DISCOVERY_PROFILE_V1_2 ===")
     print(f"profile={context.profile}")
     print(f"domain={context.domain}")
     print(f"objects_discovered={len(objects)}")
@@ -89,7 +91,7 @@ def main() -> int:
     for row in categories:
         print(f"catalog_category={row['category']}:{row['cnt']}")
 
-    print("discovery_plugins=PostgresDiscovery,PythonDiscovery,BashDiscovery")
+    print("discovery_plugins=PostgresDiscovery,PythonDiscovery,BashDiscovery,SystemdDiscovery")
     print("writer=CatalogWriter")
     print("write_policy=UPSERT_BY_OBJECT_ID")
     print("target_catalog=warehouse.analytics_asset_catalog_v1")
@@ -98,7 +100,7 @@ def main() -> int:
     print("orders_changed=0")
     print("fills_changed=0")
     print("micro_live_allowed=0")
-    print("VERDICT=WORKFLOW_DISCOVERY_PROFILE_V1_1_READY")
+    print("VERDICT=WORKFLOW_DISCOVERY_PROFILE_V1_2_READY")
     return 0
 
 
