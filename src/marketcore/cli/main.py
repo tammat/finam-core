@@ -119,6 +119,35 @@ def cmd_health(args):
     emit(dict(rows[0]), args.json)
 
 
+
+def cmd_coverage(args):
+    rows = fetch("""
+        WITH base AS (
+            SELECT
+              domain,
+              count(*) AS total,
+              count(*) FILTER (WHERE coalesce(object_id,'') <> '') AS has_object_id,
+              count(*) FILTER (WHERE coalesce(source_system,'') <> '') AS has_source_system,
+              count(*) FILTER (WHERE coalesce(payload->>'discovery_source','') <> '') AS has_discovery_source,
+              count(*) FILTER (WHERE coalesce(warehouse_layer,'') <> '') AS has_layer,
+              count(*) FILTER (WHERE health_light='GREEN') AS green
+            FROM warehouse.analytics_asset_catalog_v1
+            GROUP BY domain
+        )
+        SELECT
+          domain,
+          total,
+          round((has_object_id::numeric / nullif(total,0)) * 100, 2) AS object_id_coverage_pct,
+          round((has_source_system::numeric / nullif(total,0)) * 100, 2) AS source_system_coverage_pct,
+          round((has_discovery_source::numeric / nullif(total,0)) * 100, 2) AS discovery_coverage_pct,
+          round((has_layer::numeric / nullif(total,0)) * 100, 2) AS layer_coverage_pct,
+          round((green::numeric / nullif(total,0)) * 100, 2) AS health_coverage_pct
+        FROM base
+        ORDER BY domain
+    """)
+    emit([dict(r) for r in rows], args.json)
+
+
 def cmd_stats(args):
     rows = fetch("""
         SELECT 'domain' AS stat_type, domain AS key, count(*) AS cnt
@@ -177,6 +206,11 @@ def main() -> int:
     p = catalog_sub.add_parser("health")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_health)
+
+
+    p = catalog_sub.add_parser("coverage")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_coverage)
 
     p = catalog_sub.add_parser("stats")
     p.add_argument("--json", action="store_true")
