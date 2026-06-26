@@ -81,15 +81,15 @@ def main() -> int:
 
     source_map = {r["source"]: int(r["cnt"]) for r in sources}
     ok = (
-        total >= 37
+        total >= 82
         and valid_required == total
         and duplicate_object_ids == 0
         and green == total
         and source_map.get("PostgresDiscovery", 0) >= 16
-        and source_map.get("PythonDiscovery", 0) >= 1
+        and source_map.get("PythonDiscovery", 0) >= 1 and source_map.get("BashDiscovery", 0) >= 1
     )
 
-    print("=== CATALOG_DISCOVERY_VALIDATION_V1 ===")
+    print("=== CATALOG_DISCOVERY_VALIDATION_V1_1 ===")
     print(f"domain=WORKFLOW")
     print(f"catalog_total={total}")
     print(f"required_fields_valid={valid_required}")
@@ -112,7 +112,7 @@ def main() -> int:
     print("orders_changed=0")
     print("fills_changed=0")
     print("micro_live_allowed=0")
-    print("VERDICT=CATALOG_DISCOVERY_VALIDATION_V1_READY" if ok else "VERDICT=CATALOG_DISCOVERY_VALIDATION_V1_FAILED")
+    print("VERDICT=CATALOG_DISCOVERY_VALIDATION_V1_1_READY" if ok else "VERDICT=CATALOG_DISCOVERY_VALIDATION_V1_1_FAILED")
     return 0 if ok else 1
 
 
