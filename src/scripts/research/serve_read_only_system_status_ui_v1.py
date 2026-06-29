@@ -227,22 +227,118 @@ footer {{
 </html>"""
 
 
+
+def load_knowledge_summary():
+    with psycopg2.connect(db_url()) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT domain, count(*) AS total,
+                       count(*) FILTER (WHERE health_light='GREEN') AS green
+                FROM warehouse.analytics_asset_catalog_v1
+                GROUP BY domain
+                ORDER BY domain
+            """)
+            domains = cur.fetchall()
+
+            cur.execute("""
+                SELECT payload->>'discovery_source' AS source, count(*) AS total
+                FROM warehouse.analytics_asset_catalog_v1
+                GROUP BY payload->>'discovery_source'
+                ORDER BY source
+            """)
+            sources = cur.fetchall()
+
+            return domains, sources
+
+
+def load_knowledge_coverage():
+    with psycopg2.connect(db_url()) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                WITH base AS (
+                    SELECT domain,
+                           count(*) AS total,
+                           count(*) FILTER (WHERE coalesce(object_id,'') <> '') AS has_object_id,
+                           count(*) FILTER (WHERE coalesce(source_system,'') <> '') AS has_source_system,
+                           count(*) FILTER (WHERE coalesce(payload->>'discovery_source','') <> '') AS has_discovery_source,
+                           count(*) FILTER (WHERE coalesce(warehouse_layer,'') <> '') AS has_layer,
+                           count(*) FILTER (WHERE health_light='GREEN') AS green
+                    FROM warehouse.analytics_asset_catalog_v1
+                    GROUP BY domain
+                )
+                SELECT domain, total,
+                       round((has_object_id::numeric / nullif(total,0)) * 100, 2) AS object_id_coverage_pct,
+                       round((has_source_system::numeric / nullif(total,0)) * 100, 2) AS source_system_coverage_pct,
+                       round((has_discovery_source::numeric / nullif(total,0)) * 100, 2) AS discovery_coverage_pct,
+                       round((has_layer::numeric / nullif(total,0)) * 100, 2) AS layer_coverage_pct,
+                       round((green::numeric / nullif(total,0)) * 100, 2) AS health_coverage_pct
+                FROM base
+                ORDER BY domain
+            """)
+            return cur.fetchall()
+
+
+def simple_table(rows, cols):
+    head = ''.join(f'<th>{html_escape(c)}</th>' for c in cols)
+    body = ''
+    for r in rows:
+        body += '<tr>' + ''.join(f'<td>{html_escape(r[c])}</td>' for c in cols) + '</tr>'
+    return f'<table border="1" cellpadding="8" cellspacing="0"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+
+
+def render_knowledge_center():
+    domains, sources = load_knowledge_summary()
+    return f"""<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>MarketCore Knowledge Center</title></head>
+<body>
+<h1>MarketCore Knowledge Center</h1>
+<p><a href="/">Главное меню</a> | <a href="/knowledge/coverage">Knowledge Coverage</a> <button onclick="history.back()">Назад</button></p>
+<h2>Домены</h2>
+{simple_table(domains, ['domain', 'total', 'green'])}
+<h2>Discovery Sources</h2>
+{simple_table(sources, ['source', 'total'])}
+<p>source_policy=CATALOG_READ_ONLY</p>
+<p>runtime_changed=0 execution_changed=0 orders_changed=0 fills_changed=0 micro_live_allowed=0</p>
+</body></html>"""
+
+
+def render_knowledge_coverage():
+    coverage = load_knowledge_coverage()
+    return f"""<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>MarketCore Knowledge Coverage</title></head>
+<body>
+<h1>MarketCore Knowledge Coverage</h1>
+<p><a href="/">Главное меню</a> | <a href="/knowledge">Knowledge Center</a> <button onclick="history.back()">Назад</button></p>
+{simple_table(coverage, ['domain', 'total', 'object_id_coverage_pct', 'source_system_coverage_pct', 'discovery_coverage_pct', 'layer_coverage_pct', 'health_coverage_pct'])}
+<p>source_policy=CATALOG_READ_ONLY</p>
+<p>runtime_changed=0 execution_changed=0 orders_changed=0 fills_changed=0 micro_live_allowed=0</p>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
-            body = render_page().encode("utf-8")
+            if self.path.startswith("/knowledge/coverage"):
+                html = render_knowledge_coverage()
+            elif self.path.startswith("/knowledge"):
+                html = render_knowledge_center()
+            else:
+                html = render_page()
+
+            data = html.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(data)
         except Exception as exc:
-            body = f"READ_ONLY_SYSTEM_STATUS_UI_V1_ERROR: {exc}".encode("utf-8")
+            data = f"READ_ONLY_UI_ROUTER_V1_ERROR: {exc}".encode("utf-8")
             self.send_response(500)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(data)
 
 
 def main() -> int:
