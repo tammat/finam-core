@@ -166,9 +166,79 @@ def cmd_stats(args):
     emit([dict(r) for r in rows], args.json)
 
 
+
+def cmd_feature_summary(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE status='DISCOVERED') AS discovered,
+          count(*) FILTER (WHERE maturity_level='RESEARCH') AS research,
+          count(*) FILTER (WHERE approved_for_live=true) AS live_approved
+        FROM warehouse.feature_registry_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
+def cmd_feature_list(args):
+    rows = fetch("""
+        SELECT feature_code, feature_name, feature_class, status, maturity_level, validation_status
+        FROM warehouse.feature_registry_v1
+        ORDER BY feature_code
+        LIMIT %s
+    """, (args.limit,))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_feature_search(args):
+    term = f"%{args.term}%"
+    rows = fetch("""
+        SELECT feature_code, feature_name, feature_class, status, maturity_level, validation_status
+        FROM warehouse.feature_registry_v1
+        WHERE feature_code ILIKE %s OR feature_name ILIKE %s OR feature_class ILIKE %s
+        ORDER BY feature_code
+        LIMIT %s
+    """, (term, term, term, args.limit))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_feature_health(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE coalesce(feature_code,'')='') AS missing_feature_code,
+          count(*) FILTER (WHERE coalesce(status,'')='') AS missing_status,
+          count(*) FILTER (WHERE approved_for_live=true OR approved_for_paper=true OR approved_for_shadow=true) AS unsafe_approvals
+        FROM warehouse.feature_registry_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="marketcore")
     sub = parser.add_subparsers(dest="area", required=True)
+
+
+    feature = sub.add_parser("feature")
+    feature_sub = feature.add_subparsers(dest="cmd", required=True)
+
+    p = feature_sub.add_parser("summary")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_feature_summary)
+
+    p = feature_sub.add_parser("list")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_feature_list)
+
+    p = feature_sub.add_parser("search")
+    p.add_argument("term")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_feature_search)
+
+    p = feature_sub.add_parser("health")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_feature_health)
 
     catalog = sub.add_parser("catalog")
     catalog_sub = catalog.add_subparsers(dest="cmd", required=True)

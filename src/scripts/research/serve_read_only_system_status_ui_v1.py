@@ -317,10 +317,89 @@ def render_knowledge_coverage():
 </body></html>"""
 
 
+
+def load_feature_registry_summary():
+    with psycopg2.connect(db_url()) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT count(*) AS total,
+                       count(*) FILTER (WHERE status='DISCOVERED') AS discovered,
+                       count(*) FILTER (WHERE maturity_level='RESEARCH') AS research,
+                       count(*) FILTER (WHERE approved_for_live=true) AS live_approved
+                FROM warehouse.feature_registry_v1
+            """)
+            summary = cur.fetchone()
+
+            cur.execute("""
+                SELECT feature_class, count(*) AS total
+                FROM warehouse.feature_registry_v1
+                GROUP BY feature_class
+                ORDER BY total DESC, feature_class
+                LIMIT 30
+            """)
+            classes = cur.fetchall()
+
+            return summary, classes
+
+
+def load_feature_registry_health():
+    with psycopg2.connect(db_url()) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT count(*) AS total,
+                       count(*) FILTER (WHERE coalesce(feature_code,'')='') AS missing_feature_code,
+                       count(*) FILTER (WHERE coalesce(status,'')='') AS missing_status,
+                       count(*) FILTER (WHERE approved_for_live=true OR approved_for_paper=true OR approved_for_shadow=true) AS unsafe_approvals
+                FROM warehouse.feature_registry_v1
+            """)
+            return cur.fetchone()
+
+
+def render_feature_registry():
+    summary, classes = load_feature_registry_summary()
+    return f"""<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>MarketCore Feature Registry</title></head>
+<body>
+<h1>MarketCore Feature Registry</h1>
+<p><a href="/">Главное меню</a> | <a href="/knowledge">Knowledge Center</a> | <a href="/knowledge/features/health">Feature Health</a> <button onclick="history.back()">Назад</button></p>
+<h2>Сводка</h2>
+<p>total={html_escape(summary['total'])}</p>
+<p>discovered={html_escape(summary['discovered'])}</p>
+<p>research={html_escape(summary['research'])}</p>
+<p>live_approved={html_escape(summary['live_approved'])}</p>
+<h2>Классы Feature</h2>
+{simple_table(classes, ['feature_class', 'total'])}
+<p>source_policy=FEATURE_REGISTRY_READ_ONLY</p>
+<p>runtime_changed=0 execution_changed=0 orders_changed=0 fills_changed=0 micro_live_allowed=0</p>
+</body></html>"""
+
+
+def render_feature_registry_health():
+    h = load_feature_registry_health()
+    return f"""<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>MarketCore Feature Registry Health</title></head>
+<body>
+<h1>MarketCore Feature Registry Health</h1>
+<p><a href="/">Главное меню</a> | <a href="/knowledge/features">Feature Registry</a> <button onclick="history.back()">Назад</button></p>
+<p>total={html_escape(h['total'])}</p>
+<p>missing_feature_code={html_escape(h['missing_feature_code'])}</p>
+<p>missing_status={html_escape(h['missing_status'])}</p>
+<p>unsafe_approvals={html_escape(h['unsafe_approvals'])}</p>
+<p>source_policy=FEATURE_REGISTRY_READ_ONLY</p>
+<p>runtime_changed=0 execution_changed=0 orders_changed=0 fills_changed=0 micro_live_allowed=0</p>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
-            if self.path.startswith("/knowledge/coverage"):
+            if self.path.startswith("/knowledge/features/health"):
+                html = render_feature_registry_health()
+            elif self.path.startswith("/knowledge/features"):
+                html = render_feature_registry()
+            elif self.path.startswith("/knowledge/coverage"):
                 html = render_knowledge_coverage()
             elif self.path.startswith("/knowledge"):
                 html = render_knowledge_center()

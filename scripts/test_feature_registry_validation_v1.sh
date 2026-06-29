@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== TEST_FEATURE_REGISTRY_VALIDATION_V1 ==="
+
+PYTHONPATH=src src/scripts/research/build_feature_registry_validation_v1.py \
+  | tee /tmp/feature_registry_validation_v1.out
+
+grep -q "FEATURE_REGISTRY_VALIDATION_V1" /tmp/feature_registry_validation_v1.out
+grep -q "feature_registry_total=352" /tmp/feature_registry_validation_v1.out
+grep -q "required_fields_valid=352" /tmp/feature_registry_validation_v1.out
+grep -q "duplicate_feature_codes=0" /tmp/feature_registry_validation_v1.out
+grep -q "unsafe_approvals=0" /tmp/feature_registry_validation_v1.out
+grep -q "feature_registry_valid=1" /tmp/feature_registry_validation_v1.out
+grep -q "runtime_changed=0" /tmp/feature_registry_validation_v1.out
+grep -q "execution_changed=0" /tmp/feature_registry_validation_v1.out
+grep -q "orders_changed=0" /tmp/feature_registry_validation_v1.out
+grep -q "fills_changed=0" /tmp/feature_registry_validation_v1.out
+grep -q "micro_live_allowed=0" /tmp/feature_registry_validation_v1.out
+grep -q "VERDICT=FEATURE_REGISTRY_VALIDATION_V1_READY" /tmp/feature_registry_validation_v1.out
+
+echo "TEST_FEATURE_REGISTRY_VALIDATION_V1_OK"
