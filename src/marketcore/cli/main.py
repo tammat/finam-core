@@ -347,6 +347,76 @@ def cmd_relationship_health(args):
     emit(dict(rows[0]), args.json)
 
 
+
+def cmd_graph_summary(args):
+    rows = fetch("""
+        SELECT total_nodes, total_edges, node_types, relationship_types,
+               isolated_nodes, not_validated_edges, refreshed_at
+        FROM warehouse.kg_statistics_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
+def cmd_graph_nodes(args):
+    rows = fetch("""
+        SELECT node_type, count(*) AS total
+        FROM warehouse.kg_node_v1
+        GROUP BY node_type
+        ORDER BY node_type
+    """)
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_graph_edges(args):
+    rows = fetch("""
+        SELECT relationship_type, count(*) AS total
+        FROM warehouse.kg_edge_v1
+        GROUP BY relationship_type
+        ORDER BY relationship_type
+    """)
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_graph_paths(args):
+    rows = fetch("""
+        SELECT path_type, count(*) AS total
+        FROM warehouse.kg_path_v1
+        GROUP BY path_type
+        ORDER BY path_type
+    """)
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_graph_isolated(args):
+    rows = fetch("""
+        SELECT node_type, count(*) AS total
+        FROM warehouse.kg_node_v1 n
+        LEFT JOIN warehouse.kg_edge_v1 e1
+          ON e1.source_node_type=n.node_type
+         AND e1.source_node_code=n.node_code
+        LEFT JOIN warehouse.kg_edge_v1 e2
+          ON e2.target_node_type=n.node_type
+         AND e2.target_node_code=n.node_code
+        WHERE e1.source_node_code IS NULL
+          AND e2.target_node_code IS NULL
+        GROUP BY node_type
+        ORDER BY node_type
+    """)
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_graph_health(args):
+    rows = fetch("""
+        SELECT
+          (SELECT count(*) FROM warehouse.kg_node_v1) AS nodes,
+          (SELECT count(*) FROM warehouse.kg_edge_v1) AS edges,
+          (SELECT count(*) FROM warehouse.kg_path_v1) AS paths,
+          (SELECT count(*) FROM warehouse.kg_edge_v1 WHERE validation_status <> 'VALIDATED') AS not_validated_edges,
+          (SELECT count(*) FROM warehouse.kg_path_v1 WHERE validation_status <> 'VALIDATED') AS not_validated_paths
+    """)
+    emit(dict(rows[0]), args.json)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="marketcore")
     sub = parser.add_subparsers(dest="area", required=True)
@@ -354,6 +424,34 @@ def main() -> int:
 
 
 
+
+
+    graph = sub.add_parser("graph")
+    graph_sub = graph.add_subparsers(dest="cmd", required=True)
+
+    p = graph_sub.add_parser("summary")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_graph_summary)
+
+    p = graph_sub.add_parser("nodes")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_graph_nodes)
+
+    p = graph_sub.add_parser("edges")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_graph_edges)
+
+    p = graph_sub.add_parser("paths")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_graph_paths)
+
+    p = graph_sub.add_parser("isolated")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_graph_isolated)
+
+    p = graph_sub.add_parser("health")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_graph_health)
 
     relationship = sub.add_parser("relationship")
     relationship_sub = relationship.add_subparsers(dest="cmd", required=True)
