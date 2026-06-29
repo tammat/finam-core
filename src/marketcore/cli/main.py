@@ -213,10 +213,156 @@ def cmd_feature_health(args):
     emit(dict(rows[0]), args.json)
 
 
+
+def cmd_model_summary(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE status='DISCOVERED') AS discovered,
+          count(*) FILTER (WHERE maturity_level='RESEARCH') AS research,
+          count(*) FILTER (WHERE approved_for_live=true) AS live_approved
+        FROM warehouse.model_registry_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
+def cmd_model_list(args):
+    rows = fetch("""
+        SELECT model_code, model_name, model_class, model_family, status, maturity_level, validation_status
+        FROM warehouse.model_registry_v1
+        ORDER BY model_code
+        LIMIT %s
+    """, (args.limit,))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_model_search(args):
+    term = f"%{args.term}%"
+    rows = fetch("""
+        SELECT model_code, model_name, model_class, model_family, status, maturity_level, validation_status
+        FROM warehouse.model_registry_v1
+        WHERE model_code ILIKE %s OR model_name ILIKE %s OR model_class ILIKE %s OR model_family ILIKE %s
+        ORDER BY model_code
+        LIMIT %s
+    """, (term, term, term, term, args.limit))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_model_health(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE coalesce(model_code,'')='') AS missing_model_code,
+          count(*) FILTER (WHERE coalesce(status,'')='') AS missing_status,
+          count(*) FILTER (WHERE approved_for_live=true OR approved_for_paper=true OR approved_for_shadow=true) AS unsafe_approvals
+        FROM warehouse.model_registry_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
+
+def cmd_experiment_summary(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE status='REGISTERED') AS registered,
+          count(*) FILTER (WHERE maturity_level='RESEARCH') AS research,
+          count(*) FILTER (WHERE approved_for_live=true) AS live_approved
+        FROM warehouse.experiment_registry_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
+def cmd_experiment_list(args):
+    rows = fetch("""
+        SELECT experiment_code, experiment_name, symbol, timeframe,
+               strategy_code, status, maturity_level, decision
+        FROM warehouse.experiment_registry_v1
+        ORDER BY updated_at DESC, experiment_code
+        LIMIT %s
+    """, (args.limit,))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_experiment_search(args):
+    term = f"%{args.term}%"
+    rows = fetch("""
+        SELECT experiment_code, experiment_name, symbol, timeframe,
+               strategy_code, status, maturity_level, decision
+        FROM warehouse.experiment_registry_v1
+        WHERE experiment_code ILIKE %s
+           OR experiment_name ILIKE %s
+           OR symbol ILIKE %s
+           OR strategy_code ILIKE %s
+           OR decision ILIKE %s
+        ORDER BY updated_at DESC, experiment_code
+        LIMIT %s
+    """, (term, term, term, term, term, args.limit))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_experiment_health(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE coalesce(experiment_code,'')='') AS missing_experiment_code,
+          count(*) FILTER (WHERE coalesce(status,'')='') AS missing_status,
+          count(*) FILTER (WHERE approved_for_live=true OR approved_for_paper=true OR approved_for_shadow=true) AS unsafe_approvals
+        FROM warehouse.experiment_registry_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="marketcore")
     sub = parser.add_subparsers(dest="area", required=True)
 
+
+
+
+    experiment = sub.add_parser("experiment")
+    experiment_sub = experiment.add_subparsers(dest="cmd", required=True)
+
+    p = experiment_sub.add_parser("summary")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_experiment_summary)
+
+    p = experiment_sub.add_parser("list")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_experiment_list)
+
+    p = experiment_sub.add_parser("search")
+    p.add_argument("term")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_experiment_search)
+
+    p = experiment_sub.add_parser("health")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_experiment_health)
+
+    model = sub.add_parser("model")
+    model_sub = model.add_subparsers(dest="cmd", required=True)
+
+    p = model_sub.add_parser("summary")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_model_summary)
+
+    p = model_sub.add_parser("list")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_model_list)
+
+    p = model_sub.add_parser("search")
+    p.add_argument("term")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_model_search)
+
+    p = model_sub.add_parser("health")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_model_health)
 
     feature = sub.add_parser("feature")
     feature_sub = feature.add_subparsers(dest="cmd", required=True)

@@ -8,7 +8,19 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import psycopg2
 import psycopg2.extras
+from marketcore.presentation.router import ReadOnlyRouter
+from marketcore.presentation.pages.knowledge import render_knowledge_center_v2
+from marketcore.presentation.pages.models import render_model_registry, render_model_registry_health
+from marketcore.presentation.pages.experiments import render_experiment_registry, render_experiment_registry_health
 
+
+
+ROUTER = ReadOnlyRouter()
+ROUTER.register("/knowledge/experiments/health", render_experiment_registry_health)
+ROUTER.register("/knowledge/experiments", render_experiment_registry)
+ROUTER.register("/knowledge/models/health", render_model_registry_health)
+ROUTER.register("/knowledge/models", render_model_registry)
+ROUTER.register("/knowledge", render_knowledge_center_v2)
 
 PORT = int(os.getenv("READONLY_UI_PORT", "8089"))
 
@@ -392,17 +404,170 @@ def render_feature_registry_health():
 </body></html>"""
 
 
+
+def load_knowledge_center_v2():
+    with psycopg2.connect(db_url()) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT domain, count(*) AS total,
+                       count(*) FILTER (WHERE health_light='GREEN') AS green
+                FROM warehouse.analytics_asset_catalog_v1
+                GROUP BY domain
+                ORDER BY domain
+            """)
+            domains = cur.fetchall()
+
+            cur.execute("""
+                SELECT payload->>'discovery_source' AS source, count(*) AS total
+                FROM warehouse.analytics_asset_catalog_v1
+                GROUP BY payload->>'discovery_source'
+                ORDER BY source
+            """)
+            sources = cur.fetchall()
+
+            cur.execute("""
+                SELECT
+                  count(*) AS total,
+                  count(*) FILTER (WHERE status='DISCOVERED') AS discovered,
+                  count(*) FILTER (WHERE maturity_level='RESEARCH') AS research,
+                  count(*) FILTER (WHERE approved_for_live=true) AS live_approved
+                FROM warehouse.feature_registry_v1
+            """)
+            features = cur.fetchone()
+
+            cur.execute("""
+                SELECT
+                  count(*) AS total,
+                  count(*) FILTER (WHERE status='DISCOVERED') AS discovered,
+                  count(*) FILTER (WHERE maturity_level='RESEARCH') AS research,
+                  count(*) FILTER (WHERE approved_for_live=true) AS live_approved
+                FROM warehouse.model_registry_v1
+            """)
+            models = cur.fetchone()
+
+            cur.execute("""
+                WITH base AS (
+                    SELECT domain,
+                           count(*) AS total,
+                           count(*) FILTER (WHERE coalesce(object_id,'') <> '') AS has_object_id,
+                           count(*) FILTER (WHERE coalesce(source_system,'') <> '') AS has_source_system,
+                           count(*) FILTER (WHERE coalesce(payload->>'discovery_source','') <> '') AS has_discovery_source,
+                           count(*) FILTER (WHERE coalesce(warehouse_layer,'') <> '') AS has_layer,
+                           count(*) FILTER (WHERE health_light='GREEN') AS green
+                    FROM warehouse.analytics_asset_catalog_v1
+                    GROUP BY domain
+                )
+                SELECT domain, total,
+                       round((has_object_id::numeric / nullif(total,0)) * 100, 2) AS object_id_coverage_pct,
+                       round((has_source_system::numeric / nullif(total,0)) * 100, 2) AS source_system_coverage_pct,
+                       round((has_discovery_source::numeric / nullif(total,0)) * 100, 2) AS discovery_coverage_pct,
+                       round((has_layer::numeric / nullif(total,0)) * 100, 2) AS layer_coverage_pct,
+                       round((green::numeric / nullif(total,0)) * 100, 2) AS health_coverage_pct
+                FROM base
+                ORDER BY domain
+            """)
+            coverage = cur.fetchall()
+
+    return domains, sources, features, models, coverage
+
+
+def render_knowledge_center_v2():
+    domains, sources, features, models, coverage = load_knowledge_center_v2()
+
+    catalog_total = sum(int(r['total']) for r in domains)
+    catalog_green = sum(int(r['green']) for r in domains)
+    health = round(catalog_green / catalog_total * 100, 2) if catalog_total else 0
+
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>MarketCore Knowledge Center V2</title>
+<style>
+body {{ font-family: Arial, sans-serif; margin: 24px; }}
+.grid {{ display: grid; grid-template-columns: 220px 1fr; gap: 24px; }}
+nav {{ border-right: 1px solid #ddd; padding-right: 16px; }}
+section {{ margin-bottom: 28px; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+.card {{ display: inline-block; border: 1px solid #ddd; padding: 12px; margin: 6px; min-width: 160px; }}
+</style>
+</head>
+<body>
+<h1>MarketCore Knowledge Center V2</h1>
+<p><a href="/">Главное меню</a> <button onclick="history.back()">Назад</button></p>
+
+<div class="grid">
+<nav>
+<h3>Knowledge</h3>
+<p><a href="#overview">Overview</a></p>
+<p><a href="#discovery">Discovery</a></p>
+<p><a href="#coverage">Coverage</a></p>
+<p><a href="#features">Features</a></p>
+<p><a href="#models">Models</a></p>
+</nav>
+
+<main>
+<section id="overview">
+<h2>Overview</h2>
+<div class="card">catalog_objects={html_escape(catalog_total)}</div>
+<div class="card">catalog_health={html_escape(health)}%</div>
+<div class="card">features={html_escape(features['total'])}</div>
+<div class="card">models={html_escape(models['total'])}</div>
+</section>
+
+<section id="discovery">
+<h2>Discovery</h2>
+<h3>Домены</h3>
+{simple_table(domains, ['domain', 'total', 'green'])}
+<h3>Источники</h3>
+{simple_table(sources, ['source', 'total'])}
+</section>
+
+<section id="coverage">
+<h2>Coverage</h2>
+{simple_table(coverage, ['domain', 'total', 'object_id_coverage_pct', 'source_system_coverage_pct', 'discovery_coverage_pct', 'layer_coverage_pct', 'health_coverage_pct'])}
+</section>
+
+<section id="features">
+<h2>Features</h2>
+<p>total={html_escape(features['total'])}</p>
+<p>discovered={html_escape(features['discovered'])}</p>
+<p>research={html_escape(features['research'])}</p>
+<p>live_approved={html_escape(features['live_approved'])}</p>
+<p><a href="/knowledge/features">Feature Registry detail</a></p>
+</section>
+
+<section id="models">
+<h2>Models</h2>
+<p>total={html_escape(models['total'])}</p>
+<p>discovered={html_escape(models['discovered'])}</p>
+<p>research={html_escape(models['research'])}</p>
+<p>live_approved={html_escape(models['live_approved'])}</p>
+</section>
+
+<p>source_policy=KNOWLEDGE_CENTER_READ_ONLY</p>
+<p>runtime_changed=0 execution_changed=0 orders_changed=0 fills_changed=0 micro_live_allowed=0</p>
+</main>
+</div>
+</body>
+</html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
-            if self.path.startswith("/knowledge/features/health"):
+            handler = ROUTER.resolve(self.path)
+            if handler:
+                html = handler()
+            elif self.path.startswith("/knowledge/features/health"):
                 html = render_feature_registry_health()
             elif self.path.startswith("/knowledge/features"):
                 html = render_feature_registry()
             elif self.path.startswith("/knowledge/coverage"):
                 html = render_knowledge_coverage()
             elif self.path.startswith("/knowledge"):
-                html = render_knowledge_center()
+                html = render_knowledge_center_v2()
             else:
                 html = render_page()
 
