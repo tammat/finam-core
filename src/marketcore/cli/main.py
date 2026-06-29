@@ -313,12 +313,63 @@ def cmd_experiment_health(args):
     emit(dict(rows[0]), args.json)
 
 
+
+def cmd_relationship_summary(args):
+    rows = fetch("""
+        SELECT relationship_type, count(*) AS total
+        FROM warehouse.registry_relationship_v1
+        GROUP BY relationship_type
+        ORDER BY relationship_type
+    """)
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_relationship_list(args):
+    rows = fetch("""
+        SELECT source_domain, source_code, target_domain, target_code,
+               relationship_type, validation_status
+        FROM warehouse.registry_relationship_v1
+        ORDER BY relationship_type, source_code
+        LIMIT %s
+    """, (args.limit,))
+    emit([dict(r) for r in rows], args.json)
+
+
+def cmd_relationship_health(args):
+    rows = fetch("""
+        SELECT
+          count(*) AS total,
+          count(*) FILTER (WHERE coalesce(source_code,'')='') AS missing_source_code,
+          count(*) FILTER (WHERE coalesce(target_code,'')='') AS missing_target_code,
+          count(*) FILTER (WHERE validation_status <> 'VALIDATED') AS not_validated
+        FROM warehouse.registry_relationship_v1
+    """)
+    emit(dict(rows[0]), args.json)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="marketcore")
     sub = parser.add_subparsers(dest="area", required=True)
 
 
 
+
+
+    relationship = sub.add_parser("relationship")
+    relationship_sub = relationship.add_subparsers(dest="cmd", required=True)
+
+    p = relationship_sub.add_parser("summary")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_relationship_summary)
+
+    p = relationship_sub.add_parser("list")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_relationship_list)
+
+    p = relationship_sub.add_parser("health")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_relationship_health)
 
     experiment = sub.add_parser("experiment")
     experiment_sub = experiment.add_subparsers(dest="cmd", required=True)
