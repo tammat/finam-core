@@ -13,11 +13,13 @@ from marketcore.presentation.pages.knowledge import render_knowledge_center_v2
 from marketcore.presentation.pages.models import render_model_registry, render_model_registry_health
 from marketcore.presentation.pages.experiments import render_experiment_registry, render_experiment_registry_health
 from marketcore.presentation.pages.relationships import render_registry_relationships
+from marketcore.presentation.pages.knowledge_graph import render_knowledge_graph
 
 
 
 ROUTER = ReadOnlyRouter()
 ROUTER.register("/knowledge/relationships", render_registry_relationships)
+ROUTER.register("/knowledge/graph", render_knowledge_graph)
 ROUTER.register("/knowledge/experiments/health", render_experiment_registry_health)
 ROUTER.register("/knowledge/experiments", render_experiment_registry)
 ROUTER.register("/knowledge/models/health", render_model_registry_health)
