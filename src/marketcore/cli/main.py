@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from marketcore.cli.ai_registry_cli import register_ai_commands
+from marketcore.cli.quality_lineage_cli import register_quality_lineage_commands
 import json
 import os
 import sys
@@ -580,6 +582,9 @@ def main() -> int:
     p = catalog_sub.add_parser("stats")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_stats)
+
+    register_quality_lineage_commands(sub)
+    register_ai_commands(sub)
 
     args = parser.parse_args()
     args.func(args)

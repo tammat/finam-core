@@ -14,12 +14,16 @@ from marketcore.presentation.pages.models import render_model_registry, render_m
 from marketcore.presentation.pages.experiments import render_experiment_registry, render_experiment_registry_health
 from marketcore.presentation.pages.relationships import render_registry_relationships
 from marketcore.presentation.pages.knowledge_graph import render_knowledge_graph
+from marketcore.presentation.pages.ai_registry import render_ai_registry
+from marketcore.ui.quality_lineage_page import render_quality_lineage_page
 
 
 
 ROUTER = ReadOnlyRouter()
 ROUTER.register("/knowledge/relationships", render_registry_relationships)
 ROUTER.register("/knowledge/graph", render_knowledge_graph)
+ROUTER.register("/knowledge/ai", render_ai_registry)
+ROUTER.register("/knowledge/lineage", render_quality_lineage_page)
 ROUTER.register("/knowledge/experiments/health", render_experiment_registry_health)
 ROUTER.register("/knowledge/experiments", render_experiment_registry)
 ROUTER.register("/knowledge/models/health", render_model_registry_health)
@@ -560,6 +564,14 @@ th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/knowledge/lineage":
+            html = render_quality_lineage_page()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(html.encode("utf-8"))
+            return
+
         try:
             handler = ROUTER.resolve(self.path)
             if handler:
