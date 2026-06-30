@@ -55,6 +55,7 @@ class ResolveSourceSystemStep(BaseBuilderStep):
             return StepResult(success=False, rows_processed=1, rows_rejected=1)
 
         ctx.source_system_id = int(row["id"])
+        ctx.source_system = row
         ctx.increment("source_system_resolved", 1)
 
         return StepResult(success=True, rows_processed=1)

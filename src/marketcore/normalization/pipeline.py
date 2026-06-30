@@ -24,11 +24,11 @@ class NormalizationPipeline:
         for step in self.steps:
             ctx.increment(f"step_{step.name}_started", 1)
 
-            ctx = step.run(ctx)
+            result = step.run(ctx)
 
             ctx.increment(f"step_{step.name}_finished", 1)
 
-            if self.stop_on_reject and ctx.rejected:
+            if self.stop_on_reject and not result.success:
                 ctx.increment("pipeline_stopped_on_reject", 1)
                 break
 
