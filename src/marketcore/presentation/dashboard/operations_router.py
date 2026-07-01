@@ -20,16 +20,28 @@ class OperationsCenterPage(BaseDashboardPage):
         self.vm = OperationsCenterService().load()
 
     def render_body(self) -> str:
-        return f"""
-<section class="fc-card">
-<h1>{self.title}</h1>
-<p>{self.subtitle}</p>
-</section>
+        vm = self.vm
 
-<section class="fc-card">
-<p>OPERATIONS_WIDGET_BINDING_V1</p>
-</section>
-"""
+        from marketcore.presentation.widgets.operations_page.overview import OperationsOverviewWidget
+        from marketcore.presentation.widgets.operations_page.services import OperationsServicesWidget
+        from marketcore.presentation.widgets.operations_page.events import OperationsEventsWidget
+        from marketcore.presentation.widgets.operations_page.actions import OperationsActionsWidget
+
+        widgets = [
+            OperationsOverviewWidget(),
+            OperationsServicesWidget(),
+            OperationsEventsWidget(),
+            OperationsActionsWidget(),
+        ]
+
+        header = (
+            '<section class="fc-card">'
+            f'<h1>{self.title}</h1>'
+            f'<p>{self.subtitle}</p>'
+            '</section>'
+        )
+
+        return header + "".join(widget.render(vm) for widget in widgets)
 
 
 @operations_router.get("/operations", response_class=HTMLResponse)
