@@ -14,7 +14,7 @@ def render_shell(content: str, lang: str = "ru", timezone: str = "Europe/Moscow"
         LayoutState(
             lang=lang,
             timezone=timezone,
-            theme="light",
-            user_label="Observer",
+            theme="светлая",
+            user_label="Наблюдатель",
         ),
     )

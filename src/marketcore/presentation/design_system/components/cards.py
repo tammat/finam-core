@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from marketcore.presentation.formatters.status_formatter import StatusFormatter
+
 from html import escape
 
 from marketcore.presentation.design_system.components.badges import Badge
