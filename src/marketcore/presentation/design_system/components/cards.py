@@ -20,10 +20,18 @@ def Card(title: str, body: str) -> str:
     )
 
 
+def _display_value(value: str | int | float) -> str:
+    text = str(value)
+    normalized = text.upper()
+    if normalized in {"READY", "WARNING", "HIGH", "CRITICAL", "DISABLED", "INFO", "SAFE"}:
+        return StatusFormatter.short(normalized, "ru")
+    return text
+
+
 def MetricCard(title: str, value: str | int | float, status: str = "READY") -> str:
     return Card(
         title,
-        f'<div class="fc-metric">{escape(str(value))}</div>{Badge(_status_label(status), status)}',
+        f'<div class="fc-metric">{escape(_display_value(value))}</div>{Badge(_status_label(status), status)}',
     )
 
 
