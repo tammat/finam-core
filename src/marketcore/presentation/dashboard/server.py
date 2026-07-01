@@ -6,12 +6,14 @@ from marketcore.presentation.dashboard.api import api_router
 from marketcore.presentation.dashboard.router import router
 from marketcore.presentation.dashboard.preview_router import preview_router
 from marketcore.presentation.dashboard.home_router import home_router
+from marketcore.presentation.dashboard.market_router import market_router
 
 app = FastAPI(title="Finam_Core Dashboard", version="1.0.0")
 
 app.include_router(api_router)
 app.include_router(preview_router)
 app.include_router(home_router)
+app.include_router(market_router)
 app.include_router(router)
 
 
