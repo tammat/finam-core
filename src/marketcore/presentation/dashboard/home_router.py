@@ -5,8 +5,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
 
-from marketcore.presentation.pages.base_page import BaseDashboardPage, DashboardPageContext, DashboardSection
-from marketcore.presentation.design_system.components.cards import KeyValueCard, MetricCard, StatusCard, VersionCard
+from marketcore.presentation.pages.base_page import BaseDashboardPage, DashboardPageContext
 from marketcore.services.dashboard.executive_overview_service import ExecutiveOverviewService
 
 home_router = APIRouter()
@@ -20,94 +19,41 @@ class ExecutiveOverviewPage(BaseDashboardPage):
     def __init__(self) -> None:
         self.vm = ExecutiveOverviewService().load()
 
-    def sections(self) -> list[DashboardSection]:
+    def render_body(self) -> str:
         vm = self.vm
 
-        return [
-            DashboardSection(
-                title="Главная",
-                cards=[
-                    MetricCard("Система", vm.health_value, vm.health_status),
-                    StatusCard("Риски", vm.risk.value),
-                    KeyValueCard(
-                        "Приоритет",
-                        {
-                            "Риск": vm.risk.reason,
-                            "План": vm.risk.priority,
-                        },
-                    ),
-                ],
-            ),
-            DashboardSection(
-                title="Платформа",
-                cards=[
-                    MetricCard(item.title, item.value, item.status)
-                    for item in vm.platform
-                ],
-            ),
-            DashboardSection(
-                title="Рынок",
-                cards=[
-                    MetricCard(item.title, item.value, item.status)
-                    for item in vm.market
-                ],
-            ),
-            DashboardSection(
-                title="Исслед.",
-                cards=[
-                    MetricCard(item.title, item.value, item.status)
-                    for item in vm.research
-                ],
-            ),
-            DashboardSection(
-                title="Мета",
-                cards=[
-                    MetricCard(item.title, item.value, item.status)
-                    for item in vm.metadata
-                ],
-            ),
-            DashboardSection(
-                title="Выполн.",
-                cards=[
-                    MetricCard(item.title, item.value, item.status)
-                    for item in vm.execution
-                ],
-            ),
-            DashboardSection(
-                title="Версия",
-                cards=[
-                    VersionCard(vm.version.product_name, vm.version.product_version),
-                    KeyValueCard(
-                        "Версии",
-                        {
-                            "Dashboard": vm.version.dashboard_version,
-                            "Repo": vm.version.repo,
-                            "Commit": vm.version.git_commit,
-                            "Tag": vm.version.git_tag,
-                        },
-                    ),
-                ],
-            ),
-            DashboardSection(
-                title="События",
-                cards=[
-                    KeyValueCard(
-                        "Последние",
-                        {
-                            item.time_label: item.text
-                            for item in vm.activity[:4]
-                        },
-                    )
-                ],
-            ),
-            DashboardSection(
-                title="Быстрые действия",
-                cards=[
-                    MetricCard(item.title, item.value, item.status)
-                    for item in vm.quick_actions
-                ],
-            ),
+        from marketcore.presentation.widgets.executive_health.renderer import ExecutiveHealthWidget
+        from marketcore.presentation.widgets.platform_status.renderer import PlatformStatusWidget
+        from marketcore.presentation.widgets.market_summary.renderer import MarketSummaryWidget
+        from marketcore.presentation.widgets.research_summary.renderer import ResearchSummaryWidget
+        from marketcore.presentation.widgets.metadata_summary.renderer import MetadataSummaryWidget
+        from marketcore.presentation.widgets.risk_summary.renderer import RiskSummaryWidget
+        from marketcore.presentation.widgets.execution_summary.renderer import ExecutionSummaryWidget
+        from marketcore.presentation.widgets.version_summary.renderer import VersionSummaryWidget
+        from marketcore.presentation.widgets.activity_summary.renderer import ActivitySummaryWidget
+        from marketcore.presentation.widgets.quick_actions.renderer import QuickActionsWidget
+
+        widgets = [
+            ExecutiveHealthWidget(),
+            PlatformStatusWidget(),
+            MarketSummaryWidget(),
+            ResearchSummaryWidget(),
+            MetadataSummaryWidget(),
+            RiskSummaryWidget(),
+            ExecutionSummaryWidget(),
+            VersionSummaryWidget(),
+            ActivitySummaryWidget(),
+            QuickActionsWidget(),
         ]
+
+        header = (
+            '<section class="fc-card">'
+            f'<h1>{self.title}</h1>'
+            f'<p>{self.subtitle}</p>'
+            '</section>'
+        )
+
+        return header + "".join(widget.render(vm) for widget in widgets)
 
 
 @home_router.get("/", response_class=HTMLResponse)
