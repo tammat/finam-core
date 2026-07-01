@@ -26,16 +26,28 @@ class MarketIntelligencePage(BaseDashboardPage):
         self.vm = MarketIntelligenceService().load()
 
     def render_body(self) -> str:
-        return f"""
-<section class="fc-card">
-<h1>{self.title}</h1>
-<p>{self.subtitle}</p>
-</section>
+        vm = self.vm
 
-<section class="fc-card">
-<p>MARKET_WIDGET_BINDING_V1</p>
-</section>
-"""
+        from marketcore.presentation.widgets.market_page.overview import MarketOverviewWidget
+        from marketcore.presentation.widgets.market_page.quality import MarketQualityWidget
+        from marketcore.presentation.widgets.market_page.instruments import MarketInstrumentsWidget
+        from marketcore.presentation.widgets.market_page.actions import MarketActionsWidget
+
+        widgets = [
+            MarketOverviewWidget(),
+            MarketQualityWidget(),
+            MarketInstrumentsWidget(),
+            MarketActionsWidget(),
+        ]
+
+        header = (
+            '<section class="fc-card">'
+            f'<h1>{self.title}</h1>'
+            f'<p>{self.subtitle}</p>'
+            '</section>'
+        )
+
+        return header + "".join(widget.render(vm) for widget in widgets)
 
 
 @market_router.get("/market", response_class=HTMLResponse)
