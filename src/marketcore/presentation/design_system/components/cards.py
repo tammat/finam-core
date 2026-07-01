@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from marketcore.presentation.formatters.status_formatter import StatusFormatter
-
 from html import escape
 
 from marketcore.presentation.design_system.components.badges import Badge
 from marketcore.presentation.design_system.registry import DesignComponent, design_registry
+from marketcore.presentation.formatters.status_formatter import StatusFormatter
+
+
+def _status_label(status: str) -> str:
+    return StatusFormatter.short(status, "ru")
 
 
 def Card(title: str, body: str) -> str:
     return (
         '<section class="fc-card">'
-        f'<h3>{escape(title)}</h3>'
+        f'<h3>{escape(str(title))}</h3>'
         f'<div>{body}</div>'
         '</section>'
     )
@@ -20,20 +23,20 @@ def Card(title: str, body: str) -> str:
 def MetricCard(title: str, value: str | int | float, status: str = "READY") -> str:
     return Card(
         title,
-        f'<div class="fc-metric">{escape(str(value))}</div>{Badge(status, status)}',
+        f'<div class="fc-metric">{escape(str(value))}</div>{Badge(_status_label(status), status)}',
     )
 
 
 def HealthCard(title: str, status: str = "READY") -> str:
-    return Card(title, Badge(status, status))
+    return Card(title, Badge(_status_label(status), status))
 
 
 def StatusCard(title: str, status: str) -> str:
-    return Card(title, Badge(status, status))
+    return Card(title, Badge(_status_label(status), status))
 
 
 def VersionCard(title: str, version: str) -> str:
-    return Card(title, f'<code>{escape(version)}</code>')
+    return Card(title, f'<code>{escape(str(version))}</code>')
 
 
 def KeyValueCard(title: str, items: dict[str, str | int | float]) -> str:
