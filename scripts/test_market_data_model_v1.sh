@@ -33,10 +33,10 @@ assert isinstance(vm.instruments[0], MarketInstrumentVM)
 assert vm.overview[0].title == "Бары"
 assert vm.overview[1].title == "Тики"
 assert vm.overview[2].title == "Инстр."
-assert vm.overview[3].title == "Fresh"
+assert vm.overview[3].title == "Актуал."
 
 assert vm.quality[0].bad_rows == "0"
-assert vm.instruments[0].freshness == "FRESH"
+assert vm.instruments[0].freshness == "Актуал."
 
 print("market_data_model=READY")
 print("market_intelligence_vm=READY")

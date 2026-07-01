@@ -48,17 +48,17 @@ def build_default_market_intelligence_vm() -> MarketIntelligenceVM:
             MarketMetricVM("Бары", "876K", "READY", "Детали", "/market"),
             MarketMetricVM("Тики", "71.1M", "READY", "Детали", "/market"),
             MarketMetricVM("Инстр.", "59", "READY", "Детали", "/market"),
-            MarketMetricVM("Fresh", "59", "READY", "Детали", "/market"),
+            MarketMetricVM("Актуал.", "59", "READY", "Детали", "/market"),
         ],
         quality=[
             MarketQualityVM("OHLC", "market_bars", "876K", "0", "READY"),
-            MarketQualityVM("Volume", "market_bars", "876K", "0", "READY"),
-            MarketQualityVM("Ticks", "market_ticks", "71.1M", "0", "READY"),
+            MarketQualityVM("Объём", "market_bars", "876K", "0", "READY"),
+            MarketQualityVM("Тики", "market_ticks", "71.1M", "0", "READY"),
         ],
         instruments=[
-            MarketInstrumentVM("BRN6@RTSX", "Futures", "41K", "2026-06-30", "FRESH", "READY"),
-            MarketInstrumentVM("SBER@MISX", "Equity", "19K", "2026-07-01", "FRESH", "READY"),
-            MarketInstrumentVM("BTCUSD", "Crypto", "46K", "2026-07-01", "FRESH", "READY"),
+            MarketInstrumentVM("BRN6@RTSX", "Фьючерсы", "41K", "30.06.2026", "Актуал.", "READY"),
+            MarketInstrumentVM("SBER@MISX", "Акции", "19K", "01.07.2026", "Актуал.", "READY"),
+            MarketInstrumentVM("BTCUSD", "Крипто", "46K", "01.07.2026", "Актуал.", "READY"),
         ],
         actions=[
             MarketMetricVM("Диагн.", "Open", "INFO", "Открыть", "/system"),
