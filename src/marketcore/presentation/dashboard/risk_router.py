@@ -20,16 +20,28 @@ class RiskControlCenterPage(BaseDashboardPage):
         self.vm = RiskControlCenterService().load()
 
     def render_body(self) -> str:
-        return f"""
-<section class="fc-card">
-<h1>{self.title}</h1>
-<p>{self.subtitle}</p>
-</section>
+        vm = self.vm
 
-<section class="fc-card">
-<p>RISK_WIDGET_BINDING_V1</p>
-</section>
-"""
+        from marketcore.presentation.widgets.risk_page.overview import RiskOverviewWidget
+        from marketcore.presentation.widgets.risk_page.rules import RiskRulesWidget
+        from marketcore.presentation.widgets.risk_page.events import RiskEventsWidget
+        from marketcore.presentation.widgets.risk_page.actions import RiskActionsWidget
+
+        widgets = [
+            RiskOverviewWidget(),
+            RiskRulesWidget(),
+            RiskEventsWidget(),
+            RiskActionsWidget(),
+        ]
+
+        header = (
+            '<section class="fc-card">'
+            f'<h1>{self.title}</h1>'
+            f'<p>{self.subtitle}</p>'
+            '</section>'
+        )
+
+        return header + "".join(widget.render(vm) for widget in widgets)
 
 
 @risk_router.get("/risk", response_class=HTMLResponse)
