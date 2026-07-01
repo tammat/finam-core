@@ -11,6 +11,7 @@ from marketcore.presentation.dashboard.research_router import research_router
 from marketcore.presentation.dashboard.metadata_router import metadata_router
 from marketcore.presentation.dashboard.risk_router import risk_router
 from marketcore.presentation.dashboard.execution_router import execution_router
+from marketcore.presentation.dashboard.operations_router import operations_router
 
 app = FastAPI(title="MarketCore Dashboard", version="1.0.0")
 
@@ -22,6 +23,7 @@ app.include_router(research_router)
 app.include_router(metadata_router)
 app.include_router(risk_router)
 app.include_router(execution_router)
+app.include_router(operations_router)
 app.include_router(router)
 
 
