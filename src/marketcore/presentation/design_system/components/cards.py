@@ -1,0 +1,49 @@
+from __future__ import annotations
+
+from html import escape
+
+from marketcore.presentation.design_system.components.badges import Badge
+from marketcore.presentation.design_system.registry import DesignComponent, design_registry
+
+
+def Card(title: str, body: str) -> str:
+    return (
+        '<section class="fc-card">'
+        f'<h3>{escape(title)}</h3>'
+        f'<div>{body}</div>'
+        '</section>'
+    )
+
+
+def MetricCard(title: str, value: str | int | float, status: str = "READY") -> str:
+    return Card(
+        title,
+        f'<div class="fc-metric">{escape(str(value))}</div>{Badge(status, status)}',
+    )
+
+
+def HealthCard(title: str, status: str = "READY") -> str:
+    return Card(title, Badge(status, status))
+
+
+def StatusCard(title: str, status: str) -> str:
+    return Card(title, Badge(status, status))
+
+
+def VersionCard(title: str, version: str) -> str:
+    return Card(title, f'<code>{escape(version)}</code>')
+
+
+def KeyValueCard(title: str, items: dict[str, str | int | float]) -> str:
+    rows = "".join(
+        f'<div class="fc-kv-row"><span>{escape(str(k))}</span><strong>{escape(str(v))}</strong></div>'
+        for k, v in items.items()
+    )
+    return Card(title, rows)
+
+
+design_registry.register(DesignComponent("HealthCard", "cards"))
+design_registry.register(DesignComponent("MetricCard", "cards"))
+design_registry.register(DesignComponent("StatusCard", "cards"))
+design_registry.register(DesignComponent("VersionCard", "cards"))
+design_registry.register(DesignComponent("KeyValueCard", "cards"))
