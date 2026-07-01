@@ -20,16 +20,28 @@ class ExecutionCenterPage(BaseDashboardPage):
         self.vm = ExecutionCenterService().load()
 
     def render_body(self) -> str:
-        return f"""
-<section class="fc-card">
-<h1>{self.title}</h1>
-<p>{self.subtitle}</p>
-</section>
+        vm = self.vm
 
-<section class="fc-card">
-<p>EXECUTION_WIDGET_BINDING_V1</p>
-</section>
-"""
+        from marketcore.presentation.widgets.execution_page.overview import ExecutionOverviewWidget
+        from marketcore.presentation.widgets.execution_page.orders import ExecutionOrdersWidget
+        from marketcore.presentation.widgets.execution_page.fills import ExecutionFillsWidget
+        from marketcore.presentation.widgets.execution_page.actions import ExecutionActionsWidget
+
+        widgets = [
+            ExecutionOverviewWidget(),
+            ExecutionOrdersWidget(),
+            ExecutionFillsWidget(),
+            ExecutionActionsWidget(),
+        ]
+
+        header = (
+            '<section class="fc-card">'
+            f'<h1>{self.title}</h1>'
+            f'<p>{self.subtitle}</p>'
+            '</section>'
+        )
+
+        return header + "".join(widget.render(vm) for widget in widgets)
 
 
 @execution_router.get("/execution", response_class=HTMLResponse)
