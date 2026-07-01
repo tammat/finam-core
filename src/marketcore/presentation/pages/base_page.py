@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from marketcore.presentation.dashboard.layout import render_shell
+from marketcore.presentation.widgets.common.responsive import Responsive
 from marketcore.presentation.design_system.layout.grid import SectionHeader, DashboardGrid
 from marketcore.presentation.design_system.components.cards import KeyValueCard
 
@@ -68,8 +69,10 @@ class BaseDashboardPage:
 
     def render(self, context: DashboardPageContext | None = None) -> str:
         context = context or DashboardPageContext()
+        body = Responsive.css() + self.render_body()
+
         return render_shell(
-            self.render_body(),
+            body,
             lang=context.lang,
             timezone=context.timezone,
         )
