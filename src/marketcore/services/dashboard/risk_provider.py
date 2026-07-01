@@ -10,18 +10,21 @@ class RiskProvider:
         reason = "Корреляция"
         priority = "P1"
 
-        with db_cursor() as cur:
-            if table_exists(cur, "warehouse.risk_assessment_scorecard_v1"):
-                cur.execute("""
-                    SELECT COALESCE(risk_level,'HIGH')
-                    FROM warehouse.risk_assessment_scorecard_v1
-                    WHERE section_name='Correlation Risk'
-                    ORDER BY id DESC
-                    LIMIT 1;
-                """)
-                row = cur.fetchone()
-                if row and row[0]:
-                    level = str(row[0])
+        try:
+            with db_cursor() as cur:
+                if table_exists(cur, "warehouse.risk_assessment_scorecard_v1"):
+                    cur.execute("""
+                        SELECT COALESCE(risk_level,'HIGH')
+                        FROM warehouse.risk_assessment_scorecard_v1
+                        WHERE section_name='Correlation Risk'
+                        ORDER BY id DESC
+                        LIMIT 1;
+                    """)
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        level = str(row[0])
+        except Exception:
+            level = "HIGH"
 
         return level, reason, priority
 
