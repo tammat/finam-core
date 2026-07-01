@@ -20,16 +20,28 @@ class MetadataCenterPage(BaseDashboardPage):
         self.vm = MetadataCenterService().load()
 
     def render_body(self) -> str:
-        return f"""
-<section class="fc-card">
-<h1>{self.title}</h1>
-<p>{self.subtitle}</p>
-</section>
+        vm = self.vm
 
-<section class="fc-card">
-<p>METADATA_WIDGET_BINDING_V1</p>
-</section>
-"""
+        from marketcore.presentation.widgets.metadata_page.overview import MetadataOverviewWidget
+        from marketcore.presentation.widgets.metadata_page.objects import MetadataObjectsWidget
+        from marketcore.presentation.widgets.metadata_page.sources import MetadataSourcesWidget
+        from marketcore.presentation.widgets.metadata_page.actions import MetadataActionsWidget
+
+        widgets = [
+            MetadataOverviewWidget(),
+            MetadataObjectsWidget(),
+            MetadataSourcesWidget(),
+            MetadataActionsWidget(),
+        ]
+
+        header = (
+            '<section class="fc-card">'
+            f'<h1>{self.title}</h1>'
+            f'<p>{self.subtitle}</p>'
+            '</section>'
+        )
+
+        return header + "".join(widget.render(vm) for widget in widgets)
 
 
 @metadata_router.get("/metadata", response_class=HTMLResponse)
