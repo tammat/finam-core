@@ -6,10 +6,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from marketcore_os.layouts.base import APP_VERSION, normalize_lang, normalize_theme, render_shell
 from marketcore_os.workspace.home import render_home_workspace
 from marketcore_os.workspace.capital import render_capital_workspace
+from marketcore_os.workspace.research import render_research_workspace
+from marketcore_os.workspace.edge import render_edge_workspace
 from marketcore_os.services.capital import CapitalService
 from marketcore_os.services.profit import ProfitService
 from marketcore_os.services.research import ResearchService
 from marketcore_os.services.risk import RiskService
+from marketcore_os.services.program import ProgramService
 
 DEFAULT_LANG = "ru"
 DEFAULT_TZ = "Europe/Moscow"
@@ -150,3 +153,69 @@ def capital_workspace(request: Request) -> HTMLResponse:
             theme=theme,
         )
     )
+
+
+@app.get("/api/v1/program/widget")
+def program_widget_api() -> JSONResponse:
+    vm = ProgramService().get_widget_model()
+    return JSONResponse({
+        "quarter": vm.quarter,
+        "platform_status": vm.platform_status,
+        "research_status": vm.research_status,
+        "top3_status": vm.top3_status,
+        "paper_status": vm.paper_status,
+        "marketcore_status": vm.marketcore_status,
+        "data_source": vm.data_source,
+        "runtime_changed": 0,
+        "execution_changed": 0,
+        "orders_changed": 0,
+        "fills_changed": 0,
+        "micro_live_allowed": 0,
+    })
+
+
+@app.get("/research", response_class=HTMLResponse)
+def research_workspace(request: Request):
+
+    lang = normalize_lang(request.query_params.get("lang", DEFAULT_LANG))
+    tz = request.query_params.get("tz", DEFAULT_TZ)
+    currency = request.query_params.get("currency", DEFAULT_CURRENCY)
+    theme = normalize_theme(request.query_params.get("theme", DEFAULT_THEME))
+
+    return HTMLResponse(
+        render_shell(
+            content=render_research_workspace(lang),
+            lang=lang,
+            tz=tz,
+            currency=currency,
+            theme=theme,
+        )
+    )
+
+
+@app.get("/edge",response_class=HTMLResponse)
+def edge_workspace(request:Request):
+
+    lang=normalize_lang(request.query_params.get("lang",DEFAULT_LANG))
+    tz=request.query_params.get("tz",DEFAULT_TZ)
+    currency=request.query_params.get("currency",DEFAULT_CURRENCY)
+    theme=normalize_theme(request.query_params.get("theme",DEFAULT_THEME))
+
+    return HTMLResponse(
+
+        render_shell(
+
+            content=render_edge_workspace(lang),
+
+            lang=lang,
+
+            tz=tz,
+
+            currency=currency,
+
+            theme=theme
+
+        )
+
+    )
+
