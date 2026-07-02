@@ -317,6 +317,87 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-edge-candidate-explainability":
+                limit = int(q.get("limit", ["10"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        candidate_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        candidate_status,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        source_table,
+                        refreshed_at,
+
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN 'LOW_SAMPLE'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN 'REVIEW_READY'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN 'OBSERVE'
+                            ELSE 'REJECT_REVIEW'
+                        END AS explainability_status,
+
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN
+                                'Кандидат найден, но выборка недостаточна для вывода об устойчивом преимуществе.'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN
+                                'Кандидат имеет положительное матожидание и Profit Factor выше минимального порога.'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN
+                                'Кандидат не показывает явного отрицательного результата, но требует дополнительного наблюдения.'
+                            ELSE
+                                'Текущая статистика не подтверждает преимущество для продвижения.'
+                        END AS why_selected,
+
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN
+                                'Главный риск: малая выборка. Требуется накопить больше Paper-сделок.'
+                            WHEN COALESCE(winrate,0) < 0.45 THEN
+                                'Главный риск: низкая доля прибыльных сделок, требуется анализ распределения убытков.'
+                            WHEN COALESCE(profit_factor,0) < 1.0 THEN
+                                'Главный риск: Profit Factor ниже единицы.'
+                            ELSE
+                                'Ключевые риски: устойчивость по времени, режимам рынка и out-of-sample проверка.'
+                        END AS risk_explanation,
+
+                        concat(
+                            'Trades=', COALESCE(trades,0),
+                            '; PF=', COALESCE(round(profit_factor::numeric,4),0),
+                            '; Expectancy=', COALESCE(round(expectancy::numeric,4),0),
+                            '; WinRate=', COALESCE(round(winrate::numeric,4),0),
+                            '; NetPnL=', COALESCE(round(net_pnl::numeric,4),0)
+                        ) AS evidence_summary,
+
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN 'ACCUMULATE_SAMPLE'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN 'SEND_TO_EDGE_VALIDATION'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN 'OBSERVE_MORE'
+                            ELSE 'DO_NOT_PROMOTE'
+                        END AS recommended_action
+
+                    FROM marketcore_ui.paper_edge_research_candidates_v1
+                    ORDER BY candidate_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_edge_candidate_explainability_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
