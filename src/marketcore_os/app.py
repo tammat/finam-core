@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from marketcore_os.layouts.base import APP_VERSION, normalize_lang, normalize_theme, render_shell
 from marketcore_os.workspace.home import render_home_workspace
 from marketcore_os.services.capital import CapitalService
+from marketcore_os.services.profit import ProfitService
 
 DEFAULT_LANG = "ru"
 DEFAULT_TZ = "Europe/Moscow"
@@ -63,6 +64,25 @@ def capital_widget_api() -> JSONResponse:
         "base_currency": vm.base_currency,
         "display_currency": vm.display_currency,
         "fx_source": vm.fx_source,
+        "data_source": vm.data_source,
+        "runtime_changed": 0,
+        "execution_changed": 0,
+        "orders_changed": 0,
+        "fills_changed": 0,
+        "micro_live_allowed": 0,
+    })
+
+
+@app.get("/api/v1/profit/widget")
+def profit_widget_api() -> JSONResponse:
+    vm = ProfitService().get_widget_model()
+    return JSONResponse({
+        "production_edges": vm.production_edges,
+        "paper_edges": vm.paper_edges,
+        "shadow_edges": vm.shadow_edges,
+        "research_candidates": vm.research_candidates,
+        "paper_status": vm.paper_status,
+        "shadow_status": vm.shadow_status,
         "data_source": vm.data_source,
         "runtime_changed": 0,
         "execution_changed": 0,
