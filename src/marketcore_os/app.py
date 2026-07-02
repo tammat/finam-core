@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from marketcore_os.layouts.base import APP_VERSION, normalize_lang, normalize_theme, render_shell
 from marketcore_os.workspace.home import render_home_workspace
+from marketcore_os.services.capital import CapitalService
 
 DEFAULT_LANG = "ru"
 DEFAULT_TZ = "Europe/Moscow"
@@ -41,6 +42,28 @@ def health() -> JSONResponse:
         "status": "READY",
         "version": APP_VERSION,
         "home_workspace": "READY",
+        "runtime_changed": 0,
+        "execution_changed": 0,
+        "orders_changed": 0,
+        "fills_changed": 0,
+        "micro_live_allowed": 0,
+    })
+
+
+@app.get("/api/v1/capital/widget")
+def capital_widget_api() -> JSONResponse:
+    vm = CapitalService().get_widget_model(display_currency="RUB")
+    return JSONResponse({
+        "planned_capital": str(vm.planned_capital),
+        "working_capital": str(vm.working_capital),
+        "available_capital": str(vm.available_capital),
+        "working_pct": str(vm.working_pct.quantize(__import__("decimal").Decimal("0.01"))),
+        "available_pct": str(vm.available_pct.quantize(__import__("decimal").Decimal("0.01"))),
+        "today_pnl": str(vm.today_pnl),
+        "base_currency": vm.base_currency,
+        "display_currency": vm.display_currency,
+        "fx_source": vm.fx_source,
+        "data_source": vm.data_source,
         "runtime_changed": 0,
         "execution_changed": 0,
         "orders_changed": 0,

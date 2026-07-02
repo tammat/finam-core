@@ -7,14 +7,6 @@ from marketcore_os.widgets.registry import widgets_for_workspace
 def _static_business_cards(lang: str) -> str:
     return f"""
       <section class="mc-card">
-        <h3>{tr(lang, "Капитал", "Capital")}</h3>
-        {row(tr(lang, "Плановый капитал", "Planned capital"), "500 000 ₽")}
-        {row(tr(lang, "Работает", "Working"), "0%")}
-        {row(tr(lang, "Свободно", "Available"), "100%")}
-        {row(tr(lang, "Сегодня", "Today"), "+0.00%")}
-      </section>
-
-      <section class="mc-card">
         <h3>{tr(lang, "Двигатель прибыли", "Profit Engine")}</h3>
         {row("Production", "0")}
         {row("Paper", "3")}
@@ -41,7 +33,9 @@ def _static_business_cards(lang: str) -> str:
 
 def render_home_workspace(lang: str) -> str:
     widgets = list(widgets_for_workspace("workspace"))
+
     today = "".join(w.render(lang) for w in widgets if w.widget_id == "W001_TODAY")
+    capital = "".join(w.render(lang) for w in widgets if w.widget_id == "W003_CAPITAL")
     program = "".join(w.render(lang) for w in widgets if w.widget_id == "W002_PROGRAM")
 
     return f"""
@@ -49,6 +43,7 @@ def render_home_workspace(lang: str) -> str:
       {today}
 
       <div class="mc-workspace-grid" style="margin-top:14px;">
+        {capital}
         {_static_business_cards(lang)}
         {program}
       </div>

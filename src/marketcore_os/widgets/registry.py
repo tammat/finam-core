@@ -41,9 +41,11 @@ def bootstrap_widgets() -> None:
         return
 
     from marketcore_os.widgets.today import today_widget
+    from marketcore_os.widgets.capital import capital_widget
     from marketcore_os.widgets.program import program_widget
 
     register(today_widget)
+    register(capital_widget)
     register(program_widget)
 
 
