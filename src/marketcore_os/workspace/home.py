@@ -6,13 +6,6 @@ from marketcore_os.widgets.registry import widgets_for_workspace
 
 def _static_business_cards(lang: str) -> str:
     return f"""
-      <section class="mc-card">
-        <h3>{tr(lang, "Риск", "Risk")}</h3>
-        {row("Runtime", badge("OFF", "off"))}
-        {row("Execution", badge("OFF", "off"))}
-        {row("Micro Live", badge("OFF", "off"))}
-        {row("Daily Risk", "0.0%")}
-      </section>
     """
 
 
@@ -23,6 +16,7 @@ def render_home_workspace(lang: str) -> str:
     capital = "".join(w.render(lang) for w in widgets if w.widget_id == "W003_CAPITAL")
     profit = "".join(w.render(lang) for w in widgets if w.widget_id == "W004_PROFIT")
     research = "".join(w.render(lang) for w in widgets if w.widget_id == "W005_RESEARCH")
+    risk = "".join(w.render(lang) for w in widgets if w.widget_id == "W006_RISK")
     program = "".join(w.render(lang) for w in widgets if w.widget_id == "W002_PROGRAM")
 
     return f"""
@@ -33,6 +27,7 @@ def render_home_workspace(lang: str) -> str:
         {capital}
         {profit}
         {research}
+        {risk}
         {_static_business_cards(lang)}
         {program}
       </div>

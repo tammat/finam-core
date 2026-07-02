@@ -8,6 +8,7 @@ from marketcore_os.workspace.home import render_home_workspace
 from marketcore_os.services.capital import CapitalService
 from marketcore_os.services.profit import ProfitService
 from marketcore_os.services.research import ResearchService
+from marketcore_os.services.risk import RiskService
 
 DEFAULT_LANG = "ru"
 DEFAULT_TZ = "Europe/Moscow"
@@ -109,4 +110,22 @@ def research_widget_api() -> JSONResponse:
         "orders_changed": 0,
         "fills_changed": 0,
         "micro_live_allowed": 0,
+    })
+
+
+@app.get("/api/v1/risk/widget")
+def risk_widget_api() -> JSONResponse:
+    vm = RiskService().get_widget_model()
+    return JSONResponse({
+        "runtime_allowed": vm.runtime_allowed,
+        "execution_allowed": vm.execution_allowed,
+        "micro_live_allowed": vm.micro_live_allowed,
+        "daily_risk_pct": str(vm.daily_risk_pct),
+        "risk_status": vm.risk_status,
+        "data_source": vm.data_source,
+        "runtime_changed": 0,
+        "execution_changed": 0,
+        "orders_changed": 0,
+        "fills_changed": 0,
+        "micro_live_allowed_flag": 0,
     })
