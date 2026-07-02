@@ -1,3 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== BUILD_PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1 ==="
+
+python <<'PY'
+from pathlib import Path
+
+p = Path("src/marketcore/api/serve_knowledge_graph_api_v1.py")
+s = p.read_text()
+
+if '/api/kg/v1/paper-edge-top-candidates-detail' not in s:
+    marker = '            self.send_json(404, response("NOT_FOUND", {}, {"path": path}))\n'
+    if marker not in s:
+        raise SystemExit("API 404 marker not found")
+
+    block = '''
+            if path == "/api/kg/v1/paper-edge-top-candidates-detail":
+                limit = int(q.get("limit", ["10"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        candidate_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        candidate_status,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        source_table,
+                        refreshed_at,
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN 'LOW_SAMPLE'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN 'REVIEW_READY'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN 'OBSERVE'
+                            ELSE 'REJECT_REVIEW'
+                        END AS detail_status,
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN 'Накопить выборку Paper Runtime'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN 'Передать в Edge Validation'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN 'Наблюдать и проверить устойчивость'
+                            ELSE 'Не продвигать без дополнительного анализа'
+                        END AS next_step
+                    FROM marketcore_ui.paper_edge_research_candidates_v1
+                    ORDER BY candidate_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_edge_top_candidates_detail_v1"
+                }))
+                return
+
+'''
+    s = s.replace(marker, block + marker)
+
+p.write_text(s)
+PY
+
+cat > src/marketcore/presentation/pages/paper_edge_discovery.py <<'PY'
 from __future__ import annotations
 
 from html import escape
@@ -228,3 +297,73 @@ class PaperEdgeDiscoveryPage(Page):
             <p>PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1</p>
         </section>
         """
+PY
+
+cat > scripts/test_paper_edge_discovery_top_candidates_detail_v1.sh <<'SH_TEST'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== TEST_PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1 ==="
+
+PYTHONPATH=src python -m py_compile \
+  src/marketcore/api/serve_knowledge_graph_api_v1.py \
+  src/marketcore/presentation/pages/paper_edge_discovery.py \
+  src/marketcore/presentation/app.py
+
+if grep -R "psycopg2\|DATABASE_URL\|SELECT " -n src/marketcore/presentation/pages/paper_edge_discovery.py; then
+  echo "FORBIDDEN_DIRECT_DB_ACCESS_IN_UI_PAGE"
+  exit 1
+fi
+
+sudo -u postgres env \
+  DATABASE_URL=postgresql:///finam_core \
+  PYTHONPATH=src \
+  /opt/finam-core/venv/bin/python src/scripts/build_paper_edge_discovery_research_candidates_v1.py \
+  > /tmp/top_candidates_detail_builder_v1.txt
+
+KG_API_HOST=127.0.0.1 KG_API_PORT=18295 DATABASE_URL=postgresql:///finam_core PYTHONPATH=src \
+python src/marketcore/api/serve_knowledge_graph_api_v1.py > /tmp/kg_api_top_candidates_detail_v1.log 2>&1 &
+api_pid=$!
+
+MARKETCORE_UI_HOST=127.0.0.1 MARKETCORE_UI_PORT=18280 KG_API_BASE_URL=http://127.0.0.1:18295 PYTHONPATH=src \
+python src/marketcore/presentation/app.py > /tmp/top_candidates_detail_page_v1.log 2>&1 &
+ui_pid=$!
+
+cleanup() {
+  kill "$ui_pid" >/dev/null 2>&1 || true
+  kill "$api_pid" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+sleep 2
+
+curl -fsS "http://127.0.0.1:18295/api/kg/v1/paper-edge-top-candidates-detail?limit=5" \
+  > /tmp/top_candidates_detail_api_v1.json
+
+curl -fsS "http://127.0.0.1:18280/paper-edge-discovery" \
+  > /tmp/top_candidates_detail_page_v1.html
+
+grep -q '"status": "OK"' /tmp/top_candidates_detail_api_v1.json
+grep -q '"detail_status"' /tmp/top_candidates_detail_api_v1.json
+grep -q '"next_step"' /tmp/top_candidates_detail_api_v1.json
+
+grep -q "TOP Candidates Detail" /tmp/top_candidates_detail_page_v1.html
+grep -q "Детальный статус" /tmp/top_candidates_detail_page_v1.html
+grep -q "Следующий шаг" /tmp/top_candidates_detail_page_v1.html
+grep -q "PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1" /tmp/top_candidates_detail_page_v1.html
+grep -q "MARKETCORE_UI_SHELL_V1" /tmp/top_candidates_detail_page_v1.html
+
+echo "runtime_changed=0"
+echo "execution_changed=0"
+echo "orders_changed=0"
+echo "fills_changed=0"
+echo "micro_live_allowed=0"
+echo "VERDICT=PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1_READY"
+echo "VERDICT=TEST_PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1_OK"
+SH_TEST
+
+chmod +x scripts/test_paper_edge_discovery_top_candidates_detail_v1.sh
+
+scripts/test_paper_edge_discovery_top_candidates_detail_v1.sh
+
+echo "VERDICT=BUILD_PAPER_EDGE_DISCOVERY_TOP_CANDIDATES_DETAIL_V1_OK"

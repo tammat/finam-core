@@ -271,6 +271,52 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-edge-top-candidates-detail":
+                limit = int(q.get("limit", ["10"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        candidate_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        candidate_status,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        source_table,
+                        refreshed_at,
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN 'LOW_SAMPLE'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN 'REVIEW_READY'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN 'OBSERVE'
+                            ELSE 'REJECT_REVIEW'
+                        END AS detail_status,
+                        CASE
+                            WHEN COALESCE(trades,0) < 30 THEN 'Накопить выборку Paper Runtime'
+                            WHEN COALESCE(profit_factor,0) >= 1.2
+                             AND COALESCE(expectancy,0) > 0 THEN 'Передать в Edge Validation'
+                            WHEN COALESCE(profit_factor,0) >= 1.0
+                             AND COALESCE(expectancy,0) >= 0 THEN 'Наблюдать и проверить устойчивость'
+                            ELSE 'Не продвигать без дополнительного анализа'
+                        END AS next_step
+                    FROM marketcore_ui.paper_edge_research_candidates_v1
+                    ORDER BY candidate_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_edge_top_candidates_detail_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
