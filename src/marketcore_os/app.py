@@ -7,6 +7,7 @@ from marketcore_os.layouts.base import APP_VERSION, normalize_lang, normalize_th
 from marketcore_os.workspace.home import render_home_workspace
 from marketcore_os.services.capital import CapitalService
 from marketcore_os.services.profit import ProfitService
+from marketcore_os.services.research import ResearchService
 
 DEFAULT_LANG = "ru"
 DEFAULT_TZ = "Europe/Moscow"
@@ -83,6 +84,25 @@ def profit_widget_api() -> JSONResponse:
         "research_candidates": vm.research_candidates,
         "paper_status": vm.paper_status,
         "shadow_status": vm.shadow_status,
+        "data_source": vm.data_source,
+        "runtime_changed": 0,
+        "execution_changed": 0,
+        "orders_changed": 0,
+        "fills_changed": 0,
+        "micro_live_allowed": 0,
+    })
+
+
+@app.get("/api/v1/research/widget")
+def research_widget_api() -> JSONResponse:
+    vm = ResearchService().get_widget_model()
+    return JSONResponse({
+        "pipeline_status": vm.pipeline_status,
+        "top3_status": vm.top3_status,
+        "edge_factory_status": vm.edge_factory_status,
+        "research_candidates": vm.research_candidates,
+        "oos_pass": vm.oos_pass,
+        "paper_ready": vm.paper_ready,
         "data_source": vm.data_source,
         "runtime_changed": 0,
         "execution_changed": 0,
