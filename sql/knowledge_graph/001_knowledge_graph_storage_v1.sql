@@ -87,3 +87,16 @@ ON ALL TABLES IN SCHEMA knowledge_graph
 TO alex;
 
 COMMIT;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA knowledge_graph TO alex;
+ALTER DEFAULT PRIVILEGES IN SCHEMA knowledge_graph
+GRANT USAGE, SELECT ON SEQUENCES TO alex;
+
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_lookup_v1
+ON knowledge_graph.nodes(domain, entity_type, source_pk);
+
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_external_lookup_v1
+ON knowledge_graph.nodes(domain, entity_type, external_id);
+
+CREATE INDEX IF NOT EXISTS idx_kg_edges_lookup_v1
+ON knowledge_graph.edges(domain, edge_type);
