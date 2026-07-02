@@ -4,38 +4,50 @@ import os
 from decimal import Decimal
 
 import psycopg2
+from psycopg2 import errors
 
-DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
+DB = os.getenv("DATABASE_URL", "postgresql://alex@/finam_core")
 
 
 class RiskRepository:
-    def _table_exists(self, cur, table_name: str) -> bool:
-        cur.execute("SELECT to_regclass(%s);", (table_name,))
-        return cur.fetchone()[0] is not None
+    def _table_exists(self, table_name: str) -> bool:
+        try:
+            with psycopg2.connect(DB) as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute("SELECT to_regclass(%s);", (table_name,))
+                    return cur.fetchone()[0] is not None
+        except Exception:
+            return False
 
-    def _count_allowed(self, cur, table_name: str) -> int:
-        if not self._table_exists(cur, table_name):
+    def _count_allowed(self, table_name: str) -> int:
+        if not self._table_exists(table_name):
             return 0
-        cur.execute(f"""
-            SELECT count(*)
-            FROM {table_name}
-            WHERE COALESCE(runtime_allowed,false)=true
-               OR COALESCE(execution_allowed,false)=true
-               OR COALESCE(micro_live_allowed,false)=true;
-        """)
-        return int(cur.fetchone()[0] or 0)
+
+        try:
+            with psycopg2.connect(DB) as conn:
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute(f"""
+                        SELECT count(*)
+                        FROM {table_name}
+                        WHERE COALESCE(runtime_allowed,false)=true
+                           OR COALESCE(execution_allowed,false)=true
+                           OR COALESCE(micro_live_allowed,false)=true;
+                    """)
+                    return int(cur.fetchone()[0] or 0)
+        except (errors.InsufficientPrivilege, errors.UndefinedTable, errors.UndefinedColumn):
+            return 0
+        except Exception:
+            return 0
 
     def load(self) -> dict[str, object]:
-        with psycopg2.connect(DB) as conn:
-            with conn.cursor() as cur:
-                expanded_allowed = self._count_allowed(
-                    cur,
-                    "analytics_global_edge_expanded_runtime_candidates_v2",
-                )
-                base_allowed = self._count_allowed(
-                    cur,
-                    "analytics_global_edge_runtime_candidates_v2",
-                )
+        expanded_allowed = self._count_allowed(
+            "analytics_global_edge_expanded_runtime_candidates_v2"
+        )
+        base_allowed = self._count_allowed(
+            "analytics_global_edge_runtime_candidates_v2"
+        )
 
         any_allowed = expanded_allowed + base_allowed
 
