@@ -11,6 +11,7 @@ from marketcore_os.workspace.edge import render_edge_workspace
 from marketcore_os.workspace.program import render_program_workspace
 from marketcore_os.workspace.portfolio import render_portfolio_workspace
 from marketcore_os.workspace.intraday import render_intraday_workspace
+from marketcore_os.workspace.capital_manager import render_capital_manager_workspace
 from marketcore_os.services.capital import CapitalService
 from marketcore_os.services.profit import ProfitService
 from marketcore_os.services.research import ResearchService
@@ -277,5 +278,23 @@ def intraday_workspace(request:Request):
             tz=tz,
             currency=currency,
             theme=theme
+        )
+    )
+
+
+@app.get("/capital-manager", response_class=HTMLResponse)
+def capital_manager_workspace(request: Request):
+    lang = normalize_lang(request.query_params.get("lang", DEFAULT_LANG))
+    tz = request.query_params.get("tz", DEFAULT_TZ)
+    currency = request.query_params.get("currency", DEFAULT_CURRENCY)
+    theme = normalize_theme(request.query_params.get("theme", DEFAULT_THEME))
+
+    return HTMLResponse(
+        render_shell(
+            content=render_capital_manager_workspace(lang),
+            lang=lang,
+            tz=tz,
+            currency=currency,
+            theme=theme,
         )
     )
