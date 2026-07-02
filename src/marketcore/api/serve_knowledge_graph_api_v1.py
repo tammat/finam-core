@@ -434,6 +434,46 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/edge-validation-pipeline":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        pipeline_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        queue_status,
+                        priority,
+                        sample_check_status,
+                        pf_check_status,
+                        expectancy_check_status,
+                        robustness_status,
+                        oos_status,
+                        pipeline_status,
+                        recommended_action,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        evidence_summary,
+                        risk_notes,
+                        source_queue_rank,
+                        refreshed_at
+                    FROM marketcore_ui.edge_validation_pipeline_v1
+                    ORDER BY pipeline_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.edge_validation_pipeline_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "edge_validation_pipeline_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
