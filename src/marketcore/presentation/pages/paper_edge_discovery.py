@@ -6,22 +6,6 @@ from marketcore.presentation.page import Page
 from marketcore.presentation.presentation_context import build_presentation_context
 
 
-def _table(rows: list[dict], columns: list[str]) -> str:
-    if not rows:
-        return "<p>Нет данных.</p>"
-
-    head = "".join(f"<th>{escape(col)}</th>" for col in columns)
-    body = ""
-
-    for row in rows:
-        body += "<tr>" + "".join(
-            f"<td>{escape(str(row.get(col, '')))}</td>"
-            for col in columns
-        ) + "</tr>"
-
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
-
-
 def _metric(title: str, value: str, note: str = "") -> str:
     return f"""
     <section class="card">
@@ -29,6 +13,15 @@ def _metric(title: str, value: str, note: str = "") -> str:
         <p style="font-size:28px;font-weight:700;margin:8px 0;">{escape(value)}</p>
         <p>{escape(note)}</p>
     </section>
+    """
+
+
+def _row(label: str, value: str) -> str:
+    return f"""
+    <tr>
+        <td>{escape(label)}</td>
+        <td>{escape(value)}</td>
+    </tr>
     """
 
 
@@ -43,28 +36,36 @@ class PaperEdgeDiscoveryPage(Page):
 
     def render(self) -> str:
         ctx = build_presentation_context()
+        payload = ctx.api_get("/api/kg/v1/paper-edge-discovery")
 
-        kg_health = ctx.api_get("/api/kg/v1/health")
-        kg_stats = ctx.api_get("/api/kg/v1/statistics")
-        kg_validation = ctx.api_get("/api/kg/v1/validation")
-        kg_search = ctx.api_get("/api/kg/v1/search?q=edge&locale=ru")
+        data = payload.get("data") or {}
+        paper = data.get("paper_runtime") or {}
+        kg = data.get("knowledge_graph") or {}
+        validation = data.get("validation") or {}
 
-        health_status = kg_health.get("status", "ERROR")
-        health_data = kg_health.get("data") or {}
-        stats_rows = kg_stats.get("data") or []
-        validation_rows = kg_validation.get("data") or []
-        search_rows = (kg_search.get("data") or {}).get("terms") or []
+        paper_status = str(paper.get("paper_status", "UNKNOWN"))
+        validation_status = str(validation.get("status", "UNKNOWN"))
 
-        nodes = health_data.get("nodes", "—")
+        closed_total = ctx.formatter.number(paper.get("closed_trades_total"), 0)
+        closed_today = ctx.formatter.number(paper.get("closed_trades_today"), 0)
+        signals_today = ctx.formatter.number(paper.get("signals_today"), 0)
+        fills_today = ctx.formatter.number(paper.get("fills_today"), 0)
+        signal_fills_today = ctx.formatter.number(paper.get("signal_fills_today"), 0)
+        active_symbols = ctx.formatter.number(paper.get("active_symbols"), 0)
+        pnl_today = ctx.formatter.number(paper.get("pnl_today"), 4)
+        pnl_total = ctx.formatter.number(paper.get("pnl_total"), 4)
+        last_trade = ctx.formatter.datetime(paper.get("last_closed_trade_at"))
+        refreshed_at = ctx.formatter.datetime(paper.get("refreshed_at"))
 
-        paper_stats = [
-            row for row in stats_rows
-            if str(row.get("domain")) == "PAPER_RUNTIME"
-        ]
+        kg_nodes = ctx.formatter.number(kg.get("nodes"), 0)
+        kg_edges = ctx.formatter.number(kg.get("edges"), 0)
+        kg_entity_types = ctx.formatter.number(kg.get("entity_types"), 0)
+        kg_edge_types = ctx.formatter.number(kg.get("edge_types"), 0)
 
-        latest_validation = validation_rows[0] if validation_rows else {}
-        validation_status = str(latest_validation.get("status", "UNKNOWN"))
-        validation_findings = str(latest_validation.get("total_findings", "—"))
+        validation_findings = ctx.formatter.number(validation.get("total_findings"), 0)
+        validation_finished = ctx.formatter.datetime(validation.get("finished_at"))
+
+        next_action = str(data.get("next_action", "PAPER_EDGE_DISCOVERY_RESEARCH_CANDIDATES_V1"))
 
         return f"""
         <section class="card">
@@ -73,29 +74,67 @@ class PaperEdgeDiscoveryPage(Page):
             <p>Источник данных: Knowledge Graph API. Прямых SQL-запросов из UI нет.</p>
         </section>
 
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;">
-            {_metric("Knowledge Graph", str(nodes), "Всего узлов через KG API")}
-            {_metric("Validation", ctx.status.label(validation_status), f"Findings: {validation_findings}")}
-            {_metric("Paper Runtime", "ACTIVE", "Домен PAPER_RUNTIME подключён к графу знаний")}
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;">
+            {_metric("Paper Runtime", ctx.status.label(paper_status), "Реальные данные paper-контура")}
+            {_metric("Closed Trades", closed_total, f"Сегодня: {closed_today}")}
+            {_metric("Signals Today", signals_today, f"Fills: {fills_today}; Signal fills: {signal_fills_today}")}
+            {_metric("P&L Total", pnl_total, f"Сегодня: {pnl_today}")}
         </div>
 
         <section class="card">
-            <h2>Paper Runtime Knowledge Graph</h2>
-            {_table(paper_stats, ["domain", "nodes", "edges", "entity_types", "edge_types"])}
+            <h2>Paper Runtime Real Data</h2>
+            <table>
+                <thead>
+                    <tr><th>Показатель</th><th>Значение</th></tr>
+                </thead>
+                <tbody>
+                    {_row("Активные инструменты", active_symbols)}
+                    {_row("Закрытые сделки всего", closed_total)}
+                    {_row("Закрытые сделки сегодня", closed_today)}
+                    {_row("Сигналы сегодня", signals_today)}
+                    {_row("Исполнения сегодня", fills_today)}
+                    {_row("Signal fills сегодня", signal_fills_today)}
+                    {_row("P&L сегодня", pnl_today)}
+                    {_row("P&L всего", pnl_total)}
+                    {_row("Последняя закрытая сделка", last_trade)}
+                    {_row("Read Model обновлена", refreshed_at)}
+                    {_row("Источник", "marketcore_ui.paper_runtime_summary_v1")}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Knowledge Graph</h2>
+            <table>
+                <thead>
+                    <tr><th>Показатель</th><th>Значение</th></tr>
+                </thead>
+                <tbody>
+                    {_row("Домен", str(kg.get("domain", "PAPER_RUNTIME")))}
+                    {_row("Узлы", kg_nodes)}
+                    {_row("Связи", kg_edges)}
+                    {_row("Типы сущностей", kg_entity_types)}
+                    {_row("Типы связей", kg_edge_types)}
+                </tbody>
+            </table>
         </section>
 
         <section class="card">
             <h2>Validation</h2>
-            {_table(validation_rows, ["domain", "status", "total_findings", "finished_at"])}
-        </section>
-
-        <section class="card">
-            <h2>Semantic Search: edge</h2>
-            {_table(search_rows, ["locale", "raw_term", "object_type", "object_key", "match_type", "confidence"])}
+            <table>
+                <thead>
+                    <tr><th>Показатель</th><th>Значение</th></tr>
+                </thead>
+                <tbody>
+                    {_row("Статус", ctx.status.label(validation_status))}
+                    {_row("Findings", validation_findings)}
+                    {_row("Завершено", validation_finished)}
+                </tbody>
+            </table>
         </section>
 
         <section class="card">
             <h2>Next Action</h2>
-            <p>PAPER_EDGE_DISCOVERY_REAL_DATA_V1</p>
+            <p>{escape(next_action)}</p>
         </section>
         """

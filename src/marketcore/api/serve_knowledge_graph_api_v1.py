@@ -176,6 +176,72 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, response("OK", labels))
                 return
 
+
+            if path == "/api/kg/v1/paper-runtime":
+                row = fetch_one("""
+                    SELECT
+                        paper_status,
+                        closed_trades_total,
+                        closed_trades_today,
+                        signals_today,
+                        fills_today,
+                        signal_fills_today,
+                        active_symbols,
+                        pnl_today,
+                        pnl_total,
+                        last_closed_trade_at,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_summary_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {"source": "marketcore_ui.paper_runtime_summary_v1"}))
+                return
+
+            if path == "/api/kg/v1/paper-edge-discovery":
+                paper = fetch_one("""
+                    SELECT
+                        paper_status,
+                        closed_trades_total,
+                        closed_trades_today,
+                        signals_today,
+                        fills_today,
+                        signal_fills_today,
+                        active_symbols,
+                        pnl_today,
+                        pnl_total,
+                        last_closed_trade_at,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_summary_v1
+                    WHERE id=1;
+                """) or {}
+
+                kg = fetch_one("""
+                    SELECT domain, nodes, edges, entity_types, edge_types, last_node_update
+                    FROM knowledge_graph.v_api_kg_statistics_v1
+                    WHERE domain='PAPER_RUNTIME';
+                """) or {}
+
+                validation = fetch_one("""
+                    SELECT domain, status, total_findings, finished_at
+                    FROM knowledge_graph.v_api_kg_validation_latest_v1
+                    WHERE domain='PAPER_RUNTIME';
+                """) or {}
+
+                data = {
+                    "paper_runtime": paper,
+                    "knowledge_graph": kg,
+                    "validation": validation,
+                    "next_action": "PAPER_EDGE_DISCOVERY_RESEARCH_CANDIDATES_V1",
+                }
+
+                self.send_json(200, response("OK", data, {
+                    "source": "kg_api_read_models",
+                    "ui_direct_sql": 0,
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
