@@ -89,13 +89,14 @@ def main() -> None:
 
             cur.execute("""
                 INSERT INTO marketcore_ui.research_summary_v1 (
-                    id, pipeline_status, top3_status, oos_pass, paper_ready,
-                    refreshed_at, source_version, build_id
+                    id, pipeline_status, top3_status, research_candidates,
+                    oos_pass, paper_ready, refreshed_at, source_version, build_id
                 )
-                VALUES (1, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     pipeline_status = EXCLUDED.pipeline_status,
                     top3_status = EXCLUDED.top3_status,
+                    research_candidates = EXCLUDED.research_candidates,
                     oos_pass = EXCLUDED.oos_pass,
                     paper_ready = EXCLUDED.paper_ready,
                     refreshed_at = EXCLUDED.refreshed_at,
@@ -104,6 +105,7 @@ def main() -> None:
             """, (
                 "COMPLETE",
                 "COMPLETE" if paper_edges >= 3 else "IN_PROGRESS",
+                research_candidates,
                 oos_pass,
                 paper_edges,
                 now,
