@@ -25,7 +25,7 @@ def render_program_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Roadmap</h3>
+<h3>{tr(lang,"Дорожная карта","Roadmap")}</h3>
 
 {row("Quarter", vm.quarter)}
 {row("Platform", badge(vm.platform_status,"ok"))}
@@ -35,7 +35,7 @@ def render_program_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Validation</h3>
+<h3>{tr(lang,"Валидация","Validation")}</h3>
 
 {row("TOP3", badge(vm.top3_status,"ok"))}
 {row("Paper", badge(vm.paper_status,"info"))}
@@ -52,7 +52,7 @@ def render_program_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Next Stage</h3>
+<h3>{tr(lang,"Следующий этап","Next Stage")}</h3>
 
 {row("Next","MARKETCORE_PORTFOLIO_WORKSPACE_V1")}
 

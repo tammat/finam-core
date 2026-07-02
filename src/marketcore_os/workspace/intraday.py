@@ -10,7 +10,7 @@ def render_intraday_workspace(lang:str):
 
 <section class="mc-card mc-card-wide mc-next">
 
-<h2>{tr(lang,"Интрадей","Intraday Workspace")}</h2>
+<h2>{tr(lang,"Интрадей","Интрадей")}</h2>
 
 {row("Runtime",badge(vm.runtime_status,"info"))}
 
@@ -26,7 +26,7 @@ def render_intraday_workspace(lang:str):
 
 <section class="mc-card">
 
-<h3>Activity</h3>
+<h3>{tr(lang,"Активность","Activity")}</h3>
 
 {row("Active Symbols",str(vm.active_symbols))}
 {row("Active Edge",str(vm.active_edges))}
@@ -37,7 +37,7 @@ def render_intraday_workspace(lang:str):
 
 <section class="mc-card">
 
-<h3>Next</h3>
+<h3>{tr(lang,"Следующий этап","Next")}</h3>
 
 {row("Stage",vm.next_action)}
 

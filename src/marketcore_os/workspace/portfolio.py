@@ -10,7 +10,7 @@ def render_portfolio_workspace(lang:str):
 
 <section class="mc-card mc-card-wide mc-next">
 
-<h2>{tr(lang,"Портфель","Portfolio Workspace")}</h2>
+<h2>{tr(lang,"Портфель","Портфель")}</h2>
 
 {row(tr(lang,"Статус","Status"),badge(vm.portfolio_status,"info"))}
 
@@ -22,7 +22,7 @@ def render_portfolio_workspace(lang:str):
 
 <section class="mc-card">
 
-<h3>Capital</h3>
+<h3>{tr(lang,"Капитал","Capital")}</h3>
 
 {row("Planned",f"{vm.planned_capital:,.2f}")}
 {row("Working",f"{vm.working_capital:,.2f}")}
@@ -33,7 +33,7 @@ def render_portfolio_workspace(lang:str):
 
 <section class="mc-card">
 
-<h3>Positions</h3>
+<h3>{tr(lang,"Позиции","Positions")}</h3>
 
 {row("Open",str(vm.open_positions))}
 {row("Paper",str(vm.paper_positions))}
@@ -44,7 +44,7 @@ def render_portfolio_workspace(lang:str):
 
 <section class="mc-card mc-card-wide">
 
-<h3>Next Action</h3>
+<h3>{tr(lang,"Следующее действие","Next Action")}</h3>
 
 {row("Stage",vm.next_action)}
 

@@ -13,7 +13,7 @@ def render_edge_workspace(lang: str) -> str:
 
 <section class="mc-card mc-card-wide mc-next">
 
-<h2>{tr(lang,"Edge Center","Edge Center")}</h2>
+<h2>{tr(lang,"Центр Edge","Центр Edge")}</h2>
 
 {row(tr(lang,"Статус","Status"), badge("READY","info"))}
 
@@ -25,7 +25,7 @@ def render_edge_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Discovery</h3>
+<h3>{tr(lang,"Обнаружение","Discovery")}</h3>
 
 {row("Research Candidates", str(vm.research_candidates))}
 
@@ -33,7 +33,7 @@ def render_edge_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Forensic</h3>
+<h3>{tr(lang,"Проверка","Forensic")}</h3>
 
 {row("TOP3", str(vm.paper_ready))}
 
@@ -41,7 +41,7 @@ def render_edge_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Robustness</h3>
+<h3>{tr(lang,"Устойчивость","Robustness")}</h3>
 
 {row("Pipeline", badge(vm.pipeline_status,"ok"))}
 
@@ -49,7 +49,7 @@ def render_edge_workspace(lang: str) -> str:
 
 <section class="mc-card">
 
-<h3>Out Of Sample</h3>
+<h3>{tr(lang,"Вне выборки","Out Of Sample")}</h3>
 
 {row("OOS PASS", str(vm.oos_pass))}
 
@@ -73,7 +73,7 @@ def render_edge_workspace(lang: str) -> str:
 
 <section class="mc-card mc-card-wide">
 
-<h3>Production</h3>
+<h3>{tr(lang,"Реальная торговля","Production")}</h3>
 
 {row("Runtime", badge("OFF","off"))}
 

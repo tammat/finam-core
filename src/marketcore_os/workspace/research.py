@@ -11,7 +11,7 @@ def render_research_workspace(lang: str) -> str:
 <div data-workspace="research">
 
 <section class="mc-card mc-card-wide mc-next">
-<h2>{tr(lang,"Research Workspace","Research Workspace")}</h2>
+<h2>{tr(lang,"Исследования","Исследования")}</h2>
 
 {row(tr(lang,"Статус","Status"), badge("READY","info"))}
 
