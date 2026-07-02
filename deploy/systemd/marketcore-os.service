@@ -1,6 +1,6 @@
 [Unit]
 Description=MarketCore OS UI on 8090
-After=network.target
+After=network.target postgresql.service
 
 [Service]
 Type=simple
