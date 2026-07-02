@@ -22,6 +22,10 @@ body {{ margin:0; font-family:system-ui,-apple-system,sans-serif; background:#0f
 .header {{ margin-bottom:18px; }}
 .card {{ background:#111827; border:1px solid #374151; border-radius:14px; padding:18px; }}
 .footer {{ margin-top:24px; color:#94a3b8; font-size:13px; }}
+.badge {{ display:inline-block; padding:3px 8px; border-radius:999px; background:#1f2937; color:#bfdbfe; }}
+table {{ border-collapse:collapse; width:100%; margin-top:12px; }}
+th,td {{ border-bottom:1px solid #374151; padding:8px; text-align:left; font-size:14px; }}
+th {{ color:#bfdbfe; }}
 </style>
 </head>
 <body>
