@@ -143,6 +143,33 @@ def main() -> None:
                     build_id = EXCLUDED.build_id;
             """, (runtime_allowed_count > 0, now, SOURCE_VERSION, build_id))
 
+
+            cur.execute("""
+                INSERT INTO marketcore_ui.portfolio_summary_v1 (
+                    id, planned_capital, working_capital, available_capital,
+                    today_pnl, open_positions, paper_positions, production_positions,
+                    exposure_pct, portfolio_status, next_action,
+                    refreshed_at, source_version, build_id
+                )
+                VALUES (1, %s, 0, %s, 0, 0, 0, 0, 0,
+                        'READY', 'MARKETCORE_INTRADAY_WORKSPACE_V1',
+                        %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    planned_capital = EXCLUDED.planned_capital,
+                    working_capital = EXCLUDED.working_capital,
+                    available_capital = EXCLUDED.available_capital,
+                    today_pnl = EXCLUDED.today_pnl,
+                    open_positions = EXCLUDED.open_positions,
+                    paper_positions = EXCLUDED.paper_positions,
+                    production_positions = EXCLUDED.production_positions,
+                    exposure_pct = EXCLUDED.exposure_pct,
+                    portfolio_status = EXCLUDED.portfolio_status,
+                    next_action = EXCLUDED.next_action,
+                    refreshed_at = EXCLUDED.refreshed_at,
+                    source_version = EXCLUDED.source_version,
+                    build_id = EXCLUDED.build_id;
+            """, (planned, planned, now, SOURCE_VERSION, build_id))
+
             cur.execute("""
                 INSERT INTO marketcore_ui.program_summary_v1 (
                     id, quarter, platform_status, research_status, top3_status,
