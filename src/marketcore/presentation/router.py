@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from marketcore.presentation.layout import render_layout
+from marketcore.presentation.registry import get_page
 
 
-PageHandler = Callable[[], str]
+def route(path: str) -> tuple[int, bytes]:
+    page = get_page(path)
+    if page is None:
+        return 404, render_layout(
+            title="404",
+            active_route="",
+            content='<section class="card"><h2>Страница не найдена</h2></section>',
+        )
 
-
-class ReadOnlyRouter:
-    def __init__(self) -> None:
-        self._routes: list[tuple[str, PageHandler]] = []
-
-    def register(self, prefix: str, handler: PageHandler) -> None:
-        self._routes.append((prefix, handler))
-        self._routes.sort(key=lambda x: len(x[0]), reverse=True)
-
-    def resolve(self, path: str) -> PageHandler | None:
-        clean = path.split("?", 1)[0]
-        for prefix, handler in self._routes:
-            if clean.startswith(prefix):
-                return handler
-        return None
+    return 200, render_layout(
+        title=page.title,
+        active_route=page.route,
+        content=page.render(),
+    )
