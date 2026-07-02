@@ -1,0 +1,14 @@
+[Unit]
+Description=MarketCore OS UI on 8090
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+ExecStart=/opt/finam-core/venv/bin/uvicorn marketcore_os.app:app --host 0.0.0.0 --port 8090
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
