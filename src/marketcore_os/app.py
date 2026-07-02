@@ -5,10 +5,11 @@ from html import escape
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 DEFAULT_LANG = "ru"
 DEFAULT_TZ = "Europe/Moscow"
 DEFAULT_CURRENCY = "RUB"
+DEFAULT_THEME = "light"
 
 app = FastAPI(title="MarketCore OS", version=APP_VERSION)
 
@@ -48,8 +49,13 @@ def row(label: str, value: str) -> str:
     )
 
 
-def page_shell(content: str, lang: str, tz: str, currency: str) -> str:
+def normalize_theme(theme: str | None) -> str:
+    return "dark" if theme == "dark" else "light"
+
+
+def page_shell(content: str, lang: str, tz: str, currency: str, theme: str) -> str:
     lang = normalize_lang(lang)
+    theme = normalize_theme(theme)
     menu = "".join(
         f'<a href="/#{escape(key)}">{escape(tr(lang, ru, en))}</a>'
         for key, ru, en in MENU_ITEMS
@@ -194,17 +200,36 @@ body {{
 }}
 </style>
 </head>
-<body>
+<body class="mc-{escape(theme)}">
 <header class="mc-header">
   <div class="mc-left">
     <button class="mc-menu-button" aria-label="{escape(tr(lang, "меню", "menu"))}">☰</button>
     <div class="mc-title">MarketCore OS</div>
   </div>
-  <div class="mc-controls">
-    <span class="mc-pill">{escape(lang.upper())}</span>
-    <span class="mc-pill">{escape(tz)}</span>
-    <span class="mc-pill">{escape(currency)}</span>
-  </div>
+  <form class="mc-control-form" method="get" action="/">
+    <select class="mc-select" name="lang" aria-label="language">
+      <option value="ru" {"selected" if lang == "ru" else ""}>RU</option>
+      <option value="en" {"selected" if lang == "en" else ""}>EN</option>
+    </select>
+    <select class="mc-select" name="tz" aria-label="timezone">
+      <option value="Europe/Moscow" {"selected" if tz == "Europe/Moscow" else ""}>MSK</option>
+      <option value="UTC" {"selected" if tz == "UTC" else ""}>UTC</option>
+      <option value="Europe/London" {"selected" if tz == "Europe/London" else ""}>London</option>
+      <option value="America/New_York" {"selected" if tz == "America/New_York" else ""}>New York</option>
+      <option value="Asia/Tokyo" {"selected" if tz == "Asia/Tokyo" else ""}>Tokyo</option>
+    </select>
+    <select class="mc-select" name="currency" aria-label="currency">
+      <option value="RUB" {"selected" if currency == "RUB" else ""}>RUB</option>
+      <option value="USD" {"selected" if currency == "USD" else ""}>USD</option>
+      <option value="EUR" {"selected" if currency == "EUR" else ""}>EUR</option>
+      <option value="CNY" {"selected" if currency == "CNY" else ""}>CNY</option>
+    </select>
+    <select class="mc-select" name="theme" aria-label="theme">
+      <option value="light" {"selected" if theme == "light" else ""}>Light</option>
+      <option value="dark" {"selected" if theme == "dark" else ""}>Dark</option>
+    </select>
+    <button class="mc-apply" type="submit">{escape(tr(lang, "OK", "OK"))}</button>
+  </form>
 </header>
 <div class="mc-layout">
   <nav class="mc-nav">{menu}</nav>
@@ -220,6 +245,7 @@ def home(request: Request) -> HTMLResponse:
     lang = normalize_lang(request.query_params.get("lang", DEFAULT_LANG))
     tz = request.query_params.get("tz", DEFAULT_TZ)
     currency = request.query_params.get("currency", DEFAULT_CURRENCY)
+    theme = normalize_theme(request.query_params.get("theme", DEFAULT_THEME))
 
     content = f"""
     <section class="mc-card">
@@ -256,7 +282,7 @@ def home(request: Request) -> HTMLResponse:
       </section>
     </div>
     """
-    return HTMLResponse(page_shell(content, lang, tz, currency))
+    return HTMLResponse(page_shell(content, lang, tz, currency, theme))
 
 
 @app.get("/health")
@@ -265,6 +291,7 @@ def health() -> JSONResponse:
         "service": "marketcore-os",
         "status": "READY",
         "version": APP_VERSION,
+        "ui_shell": "READY",
         "runtime_changed": 0,
         "execution_changed": 0,
         "orders_changed": 0,
