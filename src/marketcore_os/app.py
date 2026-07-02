@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from marketcore_os.layouts.base import APP_VERSION, normalize_lang, normalize_theme, render_shell
 from marketcore_os.workspace.home import render_home_workspace
+from marketcore_os.workspace.capital import render_capital_workspace
 from marketcore_os.services.capital import CapitalService
 from marketcore_os.services.profit import ProfitService
 from marketcore_os.services.research import ResearchService
@@ -129,3 +130,23 @@ def risk_widget_api() -> JSONResponse:
         "fills_changed": 0,
         "micro_live_allowed_flag": 0,
     })
+
+
+@app.get("/capital", response_class=HTMLResponse)
+def capital_workspace(request: Request) -> HTMLResponse:
+    lang = normalize_lang(request.query_params.get("lang", DEFAULT_LANG))
+    tz = request.query_params.get("tz", DEFAULT_TZ)
+    currency = request.query_params.get("currency", DEFAULT_CURRENCY)
+    theme = normalize_theme(request.query_params.get("theme", DEFAULT_THEME))
+
+    content = render_capital_workspace(lang, currency)
+
+    return HTMLResponse(
+        render_shell(
+            content=content,
+            lang=lang,
+            tz=tz,
+            currency=currency,
+            theme=theme,
+        )
+    )
