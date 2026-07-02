@@ -1,0 +1,1 @@
+"""MarketCore OS widget framework."""
