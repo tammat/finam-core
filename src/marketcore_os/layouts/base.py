@@ -10,6 +10,7 @@ APP_VERSION = "0.1.4"
 MENU_ITEMS = [
     ("workspace", "Рабочее место", "Workspace"),
     ("daily", "Центр дня", "Daily Center"),
+    ("runtime", "Runtime", "Runtime"),
     ("capital", "Капитал", "Capital"),
     ("edge", "Edge", "Edge"),
     ("research", "Исследования", "Research"),
