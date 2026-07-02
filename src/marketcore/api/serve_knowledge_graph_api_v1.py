@@ -242,6 +242,35 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-edge-research-candidates":
+                limit = int(q.get("limit", ["20"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        candidate_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        candidate_status,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        source_table,
+                        refreshed_at
+                    FROM marketcore_ui.paper_edge_research_candidates_v1
+                    ORDER BY candidate_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "ui_direct_sql": 0
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:

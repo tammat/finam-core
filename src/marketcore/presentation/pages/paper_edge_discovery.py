@@ -25,6 +25,52 @@ def _row(label: str, value: str) -> str:
     """
 
 
+def _candidate_table(rows: list[dict], ctx) -> str:
+    if not rows:
+        return "<p>Кандидаты Research пока не найдены.</p>"
+
+    body = ""
+    for row in rows:
+        body += f"""
+        <tr>
+            <td>{escape(str(row.get("candidate_rank", "")))}</td>
+            <td>{escape(str(row.get("symbol", "")))}</td>
+            <td>{escape(str(row.get("strategy", "")))}</td>
+            <td>{escape(str(row.get("timeframe", "")))}</td>
+            <td>{escape(str(row.get("side", "")))}</td>
+            <td>{escape(str(row.get("candidate_status", "")))}</td>
+            <td>{escape(ctx.formatter.number(row.get("expectancy"), 4))}</td>
+            <td>{escape(ctx.formatter.number(row.get("profit_factor"), 4))}</td>
+            <td>{escape(ctx.formatter.percent(row.get("winrate"), 2))}</td>
+            <td>{escape(ctx.formatter.number(row.get("trades"), 0))}</td>
+            <td>{escape(ctx.formatter.number(row.get("net_pnl"), 4))}</td>
+            <td>{escape(ctx.formatter.number(row.get("score"), 4))}</td>
+        </tr>
+        """
+
+    return f"""
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Инструмент</th>
+                <th>Стратегия</th>
+                <th>TF</th>
+                <th>Side</th>
+                <th>Статус</th>
+                <th>Expectancy</th>
+                <th>PF</th>
+                <th>WinRate</th>
+                <th>Trades</th>
+                <th>Net PnL</th>
+                <th>Score</th>
+            </tr>
+        </thead>
+        <tbody>{body}</tbody>
+    </table>
+    """
+
+
 class PaperEdgeDiscoveryPage(Page):
     def __init__(self) -> None:
         super().__init__(
@@ -36,12 +82,15 @@ class PaperEdgeDiscoveryPage(Page):
 
     def render(self) -> str:
         ctx = build_presentation_context()
-        payload = ctx.api_get("/api/kg/v1/paper-edge-discovery")
 
-        data = payload.get("data") or {}
+        discovery = ctx.api_get("/api/kg/v1/paper-edge-discovery")
+        candidates_payload = ctx.api_get("/api/kg/v1/paper-edge-research-candidates?limit=20")
+
+        data = discovery.get("data") or {}
         paper = data.get("paper_runtime") or {}
         kg = data.get("knowledge_graph") or {}
         validation = data.get("validation") or {}
+        candidates = candidates_payload.get("data") or []
 
         paper_status = str(paper.get("paper_status", "UNKNOWN"))
         validation_status = str(validation.get("status", "UNKNOWN"))
@@ -50,20 +99,13 @@ class PaperEdgeDiscoveryPage(Page):
         closed_today = ctx.formatter.number(paper.get("closed_trades_today"), 0)
         signals_today = ctx.formatter.number(paper.get("signals_today"), 0)
         fills_today = ctx.formatter.number(paper.get("fills_today"), 0)
-        signal_fills_today = ctx.formatter.number(paper.get("signal_fills_today"), 0)
-        active_symbols = ctx.formatter.number(paper.get("active_symbols"), 0)
         pnl_today = ctx.formatter.number(paper.get("pnl_today"), 4)
         pnl_total = ctx.formatter.number(paper.get("pnl_total"), 4)
-        last_trade = ctx.formatter.datetime(paper.get("last_closed_trade_at"))
-        refreshed_at = ctx.formatter.datetime(paper.get("refreshed_at"))
+        active_symbols = ctx.formatter.number(paper.get("active_symbols"), 0)
 
         kg_nodes = ctx.formatter.number(kg.get("nodes"), 0)
         kg_edges = ctx.formatter.number(kg.get("edges"), 0)
-        kg_entity_types = ctx.formatter.number(kg.get("entity_types"), 0)
-        kg_edge_types = ctx.formatter.number(kg.get("edge_types"), 0)
-
         validation_findings = ctx.formatter.number(validation.get("total_findings"), 0)
-        validation_finished = ctx.formatter.datetime(validation.get("finished_at"))
 
         next_action = str(data.get("next_action", "PAPER_EDGE_DISCOVERY_RESEARCH_CANDIDATES_V1"))
 
@@ -77,9 +119,15 @@ class PaperEdgeDiscoveryPage(Page):
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;">
             {_metric("Paper Runtime", ctx.status.label(paper_status), "Реальные данные paper-контура")}
             {_metric("Closed Trades", closed_total, f"Сегодня: {closed_today}")}
-            {_metric("Signals Today", signals_today, f"Fills: {fills_today}; Signal fills: {signal_fills_today}")}
+            {_metric("Signals Today", signals_today, f"Fills: {fills_today}")}
             {_metric("P&L Total", pnl_total, f"Сегодня: {pnl_today}")}
         </div>
+
+        <section class="card">
+            <h2>Research Candidates</h2>
+            <p>Источник: marketcore_ui.paper_edge_research_candidates_v1</p>
+            {_candidate_table(candidates, ctx)}
+        </section>
 
         <section class="card">
             <h2>Paper Runtime Real Data</h2>
@@ -93,11 +141,8 @@ class PaperEdgeDiscoveryPage(Page):
                     {_row("Закрытые сделки сегодня", closed_today)}
                     {_row("Сигналы сегодня", signals_today)}
                     {_row("Исполнения сегодня", fills_today)}
-                    {_row("Signal fills сегодня", signal_fills_today)}
                     {_row("P&L сегодня", pnl_today)}
                     {_row("P&L всего", pnl_total)}
-                    {_row("Последняя закрытая сделка", last_trade)}
-                    {_row("Read Model обновлена", refreshed_at)}
                     {_row("Источник", "marketcore_ui.paper_runtime_summary_v1")}
                 </tbody>
             </table>
@@ -113,8 +158,6 @@ class PaperEdgeDiscoveryPage(Page):
                     {_row("Домен", str(kg.get("domain", "PAPER_RUNTIME")))}
                     {_row("Узлы", kg_nodes)}
                     {_row("Связи", kg_edges)}
-                    {_row("Типы сущностей", kg_entity_types)}
-                    {_row("Типы связей", kg_edge_types)}
                 </tbody>
             </table>
         </section>
@@ -128,7 +171,6 @@ class PaperEdgeDiscoveryPage(Page):
                 <tbody>
                     {_row("Статус", ctx.status.label(validation_status))}
                     {_row("Findings", validation_findings)}
-                    {_row("Завершено", validation_finished)}
                 </tbody>
             </table>
         </section>
