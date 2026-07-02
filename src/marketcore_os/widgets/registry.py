@@ -18,11 +18,7 @@ class WidgetRegistry:
         return sorted(self._widgets, key=lambda w: (w.priority, w.widget_id))
 
     def for_workspace(self, workspace: str) -> list[Widget]:
-        return [
-            widget
-            for widget in self.all()
-            if widget.workspace == workspace
-        ]
+        return [widget for widget in self.all() if widget.workspace == workspace]
 
 
 registry = WidgetRegistry()
@@ -38,3 +34,17 @@ def widgets_for_workspace(workspace: str) -> Iterable[Widget]:
 
 def all_widgets() -> Iterable[Widget]:
     return registry.all()
+
+
+def bootstrap_widgets() -> None:
+    if list(registry.all()):
+        return
+
+    from marketcore_os.widgets.today import today_widget
+    from marketcore_os.widgets.program import program_widget
+
+    register(today_widget)
+    register(program_widget)
+
+
+bootstrap_widgets()
