@@ -125,29 +125,22 @@ def main() -> None:
 
             cur.execute("""
                 SELECT
-                    pipeline_rank,
+                    validation_rank,
                     symbol,
                     strategy,
                     timeframe,
                     side,
-                    pipeline_status,
-                    expectancy,
-                    profit_factor,
-                    winrate,
-                    trades,
-                    net_pnl,
-                    score,
-                    evidence_summary,
-                    risk_notes
-                FROM marketcore_ui.edge_validation_pipeline_v1
-                ORDER BY
-                    CASE
-                        WHEN pipeline_status='READY_FOR_ROBUSTNESS' THEN 1
-                        WHEN pipeline_status='OBSERVE_MORE' THEN 2
-                        WHEN pipeline_status='ACCUMULATE_SAMPLE' THEN 3
-                        ELSE 4
-                    END,
-                    pipeline_rank;
+                    validation_status AS pipeline_status,
+                    0::numeric AS expectancy,
+                    0::numeric AS profit_factor,
+                    0::numeric AS winrate,
+                    0::integer AS trades,
+                    0::numeric AS net_pnl,
+                    total_score AS score,
+                    recommended_action AS evidence_summary,
+                    ''::text AS risk_notes
+                FROM marketcore_ui.edge_validation_use_market_universe_v1
+                ORDER BY validation_rank;
             """)
             rows = [dict(row) for row in cur.fetchall()]
 
@@ -218,7 +211,7 @@ def main() -> None:
                     c["evidence_summary"],
                     c["weakness_summary"],
                     c["recommended_action"],
-                    row.get("pipeline_rank"),
+                    row.get("validation_rank"),
                     SOURCE_VERSION,
                     build_id,
                 ))
