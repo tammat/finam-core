@@ -5,11 +5,10 @@ from decimal import Decimal
 
 
 @dataclass(frozen=True)
-class StrategySignal:
-    signal_id: str
+class TradeIntent:
     symbol: str
     timeframe: str
     strategy: str
     side: str
-    signal_strength: Decimal
-    source: str = "strategy"
+    quantity_requested: Decimal
+    source_signal_id: str
