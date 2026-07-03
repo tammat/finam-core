@@ -1211,6 +1211,38 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/edge-discovery-use-market-universe":
+                row = fetch_one("""
+                    SELECT
+                        legacy_source,
+                        new_source,
+                        legacy_rows,
+                        legacy_symbols,
+                        queue_rows,
+                        queue_symbols,
+                        ranking_rows,
+                        universe_rows,
+                        migration_status,
+                        diagnosis,
+                        recommended_action,
+                        runtime_changed,
+                        execution_changed,
+                        orders_changed,
+                        fills_changed,
+                        micro_live_allowed,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.edge_discovery_use_market_universe_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.edge_discovery_use_market_universe_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "edge_discovery_use_market_universe_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
