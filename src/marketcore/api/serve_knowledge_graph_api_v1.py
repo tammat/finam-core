@@ -474,6 +474,48 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/edge-robustness-check":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        robustness_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        pipeline_status,
+                        robustness_status,
+                        sample_size_status,
+                        pf_status,
+                        expectancy_status,
+                        winrate_status,
+                        pnl_status,
+                        robustness_score,
+                        oos_required,
+                        micro_live_ready,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        evidence_summary,
+                        weakness_summary,
+                        recommended_action,
+                        source_pipeline_rank,
+                        refreshed_at
+                    FROM marketcore_ui.edge_robustness_check_v1
+                    ORDER BY robustness_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.edge_robustness_check_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "edge_robustness_check_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
