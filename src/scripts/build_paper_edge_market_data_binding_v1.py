@@ -14,12 +14,7 @@ SOURCE_VERSION = "PAPER_EDGE_DISCOVERY_MARKET_DATA_BINDING_V1"
 FRESH_AFTER_SEC = int(os.getenv("PAPER_EDGE_MARKET_DATA_FRESH_AFTER_SEC", "86400"))
 
 SOURCE_TABLE_CANDIDATES = [
-    "public.market_bars",
-    "public.market_data_bars",
-    "public.bars",
-    "public.candles",
-    "public.market_candles",
-    "public.ohlcv_bars",
+    "marketcore.market_snapshot_v1",
 ]
 
 SYMBOL_COLUMNS = ["symbol", "ticker", "secid", "instrument"]
@@ -195,7 +190,7 @@ def classify(source: MarketSource | None, bars_total: int, age_sec) -> tuple[str
             "NO_MARKET_SOURCE",
             "NOT_BOUND",
             "Не найдена таблица рыночных баров с колонками symbol и timestamp.",
-            "Подключить market_bars/feed к Paper Edge Discovery.",
+            "Построить MARKET_MODEL_V1: marketcore.market_snapshot_v1.",
         )
 
     if bars_total <= 0:
@@ -203,7 +198,7 @@ def classify(source: MarketSource | None, bars_total: int, age_sec) -> tuple[str
             "NO_BARS_FOR_CANDIDATE",
             "NO_BARS",
             "Источник рыночных данных найден, но по кандидату нет баров.",
-            "Проверить символ, timeframe и backfill market_bars.",
+            "Проверить symbol/timeframe в marketcore.market_snapshot_v1 и обновить MARKET_MODEL_V1.",
         )
 
     if age_sec is None:
