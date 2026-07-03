@@ -1243,6 +1243,36 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/edge-validation-use-market-universe":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        validation_rank,
+                        symbol,
+                        timeframe,
+                        asset_class,
+                        strategy,
+                        side,
+                        source_queue_rank,
+                        total_score,
+                        research_priority,
+                        ranking_status,
+                        validation_status,
+                        validation_stage,
+                        recommended_action,
+                        refreshed_at
+                    FROM marketcore_ui.edge_validation_use_market_universe_v1
+                    ORDER BY validation_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.edge_validation_use_market_universe_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "edge_validation_use_market_universe_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
