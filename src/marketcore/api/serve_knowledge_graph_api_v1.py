@@ -984,6 +984,53 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/marketcore-ui-systemd-health":
+                row = fetch_one("""
+                    SELECT
+                        kg_api_unit,
+                        ui_shell_unit,
+                        kg_api_active_state,
+                        kg_api_sub_state,
+                        kg_api_result,
+                        kg_api_main_status,
+                        kg_api_healthy,
+                        ui_shell_active_state,
+                        ui_shell_sub_state,
+                        ui_shell_result,
+                        ui_shell_main_status,
+                        ui_shell_healthy,
+                        kg_api_port,
+                        ui_shell_port,
+                        kg_api_http_ok,
+                        ui_home_http_ok,
+                        ui_risk_http_ok,
+                        ui_settings_http_ok,
+                        kg_api_health_status,
+                        ui_shell_health_status,
+                        overall_status,
+                        open_url,
+                        risk_url,
+                        settings_url,
+                        health_reason,
+                        recommended_action,
+                        runtime_changed,
+                        execution_changed,
+                        orders_changed,
+                        fills_changed,
+                        micro_live_allowed,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.marketcore_ui_systemd_8080_health_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.marketcore_ui_systemd_8080_health_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "marketcore_ui_systemd_8080_health_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
