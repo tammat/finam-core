@@ -559,6 +559,49 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/edge-oos-backtest":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        backtest_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        robustness_status,
+                        oos_status,
+                        oos_readiness,
+                        backtest_status,
+                        total_trades,
+                        in_sample_trades,
+                        oos_trades,
+                        in_sample_pnl,
+                        oos_pnl,
+                        in_sample_expectancy,
+                        oos_expectancy,
+                        in_sample_profit_factor,
+                        oos_profit_factor,
+                        in_sample_winrate,
+                        oos_winrate,
+                        stability_score,
+                        micro_live_candidate,
+                        pass_reason,
+                        fail_reason,
+                        recommended_action,
+                        source_oos_rank,
+                        refreshed_at
+                    FROM marketcore_ui.edge_oos_backtest_v1
+                    ORDER BY backtest_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.edge_oos_backtest_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "edge_oos_backtest_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
