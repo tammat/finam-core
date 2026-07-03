@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Finam Core Market Universe Research Queue Cycle V1 every 5 minutes
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=5min
+Unit=finam-market-universe-research-queue.service
+
+[Install]
+WantedBy=timers.target

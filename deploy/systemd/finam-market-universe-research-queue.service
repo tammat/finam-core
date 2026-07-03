@@ -1,0 +1,11 @@
+[Unit]
+Description=Finam Core Market Universe Research Queue Cycle V1
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=DATABASE_URL=postgresql:///finam_core
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/run_market_universe_research_queue_cycle_v1.py
