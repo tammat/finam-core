@@ -75,14 +75,14 @@ def classify(match_type: str, confidence: Decimal, age_sec) -> tuple[str, str, s
         return (
             "NO_ALIAS_FOUND",
             "Не найден подходящий market symbol.",
-            "Добавить ручной alias или проверить backfill market_bars.",
+            "Добавить ручной alias или проверить backfill market_snapshot_v1.",
         )
 
     if age_sec is None:
         return (
             "ALIAS_FOUND_UNKNOWN_FRESHNESS",
             "Похожий market symbol найден, но свежесть не определена.",
-            "Проверить timestamp market_bars.",
+            "Проверить timestamp market_snapshot_v1.",
         )
 
     if confidence >= Decimal("0.85"):
@@ -215,7 +215,7 @@ def main() -> None:
                             "alias_confidence": Decimal("0.0000"),
                             "alias_status": "NO_ALIAS_FOUND",
                             "diagnosis": "По кандидату не найден похожий market symbol среди свежих market bars.",
-                            "recommended_action": "Добавить ручной alias или проверить backfill market_bars.",
+                            "recommended_action": "Добавить ручной alias или проверить backfill market_snapshot_v1.",
                             "source_freshness_rank": candidate.get("freshness_rank"),
                         }
                     )
