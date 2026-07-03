@@ -6,6 +6,7 @@ ROUTE_LABELS_RU = {
 
     "/runtime": "Runtime / исполнение",
     "/paper-edge-discovery": "Поиск преимущества",
+    "/paper-edge-market-data-binding": "Рыночные данные кандидатов",
     "/edge-validation-queue": "Очередь проверки преимущества",
     "/edge-validation-pipeline": "Pipeline проверки преимущества",
     "/edge-robustness-check": "Проверка устойчивости",

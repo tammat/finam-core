@@ -276,6 +276,14 @@ class PaperEdgeDiscoveryPage(Page):
             <p>PAPER_RUNTIME_SAMPLE_COLLECTION_DASHBOARD_LINK_V1</p>
         </section>
 
+
+        <section class="card">
+            <h2>Рыночные данные</h2>
+            <p>Проверить, есть ли свежие market bars для кандидатов и почему сейчас видны старые paper-кандидаты.</p>
+            <p><a href="/paper-edge-market-data-binding">Открыть привязку рыночных данных</a></p>
+            <p>PAPER_EDGE_DISCOVERY_MARKET_DATA_BINDING_V1</p>
+        </section>
+
         <section class="card">
             <h2>Next Action</h2>
             <p>{escape(next_action)}</p>

@@ -1056,6 +1056,41 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-edge-market-data-binding":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        binding_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        market_symbol,
+                        market_timeframe,
+                        bars_source_table,
+                        bars_total,
+                        latest_bar_ts,
+                        latest_close,
+                        latest_volume,
+                        market_data_age_sec,
+                        market_data_status,
+                        binding_status,
+                        binding_reason,
+                        recommended_action,
+                        source_candidate_rank,
+                        refreshed_at
+                    FROM marketcore_ui.paper_edge_market_data_binding_v1
+                    ORDER BY binding_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_edge_market_data_binding_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_edge_discovery_market_data_binding_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
