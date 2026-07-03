@@ -62,6 +62,20 @@ body {{
   font-size:13px;
   margin-bottom:18px;
 }}
+
+.nav-group {
+  margin:14px 0 18px 0;
+}
+.nav-group-title {
+  margin:14px 0 8px 0;
+  padding:0 8px;
+  color:#94a3b8;
+  font-size:12px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+
 .nav-item {{
   display:flex;
   align-items:center;
