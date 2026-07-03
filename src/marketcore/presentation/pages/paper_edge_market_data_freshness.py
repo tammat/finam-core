@@ -104,6 +104,13 @@ class PaperEdgeMarketDataFreshnessPage(Page):
             {_table(rows, ctx)}
         </section>
 
+
+        <section class="card">
+            <h2>Alias Plan</h2>
+            <p><a href="/paper-edge-market-symbol-alias-plan">Открыть план alias рыночных символов</a></p>
+            <p>PAPER_EDGE_DISCOVERY_MARKET_SYMBOL_ALIAS_PLAN_V1</p>
+        </section>
+
         <section class="card">
             <h2>Вывод</h2>
             <p>Если SOURCE_FRESH есть, но CANDIDATE_NO_BARS=20, проблема не в отсутствии market feed, а в несовпадении символов/timeframe кандидатов и market_bars.</p>

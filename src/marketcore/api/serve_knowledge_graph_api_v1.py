@@ -1127,6 +1127,41 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-edge-market-symbol-alias-plan":
+                limit = int(q.get("limit", ["100"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        plan_rank,
+                        candidate_symbol,
+                        candidate_root,
+                        candidate_strategy,
+                        candidate_timeframe,
+                        side,
+                        alias_symbol,
+                        alias_timeframe,
+                        alias_source_table,
+                        alias_bars_total,
+                        alias_latest_bar_ts,
+                        alias_market_data_age_sec,
+                        alias_match_type,
+                        alias_confidence,
+                        alias_status,
+                        diagnosis,
+                        recommended_action,
+                        source_freshness_rank,
+                        refreshed_at
+                    FROM marketcore_ui.paper_edge_market_symbol_alias_plan_v1
+                    ORDER BY plan_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_edge_market_symbol_alias_plan_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_edge_discovery_market_symbol_alias_plan_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:

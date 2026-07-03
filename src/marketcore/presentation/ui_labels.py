@@ -8,6 +8,7 @@ ROUTE_LABELS_RU = {
     "/paper-edge-discovery": "Поиск преимущества",
     "/paper-edge-market-data-binding": "Рыночные данные кандидатов",
     "/paper-edge-market-data-freshness": "Свежесть рыночных данных",
+    "/paper-edge-market-symbol-alias-plan": "План alias рыночных символов",
     "/edge-validation-queue": "Очередь проверки преимущества",
     "/edge-validation-pipeline": "Pipeline проверки преимущества",
     "/edge-robustness-check": "Проверка устойчивости",
