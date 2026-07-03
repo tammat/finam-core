@@ -247,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int(q.get("limit", ["20"])[0])
                 rows = fetch_all("""
                     SELECT
-                        candidate_rank,
+                        queue_rank,
                         symbol,
                         strategy,
                         timeframe,
@@ -261,12 +261,12 @@ class Handler(BaseHTTPRequestHandler):
                         score,
                         source_table,
                         refreshed_at
-                    FROM marketcore_ui.paper_edge_research_candidates_v1
-                    ORDER BY candidate_rank
+                    FROM marketcore_ui.market_universe_research_queue_v1
+                    ORDER BY queue_rank
                     LIMIT %s;
                 """, (limit,))
                 self.send_json(200, response("OK", rows, {
-                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "source": "marketcore_ui.market_universe_research_queue_v1",
                     "ui_direct_sql": 0
                 }))
                 return
@@ -276,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int(q.get("limit", ["10"])[0])
                 rows = fetch_all("""
                     SELECT
-                        candidate_rank,
+                        queue_rank,
                         symbol,
                         strategy,
                         timeframe,
@@ -306,12 +306,12 @@ class Handler(BaseHTTPRequestHandler):
                              AND COALESCE(expectancy,0) >= 0 THEN 'Наблюдать и проверить устойчивость'
                             ELSE 'Не продвигать без дополнительного анализа'
                         END AS next_step
-                    FROM marketcore_ui.paper_edge_research_candidates_v1
-                    ORDER BY candidate_rank
+                    FROM marketcore_ui.market_universe_research_queue_v1
+                    ORDER BY queue_rank
                     LIMIT %s;
                 """, (limit,))
                 self.send_json(200, response("OK", rows, {
-                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "source": "marketcore_ui.market_universe_research_queue_v1",
                     "ui_direct_sql": 0,
                     "logic": "paper_edge_top_candidates_detail_v1"
                 }))
@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
                 limit = int(q.get("limit", ["10"])[0])
                 rows = fetch_all("""
                     SELECT
-                        candidate_rank,
+                        queue_rank,
                         symbol,
                         strategy,
                         timeframe,
@@ -387,12 +387,12 @@ class Handler(BaseHTTPRequestHandler):
                             ELSE 'DO_NOT_PROMOTE'
                         END AS recommended_action
 
-                    FROM marketcore_ui.paper_edge_research_candidates_v1
-                    ORDER BY candidate_rank
+                    FROM marketcore_ui.market_universe_research_queue_v1
+                    ORDER BY queue_rank
                     LIMIT %s;
                 """, (limit,))
                 self.send_json(200, response("OK", rows, {
-                    "source": "marketcore_ui.paper_edge_research_candidates_v1",
+                    "source": "marketcore_ui.market_universe_research_queue_v1",
                     "ui_direct_sql": 0,
                     "logic": "paper_edge_candidate_explainability_v1"
                 }))
@@ -420,7 +420,7 @@ class Handler(BaseHTTPRequestHandler):
                         evidence_summary,
                         risk_notes,
                         recommended_action,
-                        source_candidate_rank,
+                        source_queue_rank,
                         source_table,
                         refreshed_at
                     FROM marketcore_ui.edge_validation_queue_v1
@@ -1078,7 +1078,7 @@ class Handler(BaseHTTPRequestHandler):
                         binding_status,
                         binding_reason,
                         recommended_action,
-                        source_candidate_rank,
+                        source_queue_rank,
                         refreshed_at
                     FROM marketcore_ui.paper_edge_market_data_binding_v1
                     ORDER BY binding_rank

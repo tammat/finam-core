@@ -63,11 +63,11 @@ def main() -> None:
 
             cur.execute("""
                 SELECT
-                    candidate_rank,
+                    queue_rank,
                     symbol,
-                    strategy,
+                    recommended_strategy_family AS strategy,
                     timeframe,
-                    side,
+                    ''::text AS side,
                     candidate_status,
                     expectancy,
                     profit_factor,
@@ -77,7 +77,7 @@ def main() -> None:
                     score,
                     source_table,
                     refreshed_at
-                FROM marketcore_ui.paper_edge_research_candidates_v1
+                FROM marketcore_ui.market_universe_research_queue_v1
                 ORDER BY
                     CASE
                         WHEN COALESCE(trades,0) >= 30
@@ -92,7 +92,7 @@ def main() -> None:
                     COALESCE(score,0) DESC,
                     COALESCE(profit_factor,0) DESC,
                     COALESCE(expectancy,0) DESC,
-                    candidate_rank
+                    queue_rank
                 LIMIT 50;
             """)
             candidates = [dict(row) for row in cur.fetchall()]
@@ -114,9 +114,9 @@ def main() -> None:
                     INSERT INTO marketcore_ui.edge_validation_queue_v1 (
                         queue_rank,
                         symbol,
-                        strategy,
+                        recommended_strategy_family AS strategy,
                         timeframe,
-                        side,
+                        ''::text AS side,
                         candidate_status,
                         validation_status,
                         priority,
@@ -129,7 +129,7 @@ def main() -> None:
                         evidence_summary,
                         risk_notes,
                         recommended_action,
-                        source_candidate_rank,
+                        source_queue_rank,
                         source_table,
                         source_version,
                         refreshed_at,
@@ -142,9 +142,9 @@ def main() -> None:
                 """, (
                     idx,
                     row.get("symbol") or "",
-                    row.get("strategy") or "",
+                    row.get("recommended_strategy_family AS strategy") or "",
                     row.get("timeframe") or "",
-                    row.get("side") or "",
+                    row.get("''::text AS side") or "",
                     row.get("candidate_status") or "UNKNOWN",
                     validation_status,
                     priority,
@@ -157,7 +157,7 @@ def main() -> None:
                     evidence_summary,
                     risk_notes,
                     recommended_action,
-                    row.get("candidate_rank"),
+                    row.get("queue_rank"),
                     row.get("source_table") or "",
                     SOURCE_VERSION,
                     build_id,

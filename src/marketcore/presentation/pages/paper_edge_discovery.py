@@ -206,7 +206,7 @@ class PaperEdgeDiscoveryPage(Page):
         <section class="card">
             <h2>Candidate Explainability</h2>
             <p>Назначение: объяснить, почему кандидат попал в TOP и что с ним делать дальше.</p>
-            <p>Источник: marketcore_ui.paper_edge_research_candidates_v1 через Knowledge Graph API.</p>
+            <p>Источник: marketcore_ui.market_universe_research_queue_v1 через Knowledge Graph API.</p>
             {_candidate_explainability_table(explanations, ctx)}
         </section>
 
@@ -218,7 +218,7 @@ class PaperEdgeDiscoveryPage(Page):
 
         <section class="card">
             <h2>Research Candidates</h2>
-            <p>Источник: marketcore_ui.paper_edge_research_candidates_v1</p>
+            <p>Источник: marketcore_ui.market_universe_research_queue_v1</p>
             {_candidate_table(candidates, ctx)}
         </section>
 
