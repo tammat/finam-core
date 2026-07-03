@@ -718,6 +718,48 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-sample-collection-timer-health":
+                row = fetch_one("""
+                    SELECT
+                        timer_unit,
+                        service_unit,
+                        timer_active_state,
+                        timer_sub_state,
+                        timer_unit_file_state,
+                        timer_next_elapse,
+                        timer_last_trigger,
+                        timer_healthy,
+                        service_active_state,
+                        service_sub_state,
+                        service_result,
+                        service_exec_main_status,
+                        service_last_exit,
+                        service_healthy,
+                        sample_summary_exists,
+                        sample_summary_refreshed_at,
+                        sample_summary_age_sec,
+                        sample_summary_stale,
+                        candidates_total,
+                        sample_ready,
+                        collection_status,
+                        phase_status,
+                        micro_live_allowed,
+                        timer_health_status,
+                        health_reason,
+                        recommended_action,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_sample_collection_timer_health_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.paper_runtime_sample_collection_timer_health_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_runtime_sample_collection_timer_health_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
