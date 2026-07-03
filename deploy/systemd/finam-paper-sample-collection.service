@@ -1,0 +1,14 @@
+[Unit]
+Description=Finam Core Paper Runtime Sample Collection Cycle V1
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=DATABASE_URL=postgresql:///finam_core
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/run_paper_runtime_sample_collection_cycle_v1.py
+
+[Install]
+WantedBy=multi-user.target
