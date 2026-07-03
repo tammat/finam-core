@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Finam Core Paper Runtime Sample Collection Operations Cycle V1 every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=finam-paper-sample-operations.service
+
+[Install]
+WantedBy=timers.target
