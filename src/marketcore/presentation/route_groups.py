@@ -30,6 +30,7 @@ ROUTE_GROUPS: tuple[RouteGroup, ...] = (
             "/paper-edge-market-data-freshness",
             "/paper-edge-market-symbol-alias-plan",
             "/market-universe-ranking",
+            "/market-universe-research-queue",
             "/edge-validation-queue",
             "/edge-validation-pipeline",
             "/edge-robustness-check",

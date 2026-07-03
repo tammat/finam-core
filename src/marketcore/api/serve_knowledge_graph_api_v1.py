@@ -1183,6 +1183,34 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/market-universe-research-queue":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        queue_rank,
+                        symbol,
+                        timeframe,
+                        asset_class,
+                        total_score,
+                        ranking_status,
+                        research_priority,
+                        research_status,
+                        recommended_strategy_family,
+                        recommended_action,
+                        source_rank,
+                        refreshed_at
+                    FROM marketcore_ui.market_universe_research_queue_v1
+                    ORDER BY queue_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.market_universe_research_queue_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "market_universe_research_queue_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
