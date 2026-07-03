@@ -648,6 +648,47 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-sample-accumulation-monitor":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        monitor_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        readiness_status,
+                        backtest_status,
+                        oos_status,
+                        robustness_status,
+                        total_trades,
+                        required_total_trades,
+                        remaining_total_trades,
+                        oos_trades,
+                        required_oos_trades,
+                        remaining_oos_trades,
+                        sample_status,
+                        progress_pct,
+                        micro_live_ready,
+                        micro_live_allowed,
+                        block_reason,
+                        recommended_action,
+                        source_readiness_rank,
+                        refreshed_at
+                    FROM marketcore_ui.paper_sample_accumulation_monitor_v1
+                    ORDER BY monitor_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_sample_accumulation_monitor_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_sample_accumulation_monitor_v1",
+                    "orders_changed": 0,
+                    "execution_changed": 0
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
