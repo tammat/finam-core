@@ -77,6 +77,7 @@ body {
 }
 .nav-item {
   display:flex;
+  font-size:15px;
   align-items:center;
   gap:10px;
   padding:10px 12px;
@@ -100,6 +101,7 @@ body {
 }
 .main {
   padding:24px;
+  font-size:16px;
   max-width:1600px;
 }
 .header {
@@ -192,7 +194,39 @@ th {
   color:var(--muted);
   font-size:13px;
 }
+
+.mobile-menu-note {
+  display:none;
+}
 @media (max-width: 900px) {
+  body {
+    font-size:17px;
+  }
+  .main {
+    padding:16px;
+    font-size:17px;
+  }
+  .header h1 {
+    font-size:26px;
+  }
+  .nav-item {
+    font-size:17px;
+    padding:13px 14px;
+  }
+  .nav-group-title {
+    font-size:13px;
+    margin-top:18px;
+  }
+  .card {
+    padding:16px;
+  }
+  table {
+    font-size:15px;
+  }
+  th,td {
+    font-size:15px;
+    padding:10px 8px;
+  }
   .app {
     grid-template-columns:1fr;
   }
