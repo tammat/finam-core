@@ -241,13 +241,13 @@ def main() -> None:
 
             cur.execute("""
                 SELECT
-                    candidate_rank,
+                    queue_rank AS candidate_rank,
                     symbol,
-                    strategy,
+                    recommended_strategy_family AS strategy,
                     timeframe,
-                    side
-                FROM marketcore_ui.paper_edge_research_candidates_v1
-                ORDER BY candidate_rank
+                    ''::text AS side
+                FROM marketcore_ui.market_universe_research_queue_v1
+                ORDER BY queue_rank
                 LIMIT 50;
             """)
             candidates = [dict(r) for r in cur.fetchall()]
