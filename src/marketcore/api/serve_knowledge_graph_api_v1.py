@@ -1162,6 +1162,27 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/market-universe-ranking":
+                limit = int(q.get("limit", ["100"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        rank, symbol, timeframe, asset_class,
+                        bars_total, latest_ts, latest_close, latest_volume, data_age_sec,
+                        freshness_score, history_score, liquidity_score, timeframe_score,
+                        asset_priority_score, total_score,
+                        ranking_status, recommended_action, refreshed_at
+                    FROM marketcore_ui.market_universe_ranking_v1
+                    ORDER BY rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.market_universe_ranking_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "market_universe_ranking_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
