@@ -896,6 +896,53 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-sample-operations-timer-health":
+                row = fetch_one("""
+                    SELECT
+                        timer_unit,
+                        service_unit,
+                        timer_active_state,
+                        timer_sub_state,
+                        timer_unit_file_state,
+                        timer_next_elapse,
+                        timer_last_trigger,
+                        timer_healthy,
+                        service_active_state,
+                        service_sub_state,
+                        service_result,
+                        service_exec_main_status,
+                        service_last_exit,
+                        service_healthy,
+                        operations_rows,
+                        operations_high_rows,
+                        operations_near_ready_rows,
+                        operations_collecting_rows,
+                        operations_micro_live_allowed_rows,
+                        operations_refreshed_at,
+                        operations_age_sec,
+                        operations_stale,
+                        phase_result_status,
+                        engineering_status,
+                        operational_status,
+                        phase_timer_health_status,
+                        next_phase,
+                        health_status,
+                        health_reason,
+                        recommended_action,
+                        micro_live_allowed,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_sample_collection_operations_timer_health_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.paper_runtime_sample_collection_operations_timer_health_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_runtime_sample_collection_operations_timer_health_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:

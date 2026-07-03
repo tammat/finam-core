@@ -3,6 +3,7 @@ from __future__ import annotations
 from marketcore.presentation.page import Page
 from marketcore.presentation.pages.ai import AiPage
 from marketcore.presentation.pages.home import HomePage
+from marketcore.presentation.pages.paper_sample_operations_timer_health import PaperSampleOperationsTimerHealthPage
 from marketcore.presentation.pages.paper_runtime_sample_collection_operations import PaperRuntimeSampleCollectionOperationsPage
 from marketcore.presentation.pages.phase_ii_paper_edge_discovery_summary import PhaseIiPaperEdgeDiscoverySummaryPage
 from marketcore.presentation.pages.paper_runtime_sample_collection_phase_close import PaperRuntimeSampleCollectionPhaseClosePage
@@ -40,6 +41,7 @@ PAGES: list[Page] = [
     PaperRuntimeSampleCollectionPhaseClosePage(),
     PhaseIiPaperEdgeDiscoverySummaryPage(),
     PaperRuntimeSampleCollectionOperationsPage(),
+    PaperSampleOperationsTimerHealthPage(),
     RuntimePage(),
     KnowledgeGraphPage(),
     ResearchPage(),
