@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 
 import psycopg2
 import psycopg2.extras
@@ -176,6 +176,96 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, response("OK", labels))
                 return
 
+
+
+            if path == "/api/kg/v1/edge-pipeline":
+                rows = fetch_all("""
+                    SELECT
+                        symbol,
+                        display_name,
+                        asset_class,
+                        timeframe,
+                        strategy_family,
+                        pipeline_stage,
+                        overall_status,
+                        ranking_score,
+                        research_priority,
+                        research_status,
+                        validation_status,
+                        validation_score,
+                        robustness_status,
+                        robustness_score,
+                        oos_status,
+                        oos_score,
+                        backtest_status,
+                        backtest_score,
+                        paper_status,
+                        paper_progress,
+                        paper_trades,
+                        risk_status,
+                        trading_status,
+                        runtime_status,
+                        source_version,
+                        refreshed_at
+                    FROM analytics.edge_pipeline_snapshot_v1
+                    ORDER BY ranking_score DESC, symbol, timeframe, strategy_family;
+                """)
+                self.send_json(200, response("OK", rows, {"source": "analytics.edge_pipeline_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/edge-pipeline/summary":
+                row = fetch_one("""
+                    SELECT
+                        count(*)::int AS total,
+                        count(*) FILTER (WHERE pipeline_stage=20)::int AS research,
+                        count(*) FILTER (WHERE pipeline_stage=30)::int AS validation,
+                        count(*) FILTER (WHERE pipeline_stage=40)::int AS robustness,
+                        count(*) FILTER (WHERE pipeline_stage=50)::int AS oos,
+                        count(*) FILTER (WHERE pipeline_stage=60)::int AS backtest,
+                        count(*) FILTER (WHERE pipeline_stage=70)::int AS paper,
+                        count(*) FILTER (WHERE pipeline_stage=80)::int AS risk,
+                        count(*) FILTER (WHERE pipeline_stage=90)::int AS trading,
+                        count(*) FILTER (WHERE pipeline_stage=100)::int AS live,
+                        max(refreshed_at) AS refreshed_at
+                    FROM analytics.edge_pipeline_snapshot_v1;
+                """)
+                self.send_json(200, response("OK", row or {}, {"source": "analytics.edge_pipeline_snapshot_v1"}))
+                return
+
+            if path.startswith("/api/kg/v1/edge-pipeline/stage/"):
+                stage_raw = path.rsplit("/", 1)[-1]
+                try:
+                    stage = int(stage_raw)
+                except ValueError:
+                    self.send_json(400, response("ERROR", {}, {"error": "stage must be integer"}))
+                    return
+
+                rows = fetch_all("""
+                    SELECT *
+                    FROM analytics.edge_pipeline_snapshot_v1
+                    WHERE pipeline_stage=%s
+                    ORDER BY ranking_score DESC, symbol, timeframe, strategy_family;
+                """, (stage,))
+                self.send_json(200, response("OK", rows, {"source": "analytics.edge_pipeline_snapshot_v1", "stage": stage}))
+                return
+
+            if path.startswith("/api/kg/v1/edge-pipeline/"):
+                parts = path.split("/")
+                if len(parts) >= 7:
+                    symbol = unquote(parts[5])
+                    timeframe = unquote(parts[6])
+                    row = fetch_one("""
+                        SELECT *
+                        FROM analytics.edge_pipeline_snapshot_v1
+                        WHERE symbol=%s AND timeframe=%s
+                        ORDER BY ranking_score DESC, strategy_family
+                        LIMIT 1;
+                    """, (symbol, timeframe))
+                    if not row:
+                        self.send_json(404, response("NOT_FOUND", {}, {"source": "analytics.edge_pipeline_snapshot_v1"}))
+                        return
+                    self.send_json(200, response("OK", row, {"source": "analytics.edge_pipeline_snapshot_v1"}))
+                    return
 
             if path == "/api/kg/v1/paper-runtime":
                 row = fetch_one("""
