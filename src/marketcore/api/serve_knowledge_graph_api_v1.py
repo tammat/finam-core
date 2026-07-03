@@ -516,6 +516,49 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/edge-oos-validation":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        oos_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        robustness_status,
+                        oos_status,
+                        oos_readiness,
+                        sample_size_status,
+                        pf_status,
+                        expectancy_status,
+                        winrate_status,
+                        pnl_status,
+                        robustness_score,
+                        oos_required,
+                        micro_live_ready,
+                        expectancy,
+                        profit_factor,
+                        winrate,
+                        trades,
+                        net_pnl,
+                        score,
+                        evidence_summary,
+                        oos_reason,
+                        recommended_action,
+                        source_robustness_rank,
+                        refreshed_at
+                    FROM marketcore_ui.edge_oos_validation_v1
+                    ORDER BY oos_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.edge_oos_validation_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "edge_oos_validation_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
