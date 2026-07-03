@@ -849,6 +849,53 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-runtime-sample-collection-operations":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        operation_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        sample_status,
+                        readiness_status,
+                        backtest_status,
+                        oos_status,
+                        robustness_status,
+                        total_trades,
+                        required_total_trades,
+                        remaining_total_trades,
+                        oos_trades,
+                        required_oos_trades,
+                        remaining_oos_trades,
+                        progress_pct,
+                        operation_priority,
+                        operation_status,
+                        operation_reason,
+                        recommended_action,
+                        next_check,
+                        timer_health_status,
+                        collection_status,
+                        phase_status,
+                        micro_live_ready,
+                        micro_live_allowed,
+                        source_monitor_rank,
+                        refreshed_at
+                    FROM marketcore_ui.paper_runtime_sample_collection_operations_v1
+                    ORDER BY operation_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.paper_runtime_sample_collection_operations_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_runtime_sample_collection_operations_v1",
+                    "orders_changed": 0,
+                    "execution_changed": 0
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
