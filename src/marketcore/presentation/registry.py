@@ -3,6 +3,8 @@ from __future__ import annotations
 from marketcore.presentation.page import Page
 from marketcore.presentation.pages.ai import AiPage
 from marketcore.presentation.pages.home import HomePage
+from marketcore.presentation.pages.paper_runtime_sample_collection_daily_summary import PaperRuntimeSampleCollectionDailySummaryPage
+from marketcore.presentation.pages.settings import SettingsPage
 from marketcore.presentation.pages.paper_sample_operations_timer_health import PaperSampleOperationsTimerHealthPage
 from marketcore.presentation.pages.paper_runtime_sample_collection_operations import PaperRuntimeSampleCollectionOperationsPage
 from marketcore.presentation.pages.phase_ii_paper_edge_discovery_summary import PhaseIiPaperEdgeDiscoverySummaryPage
@@ -29,6 +31,7 @@ from marketcore.presentation.pages.validation import ValidationPage
 
 PAGES: list[Page] = [
     HomePage(),
+    SettingsPage(),
     PaperEdgeDiscoveryPage(),
     EdgeValidationQueuePage(),
     EdgeValidationPipelinePage(),
@@ -42,6 +45,7 @@ PAGES: list[Page] = [
     PhaseIiPaperEdgeDiscoverySummaryPage(),
     PaperRuntimeSampleCollectionOperationsPage(),
     PaperSampleOperationsTimerHealthPage(),
+    PaperRuntimeSampleCollectionDailySummaryPage(),
     RuntimePage(),
     KnowledgeGraphPage(),
     ResearchPage(),

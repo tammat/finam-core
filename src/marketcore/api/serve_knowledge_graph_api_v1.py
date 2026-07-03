@@ -943,6 +943,47 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-sample-operations-daily-summary":
+                row = fetch_one("""
+                    SELECT
+                        summary_date,
+                        phase_result_status,
+                        engineering_status,
+                        operational_status,
+                        phase_close_status,
+                        sample_collection_status,
+                        sample_phase_status,
+                        timer_health_status,
+                        operations_health_status,
+                        operations_rows,
+                        operations_high_rows,
+                        operations_near_ready_rows,
+                        operations_collecting_rows,
+                        candidates_total,
+                        sample_ready,
+                        wait_both_sample,
+                        avg_progress_pct,
+                        max_progress_pct,
+                        min_remaining_total_trades,
+                        min_remaining_oos_trades,
+                        micro_live_allowed_rows,
+                        micro_live_allowed,
+                        daily_status,
+                        conclusion,
+                        recommended_action,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_sample_collection_operations_daily_summary_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.paper_runtime_sample_collection_operations_daily_summary_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_runtime_sample_collection_operations_daily_summary_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
