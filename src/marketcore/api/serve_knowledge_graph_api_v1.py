@@ -802,6 +802,53 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/phase-ii-paper-edge-discovery-summary":
+                row = fetch_one("""
+                    SELECT
+                        phase_name,
+                        phase_result_status,
+                        engineering_status,
+                        operational_status,
+                        close_status,
+                        timer_health_status,
+                        collection_status,
+                        collection_phase_status,
+                        candidates_total,
+                        sample_ready,
+                        wait_both_sample,
+                        wait_total_sample,
+                        wait_oos_sample,
+                        min_remaining_total_trades,
+                        min_remaining_oos_trades,
+                        avg_progress_pct,
+                        max_progress_pct,
+                        paper_candidates_rows,
+                        validation_queue_rows,
+                        validation_pipeline_rows,
+                        robustness_rows,
+                        oos_validation_rows,
+                        oos_backtest_rows,
+                        micro_live_readiness_rows,
+                        sample_monitor_rows,
+                        micro_live_ready_rows,
+                        micro_live_allowed_rows,
+                        micro_live_allowed,
+                        conclusion,
+                        recommended_action,
+                        next_phase,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.phase_ii_paper_edge_discovery_summary_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.phase_ii_paper_edge_discovery_summary_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "phase_ii_paper_edge_discovery_summary_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
