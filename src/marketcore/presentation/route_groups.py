@@ -79,6 +79,7 @@ ROUTE_GROUPS: tuple[RouteGroup, ...] = (
             "/system",
             "/settings",
             "/marketcore-ui-systemd-health",
+            "/marketcore-ui-route-health-matrix",
         ),
     ),
 )

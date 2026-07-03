@@ -1031,6 +1031,31 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/marketcore-ui-route-health-matrix":
+                rows = fetch_all("""
+                    SELECT
+                        route,
+                        label_ru,
+                        group_key,
+                        group_title_ru,
+                        menu_order,
+                        http_status,
+                        http_ok,
+                        contains_shell_marker,
+                        content_length,
+                        issue,
+                        checked_at
+                    FROM marketcore_ui.marketcore_ui_route_health_matrix_v1
+                    ORDER BY group_key, menu_order, route;
+                """)
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.marketcore_ui_route_health_matrix_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "marketcore_ui_8080_route_health_matrix_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:

@@ -21,6 +21,7 @@ ROUTE_LABELS_RU = {
     "/paper-sample-operations-timer-health": "Здоровье таймера операций",
     "/paper-runtime-sample-collection-daily-summary": "Дневная сводка операций выборки",
     "/marketcore-ui-systemd-health": "Здоровье UI и systemd",
+    "/marketcore-ui-route-health-matrix": "Матрица маршрутов UI",
 
     "/knowledge-graph": "Граф знаний",
     "/research": "Исследования",
