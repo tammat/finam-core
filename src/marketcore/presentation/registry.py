@@ -3,6 +3,7 @@ from __future__ import annotations
 from marketcore.presentation.page import Page
 from marketcore.presentation.pages.ai import AiPage
 from marketcore.presentation.pages.home import HomePage
+from marketcore.presentation.pages.paper_edge_market_data_freshness import PaperEdgeMarketDataFreshnessPage
 from marketcore.presentation.pages.paper_edge_market_data_binding import PaperEdgeMarketDataBindingPage
 from marketcore.presentation.pages.marketcore_ui_route_health_matrix import MarketcoreUiRouteHealthMatrixPage
 from marketcore.presentation.pages.marketcore_ui_systemd_health import MarketcoreUiSystemdHealthPage
@@ -39,6 +40,7 @@ PAGES: list[Page] = [
     MarketcoreUiRouteHealthMatrixPage(),
     PaperEdgeDiscoveryPage(),
     PaperEdgeMarketDataBindingPage(),
+    PaperEdgeMarketDataFreshnessPage(),
     EdgeValidationQueuePage(),
     EdgeValidationPipelinePage(),
     EdgeRobustnessCheckPage(),

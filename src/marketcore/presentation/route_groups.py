@@ -27,6 +27,7 @@ ROUTE_GROUPS: tuple[RouteGroup, ...] = (
         routes=(
             "/paper-edge-discovery",
             "/paper-edge-market-data-binding",
+            "/paper-edge-market-data-freshness",
             "/edge-validation-queue",
             "/edge-validation-pipeline",
             "/edge-robustness-check",

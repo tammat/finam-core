@@ -102,6 +102,13 @@ class PaperEdgeMarketDataBindingPage(Page):
             {_table(rows, ctx)}
         </section>
 
+
+        <section class="card">
+            <h2>Freshness</h2>
+            <p><a href="/paper-edge-market-data-freshness">Открыть диагностику свежести рыночных данных</a></p>
+            <p>PAPER_EDGE_DISCOVERY_MARKET_DATA_FRESHNESS_V1</p>
+        </section>
+
         <section class="card">
             <h2>Вывод</h2>
             <p>Если здесь STALE/NO_BARS/NO_SOURCE, значит Paper Edge Discovery пока опирается на накопленные paper/research данные, а не на свежий market feed.</p>
