@@ -1,0 +1,18 @@
+[Unit]
+Description=MarketCore Knowledge Graph API on 8095
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=KG_API_HOST=127.0.0.1
+Environment=KG_API_PORT=8095
+ExecStart=/opt/finam-core/venv/bin/python src/marketcore/api/serve_knowledge_graph_api_v1.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

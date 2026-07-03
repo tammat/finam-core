@@ -1,0 +1,19 @@
+[Unit]
+Description=MarketCore UI Shell on 8080
+After=network.target marketcore-kg-api.service
+Wants=marketcore-kg-api.service
+
+[Service]
+Type=simple
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=MARKETCORE_UI_HOST=0.0.0.0
+Environment=MARKETCORE_UI_PORT=8080
+Environment=KG_API_BASE_URL=http://127.0.0.1:8095
+ExecStart=/opt/finam-core/venv/bin/python src/marketcore/presentation/app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

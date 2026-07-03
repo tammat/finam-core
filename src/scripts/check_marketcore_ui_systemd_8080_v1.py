@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import json
+import sys
+import time
+from urllib.request import urlopen
+
+
+def read_url(url: str, timeout: float = 5.0) -> str:
+    with urlopen(url, timeout=timeout) as response:
+        return response.read().decode("utf-8")
+
+
+def wait_url(url: str, attempts: int = 20, delay: float = 0.5) -> str:
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        try:
+            return read_url(url)
+        except Exception as exc:
+            last_error = exc
+            time.sleep(delay)
+    raise RuntimeError(f"URL not ready: {url}; last_error={last_error}")
+
+
+def main() -> None:
+    kg_health_raw = wait_url("http://127.0.0.1:8095/api/kg/v1/health")
+    kg_health = json.loads(kg_health_raw)
+    assert kg_health.get("status") == "OK", kg_health_raw
+
+    home = wait_url("http://127.0.0.1:8080/")
+    risk = wait_url("http://127.0.0.1:8080/risk")
+    settings = wait_url("http://127.0.0.1:8080/settings")
+
+    assert "MarketCore OS" in home, "home missing MarketCore OS"
+    assert "MARKETCORE_UI_SHELL_V1" in home, "home missing shell marker"
+    assert "Риски" in risk, "risk page missing"
+    assert "Настройки" in settings, "settings page missing"
+
+    print("kg_api_8095=READY")
+    print("marketcore_ui_8080=READY")
+    print("risk_page=READY")
+    print("settings_page=READY")
+    print("VERDICT=CHECK_MARKETCORE_UI_SYSTEMD_8080_V1_OK")
+
+
+if __name__ == "__main__":
+    main()
