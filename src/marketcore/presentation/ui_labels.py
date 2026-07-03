@@ -4,23 +4,23 @@ from __future__ import annotations
 ROUTE_LABELS_RU = {
     "/": "Рабочий стол",
 
-    "/runtime": "Runtime",
-    "/paper-edge-discovery": "Поиск Edge",
-    "/edge-validation-queue": "Очередь валидации Edge",
-    "/edge-validation-pipeline": "Pipeline валидации",
+    "/runtime": "Runtime / исполнение",
+    "/paper-edge-discovery": "Поиск преимущества",
+    "/edge-validation-queue": "Очередь проверки преимущества",
+    "/edge-validation-pipeline": "Pipeline проверки преимущества",
     "/edge-robustness-check": "Проверка устойчивости",
-    "/edge-oos-validation": "OOS-проверка",
-    "/edge-oos-backtest": "OOS-бэктест",
+    "/edge-oos-validation": "Вневыборочная проверка",
+    "/edge-oos-backtest": "Вневыборочный бэктест",
     "/micro-live-readiness": "Готовность Micro Live",
 
     "/paper-sample-accumulation-monitor": "Накопление выборки",
     "/paper-sample-collection-timer-health": "Здоровье таймера выборки",
     "/paper-runtime-sample-collection-phase-close": "Закрытие фазы выборки",
-    "/phase-ii-paper-edge-discovery-summary": "Итоги Phase II",
+    "/phase-ii-paper-edge-discovery-summary": "Итоги Phase II: поиск преимущества",
     "/paper-runtime-sample-collection-operations": "Операции накопления выборки",
     "/paper-sample-operations-timer-health": "Здоровье таймера операций",
-    "/paper-runtime-sample-collection-daily-summary": "Дневная сводка операций",
-    "/marketcore-ui-systemd-health": "Здоровье UI/Systemd",
+    "/paper-runtime-sample-collection-daily-summary": "Дневная сводка операций выборки",
+    "/marketcore-ui-systemd-health": "Здоровье UI и systemd",
 
     "/knowledge-graph": "Граф знаний",
     "/research": "Исследования",
@@ -31,10 +31,10 @@ ROUTE_LABELS_RU = {
     "/logs": "Журнал",
     "/system": "Система",
     "/settings": "Настройки",
-    "/ai": "AI",
+    "/ai": "AI / помощник",
 
     "/capital": "Капитал",
-    "/edge": "Edge",
+    "/edge": "Преимущество",
     "/intraday": "Интрадей",
 }
 

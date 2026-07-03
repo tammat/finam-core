@@ -4,10 +4,12 @@ from html import escape
 
 from marketcore.presentation.navigation import render_navigation
 from marketcore.presentation.ui_labels import display_label
+from marketcore.presentation.ui_text import normalize_ui_text
 
 
 def render_layout(title: str, active_route: str, content: str) -> bytes:
-    page_title = display_label(active_route, title)
+    page_title = normalize_ui_text(display_label(active_route, title))
+    content = normalize_ui_text(content)
 
     html = f"""<!doctype html>
 <html lang="ru">
