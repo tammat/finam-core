@@ -3,6 +3,7 @@ from __future__ import annotations
 from marketcore.presentation.page import Page
 from marketcore.presentation.pages.ai import AiPage
 from marketcore.presentation.pages.home import HomePage
+from marketcore.presentation.pages.micro_live_readiness import MicroLiveReadinessPage
 from marketcore.presentation.pages.edge_oos_backtest import EdgeOosBacktestPage
 from marketcore.presentation.pages.edge_oos_validation import EdgeOosValidationPage
 from marketcore.presentation.pages.edge_robustness_check import EdgeRobustnessCheckPage
@@ -28,6 +29,7 @@ PAGES: list[Page] = [
     EdgeRobustnessCheckPage(),
     EdgeOosValidationPage(),
     EdgeOosBacktestPage(),
+    MicroLiveReadinessPage(),
     RuntimePage(),
     KnowledgeGraphPage(),
     ResearchPage(),

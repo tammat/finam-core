@@ -602,6 +602,52 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/micro-live-readiness":
+                limit = int(q.get("limit", ["50"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        readiness_rank,
+                        symbol,
+                        strategy,
+                        timeframe,
+                        side,
+                        backtest_status,
+                        oos_status,
+                        robustness_status,
+                        readiness_status,
+                        micro_live_ready,
+                        micro_live_allowed,
+                        total_trades,
+                        in_sample_trades,
+                        oos_trades,
+                        in_sample_pnl,
+                        oos_pnl,
+                        in_sample_expectancy,
+                        oos_expectancy,
+                        in_sample_profit_factor,
+                        oos_profit_factor,
+                        in_sample_winrate,
+                        oos_winrate,
+                        stability_score,
+                        block_reason,
+                        evidence_summary,
+                        recommended_action,
+                        source_backtest_rank,
+                        refreshed_at
+                    FROM marketcore_ui.micro_live_readiness_v1
+                    ORDER BY readiness_rank
+                    LIMIT %s;
+                """, (limit,))
+                self.send_json(200, response("OK", rows, {
+                    "source": "marketcore_ui.micro_live_readiness_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "micro_live_readiness_v1",
+                    "orders_changed": 0,
+                    "execution_changed": 0
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
