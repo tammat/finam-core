@@ -760,6 +760,48 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-runtime-sample-collection-phase-close":
+                row = fetch_one("""
+                    SELECT
+                        phase_name,
+                        engineering_status,
+                        operational_status,
+                        candidates_total,
+                        sample_ready,
+                        wait_both_sample,
+                        wait_total_sample,
+                        wait_oos_sample,
+                        min_remaining_total_trades,
+                        min_remaining_oos_trades,
+                        avg_progress_pct,
+                        max_progress_pct,
+                        collection_status,
+                        collection_phase_status,
+                        timer_health_status,
+                        timer_healthy,
+                        service_healthy,
+                        sample_summary_stale,
+                        sample_summary_age_sec,
+                        micro_live_ready_rows,
+                        micro_live_allowed_rows,
+                        micro_live_allowed,
+                        close_status,
+                        close_reason,
+                        recommended_action,
+                        next_phase,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_sample_collection_phase_close_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.paper_runtime_sample_collection_phase_close_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_runtime_sample_collection_phase_close_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
