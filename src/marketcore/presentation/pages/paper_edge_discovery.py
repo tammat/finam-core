@@ -268,6 +268,14 @@ class PaperEdgeDiscoveryPage(Page):
             </table>
         </section>
 
+
+        <section class="card">
+            <h2>Sample Collection</h2>
+            <p>Сколько Paper-сделок накоплено, сколько ещё нужно до минимальной выборки и какие кандидаты ближе всего к повторной проверке.</p>
+            <p><a href="/paper-sample-accumulation-monitor">Открыть Paper Sample Accumulation Monitor</a></p>
+            <p>PAPER_RUNTIME_SAMPLE_COLLECTION_DASHBOARD_LINK_V1</p>
+        </section>
+
         <section class="card">
             <h2>Next Action</h2>
             <p>{escape(next_action)}</p>

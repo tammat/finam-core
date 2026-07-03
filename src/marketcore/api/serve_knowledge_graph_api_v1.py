@@ -689,6 +689,35 @@ class Handler(BaseHTTPRequestHandler):
                 }))
                 return
 
+
+            if path == "/api/kg/v1/paper-runtime-sample-collection":
+                row = fetch_one("""
+                    SELECT
+                        candidates_total,
+                        sample_ready,
+                        wait_both_sample,
+                        wait_total_sample,
+                        wait_oos_sample,
+                        min_remaining_total_trades,
+                        min_remaining_oos_trades,
+                        avg_progress_pct,
+                        max_progress_pct,
+                        collection_status,
+                        phase_status,
+                        recommended_action,
+                        micro_live_allowed,
+                        refreshed_at,
+                        source_version
+                    FROM marketcore_ui.paper_runtime_sample_collection_v1
+                    WHERE id=1;
+                """)
+                self.send_json(200, response("OK", row or {}, {
+                    "source": "marketcore_ui.paper_runtime_sample_collection_v1",
+                    "ui_direct_sql": 0,
+                    "logic": "paper_runtime_sample_collection_dashboard_link_v1"
+                }))
+                return
+
             self.send_json(404, response("NOT_FOUND", {}, {"path": path}))
 
         except Exception as exc:
