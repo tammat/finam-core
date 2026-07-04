@@ -178,6 +178,58 @@ class Handler(BaseHTTPRequestHandler):
 
 
 
+
+            if path == "/api/kg/v1/feature-store":
+                rows = fetch_all("""
+                    SELECT
+                        symbol,
+                        asset_class,
+                        timeframe,
+                        bar_ts,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume,
+                        range_pct,
+                        body_pct,
+                        return1_pct,
+                        return5_pct,
+                        volume_ratio20,
+                        feature_quality_score,
+                        source_version,
+                        refreshed_at
+                    FROM analytics.feature_snapshot_v1
+                    ORDER BY bar_ts DESC, symbol, timeframe
+                    LIMIT 500;
+                """)
+                self.send_json(200, response("OK", rows, {"source": "analytics.feature_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/feature-store/summary":
+                row = fetch_one("""
+                    SELECT
+                        count(*)::int AS feature_rows,
+                        count(DISTINCT symbol)::int AS feature_symbols,
+                        max(bar_ts) AS latest_bar_ts,
+                        max(refreshed_at) AS refreshed_at,
+                        avg(feature_quality_score)::numeric(10,4) AS avg_quality_score,
+                        count(*) FILTER (WHERE return1_pct IS NOT NULL)::int AS with_return1,
+                        count(*) FILTER (WHERE volume_ratio20 IS NOT NULL)::int AS with_volume_ratio20
+                    FROM analytics.feature_snapshot_v1;
+                """)
+                self.send_json(200, response("OK", row or {}, {"source": "analytics.feature_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/feature-store/health":
+                row = fetch_one("""
+                    SELECT *
+                    FROM analytics.feature_store_health_v1
+                    WHERE health_id='GLOBAL';
+                """)
+                self.send_json(200, response("OK", row or {}, {"source": "analytics.feature_store_health_v1"}))
+                return
+
             if path == "/api/kg/v1/edge-pipeline":
                 rows = fetch_all("""
                     SELECT
