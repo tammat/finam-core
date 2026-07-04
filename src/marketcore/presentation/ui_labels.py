@@ -355,3 +355,14 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "recommendation.PROCEED_TO_TRADING_PLATFORM": "Перейти к Trading Platform",
+        "recommendation.FIX_RISK_PLATFORM": "Исправить Risk Platform",
+        "recommendation.BLOCK_PLATFORM": "Заблокировать платформу",
+        "status.OK": "OK",
+        "status.FAILED": "Ошибка"
+    })
+except NameError:
+    pass
