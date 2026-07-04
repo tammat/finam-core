@@ -296,3 +296,62 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/risk-platform": "Risk Platform",
+        "risk.platform.title": "Risk Platform",
+        "risk.platform.subtitle": "Контроль допуска Edge-решений через Risk Rules и Platform API.",
+        "risk.platform.summary": "Сводка",
+        "risk.platform.decisions": "Risk-решения",
+        "risk.platform.configuration": "Конфигурация",
+        "risk.platform.governance": "Governance",
+
+        "risk.platform.risk_rows": "Всего решений",
+        "risk.platform.allow_rows": "RISK_ALLOW",
+        "risk.platform.observe_rows": "RISK_OBSERVE",
+        "risk.platform.block_rows": "RISK_BLOCK",
+        "risk.platform.ready_for_paper": "Ready for Paper",
+        "risk.platform.unsafe_live": "Unsafe Live",
+        "risk.platform.avg_risk_score": "Средний Risk Score",
+        "risk.platform.avg_position_risk_score": "Position Risk",
+        "risk.platform.avg_exposure_risk_score": "Exposure Risk",
+
+        "risk.platform.instrument": "Инструмент",
+        "risk.platform.strategy": "Стратегия",
+        "risk.platform.timeframe": "TF",
+        "risk.platform.signal_ts": "Время сигнала",
+        "risk.platform.edge_score": "Edge Score",
+        "risk.platform.validation_score": "Validation",
+        "risk.platform.risk_score": "Risk Score",
+        "risk.platform.position_risk": "Position",
+        "risk.platform.exposure_risk": "Exposure",
+        "risk.platform.daily_loss_risk": "Daily Loss",
+        "risk.platform.correlation_risk": "Correlation",
+        "risk.platform.kill_switch": "Kill Switch",
+        "risk.platform.decision": "Decision",
+        "risk.platform.recommendation": "Recommendation",
+        "risk.platform.paper": "Paper",
+        "risk.platform.live": "Live",
+
+        "risk.platform.risk_name": "Risk",
+        "risk.platform.enabled": "Включено",
+        "risk.platform.config": "Параметры",
+
+        "risk.platform.rule_engine": "Rule Engine",
+        "risk.platform.builder": "Builder",
+        "risk.platform.decision_engine": "Decision",
+        "risk.platform.api": "API",
+        "risk.platform.ui": "UI",
+        "risk.platform.readiness": "Готовность",
+
+        "risk.RISK_ALLOW": "Risk Allow",
+        "risk.RISK_OBSERVE": "Risk Observe",
+        "risk.RISK_BLOCK": "Risk Block",
+
+        "recommendation.READY_FOR_TRADING": "Готово к Trading",
+        "recommendation.WAIT_RISK_REVIEW": "Ожидание risk review",
+        "recommendation.BLOCK_RISK": "Risk блок",
+    })
+except NameError:
+    pass
