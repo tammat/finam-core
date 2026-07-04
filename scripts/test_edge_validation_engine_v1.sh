@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PYTHONPATH="${PYTHONPATH:-src}"
+echo "=== TEST_EDGE_VALIDATION_ENGINE_V1 ==="
 
-python -m py_compile \
-  src/finam_core/analytics/edge_validation_engine.py \
-  src/scripts/analytics/build_edge_validation_report.py
+PYTHONPATH=src python -m py_compile \
+  src/edge/base/validation_result.py \
+  src/edge/base/validation_rule.py \
+  src/edge/base/validation_registry.py \
+  src/edge/base/validation_executor.py \
+  src/edge/sample_rule/config.py \
+  src/edge/sample_rule/rule.py \
+  src/edge/sample_rule/__init__.py
 
-python - <<'PY'
-from finam_core.analytics.edge_validation_engine import EdgeValidationEngine
+PYTHONPATH=src python - <<'PY'
+from edge.base.validation_executor import EdgeValidationExecutor
+from edge.base.validation_registry import EdgeValidationRegistry
+import edge.sample_rule
+from edge.sample_rule.rule import EdgeSampleRule
 
-engine = EdgeValidationEngine()
+assert EdgeValidationRegistry.get("EDGE_SAMPLE_RULE") is EdgeSampleRule
 
-r1 = engine.validate("BRN6@RTSX", "BR", "M5", [])
-assert r1.status == "NO_VALID_TRADES", r1
+rule = EdgeSampleRule()
+executor = EdgeValidationExecutor()
 
-r2 = engine.validate("BRN6@RTSX", "BR", "M5", [1.0, -0.5])
-assert r2.status == "LOW_SAMPLE", r2
-
-r3 = engine.validate("BRN6@RTSX", "BR", "M5", [2.0, -1.0] * 20)
-assert r3.status == "EDGE_OK", r3
-
-r4 = engine.validate("BRN6@RTSX", "BR", "M5", [0.5, -1.0] * 20)
-assert r4.status == "EDGE_WEAK", r4
-
-print("EDGE_VALIDATION_ENGINE_UNIT_OK")
+assert executor.execute(rule, {"edge_score": 0.80, "samples": 50}).passed is True
+assert executor.execute(rule, {"edge_score": 0.30, "samples": 50}).passed is False
+assert executor.execute(rule, {"edge_score": 0.80, "samples": 2}).passed is False
+assert executor.execute(rule, {"edge_score": None, "samples": None}).passed is False
 PY
 
-echo "EDGE_VALIDATION_ENGINE_V1_TEST_OK"
+echo "VERDICT=EDGE_VALIDATION_ENGINE_V1_READY"
+echo "VERDICT=TEST_EDGE_VALIDATION_ENGINE_V1_OK"
