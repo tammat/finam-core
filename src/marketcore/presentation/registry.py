@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from marketcore.presentation.pages.strategy_workbench import StrategyWorkbenchPage
 from marketcore.presentation.pages.feature_store import FeatureStorePage
 from marketcore.presentation.pages.edge_pipeline_v2_legacy_aliases import EdgePipelineV2MicroLiveAliasPage, EdgePipelineV2OosBacktestAliasPage, EdgePipelineV2OosValidationAliasPage, EdgePipelineV2PaperEdgeDiscoveryAliasPage, EdgePipelineV2RobustnessAliasPage, EdgePipelineV2ValidationPipelineAliasPage, EdgePipelineV2ValidationQueueAliasPage
 from marketcore.presentation.pages.edge_pipeline_v2 import EdgePipelineV2Page
@@ -75,6 +76,7 @@ PAGES: list[Page] = [
     AiPage(),
     EdgePipelineV2Page(),
     FeatureStorePage(),
+    StrategyWorkbenchPage(),
 ]
 
 

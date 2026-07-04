@@ -179,6 +179,84 @@ class Handler(BaseHTTPRequestHandler):
 
 
 
+
+            if path == "/api/kg/v1/strategy-workbench":
+                from strategy.volatility_breakout.config import VolatilityBreakoutConfig
+                from strategy.volatility_breakout.strategy import VolatilityBreakoutStrategy
+
+                cfg_row = fetch_one("""
+                    SELECT config_json
+                    FROM analytics.strategy_configuration_v1
+                    WHERE strategy_family='VOLATILITY_BREAKOUT'
+                      AND strategy_version='v1'
+                      AND active=true
+                    ORDER BY updated_at DESC
+                    LIMIT 1;
+                """) or {}
+
+                cfg_json = cfg_row.get("config_json") or {}
+                strategy = VolatilityBreakoutStrategy(VolatilityBreakoutConfig.from_dict(cfg_json))
+
+                feature_rows = fetch_all("""
+                    SELECT
+                        symbol,
+                        asset_class,
+                        timeframe,
+                        bar_ts,
+                        close,
+                        range_pct,
+                        body_pct,
+                        return1_pct,
+                        return5_pct,
+                        volume_ratio20,
+                        feature_quality_score,
+                        market_quality_status,
+                        source_version
+                    FROM analytics.feature_snapshot_v1
+                    WHERE bar_ts IS NOT NULL
+                    ORDER BY bar_ts DESC, symbol, timeframe
+                    LIMIT 200;
+                """)
+
+                rows = []
+                signals = 0
+                for f in feature_rows:
+                    result = strategy.run(dict(f))
+                    signal = result.signal
+                    if signal is not None:
+                        signals += 1
+
+                    rows.append({
+                        "symbol": f.get("symbol"),
+                        "asset_class": f.get("asset_class"),
+                        "timeframe": f.get("timeframe"),
+                        "bar_ts": f.get("bar_ts"),
+                        "strategy_family": strategy.family,
+                        "strategy_version": strategy.version,
+                        "reason": result.reason,
+                        "signal_direction": signal.direction if signal else "FLAT",
+                        "signal_score": signal.score if signal else 0,
+                        "confidence": signal.confidence if signal else 0,
+                        "passed_filters": result.diagnostics.passed_filters,
+                        "failed_filters": result.diagnostics.failed_filters,
+                        "feature_values": result.diagnostics.feature_values,
+                        "thresholds": result.diagnostics.thresholds,
+                        "score_breakdown": result.diagnostics.score_breakdown,
+                        "execution_time_ms": result.diagnostics.execution_time_ms,
+                    })
+
+                payload = {
+                    "summary": {
+                        "features_checked": len(feature_rows),
+                        "signals_found": signals,
+                        "strategy_family": strategy.family,
+                        "strategy_version": strategy.version,
+                    },
+                    "rows": rows,
+                }
+                self.send_json(200, response("OK", payload, {"source": "analytics.feature_snapshot_v1"}))
+                return
+
             if path == "/api/kg/v1/feature-store":
                 rows = fetch_all("""
                     SELECT

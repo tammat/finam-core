@@ -82,3 +82,30 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/strategy-workbench": "Рабочее место стратегии",
+        "strategy.workbench.title": "Рабочее место стратегии",
+        "strategy.workbench.subtitle": "Диагностика решений стратегии через Platform API.",
+        "strategy.workbench.summary": "Сводка",
+        "strategy.workbench.features_checked": "Проверено признаков",
+        "strategy.workbench.signals_found": "Найдено сигналов",
+        "strategy.workbench.strategy": "Стратегия",
+        "strategy.workbench.rows": "Диагностика",
+        "strategy.workbench.instrument": "Инструмент",
+        "strategy.workbench.timeframe": "TF",
+        "strategy.workbench.bar": "Бар",
+        "strategy.workbench.signal": "Сигнал",
+        "strategy.workbench.reason": "Причина",
+        "strategy.workbench.score": "Score",
+        "strategy.workbench.confidence": "Confidence",
+        "strategy.workbench.passed": "Прошли",
+        "strategy.workbench.failed": "Не прошли",
+        "strategy.workbench.execution_time": "Время",
+        "signal.LONG": "Long",
+        "signal.SHORT": "Short",
+        "signal.FLAT": "Нет сигнала",
+    })
+except NameError:
+    pass
