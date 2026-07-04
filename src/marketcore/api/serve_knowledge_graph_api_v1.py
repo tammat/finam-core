@@ -666,6 +666,108 @@ class Handler(BaseHTTPRequestHandler):
 
 
 
+
+            if path == "/api/kg/v1/portfolio-platform/summary":
+                row = fetch_one("""
+                    SELECT
+                        e.portfolio_scope,
+                        e.cash::float AS cash,
+                        e.positions_value::float AS positions_value,
+                        e.equity::float AS equity,
+                        e.realized_pnl::float AS realized_pnl,
+                        e.unrealized_pnl::float AS unrealized_pnl,
+                        e.total_pnl::float AS total_pnl,
+                        e.gross_exposure::float AS gross_exposure,
+                        e.net_exposure::float AS net_exposure,
+                        e.source_version,
+                        e.refreshed_at,
+                        (SELECT count(*)::int FROM analytics.portfolio_position_snapshot_v1) AS position_rows,
+                        (SELECT count(*)::int FROM analytics.portfolio_position_snapshot_v1 WHERE position_status='OPEN') AS open_position_rows
+                    FROM analytics.portfolio_equity_snapshot_v1 e
+                    WHERE e.portfolio_scope='GLOBAL';
+                """) or {}
+                health_code = "HEALTHY" if row else "DEGRADED"
+                row["health"] = dto("health", health_code)
+                self.send_json(200, response("OK", row, {"source": "analytics.portfolio_equity_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/portfolio-platform/positions":
+                rows = fetch_all("""
+                    SELECT
+                        id,
+                        symbol,
+                        asset_class,
+                        quantity::float AS quantity,
+                        avg_price::float AS avg_price,
+                        last_price::float AS last_price,
+                        market_value::float AS market_value,
+                        unrealized_pnl::float AS unrealized_pnl,
+                        realized_pnl::float AS realized_pnl,
+                        exposure::float AS exposure,
+                        position_status,
+                        source_version,
+                        refreshed_at
+                    FROM analytics.portfolio_position_snapshot_v1
+                    ORDER BY symbol;
+                """)
+                for r in rows:
+                    r["position_status"] = dto("status", r.get("position_status"))
+                self.send_json(200, response("OK", rows, {"source": "analytics.portfolio_position_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/portfolio-platform/equity":
+                row = fetch_one("""
+                    SELECT
+                        portfolio_scope,
+                        cash::float AS cash,
+                        positions_value::float AS positions_value,
+                        equity::float AS equity,
+                        realized_pnl::float AS realized_pnl,
+                        unrealized_pnl::float AS unrealized_pnl,
+                        total_pnl::float AS total_pnl,
+                        gross_exposure::float AS gross_exposure,
+                        net_exposure::float AS net_exposure,
+                        source_version,
+                        refreshed_at
+                    FROM analytics.portfolio_equity_snapshot_v1
+                    WHERE portfolio_scope='GLOBAL';
+                """) or {}
+                self.send_json(200, response("OK", row, {"source": "analytics.portfolio_equity_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/portfolio-platform/configuration":
+                rows = fetch_all("""
+                    SELECT
+                        portfolio_name,
+                        enabled,
+                        config_json,
+                        source_version,
+                        updated_at
+                    FROM analytics.portfolio_configuration_v1
+                    ORDER BY portfolio_name;
+                """)
+                for r in rows:
+                    r["enabled_status"] = dto("status", "ACTIVE" if r.get("enabled") else "DISABLED")
+                self.send_json(200, response("OK", rows, {"source": "analytics.portfolio_configuration_v1"}))
+                return
+
+            if path == "/api/kg/v1/portfolio-platform/governance":
+                row = fetch_one("""
+                    SELECT *
+                    FROM analytics.portfolio_governance_v1
+                    WHERE governance_scope='GLOBAL';
+                """) or {}
+                if row:
+                    row["builder_status"] = dto("status", row.get("builder_status"))
+                    row["position_status"] = dto("status", row.get("position_status"))
+                    row["equity_status"] = dto("status", row.get("equity_status"))
+                    row["api_status"] = dto("status", row.get("api_status"))
+                    row["ui_status"] = dto("status", row.get("ui_status"))
+                    row["readiness"] = dto("governance", row.get("readiness_code"))
+                    row["recommendation"] = dto("recommendation", row.get("recommendation_code"))
+                self.send_json(200, response("OK", row, {"source": "analytics.portfolio_governance_v1"}))
+                return
+
             if path == "/api/kg/v1/trading-platform/summary":
                 row = fetch_one("""
                     SELECT
