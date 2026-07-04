@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from marketcore.presentation.pages.edge_pipeline_v2 import EdgePipelineV2Page
 from marketcore.presentation.page import Page
 from marketcore.presentation.pages.ai import AiPage
 from marketcore.presentation.pages.home import HomePage
@@ -70,6 +71,7 @@ PAGES: list[Page] = [
     LogsPage(),
     SystemPage(),
     AiPage(),
+    EdgePipelineV2Page(),
 ]
 
 

@@ -42,6 +42,23 @@ ROUTE_LABELS_RU = {
     "/settings": "Настройки",
     "/marketcore-ui-systemd-health": "UI",
     "/marketcore-ui-route-health-matrix": "Маршруты",
+    "/edge-pipeline-v2": "Этапы V2",
+    "edge_pipeline_v2.subtitle": "Единый снимок состояния кандидатов через Platform API.",
+    "edge_pipeline_v2.total": "Всего",
+    "edge_pipeline_v2.research": "Исследование",
+    "edge_pipeline_v2.validation": "Проверка",
+    "edge_pipeline_v2.robustness": "Устойчивость",
+    "edge_pipeline_v2.oos": "OOS",
+    "edge_pipeline_v2.risk": "Риск",
+    "edge_pipeline_v2.trading": "Торговля",
+    "edge_pipeline_v2.candidates": "Кандидаты",
+    "edge_pipeline_v2.instrument": "Инструмент",
+    "edge_pipeline_v2.asset": "Актив",
+    "edge_pipeline_v2.strategy": "Стратегия",
+    "edge_pipeline_v2.stage": "Этап",
+    "edge_pipeline_v2.status": "Статус",
+    "edge_pipeline_v2.priority": "Приоритет",
+    "edge_pipeline_v2.backtest": "Бэктест",
 }
 
 
