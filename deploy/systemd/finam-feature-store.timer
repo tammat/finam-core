@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Finam Feature Store Refresh every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=finam-feature-store.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

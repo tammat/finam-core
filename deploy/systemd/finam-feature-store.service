@@ -1,0 +1,13 @@
+[Unit]
+Description=Finam Core Feature Store Refresh
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=BACKFILL_LIMIT=200000
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/build_market_snapshot_history_backfill_v1.py
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/build_feature_snapshot_history_backfill_v1.py
+User=alex
+Group=alex
