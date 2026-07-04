@@ -639,6 +639,119 @@ class Handler(BaseHTTPRequestHandler):
                     "icon": icon,
                 }
 
+
+            if path == "/api/kg/v1/strategy-platform/governance":
+                row = fetch_one("""
+                    SELECT *
+                    FROM analytics.strategy_platform_governance_v1
+                    WHERE governance_scope='GLOBAL';
+                """) or {}
+
+                if row:
+                    row["registry_status"] = dto("status", row.get("registry_status"))
+                    row["configuration_status"] = dto("status", row.get("configuration_status"))
+                    row["dependency_status"] = dto("status", row.get("dependency_status"))
+                    row["builder_status"] = dto("status", row.get("builder_status"))
+                    row["signal_store_status"] = dto("status", row.get("signal_store_status"))
+                    row["api_status"] = dto("status", row.get("api_status"))
+                    row["ui_status"] = dto("status", row.get("ui_status"))
+                    row["integrity_status"] = dto("status", row.get("integrity_status"))
+                    row["health_status"] = dto("health", row.get("health_status"))
+                    row["readiness_status"] = dto("governance", row.get("readiness_status"))
+                    row["overall_status"] = dto("health", row.get("overall_status"))
+
+                self.send_json(200, response("OK", row, {"source": "analytics.strategy_platform_governance_v1"}))
+                return
+
+
+            if path == "/api/kg/v1/edge-platform/summary":
+                row = fetch_one("""
+                    SELECT
+                        count(*)::int AS edge_rows,
+                        count(*) FILTER (WHERE decision_code='ALLOW')::int AS allow_rows,
+                        count(*) FILTER (WHERE decision_code='OBSERVE')::int AS observe_rows,
+                        count(*) FILTER (WHERE decision_code='BLOCK')::int AS block_rows,
+                        count(*) FILTER (WHERE ready_for_paper=true)::int AS ready_for_paper_rows,
+                        count(*) FILTER (WHERE ready_for_live=true OR ready_for_micro_live=true)::int AS unsafe_live_rows,
+                        avg(edge_score)::float AS avg_edge_score,
+                        avg(validation_score)::float AS avg_validation_score,
+                        max(signal_ts) AS latest_signal_ts,
+                        max(refreshed_at) AS refreshed_at
+                    FROM analytics.edge_decision_snapshot_v1;
+                """) or {}
+                health_code = "HEALTHY" if int(row.get("unsafe_live_rows") or 0) == 0 and int(row.get("edge_rows") or 0) > 0 else "DEGRADED"
+                row["health"] = dto("health", health_code)
+                self.send_json(200, response("OK", row, {"source": "analytics.edge_decision_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/edge-platform/decisions":
+                limit = int(q.get("limit", ["500"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        id,
+                        signal_id,
+                        symbol,
+                        asset_class,
+                        timeframe,
+                        strategy_family,
+                        strategy_version,
+                        signal_ts,
+                        edge_score::float AS edge_score,
+                        validation_score::float AS validation_score,
+                        governance_score::float AS governance_score,
+                        decision_code,
+                        recommendation_code,
+                        ready_for_research,
+                        ready_for_replay,
+                        ready_for_paper,
+                        ready_for_shadow,
+                        ready_for_micro_live,
+                        ready_for_live,
+                        source_version,
+                        refreshed_at
+                    FROM analytics.edge_decision_snapshot_v1
+                    ORDER BY signal_ts DESC, edge_score DESC
+                    LIMIT %s;
+                """, (limit,))
+                for r in rows:
+                    r["decision"] = dto("decision", r.pop("decision_code"))
+                    r["recommendation"] = dto("recommendation", r.pop("recommendation_code"))
+                self.send_json(200, response("OK", rows, {"source": "analytics.edge_decision_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/edge-platform/configuration":
+                rows = fetch_all("""
+                    SELECT
+                        edge_name,
+                        enabled,
+                        config_json,
+                        source_version,
+                        updated_at
+                    FROM analytics.edge_configuration_v1
+                    ORDER BY edge_name;
+                """)
+                for r in rows:
+                    r["enabled_status"] = dto("status", "ACTIVE" if r.get("enabled") else "DISABLED")
+                self.send_json(200, response("OK", rows, {"source": "analytics.edge_configuration_v1"}))
+                return
+
+            if path == "/api/kg/v1/edge-platform/governance":
+                row = fetch_one("""
+                    SELECT *
+                    FROM analytics.edge_governance_v1
+                    WHERE governance_scope='GLOBAL';
+                """) or {}
+                if row:
+                    row["score_engine_status"] = dto("status", row.get("score_engine_status"))
+                    row["validation_status"] = dto("status", row.get("validation_status"))
+                    row["decision_status"] = dto("status", row.get("decision_status"))
+                    row["api_status"] = dto("status", row.get("api_status"))
+                    row["ui_status"] = dto("status", row.get("ui_status"))
+                    row["readiness"] = dto("governance", row.get("readiness_code"))
+                    row["recommendation"] = dto("recommendation", row.get("recommendation_code"))
+                self.send_json(200, response("OK", row, {"source": "analytics.edge_governance_v1"}))
+                return
+
             if path == "/api/kg/v1/strategy-platform/summary":
                 row = fetch_one("""
                     SELECT
