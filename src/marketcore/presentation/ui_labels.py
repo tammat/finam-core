@@ -109,3 +109,66 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/strategy-platform": "Платформа стратегий",
+
+        "strategy.platform.title": "Платформа стратегий",
+        "strategy.platform.subtitle": "Каталог, конфигурации, зависимости и сигналы стратегий через Platform API.",
+        "strategy.platform.summary": "Сводка",
+        "strategy.platform.registry": "Каталог стратегий",
+        "strategy.platform.configuration": "Конфигурации",
+        "strategy.platform.dependencies": "Зависимости от признаков",
+        "strategy.platform.signals": "Последние сигналы",
+
+        "strategy.platform.strategies_total": "Всего стратегий",
+        "strategy.platform.strategies_enabled": "Включено",
+        "strategy.platform.active_configs": "Активные конфигурации",
+        "strategy.platform.signals_total": "Всего сигналов",
+        "strategy.platform.health": "Здоровье",
+        "strategy.platform.execution_allowed": "Execution allowed",
+
+        "strategy.platform.family": "Family",
+        "strategy.platform.name": "Название",
+        "strategy.platform.version": "Версия",
+        "strategy.platform.category": "Категория",
+        "strategy.platform.status": "Статус",
+        "strategy.platform.priority": "Приоритет",
+        "strategy.platform.paper": "Paper",
+        "strategy.platform.risk": "Risk",
+        "strategy.platform.live": "Live",
+
+        "strategy.platform.config_version": "Версия конфигурации",
+        "strategy.platform.active": "Активна",
+        "strategy.platform.config": "Параметры",
+
+        "strategy.platform.feature": "Признак",
+        "strategy.platform.required": "Обязательный",
+        "strategy.platform.weight": "Вес",
+
+        "strategy.platform.instrument": "Инструмент",
+        "strategy.platform.timeframe": "TF",
+        "strategy.platform.signal_ts": "Время сигнала",
+        "strategy.platform.direction": "Направление",
+        "strategy.platform.score": "Score",
+        "strategy.platform.confidence": "Confidence",
+
+        "common.yes": "Да",
+        "common.no": "Нет",
+
+        "status.ACTIVE": "Активно",
+        "status.DISABLED": "Отключено",
+        "status.READY": "Готово",
+        "status.UNKNOWN": "Неизвестно",
+
+        "health.HEALTHY": "Здорово",
+        "health.DEGRADED": "Требует внимания",
+        "health.FAILED": "Ошибка",
+
+        "signal.LONG": "Long",
+        "signal.SHORT": "Short",
+        "signal.FLAT": "Нет сигнала",
+    })
+except NameError:
+    pass
