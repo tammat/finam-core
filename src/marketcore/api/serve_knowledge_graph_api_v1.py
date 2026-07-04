@@ -664,6 +664,99 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
 
+
+            if path == "/api/kg/v1/risk-platform/summary":
+                row = fetch_one("""
+                    SELECT
+                        count(*)::int AS risk_rows,
+                        count(*) FILTER (WHERE risk_decision_code='RISK_ALLOW')::int AS allow_rows,
+                        count(*) FILTER (WHERE risk_decision_code='RISK_OBSERVE')::int AS observe_rows,
+                        count(*) FILTER (WHERE risk_decision_code='RISK_BLOCK')::int AS block_rows,
+                        count(*) FILTER (WHERE ready_for_paper=true)::int AS ready_for_paper_rows,
+                        count(*) FILTER (WHERE ready_for_live=true OR ready_for_micro_live=true)::int AS unsafe_live_rows,
+                        avg(risk_score)::float AS avg_risk_score,
+                        avg(position_risk_score)::float AS avg_position_risk_score,
+                        avg(exposure_risk_score)::float AS avg_exposure_risk_score,
+                        max(signal_ts) AS latest_signal_ts,
+                        max(refreshed_at) AS refreshed_at
+                    FROM analytics.risk_decision_snapshot_v1;
+                """) or {}
+                health_code = "HEALTHY" if int(row.get("unsafe_live_rows") or 0) == 0 and int(row.get("risk_rows") or 0) > 0 else "DEGRADED"
+                row["health"] = dto("health", health_code)
+                self.send_json(200, response("OK", row, {"source": "analytics.risk_decision_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/risk-platform/decisions":
+                limit = int(q.get("limit", ["500"])[0])
+                rows = fetch_all("""
+                    SELECT
+                        id,
+                        edge_decision_id,
+                        symbol,
+                        asset_class,
+                        timeframe,
+                        strategy_family,
+                        strategy_version,
+                        signal_ts,
+                        edge_score::float AS edge_score,
+                        validation_score::float AS validation_score,
+                        risk_score::float AS risk_score,
+                        position_risk_score::float AS position_risk_score,
+                        exposure_risk_score::float AS exposure_risk_score,
+                        daily_loss_risk_score::float AS daily_loss_risk_score,
+                        correlation_risk_score::float AS correlation_risk_score,
+                        kill_switch_score::float AS kill_switch_score,
+                        risk_decision_code,
+                        recommendation_code,
+                        ready_for_paper,
+                        ready_for_shadow,
+                        ready_for_micro_live,
+                        ready_for_live,
+                        source_version,
+                        refreshed_at
+                    FROM analytics.risk_decision_snapshot_v1
+                    ORDER BY signal_ts DESC, risk_score DESC
+                    LIMIT %s;
+                """, (limit,))
+                for r in rows:
+                    r["risk_decision"] = dto("risk", r.pop("risk_decision_code"))
+                    r["recommendation"] = dto("recommendation", r.pop("recommendation_code"))
+                self.send_json(200, response("OK", rows, {"source": "analytics.risk_decision_snapshot_v1"}))
+                return
+
+            if path == "/api/kg/v1/risk-platform/configuration":
+                rows = fetch_all("""
+                    SELECT
+                        risk_name,
+                        enabled,
+                        config_json,
+                        source_version,
+                        updated_at
+                    FROM analytics.risk_configuration_v1
+                    ORDER BY risk_name;
+                """)
+                for r in rows:
+                    r["enabled_status"] = dto("status", "ACTIVE" if r.get("enabled") else "DISABLED")
+                self.send_json(200, response("OK", rows, {"source": "analytics.risk_configuration_v1"}))
+                return
+
+            if path == "/api/kg/v1/risk-platform/governance":
+                row = fetch_one("""
+                    SELECT *
+                    FROM analytics.risk_governance_v1
+                    WHERE governance_scope='GLOBAL';
+                """) or {}
+                if row:
+                    row["rule_engine_status"] = dto("status", row.get("rule_engine_status"))
+                    row["builder_status"] = dto("status", row.get("builder_status"))
+                    row["decision_status"] = dto("status", row.get("decision_status"))
+                    row["api_status"] = dto("status", row.get("api_status"))
+                    row["ui_status"] = dto("status", row.get("ui_status"))
+                    row["readiness"] = dto("governance", row.get("readiness_code"))
+                    row["recommendation"] = dto("recommendation", row.get("recommendation_code"))
+                self.send_json(200, response("OK", row, {"source": "analytics.risk_governance_v1"}))
+                return
+
             if path == "/api/kg/v1/edge-platform/summary":
                 row = fetch_one("""
                     SELECT
