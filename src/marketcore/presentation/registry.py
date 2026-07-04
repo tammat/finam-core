@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from marketcore.presentation.pages.edge_pipeline_v2_legacy_aliases import EdgePipelineV2MicroLiveAliasPage, EdgePipelineV2OosBacktestAliasPage, EdgePipelineV2OosValidationAliasPage, EdgePipelineV2PaperEdgeDiscoveryAliasPage, EdgePipelineV2RobustnessAliasPage, EdgePipelineV2ValidationPipelineAliasPage, EdgePipelineV2ValidationQueueAliasPage
 from marketcore.presentation.pages.edge_pipeline_v2 import EdgePipelineV2Page
 from marketcore.presentation.page import Page
 from marketcore.presentation.pages.ai import AiPage
@@ -42,18 +43,18 @@ PAGES: list[Page] = [
     SettingsPage(),
     MarketcoreUiSystemdHealthPage(),
     MarketcoreUiRouteHealthMatrixPage(),
-    PaperEdgeDiscoveryPage(),
+    EdgePipelineV2PaperEdgeDiscoveryAliasPage(),
     PaperEdgeMarketDataBindingPage(),
     PaperEdgeMarketDataFreshnessPage(),
     PaperEdgeMarketSymbolAliasPlanPage(),
     MarketUniverseRankingPage(),
     MarketUniverseResearchQueuePage(),
-    EdgeValidationQueuePage(),
-    EdgeValidationPipelinePage(),
-    EdgeRobustnessCheckPage(),
-    EdgeOosValidationPage(),
-    EdgeOosBacktestPage(),
-    MicroLiveReadinessPage(),
+    EdgePipelineV2ValidationQueueAliasPage(),
+    EdgePipelineV2ValidationPipelineAliasPage(),
+    EdgePipelineV2RobustnessAliasPage(),
+    EdgePipelineV2OosValidationAliasPage(),
+    EdgePipelineV2OosBacktestAliasPage(),
+    EdgePipelineV2MicroLiveAliasPage(),
     PaperSampleAccumulationMonitorPage(),
     PaperSampleCollectionTimerHealthPage(),
     PaperRuntimeSampleCollectionPhaseClosePage(),

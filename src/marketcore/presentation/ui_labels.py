@@ -68,3 +68,17 @@ def display_label(route: str, fallback: str = "") -> str:
 
 def route_labels() -> dict[str, str]:
     return dict(ROUTE_LABELS_RU)
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/edge-pipeline-v2": "Этапы V2",
+        "/paper-edge-discovery": "Edge",
+        "/edge-validation-queue": "Проверка",
+        "/edge-validation-pipeline": "Этапы",
+        "/edge-robustness-check": "Устойчивость",
+        "/edge-oos-validation": "Вне выборки",
+        "/edge-oos-backtest": "Тест вне выборки",
+        "/micro-live-readiness": "Проба",
+    })
+except NameError:
+    pass
