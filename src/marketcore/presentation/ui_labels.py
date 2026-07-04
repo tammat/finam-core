@@ -366,3 +366,55 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/trading-platform": "Trading Platform",
+        "trading.platform.title": "Trading Platform",
+        "trading.platform.subtitle": "Order Intent слой без отправки заявок брокеру.",
+        "trading.platform.summary": "Сводка",
+        "trading.platform.intents": "Order Intents",
+        "trading.platform.configuration": "Конфигурация",
+        "trading.platform.governance": "Governance",
+
+        "trading.platform.intent_rows": "Всего intent",
+        "trading.platform.paper_allowed": "Paper allowed",
+        "trading.platform.shadow_allowed": "Shadow allowed",
+        "trading.platform.micro_live_allowed": "Micro Live allowed",
+        "trading.platform.live_allowed": "Live allowed",
+        "trading.platform.order_sent": "Order sent",
+        "trading.platform.paper_ready": "Paper ready",
+        "trading.platform.block_rows": "Blocked",
+
+        "trading.platform.instrument": "Инструмент",
+        "trading.platform.strategy": "Стратегия",
+        "trading.platform.timeframe": "TF",
+        "trading.platform.signal_ts": "Время сигнала",
+        "trading.platform.risk_score": "Risk Score",
+        "trading.platform.side": "Side",
+        "trading.platform.order_type": "Order Type",
+        "trading.platform.quantity": "Quantity",
+        "trading.platform.decision": "Decision",
+        "trading.platform.recommendation": "Recommendation",
+        "trading.platform.paper": "Paper",
+        "trading.platform.live": "Live",
+        "trading.platform.sent": "Sent",
+
+        "trading.platform.trading_name": "Trading",
+        "trading.platform.enabled": "Включено",
+        "trading.platform.config": "Параметры",
+
+        "trading.platform.builder": "Builder",
+        "trading.platform.order_intent": "Order Intent",
+        "trading.platform.api": "API",
+        "trading.platform.ui": "UI",
+        "trading.platform.readiness": "Готовность",
+
+        "trading.PAPER_INTENT_READY": "Paper intent ready",
+        "trading.TRADING_BLOCK": "Trading block",
+
+        "recommendation.READY_FOR_PAPER_EXECUTION": "Готово к paper execution",
+        "recommendation.WAIT_TRADING_REVIEW": "Ожидание trading review",
+    })
+except NameError:
+    pass

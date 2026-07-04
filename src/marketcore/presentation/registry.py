@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from marketcore.presentation.pages.trading_platform import TradingPlatformPage
 from marketcore.presentation.pages.risk_platform import RiskPlatformPage
 from marketcore.presentation.pages.edge_platform import EdgePlatformPage
 from marketcore.presentation.pages.strategy_governance import StrategyGovernancePage
@@ -85,6 +86,7 @@ PAGES: list[Page] = [
     StrategyGovernancePage(),
     EdgePlatformPage(),
     RiskPlatformPage(),
+    TradingPlatformPage(),
 ]
 
 
