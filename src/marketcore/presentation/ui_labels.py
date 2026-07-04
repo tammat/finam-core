@@ -172,3 +172,127 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/strategy-governance": "Governance стратегий",
+
+        "strategy.governance.title": "Governance стратегий",
+        "strategy.governance.subtitle": "Проверка целостности, готовности и допуска Strategy Platform.",
+        "strategy.governance.overall": "Итог",
+        "strategy.governance.score": "Governance Score",
+        "strategy.governance.readiness": "Готовность",
+        "strategy.governance.integrity": "Целостность",
+        "strategy.governance.recommendation": "Рекомендация",
+
+        "strategy.governance.registry": "Registry",
+        "strategy.governance.configuration": "Configuration",
+        "strategy.governance.dependency": "Dependencies",
+        "strategy.governance.builder": "Builder",
+        "strategy.governance.signal_store": "Signal Store",
+        "strategy.governance.api": "API",
+        "strategy.governance.ui": "UI",
+
+        "governance.NOT_READY": "Не готово",
+        "governance.READY_FOR_RESEARCH": "Готово к Research",
+        "governance.READY_FOR_REPLAY": "Готово к Replay",
+        "governance.READY_FOR_PAPER": "Готово к Paper",
+        "governance.READY_FOR_SHADOW": "Готово к Shadow",
+        "governance.READY_FOR_MICRO_LIVE": "Готово к Micro Live",
+        "governance.READY_FOR_LIVE": "Готово к Live",
+
+        "status.OK": "OK",
+        "status.FAILED": "Ошибка",
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/strategy-governance": "Governance стратегий",
+
+        "strategy.governance.title": "Governance стратегий",
+        "strategy.governance.subtitle": "Проверка целостности, готовности и допуска Strategy Platform.",
+        "strategy.governance.overall": "Итог",
+        "strategy.governance.score": "Governance Score",
+        "strategy.governance.readiness": "Готовность",
+        "strategy.governance.integrity": "Целостность",
+        "strategy.governance.recommendation": "Рекомендация",
+
+        "strategy.governance.registry": "Registry",
+        "strategy.governance.configuration": "Configuration",
+        "strategy.governance.dependency": "Dependencies",
+        "strategy.governance.builder": "Builder",
+        "strategy.governance.signal_store": "Signal Store",
+        "strategy.governance.api": "API",
+        "strategy.governance.ui": "UI",
+
+        "governance.NOT_READY": "Не готово",
+        "governance.READY_FOR_RESEARCH": "Готово к Research",
+        "governance.READY_FOR_REPLAY": "Готово к Replay",
+        "governance.READY_FOR_PAPER": "Готово к Paper",
+        "governance.READY_FOR_SHADOW": "Готово к Shadow",
+        "governance.READY_FOR_MICRO_LIVE": "Готово к Micro Live",
+        "governance.READY_FOR_LIVE": "Готово к Live",
+
+        "status.OK": "OK",
+        "status.FAILED": "Ошибка",
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/edge-platform": "Edge Platform",
+        "edge.platform.title": "Edge Platform",
+        "edge.platform.subtitle": "Оценка качества сигналов Strategy Platform через Platform API.",
+        "edge.platform.summary": "Сводка",
+        "edge.platform.decisions": "Решения",
+        "edge.platform.configuration": "Конфигурация",
+        "edge.platform.governance": "Governance",
+        "edge.platform.edge_rows": "Всего решений",
+        "edge.platform.allow_rows": "ALLOW",
+        "edge.platform.observe_rows": "OBSERVE",
+        "edge.platform.block_rows": "BLOCK",
+        "edge.platform.ready_for_paper": "Ready for Paper",
+        "edge.platform.unsafe_live": "Unsafe Live",
+        "edge.platform.avg_edge_score": "Средний Edge Score",
+        "edge.platform.avg_validation_score": "Средний Validation Score",
+        "edge.platform.instrument": "Инструмент",
+        "edge.platform.strategy": "Стратегия",
+        "edge.platform.timeframe": "TF",
+        "edge.platform.signal_ts": "Время сигнала",
+        "edge.platform.edge_score": "Edge Score",
+        "edge.platform.validation_score": "Validation",
+        "edge.platform.decision": "Decision",
+        "edge.platform.recommendation": "Recommendation",
+        "edge.platform.replay": "Replay",
+        "edge.platform.paper": "Paper",
+        "edge.platform.live": "Live",
+        "edge.platform.edge_name": "Edge",
+        "edge.platform.enabled": "Включено",
+        "edge.platform.config": "Параметры",
+        "edge.platform.readiness": "Готовность",
+        "edge.platform.score_engine": "Score Engine",
+        "edge.platform.validation": "Validation",
+        "edge.platform.decision_engine": "Decision Engine",
+        "edge.platform.api": "API",
+        "edge.platform.ui": "UI",
+        "common.yes": "Да",
+        "common.no": "Нет",
+        "status.ACTIVE": "Активно",
+        "status.DISABLED": "Отключено",
+        "health.HEALTHY": "Здорово",
+        "health.DEGRADED": "Требует внимания",
+        "health.FAILED": "Ошибка",
+        "decision.ALLOW": "ALLOW",
+        "decision.OBSERVE": "OBSERVE",
+        "decision.BLOCK": "BLOCK",
+        "recommendation.READY_FOR_RISK_REVIEW": "Готово к risk review",
+        "recommendation.WAIT_VALIDATION": "Ожидание validation",
+        "recommendation.WAIT_RESEARCH": "Ожидание research",
+        "governance.NOT_READY": "Не готово",
+        "governance.READY_FOR_RESEARCH": "Готово к Research"
+    })
+except NameError:
+    pass
