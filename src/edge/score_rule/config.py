@@ -13,8 +13,9 @@ class EdgeScoreRuleConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "EdgeScoreRuleConfig":
         data = data or {}
+        defaults = cls()
         return cls(
-            signal_score_weight=float(data.get("signal_score_weight", cls.signal_score_weight)),
-            confidence_weight=float(data.get("confidence_weight", cls.confidence_weight)),
-            feature_quality_weight=float(data.get("feature_quality_weight", cls.feature_quality_weight)),
+            signal_score_weight=float(data.get("signal_score_weight", defaults.signal_score_weight)),
+            confidence_weight=float(data.get("confidence_weight", defaults.confidence_weight)),
+            feature_quality_weight=float(data.get("feature_quality_weight", defaults.feature_quality_weight)),
         )
