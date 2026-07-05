@@ -665,3 +665,18 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.sprint.title": "Edge Sprint",
+        "edge.sprint.subtitle": "Короткий исследовательский цикл поиска edge-кандидатов.",
+        "edge.sprint.code": "Код спринта",
+        "edge.sprint.observations": "Наблюдения",
+        "edge.sprint.with_trades": "Наблюдения со сделками",
+        "edge.sprint.candidates": "Кандидаты",
+        "edge.sprint.best_score": "Лучший Score",
+        "edge.sprint.best_profit_factor": "Лучший Profit Factor",
+        "edge.sprint.best_expectancy": "Лучшая Expectancy"
+    })
+except NameError:
+    pass
