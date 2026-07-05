@@ -565,3 +565,16 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.score.engine.title": "Edge Score Engine",
+        "edge.score.engine.subtitle": "Оценка исследовательских наблюдений без принятия решений о кандидатах.",
+        "edge.score.raw": "Raw Score",
+        "edge.score.normalized": "Normalized Score",
+        "edge.score.confidence": "Confidence",
+        "edge.score.stability": "Stability",
+        "edge.score.research_cost": "Research Cost"
+    })
+except NameError:
+    pass
