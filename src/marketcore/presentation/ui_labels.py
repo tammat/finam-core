@@ -596,3 +596,51 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.discovery.rule_rank.title": "Rule Rank Discovery",
+        "edge.discovery.rule_rank.subtitle": "Метод ранжирования наблюдений через настраиваемые правила без хардкода порогов в коде.",
+        "edge.discovery.rule_rank.method": "Метод Rule Rank",
+        "edge.discovery.rule_rank.scanned": "Просканировано наблюдений",
+        "edge.discovery.rule_rank.eligible": "Прошли ранжирование",
+        "edge.discovery.rule_rank.created": "Создано кандидатов"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "strategy.dispatcher.title": "Strategy Dispatcher",
+        "strategy.dispatcher.subtitle": "Маршрутизация стратегии к движку исполнения через registry без хардкода.",
+        "strategy.dispatcher.engine": "Движок стратегии",
+        "strategy.dispatcher.engine_version": "Версия движка",
+        "strategy.dispatcher.engine_family": "Семейство движка",
+        "strategy.dispatcher.unassigned": "Движок не назначен"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "strategy.dispatcher.title": "Strategy Dispatcher",
+        "strategy.dispatcher.subtitle": "Маршрутизация стратегии к движку исполнения через registry без хардкода.",
+        "strategy.dispatcher.engine": "Движок стратегии",
+        "strategy.dispatcher.engine_version": "Версия движка",
+        "strategy.dispatcher.engine_family": "Семейство движка",
+        "strategy.dispatcher.unassigned": "Движок не назначен"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "strategy.dispatcher.title": "Strategy Dispatcher",
+        "strategy.dispatcher.subtitle": "Маршрутизация стратегии к движку исполнения через registry без хардкода.",
+        "strategy.dispatcher.engine": "Движок стратегии",
+        "strategy.dispatcher.engine_version": "Версия движка",
+        "strategy.dispatcher.engine_family": "Семейство движка",
+        "strategy.dispatcher.unassigned": "Движок не назначен"
+    })
+except NameError:
+    pass
