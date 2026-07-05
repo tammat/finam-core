@@ -469,3 +469,21 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "research.queue.title": "Research Queue",
+        "research.queue.subtitle": "Очередь исследовательских прогонов Strategy × Symbol × Timeframe × Parameters.",
+        "research.queue.total": "Всего задач",
+        "research.queue.queued": "В очереди",
+        "research.queue.running": "В работе",
+        "research.queue.done": "Завершено",
+        "research.queue.failed": "Ошибки",
+        "research.status.QUEUED": "В очереди",
+        "research.status.RUNNING": "В работе",
+        "research.status.DONE": "Завершено",
+        "research.status.FAILED": "Ошибка",
+        "research.status.CANCELLED": "Отменено"
+    })
+except NameError:
+    pass
