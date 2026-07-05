@@ -1,0 +1,9 @@
+[Unit]
+Description=Finam Core Edge Sprint
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+Environment=DATABASE_URL=postgresql:///finam_core
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/run_edge_sprint_engine_v1.py

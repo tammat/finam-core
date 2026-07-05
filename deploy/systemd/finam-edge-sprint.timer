@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Edge Sprint
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+Unit=finam-edge-sprint.service
+
+[Install]
+WantedBy=timers.target
