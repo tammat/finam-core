@@ -578,3 +578,21 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.discovery.engine.title": "Edge Discovery Engine",
+        "edge.discovery.engine.subtitle": "Конфигурируемый движок отбора edge без жёстко заданных порогов в коде.",
+        "edge.discovery.method": "Метод Discovery",
+        "edge.discovery.rule": "Правило Discovery",
+        "edge.discovery.rules": "Правила Discovery",
+        "edge.discovery.operator": "Оператор",
+        "edge.discovery.threshold": "Порог",
+        "edge.discovery.weight": "Вес",
+        "edge.discovery.family.RULE_ENGINE": "Rule Engine",
+        "edge.discovery.family.MULTI_OBJECTIVE": "Multi-objective",
+        "edge.discovery.family.PARAMETER_SEARCH": "Parameter Search",
+        "edge.discovery.family.OPTIMIZATION": "Optimization"
+    })
+except NameError:
+    pass
