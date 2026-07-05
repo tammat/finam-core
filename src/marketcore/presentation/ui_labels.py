@@ -654,3 +654,14 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "trade.generator.title": "Trade Generator",
+        "trade.generator.subtitle": "Компонент преобразования сигналов стратегии в исследовательские сделки.",
+        "trade.generator.execution_model": "Модель исполнения",
+        "trade.generator.version": "Версия генератора",
+        "trade.generator.name": "Название генератора"
+    })
+except NameError:
+    pass
