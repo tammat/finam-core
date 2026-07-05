@@ -4,6 +4,7 @@ from marketcore.presentation.pages.portfolio_platform import PortfolioPlatformPa
 from marketcore.presentation.pages.trading_platform import TradingPlatformPage
 from marketcore.presentation.pages.risk_platform import RiskPlatformPage
 from marketcore.presentation.pages.edge_platform import EdgePlatformPage
+from marketcore.presentation.pages.edge_audit_page import EdgeAuditPage
 from marketcore.presentation.pages.strategy_governance import StrategyGovernancePage
 from marketcore.presentation.pages.strategy_platform import StrategyPlatformPage
 from marketcore.presentation.pages.strategy_workbench import StrategyWorkbenchPage
@@ -86,6 +87,7 @@ PAGES: list[Page] = [
     StrategyPlatformPage(),
     StrategyGovernancePage(),
     EdgePlatformPage(),
+    EdgeAuditPage(),
     RiskPlatformPage(),
     TradingPlatformPage(),
     PortfolioPlatformPage(),
