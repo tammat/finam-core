@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Finam Core Edge Pipeline Audit periodically
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+Unit=finam-edge-pipeline-audit.service
+
+[Install]
+WantedBy=timers.target
