@@ -461,3 +461,11 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "recommendation.PROCEED_TO_CONSOLIDATION": "Перейти к консолидации",
+        "recommendation.FIX_PORTFOLIO_PLATFORM": "Исправить Portfolio Platform"
+    })
+except NameError:
+    pass
