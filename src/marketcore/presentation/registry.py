@@ -99,5 +99,41 @@ def get_page(path: str) -> Page | None:
     return None
 
 
+
+# UI_SIDEBAR_CLEANUP_V1
+# Legacy/diagnostic pages remain routable through get_page(), but are hidden from the main sidebar.
+HIDDEN_MENU_ROUTE_PARTS = (
+    "edge-pipeline-v2",
+    "paper-edge",
+    "paper-runtime",
+    "paper-sample",
+    "phase-ii",
+    "market-universe",
+    "micro-live-readiness",
+    "edge-oos",
+    "edge-robustness",
+    "edge-validation",
+)
+
+HIDDEN_MENU_CLASS_NAMES = {
+    "EdgePipelineV2Page",
+    "EdgePipelineV2PaperEdgeDiscoveryAliasPage",
+    "EdgePipelineV2ValidationQueueAliasPage",
+    "EdgePipelineV2ValidationPipelineAliasPage",
+    "EdgePipelineV2RobustnessAliasPage",
+    "EdgePipelineV2OosValidationAliasPage",
+    "EdgePipelineV2OosBacktestAliasPage",
+    "EdgePipelineV2MicroLiveAliasPage",
+}
+
+
+def _is_hidden_menu_page(page: Page) -> bool:
+    route = getattr(page, "route", "") or ""
+    cls_name = page.__class__.__name__
+    if cls_name in HIDDEN_MENU_CLASS_NAMES:
+        return True
+    return any(part in route for part in HIDDEN_MENU_ROUTE_PARTS)
+
+
 def menu_pages() -> list[Page]:
-    return sorted(PAGES, key=lambda p: p.menu_order)
+    return sorted([p for p in PAGES if not _is_hidden_menu_page(p)], key=lambda p: p.menu_order)
