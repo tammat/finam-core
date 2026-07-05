@@ -418,3 +418,46 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "/portfolio-platform": "Portfolio Platform",
+        "portfolio.platform.title": "Portfolio Platform",
+        "portfolio.platform.subtitle": "Итоговое состояние портфеля, equity, позиции и exposure через Platform API.",
+        "portfolio.platform.summary": "Сводка",
+        "portfolio.platform.positions": "Позиции",
+        "portfolio.platform.equity": "Equity",
+        "portfolio.platform.configuration": "Конфигурация",
+        "portfolio.platform.governance": "Governance",
+        "portfolio.platform.cash": "Cash",
+        "portfolio.platform.positions_value": "Positions Value",
+        "portfolio.platform.equity_value": "Equity",
+        "portfolio.platform.total_pnl": "Total PnL",
+        "portfolio.platform.gross_exposure": "Gross Exposure",
+        "portfolio.platform.net_exposure": "Net Exposure",
+        "portfolio.platform.position_rows": "Всего позиций",
+        "portfolio.platform.open_position_rows": "Открытые позиции",
+        "portfolio.platform.instrument": "Инструмент",
+        "portfolio.platform.asset_class": "Asset Class",
+        "portfolio.platform.quantity": "Quantity",
+        "portfolio.platform.avg_price": "Avg Price",
+        "portfolio.platform.last_price": "Last Price",
+        "portfolio.platform.market_value": "Market Value",
+        "portfolio.platform.unrealized_pnl": "Unrealized PnL",
+        "portfolio.platform.realized_pnl": "Realized PnL",
+        "portfolio.platform.exposure": "Exposure",
+        "portfolio.platform.status": "Статус",
+        "portfolio.platform.portfolio_name": "Portfolio",
+        "portfolio.platform.enabled": "Включено",
+        "portfolio.platform.config": "Параметры",
+        "portfolio.platform.builder": "Builder",
+        "portfolio.platform.position_status": "Positions",
+        "portfolio.platform.equity_status": "Equity",
+        "portfolio.platform.api": "API",
+        "portfolio.platform.ui": "UI",
+        "portfolio.platform.readiness": "Готовность",
+        "status.OPEN": "Открыта",
+        "status.EMPTY": "Пусто"
+    })
+except NameError:
+    pass
