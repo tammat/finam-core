@@ -644,3 +644,13 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "strategy.engine.volatility_breakout.title": "Volatility Breakout Engine",
+        "strategy.engine.volatility_breakout.subtitle": "Движок пробоя волатильности для исследовательского контура.",
+        "strategy.engine.volatility_breakout.lookback": "Период окна",
+        "strategy.engine.volatility_breakout.threshold": "Порог пробоя"
+    })
+except NameError:
+    pass
