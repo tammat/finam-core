@@ -530,3 +530,38 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.runner.title": "Edge Lab Runner",
+        "edge.runner.subtitle": "Исполнитель очереди исследований без принятия торговых решений.",
+        "edge.runner.running": "Выполняется",
+        "edge.runner.done": "Завершено",
+        "edge.runner.failed": "Ошибка",
+        "edge.runner.retry": "Повтор",
+        "edge.verdict.NO_TRADES": "Нет сделок"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.runner.title": "Edge Lab Runner",
+        "edge.runner.subtitle": "Исполнитель очереди исследований без принятия торговых решений.",
+        "edge.runner.running": "Выполняется",
+        "edge.runner.done": "Завершено",
+        "edge.runner.failed": "Ошибка",
+        "edge.runner.retry": "Повтор",
+        "edge.verdict.NO_TRADES": "Нет сделок"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "strategy.execution.runner.title": "Strategy Execution Runner",
+        "strategy.execution.runner.subtitle": "Прогон исследовательских стратегий по историческим данным с записью trade set.",
+        "edge.verdict.NO_MARKET_DATA": "Нет рыночных данных"
+    })
+except NameError:
+    pass
