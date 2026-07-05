@@ -3,9 +3,13 @@ from __future__ import annotations
 import traceback
 
 from marketcore.presentation.layout import render_layout
+from marketcore.presentation.pages.edge_audit_page import render_edge_audit_page
 
 
 def route(path: str) -> tuple[int, bytes]:
+    if path in ("/edge-audit", "/edge-audit/"):
+        return 200, render_edge_audit_page()
+
     try:
         from marketcore.presentation.registry import get_page
 

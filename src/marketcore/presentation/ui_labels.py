@@ -680,3 +680,55 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.lab.title": "Edge Lab",
+        "edge.lab.subtitle": "Лаборатория оценки исследовательских наблюдений и кандидатов edge.",
+        "edge.lab.run": "Запуск исследования",
+        "edge.lab.runs": "Запуски исследований",
+        "edge.lab.observation": "Наблюдение",
+        "edge.lab.observations": "Наблюдения",
+        "edge.lab.candidate": "Edge-кандидат",
+        "edge.lab.candidates": "Edge-кандидаты",
+        "edge.lab.score": "Edge Score",
+        "edge.lab.raw_score": "Raw Edge Score",
+        "edge.lab.normalized_score": "Normalized Edge Score",
+        "edge.lab.confidence": "Confidence",
+        "edge.lab.stability": "Stability",
+        "edge.lab.status": "Статус",
+        "edge.lab.verdict": "Вердикт",
+        "edge.lab.research_cost": "Research Cost",
+        "edge.lab.batch": "Research Batch",
+        "edge.lab.parameter_hash": "Parameter Hash",
+        "edge.lab.dataset_version": "Dataset Version",
+        "edge.lab.runner_version": "Runner Version",
+        "edge.lab.score_formula_version": "Score Formula",
+        "edge.status.QUEUED": "В очереди",
+        "edge.status.RUNNING": "В работе",
+        "edge.status.DONE": "Завершено",
+        "edge.status.FAILED": "Ошибка",
+        "edge.verdict.OBSERVED": "Наблюдение",
+        "edge.verdict.REJECT": "Отклонить",
+        "edge.verdict.CANDIDATE": "Кандидат",
+        "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
+        "edge.candidate.status.VALIDATION": "Валидация",
+        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.SHADOW": "Shadow",
+        "edge.candidate.status.MICRO_LIVE": "Micro Live",
+        "edge.validation.stage.NOT_STARTED": "Не начато",
+        "edge.validation.stage.IN_PROGRESS": "В работе",
+        "edge.validation.stage.PASSED": "Пройдено",
+        "edge.validation.stage.FAILED": "Не пройдено"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.audit.title": "Edge Audit",
+        "edge.audit.subtitle": "Диагностика воронки EDGE Factory",
+        "edge.audit.report": "Отчёт аудита"
+    })
+except NameError:
+    pass
