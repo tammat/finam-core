@@ -76,3 +76,6 @@ _wip/
 !PROJECT_STATUS.md
 !ROADMAP.md
 !ARCHITECTURE.md
+
+# Runtime snapshots
+data/snapshot.json
