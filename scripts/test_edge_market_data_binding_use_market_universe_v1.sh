@@ -6,29 +6,6 @@ echo "=== TEST_EDGE_MARKET_DATA_BINDING_USE_MARKET_UNIVERSE_V1 ==="
 cp src/scripts/build_paper_edge_market_data_binding_v1.py \
    /tmp/build_paper_edge_market_data_binding_v1.py.bak
 
-python - <<'PY'
-from pathlib import Path
-
-p = Path("src/scripts/build_paper_edge_market_data_binding_v1.py")
-s = p.read_text()
-
-s = s.replace(
-    "FROM marketcore_ui.paper_edge_research_candidates_v1",
-    "FROM marketcore_ui.market_universe_research_queue_v1"
-)
-
-s = s.replace(
-    "candidate_rank",
-    "queue_rank"
-)
-
-s = s.replace(
-    "strategy",
-    "recommended_strategy_family AS strategy"
-)
-
-p.write_text(s)
-PY
 
 PYTHONPATH=src python -m py_compile \
   src/scripts/build_paper_edge_market_data_binding_v1.py \

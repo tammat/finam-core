@@ -37,9 +37,17 @@ class MarketSource:
 
 
 def table_exists(cur, full_name: str) -> bool:
-    cur.execute("SELECT to_regclass(%s) AS reg;", (full_name,))
+    schema, table = full_name.split(".", 1)
+    cur.execute("""
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema=%s
+              AND table_name=%s
+        ) AS exists;
+    """, (schema, table))
     row = cur.fetchone()
-    return bool(row and row["reg"])
+    return bool(row["exists"] if isinstance(row, dict) else row[0])
 
 
 def table_columns(cur, full_name: str) -> dict[str, str]:
@@ -236,7 +244,7 @@ def main() -> None:
 
             cur.execute("""
                 SELECT
-                    queue_rank AS candidate_rank,
+                    queue_rank AS queue_rank,
                     symbol,
                     recommended_strategy_family AS strategy,
                     timeframe,
@@ -296,7 +304,7 @@ def main() -> None:
                     INSERT INTO marketcore_ui.paper_edge_market_data_binding_v1 (
                         binding_rank,
                         symbol,
-                        strategy,
+                    strategy,
                         timeframe,
                         side,
                         market_symbol,
@@ -339,7 +347,7 @@ def main() -> None:
                     binding_status,
                     binding_reason,
                     recommended_action,
-                    row.get("candidate_rank"),
+                    row.get("queue_rank"),
                     SOURCE_VERSION,
                     build_id,
                 ))
