@@ -1,4 +1,5 @@
 from __future__ import annotations
+from marketcore.presentation.pages.market_model_page import MarketModelPage
 
 from marketcore.presentation.pages.paper_mtm_page import PaperMtmPage
 
@@ -92,6 +93,7 @@ PAGES: list[Page] = [
     EdgePlatformPage(),
     EdgeFactoryPage(),
     PaperMtmPage(),
+    MarketModelPage(),
     EdgeAuditPage(),
     RiskPlatformPage(),
     TradingPlatformPage(),
