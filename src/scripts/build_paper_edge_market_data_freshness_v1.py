@@ -13,12 +13,7 @@ SOURCE_VERSION = "PAPER_EDGE_DISCOVERY_MARKET_DATA_FRESHNESS_V1"
 FRESH_AFTER_SEC = int(os.getenv("PAPER_EDGE_MARKET_DATA_FRESH_AFTER_SEC", "86400"))
 
 SOURCE_TABLE_CANDIDATES = [
-    "public.market_bars",
-    "public.market_data_bars",
-    "public.bars",
-    "public.candles",
-    "public.market_candles",
-    "public.ohlcv_bars",
+    "marketcore.market_snapshot_v1",
 ]
 
 SYMBOL_COLUMNS = ["symbol", "ticker", "secid", "instrument"]
@@ -151,7 +146,7 @@ def classify_candidate_binding(row: dict) -> tuple[str, str, str]:
         return (
             "CANDIDATE_BOUND_STALE",
             "Кандидат имеет market bars, но они устарели.",
-            "Проверить актуальность market_bars для этого инструмента.",
+            "Проверить актуальность market_snapshot_v1 для этого инструмента.",
         )
 
     if market_data_status == "NO_BARS_FOR_CANDIDATE" or binding_status == "NO_BARS":
@@ -165,7 +160,7 @@ def classify_candidate_binding(row: dict) -> tuple[str, str, str]:
         return (
             "NO_MARKET_SOURCE",
             "Не найден источник рыночных баров.",
-            "Подключить market_bars/feed.",
+            "Подключить market_snapshot_v1/feed.",
         )
 
     return (
@@ -365,7 +360,7 @@ def main() -> None:
                         %s,'SOURCE_SUMMARY','',
                         'NO_MARKET_SOURCE','NOT_BOUND',
                         'Не найден источник рыночных баров.',
-                        'Подключить market_bars/feed.',
+                        'Подключить market_snapshot_v1/feed.',
                         %s,now(),%s
                     );
                 """, (rank, SOURCE_VERSION, build_id))
