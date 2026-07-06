@@ -813,3 +813,161 @@ try:
     })
 except NameError:
     pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.lab.title": "Edge Lab",
+        "edge.lab.subtitle": "Лаборатория оценки исследовательских наблюдений и кандидатов edge.",
+        "edge.lab.run": "Запуск исследования",
+        "edge.lab.runs": "Запуски исследований",
+        "edge.lab.observation": "Наблюдение",
+        "edge.lab.observations": "Наблюдения",
+        "edge.lab.candidate": "Edge-кандидат",
+        "edge.lab.candidates": "Edge-кандидаты",
+        "edge.lab.score": "Edge Score",
+        "edge.lab.raw_score": "Raw Edge Score",
+        "edge.lab.normalized_score": "Normalized Edge Score",
+        "edge.lab.confidence": "Confidence",
+        "edge.lab.stability": "Stability",
+        "edge.lab.status": "Статус",
+        "edge.lab.verdict": "Вердикт",
+        "edge.lab.research_cost": "Research Cost",
+        "edge.lab.batch": "Research Batch",
+        "edge.lab.parameter_hash": "Parameter Hash",
+        "edge.lab.dataset_version": "Dataset Version",
+        "edge.lab.runner_version": "Runner Version",
+        "edge.lab.score_formula_version": "Score Formula",
+        "edge.status.QUEUED": "В очереди",
+        "edge.status.RUNNING": "В работе",
+        "edge.status.DONE": "Завершено",
+        "edge.status.FAILED": "Ошибка",
+        "edge.verdict.OBSERVED": "Наблюдение",
+        "edge.verdict.REJECT": "Отклонить",
+        "edge.verdict.CANDIDATE": "Кандидат",
+        "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
+        "edge.candidate.status.VALIDATION": "Валидация",
+        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.SHADOW": "Shadow",
+        "edge.candidate.status.MICRO_LIVE": "Micro Live",
+        "edge.validation.stage.NOT_STARTED": "Не начато",
+        "edge.validation.stage.IN_PROGRESS": "В работе",
+        "edge.validation.stage.PASSED": "Пройдено",
+        "edge.validation.stage.FAILED": "Не пройдено"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.lab.title": "Edge Lab",
+        "edge.lab.subtitle": "Лаборатория оценки исследовательских наблюдений и кандидатов edge.",
+        "edge.lab.run": "Запуск исследования",
+        "edge.lab.runs": "Запуски исследований",
+        "edge.lab.observation": "Наблюдение",
+        "edge.lab.observations": "Наблюдения",
+        "edge.lab.candidate": "Edge-кандидат",
+        "edge.lab.candidates": "Edge-кандидаты",
+        "edge.lab.score": "Edge Score",
+        "edge.lab.raw_score": "Raw Edge Score",
+        "edge.lab.normalized_score": "Normalized Edge Score",
+        "edge.lab.confidence": "Confidence",
+        "edge.lab.stability": "Stability",
+        "edge.lab.status": "Статус",
+        "edge.lab.verdict": "Вердикт",
+        "edge.lab.research_cost": "Research Cost",
+        "edge.lab.batch": "Research Batch",
+        "edge.lab.parameter_hash": "Parameter Hash",
+        "edge.lab.dataset_version": "Dataset Version",
+        "edge.lab.runner_version": "Runner Version",
+        "edge.lab.score_formula_version": "Score Formula",
+        "edge.status.QUEUED": "В очереди",
+        "edge.status.RUNNING": "В работе",
+        "edge.status.DONE": "Завершено",
+        "edge.status.FAILED": "Ошибка",
+        "edge.verdict.OBSERVED": "Наблюдение",
+        "edge.verdict.REJECT": "Отклонить",
+        "edge.verdict.CANDIDATE": "Кандидат",
+        "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
+        "edge.candidate.status.VALIDATION": "Валидация",
+        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.SHADOW": "Shadow",
+        "edge.candidate.status.MICRO_LIVE": "Micro Live",
+        "edge.validation.stage.NOT_STARTED": "Не начато",
+        "edge.validation.stage.IN_PROGRESS": "В работе",
+        "edge.validation.stage.PASSED": "Пройдено",
+        "edge.validation.stage.FAILED": "Не пройдено"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "edge.lab.title": "Edge Lab",
+        "edge.lab.subtitle": "Лаборатория оценки исследовательских наблюдений и кандидатов edge.",
+        "edge.lab.run": "Запуск исследования",
+        "edge.lab.runs": "Запуски исследований",
+        "edge.lab.observation": "Наблюдение",
+        "edge.lab.observations": "Наблюдения",
+        "edge.lab.candidate": "Edge-кандидат",
+        "edge.lab.candidates": "Edge-кандидаты",
+        "edge.lab.score": "Edge Score",
+        "edge.lab.raw_score": "Raw Edge Score",
+        "edge.lab.normalized_score": "Normalized Edge Score",
+        "edge.lab.confidence": "Confidence",
+        "edge.lab.stability": "Stability",
+        "edge.lab.status": "Статус",
+        "edge.lab.verdict": "Вердикт",
+        "edge.lab.research_cost": "Research Cost",
+        "edge.lab.batch": "Research Batch",
+        "edge.lab.parameter_hash": "Parameter Hash",
+        "edge.lab.dataset_version": "Dataset Version",
+        "edge.lab.runner_version": "Runner Version",
+        "edge.lab.score_formula_version": "Score Formula",
+        "edge.status.QUEUED": "В очереди",
+        "edge.status.RUNNING": "В работе",
+        "edge.status.DONE": "Завершено",
+        "edge.status.FAILED": "Ошибка",
+        "edge.verdict.OBSERVED": "Наблюдение",
+        "edge.verdict.REJECT": "Отклонить",
+        "edge.verdict.CANDIDATE": "Кандидат",
+        "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
+        "edge.candidate.status.VALIDATION": "Валидация",
+        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.SHADOW": "Shadow",
+        "edge.candidate.status.MICRO_LIVE": "Micro Live",
+        "edge.validation.stage.NOT_STARTED": "Не начато",
+        "edge.validation.stage.IN_PROGRESS": "В работе",
+        "edge.validation.stage.PASSED": "Пройдено",
+        "edge.validation.stage.FAILED": "Не пройдено"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "paper.mtm.title": "Paper MTM",
+        "paper.mtm.subtitle": "Mark-to-market по paper-кандидатам",
+        "paper.mtm.net_pnl": "Net PnL",
+        "paper.mtm.drawdown": "Drawdown",
+        "paper.mtm.status": "Статус"
+    })
+except NameError:
+    pass
+
+try:
+    ROUTE_LABELS_RU.update({
+        "market.model.title": "Модель рынка",
+        "market.model.subtitle": "Единый справочник инструментов, спецификаций и торговых параметров",
+        "market.model.symbol": "Инструмент",
+        "market.model.exchange": "Биржа",
+        "market.model.asset_class": "Класс актива",
+        "market.model.currency": "Валюта",
+        "market.model.lot_size": "Размер лота",
+        "market.model.tick_size": "Шаг цены",
+        "market.model.tick_value": "Стоимость шага",
+        "market.model.contract_multiplier": "Множитель контракта",
+        "market.model.eligibility": "Доступность",
+        "market.model.active": "Активен"
+    })
+except NameError:
+    pass
