@@ -142,9 +142,9 @@ def main() -> None:
                 """, (
                     idx,
                     row.get("symbol") or "",
-                    row.get("recommended_strategy_family AS strategy") or "",
+                    row.get("strategy") or "",
                     row.get("timeframe") or "",
-                    row.get("''::text AS side") or "",
+                    row.get("side") or "",
                     row.get("candidate_status") or "UNKNOWN",
                     validation_status,
                     priority,
