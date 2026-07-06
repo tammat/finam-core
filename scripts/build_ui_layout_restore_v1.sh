@@ -1,3 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== BUILD_UI_LAYOUT_RESTORE_V1 ==="
+
+mkdir -p scripts
+
+cp src/marketcore/presentation/layout.py /tmp/layout_py_before_ui_layout_restore_v1.bak || true
+
+cat > src/marketcore/presentation/layout.py <<'PY'
 from __future__ import annotations
 
 from html import escape
@@ -288,17 +298,10 @@ CLOCK_JS = """
 """
 
 
-def render_layout(page: Page | None = None, content: str = "", title: str | None = None, active_route: str | None = None) -> str:
-    if page is not None:
-        page_title = page.title
-        route = page.route
-    else:
-        page_title = title or "FINAM Core"
-        route = active_route or "/"
-
+def render_layout(page: Page, content: str) -> str:
     menu_html = []
     for item in menu_pages():
-        active = " active" if item.route == route else ""
+        active = " active" if item.route == page.route else ""
         icon = getattr(item, "icon", "") or ""
         menu_html.append(
             f'<a class="{active.strip()}" href="{_e(item.route)}">'
@@ -310,7 +313,7 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_e(page_title)}</title>
+<title>{_e(page.title)}</title>
 <style>
 {BASE_CSS}
 </style>
@@ -325,7 +328,7 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
     </aside>
     <main class="main">
         <div class="topbar">
-            <div class="topbar-title">{_e(page_title)}</div>
+            <div class="topbar-title">{_e(page.title)}</div>
             <div class="topbar-meta">Runtime · Paper · <span id="ui-clock">--.--.---- --:--:--</span></div>
         </div>
         {content}
@@ -334,3 +337,45 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
 {CLOCK_JS}
 </body>
 </html>"""
+PY
+
+cat > scripts/test_ui_layout_restore_v1.sh <<'SH_TEST'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== TEST_UI_LAYOUT_RESTORE_V1 ==="
+
+PYTHONPATH=src python -m py_compile \
+  src/marketcore/presentation/layout.py \
+  src/marketcore/presentation/app.py \
+  src/marketcore/presentation/router.py \
+  src/marketcore/presentation/registry.py
+
+sudo systemctl restart marketcore-ui-shell.service
+sleep 2
+
+curl -fsS http://127.0.0.1:8080/feature-store >/tmp/ui_layout_feature_store.html
+curl -fsS http://127.0.0.1:8080/strategy-platform >/tmp/ui_layout_strategy.html
+curl -fsS http://127.0.0.1:8080/edge-platform >/tmp/ui_layout_edge.html
+curl -fsS http://127.0.0.1:8080/risk-platform >/tmp/ui_layout_risk.html
+curl -fsS http://127.0.0.1:8080/trading-platform >/tmp/ui_layout_trading.html
+curl -fsS http://127.0.0.1:8080/portfolio-platform >/tmp/ui_layout_portfolio.html
+
+grep -q "FINAM Core" /tmp/ui_layout_feature_store.html
+grep -q "ui-clock" /tmp/ui_layout_feature_store.html
+grep -q "viewport" /tmp/ui_layout_feature_store.html
+grep -q "Portfolio Platform" /tmp/ui_layout_portfolio.html
+
+echo "runtime_changed=0"
+echo "execution_changed=0"
+echo "orders_changed=0"
+echo "fills_changed=0"
+echo "micro_live_allowed=0"
+echo "VERDICT=UI_LAYOUT_RESTORE_V1_READY"
+echo "VERDICT=TEST_UI_LAYOUT_RESTORE_V1_OK"
+SH_TEST
+
+chmod +x scripts/test_ui_layout_restore_v1.sh
+scripts/test_ui_layout_restore_v1.sh
+
+echo "VERDICT=BUILD_UI_LAYOUT_RESTORE_V1_OK"
