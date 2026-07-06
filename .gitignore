@@ -69,3 +69,10 @@ runtime_state/
 
 # Local WIP snapshots
 _wip/
+
+# Project documentation exceptions
+!docs/*.txt
+!docs/*.md
+!PROJECT_STATUS.md
+!ROADMAP.md
+!ARCHITECTURE.md
