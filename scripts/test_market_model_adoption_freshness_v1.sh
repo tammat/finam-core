@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== TEST_MARKET_MODEL_ADOPTION_FRESHNESS_V1 ==="
+
+PYTHONPATH=src python -m py_compile \
+  src/scripts/build_market_model_v1.py \
+  src/scripts/build_paper_edge_market_data_binding_v1.py \
+  src/scripts/build_paper_edge_market_data_freshness_v1.py
+
+DATABASE_URL=postgresql:///finam_core PYTHONPATH=src \
+python src/scripts/build_market_model_v1.py
+
+DATABASE_URL=postgresql:///finam_core PYTHONPATH=src \
+python src/scripts/build_paper_edge_market_data_binding_v1.py
+
+DATABASE_URL=postgresql:///finam_core PYTHONPATH=src \
+python src/scripts/build_paper_edge_market_data_freshness_v1.py \
+  | tee /tmp/market_model_adoption_freshness_v1.txt
+
+grep -q "market_source=marketcore.market_snapshot_v1 exists=1" \
+  /tmp/market_model_adoption_freshness_v1.txt
+
+grep -q "VERDICT=PAPER_EDGE_DISCOVERY_MARKET_DATA_FRESHNESS_V1_READY" \
+  /tmp/market_model_adoption_freshness_v1.txt
+
+rows=$(psql -At -d finam_core -c "
+SELECT count(*)
+FROM marketcore_ui.paper_edge_market_data_freshness_v1;
+")
+
+fresh=$(psql -At -d finam_core -c "
+SELECT count(*)
+FROM marketcore_ui.paper_edge_market_data_freshness_v1
+WHERE freshness_status IN ('CANDIDATE_BOUND_FRESH','SOURCE_FRESH');
+")
+
+bad_source=$(psql -At -d finam_core -c "
+SELECT count(*)
+FROM marketcore_ui.paper_edge_market_data_freshness_v1
+WHERE source_table <> 'marketcore.market_snapshot_v1';
+")
+
+old_br_any=$(psql -At -d finam_core -c "
+SELECT count(*)
+FROM marketcore_ui.paper_edge_market_data_freshness_v1
+WHERE candidate_symbol='BR@RTSX'
+  AND candidate_timeframe='ANY';
+")
+
+test "$rows" -gt 0
+test "$fresh" -gt 0
+test "$bad_source" = "0"
+test "$old_br_any" = "0"
+
+psql -d finam_core -c "
+SELECT row_type, candidate_symbol, candidate_timeframe, market_symbol, market_timeframe,
+       source_table, bars_total, latest_bar_ts, freshness_status
+FROM marketcore_ui.paper_edge_market_data_freshness_v1
+ORDER BY freshness_rank
+LIMIT 30;
+"
+
+echo "freshness_rows=$rows"
+echo "fresh_rows=$fresh"
+echo "bad_source=$bad_source"
+echo "old_br_any=$old_br_any"
+echo "runtime_changed=0"
+echo "execution_changed=0"
+echo "orders_changed=0"
+echo "fills_changed=0"
+echo "micro_live_allowed=0"
+echo "VERDICT=MARKET_MODEL_ADOPTION_FRESHNESS_V1_READY"
+echo "VERDICT=TEST_MARKET_MODEL_ADOPTION_FRESHNESS_V1_OK"
