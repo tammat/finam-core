@@ -12,4 +12,5 @@ class DiscoveryControlViewModel:
     audit: list[dict]
     bottleneck: dict
     events: list[dict]
+    max_edge: list[dict]
     actions: list[dict]

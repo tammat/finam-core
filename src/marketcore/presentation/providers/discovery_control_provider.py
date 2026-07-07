@@ -90,6 +90,24 @@ class DiscoveryControlProvider:
                 bottleneck = dict(cur.fetchone() or {})
 
                 cur.execute("""
+                    SELECT
+                        rank_no,
+                        symbol,
+                        strategy_code,
+                        timeframe,
+                        edge_score,
+                        confidence,
+                        recommendation_code,
+                        ranking_ts
+                    FROM analytics.max_edge_ranking_v1
+                    WHERE source_version='MAX_EDGE_DISCOVERY_ENGINE_V1'
+                      AND status='ACTIVE'
+                    ORDER BY ranking_ts DESC, rank_no ASC
+                    LIMIT 5;
+                """)
+                max_edge = [dict(r) for r in cur.fetchall()]
+
+                cur.execute("""
                     SELECT event_code, priority, status, expected_edge_gain, created_at
                     FROM analytics.edge_discovery_queue_v1
                     ORDER BY created_at DESC
@@ -112,5 +130,6 @@ class DiscoveryControlProvider:
             audit=audit,
             bottleneck=bottleneck,
             events=events,
+            max_edge=max_edge,
             actions=actions,
         )

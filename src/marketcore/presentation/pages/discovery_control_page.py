@@ -7,6 +7,7 @@ from marketcore.presentation.components import (
     render_section,
 )
 from marketcore.presentation.components.discovery_action_panel import render_action_panel
+from marketcore.presentation.components.max_edge_card import render_max_edge_card
 from marketcore.presentation.page import Page
 from marketcore.presentation.providers.discovery_control_provider import DiscoveryControlProvider
 
@@ -62,6 +63,7 @@ class DiscoveryControlPage(Page):
 
         return (
             render_section("Discovery Loop", kpi)
+            + render_section("Max Edge", render_max_edge_card(vm.max_edge[0] if vm.max_edge else {}))
             + render_section("Scheduler", scheduler_card)
             + render_section("Bottleneck", bottleneck_card)
             + render_section("Queue", render_data_table(["status", "rows"], vm.queue))
