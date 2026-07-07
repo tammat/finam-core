@@ -1,4 +1,5 @@
 from __future__ import annotations
+from marketcore.presentation.pages.discovery_control_page import DiscoveryControlPage
 from marketcore.presentation.pages.runtime_page import RuntimeViewPage
 from marketcore.presentation.pages.recommendation_page import RecommendationPage
 from marketcore.presentation.pages.market_model_page import MarketModelPage
@@ -78,6 +79,7 @@ PAGES: list[Page] = [
     PaperSampleOperationsTimerHealthPage(),
     PaperRuntimeSampleCollectionDailySummaryPage(),
     RuntimeViewPage(),
+    DiscoveryControlPage(),
     RuntimePage(),
     KnowledgeGraphPage(),
     ResearchPage(),
