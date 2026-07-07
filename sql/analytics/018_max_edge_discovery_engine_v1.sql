@@ -40,7 +40,3 @@ icon=EXCLUDED.icon,
 resource_group=EXCLUDED.resource_group,
 updated_at=now();
 
-GRANT ALL PRIVILEGES ON analytics.max_edge_ranking_v1 TO alex;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA analytics TO alex;
-GRANT ALL PRIVILEGES ON analytics.max_edge_ranking_v1 TO finam;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA analytics TO finam;
