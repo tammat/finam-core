@@ -1,4 +1,6 @@
 from __future__ import annotations
+from marketcore.presentation.pages.runtime_page import RuntimeViewPage
+from marketcore.presentation.pages.recommendation_page import RecommendationPage
 from marketcore.presentation.pages.market_model_page import MarketModelPage
 
 from marketcore.presentation.pages.paper_mtm_page import PaperMtmPage
@@ -75,6 +77,7 @@ PAGES: list[Page] = [
     PaperRuntimeSampleCollectionOperationsPage(),
     PaperSampleOperationsTimerHealthPage(),
     PaperRuntimeSampleCollectionDailySummaryPage(),
+    RuntimeViewPage(),
     RuntimePage(),
     KnowledgeGraphPage(),
     ResearchPage(),
@@ -94,6 +97,7 @@ PAGES: list[Page] = [
     EdgeFactoryPage(),
     PaperMtmPage(),
     MarketModelPage(),
+    RecommendationPage(),
     EdgeAuditPage(),
     RiskPlatformPage(),
     TradingPlatformPage(),
