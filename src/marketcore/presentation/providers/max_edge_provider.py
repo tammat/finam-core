@@ -33,24 +33,48 @@ class MaxEdgeProvider:
                 cur.execute(
                     """
                     SELECT
-                        rank_no,
-                        candidate_id,
-                        symbol,
-                        strategy_code,
-                        timeframe,
-                        edge_score,
-                        confidence,
-                        expectancy,
-                        profit_factor,
-                        net_after_tax,
-                        max_drawdown,
-                        trades,
-                        recommendation_code,
-                        ranking_ts
-                    FROM analytics.max_edge_ranking_v1
-                    WHERE source_version='MAX_EDGE_DISCOVERY_ENGINE_V1'
-                      AND status='ACTIVE'
-                    ORDER BY ranking_ts DESC, rank_no ASC
+                        r.rank_no,
+                        r.candidate_id,
+                        r.symbol,
+                        r.strategy_code,
+                        r.timeframe,
+                        r.edge_score,
+                        v2.edge_score_v2,
+                        v2.economic_score,
+                        v2.reliability_score,
+                        v2.execution_score,
+                        v2.risk_score,
+                        rec.reconciliation_verdict,
+                        rec.score_delta,
+                        rec.rank_delta,
+                        r.confidence,
+                        r.expectancy,
+                        r.profit_factor,
+                        r.net_after_tax,
+                        r.max_drawdown,
+                        r.trades,
+                        r.recommendation_code,
+                        r.ranking_ts
+                    FROM analytics.max_edge_ranking_v1 r
+                    LEFT JOIN analytics.edge_score_model_v2 v2
+                      ON v2.symbol = r.symbol
+                     AND v2.strategy_code = r.strategy_code
+                     AND v2.timeframe = r.timeframe
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            rr.verdict AS reconciliation_verdict,
+                            rr.score_delta,
+                            rr.rank_delta
+                        FROM analytics.edge_score_model_v2_reconciliation rr
+                        WHERE rr.symbol = r.symbol
+                          AND rr.strategy_code = r.strategy_code
+                          AND rr.timeframe = r.timeframe
+                        ORDER BY rr.check_ts DESC
+                        LIMIT 1
+                    ) rec ON true
+                    WHERE r.source_version='MAX_EDGE_DISCOVERY_ENGINE_V1'
+                      AND r.status='ACTIVE'
+                    ORDER BY r.ranking_ts DESC, r.rank_no ASC
                     LIMIT %s;
                     """,
                     (limit,),
