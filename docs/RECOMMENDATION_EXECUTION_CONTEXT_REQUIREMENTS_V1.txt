@@ -1,0 +1,109 @@
+====================================================================
+
+RECOMMENDATION_EXECUTION_CONTEXT_REQUIREMENTS_V1
+
+====================================================================
+
+STATUS
+
+APPROVED
+
+====================================================================
+
+PURPOSE
+
+Зафиксировать минимальные данные, которые Recommendation должна содержать
+до перехода к полноценной Paper Execution Validation.
+
+====================================================================
+
+BACKGROUND
+
+PAPER_EXECUTION_VALIDATION_V1 confirmed that current recommendations are
+valid analytical recommendations, but not yet executable paper trade plans.
+
+Current blocker:
+
+recommendation_has_no_direction_entry_exit
+
+====================================================================
+
+MANDATORY EXECUTION CONTEXT
+
+Для paper-оценки рекомендации должны содержать:
+
+1. direction_code
+
+Направление исследовательской идеи.
+
+Allowed values are defined by PostgreSQL configuration.
+
+No BUY / SELL / LONG / SHORT hardcode in Python.
+
+2. entry_price
+
+Цена входа или reference price.
+
+3. invalidation_price
+
+Цена отмены идеи.
+
+4. target_price
+
+Ожидаемая цена проверки идеи.
+
+5. horizon_bars
+
+Горизонт проверки в барах.
+
+6. risk_unit
+
+Единица риска для расчета R-multiple.
+
+7. source_context_id
+
+Ссылка на market_context_v1.
+
+8. source_edge_context_id
+
+Ссылка на edge_context_v1.
+
+====================================================================
+
+NON GOALS
+
+This document does NOT enable execution.
+
+This document does NOT create orders.
+
+This document does NOT create fills.
+
+This document does NOT allow micro-live.
+
+====================================================================
+
+SAFETY
+
+runtime_allowed=0
+
+execution_allowed=0
+
+orders_changed=0
+
+fills_changed=0
+
+micro_live_allowed=0
+
+====================================================================
+
+NEXT STEP
+
+RECOMMENDATION_EXECUTION_CONTEXT_SCHEMA_V1
+
+====================================================================
+
+VERDICT
+
+RECOMMENDATION_EXECUTION_CONTEXT_REQUIREMENTS_V1_READY
+
+====================================================================
