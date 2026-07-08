@@ -1,0 +1,430 @@
+MARKETCORE_PLATFORM_AUDIT_REPORT_V1
+
+TYPE:
+FULL PLATFORM CERTIFICATION
+
+STATUS:
+DRAFT_AUDIT_STANDARD
+
+GOAL:
+Confirm whether current MarketCore state is ready to move from Presentation/Operator Workspace stabilization to the next development phase.
+
+NEXT PHASE CANDIDATE:
+MARKETCORE_MARKET_KNOWLEDGE_PLATFORM_V1
+
+============================================================
+1. EXECUTIVE SUMMARY
+============================================================
+
+MarketCore is currently positioned as a research and analytics platform.
+
+Current state:
+- Research Platform: stable
+- Edge Score V2: read-only analytical layer
+- Shadow Observation: active
+- Presentation Platform: migrated to MarketCore direction
+- Widget SDK: introduced
+- Operator Workspace: active
+- PostgreSQL: audited and safe maintenance applied
+- Execution Platform: locked
+
+Final decision after audit:
+PENDING
+
+============================================================
+2. AUDIT SECTIONS
+============================================================
+
+1. Architecture Audit
+2. Research Audit
+3. Edge Quality Audit
+4. PostgreSQL Audit
+5. Widget Audit
+6. Dashboard Audit
+7. Operator Workspace Audit
+8. Sidebar Audit
+9. Header Audit
+10. I18N Audit
+11. Branding Audit
+12. Mobile Audit
+13. Performance Audit
+14. Safety Audit
+15. Code Health Audit
+16. Product Readiness Audit
+
+============================================================
+3. CURRENT CHECKPOINTS CONFIRMED
+============================================================
+
+checkpoint_marketcore_widget_library_v1_implementation
+checkpoint_marketcore_widget_library_v1_responsive_compat_fix
+checkpoint_marketcore_widget_library_compat_audit_v1
+checkpoint_marketcore_operator_home_v2
+checkpoint_marketcore_sidebar_migration_v1
+checkpoint_marketcore_postgres_audit_and_cleanup_v1
+checkpoint_marketcore_postgres_cleanup_allowlist_v1
+checkpoint_marketcore_postgres_audit_report_review_v1
+checkpoint_marketcore_postgres_safe_maintenance_apply_v1
+
+============================================================
+4. ARCHITECTURE AUDIT
+============================================================
+
+Expected architecture:
+
+Provider
+↓
+ViewModel
+↓
+Widget
+↓
+Dashboard
+↓
+Page
+
+Required:
+- no direct execution from UI
+- no SQL in components
+- no arbitrary HTML in new operator pages
+- no runtime mutation from Presentation Layer
+- no broker API calls from Presentation Layer
+
+Status:
+PENDING
+
+Risks:
+- old UI pages may still exist
+- legacy pages may bypass Widget SDK
+- some components may still render raw HTML
+
+============================================================
+5. RESEARCH AUDIT
+============================================================
+
+Scope:
+- Research Pipeline
+- Edge Discovery
+- Edge Score V2
+- Explain Layer
+- Shadow Observation
+- Daily Analytics
+
+Required:
+- research tables accessible
+- latest edge score rows exist
+- shadow observation tables exist
+- daily observation tables exist
+- read-only invariants preserved
+
+Status:
+PENDING
+
+============================================================
+6. EDGE QUALITY AUDIT
+============================================================
+
+Key questions:
+- What did MarketCore find today?
+- Which candidates are currently top-ranked?
+- Which candidates are stable across several days?
+- Which candidates degrade quickly?
+- Which candidates have insufficient observations?
+- Which candidates are research hypotheses only?
+
+Required outputs:
+- TOP Edge list
+- Shadow status
+- Daily dynamics
+- Candidate stability
+- Recommendation: observe / reject / continue research
+
+Status:
+PENDING
+
+Important:
+Edge Score V2 must not be modified during this audit.
+
+============================================================
+7. POSTGRESQL AUDIT
+============================================================
+
+Completed:
+- PostgreSQL audit
+- cleanup plan
+- cleanup allowlist
+- audit report review
+- safe maintenance apply
+
+Confirmed:
+- DELETE_ALLOWED=0
+- DROP_ALLOWED=0
+- TRUNCATE_ALLOWED=0
+- vacuum_analyze_applied=0
+- analyze_applied=2
+
+Status:
+PASSED_BASELINE
+
+Remaining:
+- review inaccessible schemas
+- review empty technical tables manually
+- no destructive cleanup approved
+
+============================================================
+8. WIDGET AUDIT
+============================================================
+
+Completed:
+- Widget SDK introduced
+- responsive compatibility restored
+- compatibility audit passed
+
+Required:
+- Widget Registry works
+- base widgets render
+- widgets contain no SQL
+- widgets contain no broker API
+- widgets contain no execution actions
+
+Status:
+PARTIALLY_PASSED
+
+Remaining:
+- migrate more pages to Widget SDK
+- improve widget i18n rendering
+- add production widgets for Edge, Shadow, Portfolio, Market
+
+============================================================
+9. DASHBOARD AUDIT
+============================================================
+
+Required:
+- Dashboard Framework renders ViewModels
+- Operator Home uses widget grid
+- no dashboard safety violation
+- dashboard routes return HTTP 200
+
+Status:
+PENDING
+
+============================================================
+10. OPERATOR WORKSPACE AUDIT
+============================================================
+
+Required:
+- / returns Operator Home V2
+- Operator Home uses Widget SDK
+- key widgets are present:
+  - best_edge
+  - shadow
+  - daily
+  - portfolio
+  - system
+
+Known status:
+Operator Home V2 test passed.
+
+Status:
+PARTIALLY_PASSED
+
+Remaining:
+- final i18n cleanup
+- widget labels must become user-facing labels
+- raw technical values must be hidden from Operator Mode
+
+============================================================
+11. SIDEBAR AUDIT
+============================================================
+
+Completed:
+- old engineering menu removed from operator sidebar
+- forbidden sidebar items removed
+- sidebar migration passed
+
+Forbidden in Operator Mode:
+- Paper Edge Discovery
+- Edge OOS Validation
+- Edge OOS Backtest
+- Runtime
+- Orders
+- Micro Live
+- Paper Sample
+
+Status:
+PASSED_BASELINE
+
+============================================================
+12. HEADER AUDIT
+============================================================
+
+Required:
+- MarketCore brand visible
+- broker displayed separately
+- timezone visible
+- currency visible
+- portfolio visible
+- daily P&L visible
+- local time format DD.MM.YY HH:MM
+- mobile header remains on top
+
+Status:
+PENDING
+
+============================================================
+13. I18N AUDIT
+============================================================
+
+Operator Mode must not show raw keys:
+- page.*
+- column.*
+- status.*
+- button.*
+- strategy.*
+- dashboard.*
+- tooltip.*
+- message.*
+- error.*
+- statusbar.*
+- widget.*
+
+Operator Mode must not show internal identifiers:
+- strategy_code
+- provider_name
+- source_version
+- checkpoint_
+- analytics_
+- marketcore_ui_
+- *_V1
+
+Status:
+PENDING
+
+This is a critical acceptance section.
+
+============================================================
+14. BRANDING AUDIT
+============================================================
+
+Required:
+- MarketCore is product name
+- Finam is broker adapter only
+- FINAM Core must not appear in Operator Mode
+
+Status:
+PENDING
+
+============================================================
+15. MOBILE AUDIT
+============================================================
+
+Required:
+- header on top
+- sidebar becomes drawer or compact nav
+- dashboard becomes one-column
+- tables become cards
+- key information visible without scrolling
+
+Status:
+PENDING
+
+============================================================
+16. PERFORMANCE AUDIT
+============================================================
+
+Required:
+- Operator Home response time acceptable
+- widgets render without heavy N+1 queries
+- PostgreSQL queries are bounded
+- service remains stable after restart
+
+Status:
+PENDING
+
+============================================================
+17. SAFETY AUDIT
+============================================================
+
+Required invariants:
+runtime_allowed=0
+execution_allowed=0
+orders_changed=0
+fills_changed=0
+micro_live_allowed=0
+
+Forbidden in UI / Presentation:
+- send_order
+- place_order
+- cancel_order
+- execute_order
+- FinamClient
+- LiveExecution
+- PaperExecution
+- INSERT INTO orders
+- INSERT INTO fills
+- UPDATE runtime
+- UPDATE execution
+
+Status:
+PENDING
+
+============================================================
+18. CODE HEALTH AUDIT
+============================================================
+
+Required:
+- no broken imports
+- no deleted dependency still imported
+- no duplicate framework path
+- no abandoned old UI route in Operator Mode
+- no excessive TODO/FIXME in critical paths
+
+Status:
+PENDING
+
+============================================================
+19. PRODUCT READINESS AUDIT
+============================================================
+
+Current estimated readiness:
+
+Core Platform: 100%
+Research Platform: 95%
+Edge Score V2: 95%
+Shadow Observation: 100%
+PostgreSQL: 90%
+Presentation Platform: 85%
+Operator Workspace: 80%
+Widget SDK: 80%
+I18N: 70%
+Mobile: 60%
+Market Knowledge Platform: 10%
+Execution Platform: LOCKED
+
+Final readiness:
+PENDING
+
+============================================================
+20. FINAL DECISION
+============================================================
+
+Possible decisions:
+1. PASSED — move to MARKETCORE_MARKET_KNOWLEDGE_PLATFORM_V1
+2. PASSED_WITH_REMEDIATION — fix listed issues first
+3. FAILED — continue platform stabilization
+
+Current decision:
+PENDING
+
+============================================================
+21. MANDATORY NEXT TEST
+============================================================
+
+MARKETCORE_PLATFORM_FINAL_AUDIT_V1 must generate objective evidence through bash.
+
+Required final verdict:
+VERDICT=MARKETCORE_PLATFORM_FINAL_AUDIT_V1_READY
+VERDICT=TEST_MARKETCORE_PLATFORM_FINAL_AUDIT_V1_OK
+
+============================================================
+END OF DOCUMENT
+============================================================
