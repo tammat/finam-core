@@ -1,0 +1,499 @@
+====================================================================
+
+MARKETCORE_KNOWLEDGE_BACKLOG_V1
+
+====================================================================
+
+STATUS
+
+APPROVED
+
+====================================================================
+
+PURPOSE
+
+Зафиксировать стратегический backlog источников знаний MarketCore.
+
+Цель backlog:
+
+не добавлять индикаторы хаотично,
+
+а последовательно расширять Market Knowledge только там,
+
+где это может улучшить Trading Plan,
+
+Paper Result,
+
+Risk-adjusted Return
+
+и долгосрочную прибыльность.
+
+====================================================================
+
+GOLDEN RULE
+
+Evidence Before Complexity.
+
+Новый слой знаний внедряется только если:
+
+1. Есть гипотеза влияния на прибыль или риск.
+
+2. Эффект можно измерить через Paper Simulation.
+
+3. Слой можно отключить без изменения архитектуры.
+
+====================================================================
+
+KNOWLEDGE MODEL
+
+MarketCore рассматривает рынок как цифровую модель:
+
+1. Price
+
+2. Structure
+
+3. Volume
+
+4. Liquidity
+
+5. Order Flow
+
+6. Volatility
+
+7. Correlation
+
+8. Macro
+
+9. Behaviour
+
+10. Portfolio
+
+11. Risk
+
+12. Execution Quality
+
+13. Market Memory
+
+====================================================================
+
+PRIORITY P1
+
+До полноценного Paper Simulator.
+
+--------------------------------------------------------------------
+
+1. MARKET STRUCTURE ENGINE
+
+Status:
+
+PLANNED
+
+Purpose:
+
+Создать структурное понимание рынка.
+
+Includes:
+
+- Support
+
+- Resistance
+
+- Swing High
+
+- Swing Low
+
+- Pivot Levels
+
+- Fibonacci Retracement
+
+- Fibonacci Extension
+
+- Channels
+
+- Breakout Level
+
+- False Breakout Level
+
+Expected impact:
+
+HIGH
+
+Used by:
+
+- Trading Plan Builder
+
+- Paper Simulator
+
+- Recommendation Framework
+
+Decision:
+
+IMPLEMENT BEFORE FULL PAPER SIMULATION
+
+--------------------------------------------------------------------
+
+2. TRADING PLAN PARAMETER PROFILE
+
+Status:
+
+PLANNED
+
+Purpose:
+
+Определить источники Entry, Stop, Target, Risk, Horizon через PostgreSQL.
+
+Includes:
+
+- ENTRY_SOURCE
+
+- STOP_SOURCE
+
+- TARGET_SOURCE
+
+- RISK_MODEL
+
+- HORIZON_MODEL
+
+Expected impact:
+
+HIGH
+
+Used by:
+
+- Trading Plan Builder
+
+Decision:
+
+IMPLEMENT AFTER MARKET STRUCTURE ENGINE
+
+====================================================================
+
+PRIORITY P2
+
+После первых результатов Paper Simulator.
+
+--------------------------------------------------------------------
+
+3. VOLUME STRUCTURE ENGINE
+
+Status:
+
+PLANNED
+
+Includes:
+
+- Volume Profile
+
+- VWAP
+
+- Anchored VWAP
+
+- POC
+
+- VAH
+
+- VAL
+
+- HVN
+
+- LVN
+
+Expected impact:
+
+MEDIUM/HIGH
+
+Decision:
+
+IMPLEMENT ONLY AFTER BASE PAPER STATISTICS
+
+--------------------------------------------------------------------
+
+4. MARKET BEHAVIOUR ENGINE
+
+Status:
+
+PLANNED
+
+Includes:
+
+- Trend Day
+
+- Range Day
+
+- Volatility Expansion
+
+- Volatility Compression
+
+- Fake Breakout
+
+- Liquidity Sweep
+
+Expected impact:
+
+MEDIUM/HIGH
+
+Decision:
+
+IMPLEMENT AFTER INITIAL PAPER FEEDBACK
+
+--------------------------------------------------------------------
+
+5. RELATIVE STRENGTH ENGINE
+
+Status:
+
+PLANNED
+
+Includes:
+
+- Instrument relative strength
+
+- Sector relative strength
+
+- Index relative strength
+
+Expected impact:
+
+MEDIUM
+
+Decision:
+
+IMPLEMENT AFTER SECTOR AND PAPER RESULT ANALYSIS
+
+====================================================================
+
+PRIORITY P3
+
+После подтвержденного Paper Edge.
+
+--------------------------------------------------------------------
+
+6. ORDER FLOW / MICROSTRUCTURE ENGINE
+
+Status:
+
+DEFERRED
+
+Includes:
+
+- Bid / Ask
+
+- Level II / Order Book
+
+- DOM Imbalance
+
+- Aggressor Volume
+
+- Cumulative Delta
+
+- Iceberg Detection
+
+- Sweep Detection
+
+Expected impact:
+
+VERY HIGH
+
+Dependency:
+
+Trusted order book source.
+
+Decision:
+
+DEFER UNTIL DATA SOURCE CONFIRMED
+
+--------------------------------------------------------------------
+
+7. MARKET MEMORY
+
+Status:
+
+DEFERRED
+
+Purpose:
+
+Хранить опыт системы по похожим рыночным условиям.
+
+Includes:
+
+- Similar context lookup
+
+- Past recommendation outcomes
+
+- Past trading plan outcomes
+
+- Similar market regime results
+
+Expected impact:
+
+VERY HIGH
+
+Decision:
+
+IMPLEMENT AFTER PAPER RESULT HISTORY EXISTS
+
+--------------------------------------------------------------------
+
+8. CAPITAL MANAGEMENT ENGINE
+
+Status:
+
+DEFERRED
+
+Includes:
+
+- Fixed Fractional
+
+- Volatility Position Sizing
+
+- ATR Position Sizing
+
+- Kelly Research Mode
+
+- Portfolio Heat
+
+- Correlation Position Sizing
+
+Expected impact:
+
+VERY HIGH
+
+Decision:
+
+IMPLEMENT BEFORE LIMITED LIVE, NOT BEFORE PAPER BASELINE
+
+====================================================================
+
+PRIORITY P4
+
+Research-only until proven useful.
+
+--------------------------------------------------------------------
+
+9. CLASSIC INDICATOR FEATURE LAYER
+
+Status:
+
+RESEARCH ONLY
+
+Includes:
+
+- RSI
+
+- MACD
+
+- ADX
+
+- Stochastic
+
+- CCI
+
+- Williams %R
+
+Rule:
+
+Classic indicators are features, not decision engines.
+
+Decision:
+
+ADD ONLY THROUGH FEATURE REGISTRY AND PAPER TEST
+
+--------------------------------------------------------------------
+
+10. MACRO EVENT LAYER
+
+Status:
+
+PLANNED LATER
+
+Includes:
+
+- Central bank decisions
+
+- Inflation
+
+- PMI
+
+- Oil inventories
+
+- Gas inventories
+
+- Expiration calendar
+
+- Dividend calendar
+
+Expected impact:
+
+MEDIUM/HIGH
+
+Decision:
+
+IMPLEMENT AFTER CORE PAPER SIMULATION
+
+====================================================================
+
+KNOWLEDGE ROI
+
+Each new knowledge layer must be evaluated by:
+
+- Profit Factor change
+
+- Expectancy change
+
+- Win Rate change
+
+- Average R change
+
+- MAE change
+
+- MFE change
+
+- Drawdown impact
+
+- Stability across instruments
+
+- Stability across market regimes
+
+====================================================================
+
+CURRENT DECISION
+
+Next implementation sequence:
+
+1. MARKET_STRUCTURE_SCHEMA_V1
+
+2. MARKET_STRUCTURE_PARAMETER_SEED_V1
+
+3. MARKET_STRUCTURE_ENGINE_V1
+
+4. MARKET_STRUCTURE_QUALITY_AUDIT_V1
+
+5. TRADING_PLAN_PARAMETER_PROFILE_V1
+
+6. TRADING_PLAN_PARAMETER_BUILDER_V1
+
+7. PAPER_EXECUTION_SIMULATOR_V1
+
+====================================================================
+
+SAFETY
+
+This document does not enable execution.
+
+runtime_allowed=0
+
+execution_allowed=0
+
+orders_changed=0
+
+fills_changed=0
+
+micro_live_allowed=0
+
+====================================================================
+
+VERDICT
+
+MARKETCORE_KNOWLEDGE_BACKLOG_V1_READY
+
+====================================================================
