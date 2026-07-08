@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from html import escape
 
+from marketcore.presentation.localization import t
+
 
 def _v(value) -> str:
     return escape(str(value if value is not None else ""))
@@ -42,9 +44,9 @@ def render_edge_score_shadow_daily_card(vm: dict) -> str:
 
     return f"""
     <div class="card edge-score-shadow-daily-card">
-        <h2 data-i18n-key="edge.score.shadow.daily.title">edge.score.shadow.daily.title</h2>
+        <h2 data-i18n-key="page.shadow.daily.title">page.shadow.daily.title</h2>
         <div class="meta-row">
-            <span data-i18n-key="edge.score.shadow.daily.readonly">edge.score.shadow.daily.readonly</span>
+            <span data-i18n-key="message.readonly.shadow_daily">message.readonly.shadow_daily</span>
             <span>runtime_allowed={_v(vm.get("runtime_allowed"))}</span>
             <span>execution_allowed={_v(vm.get("execution_allowed"))}</span>
             <span>micro_live_allowed={_v(vm.get("micro_live_allowed"))}</span>
