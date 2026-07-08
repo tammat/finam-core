@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from marketcore.presentation.components.common.html import h
-from marketcore.presentation.i18n.runtime import tr
+from marketcore.presentation.i18n.runtime import tr, translate
 from marketcore.presentation.widgets.contracts import WidgetViewModel
 
 
@@ -10,7 +10,7 @@ def render_widget(vm: WidgetViewModel) -> str:
     for key, value in vm.content.items():
         rows.append(
             '<div class="widget-row">'
-            f'<span class="widget-key">{h(key)}</span>'
+            f'<span class="widget-key">{h(translate(str(key)))}</span>'
             f'<span class="widget-value">{h(value)}</span>'
             '</div>'
         )
