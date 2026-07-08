@@ -69,9 +69,32 @@ def _feature_state(cur, symbol: str, timeframe: str) -> tuple[str, str, str]:
     return volatility, liquidity, "feature_snapshots"
 
 
-def _snapshot_state(cur, symbol: str) -> tuple[str, str, str]:
+def _bars_volume_state(cur, symbol: str, timeframe: str) -> tuple[str, str, str]:
+    if not _table_exists(cur, "public.market_bars"):
+        return "UNKNOWN", "UNKNOWN", "market_bars_missing"
+
+    cur.execute(
+        """
+        SELECT symbol, timeframe, ts, close, volume
+        FROM public.market_bars
+        WHERE symbol=%s
+          AND timeframe=%s
+        ORDER BY ts DESC NULLS LAST
+        LIMIT 1
+        """,
+        (symbol, timeframe),
+    )
+    row = cur.fetchone()
+    if not row:
+        return "UNKNOWN", "UNKNOWN", "market_bars_no_row"
+
+    volume_state = infer_volume_state(row)
+    return volume_state, "UNKNOWN", "market_bars"
+
+
+def _snapshot_state(cur, symbol: str, timeframe: str) -> tuple[str, str, str]:
     if not _table_exists(cur, "public.market_snapshot_v1"):
-        return "UNKNOWN", "UNKNOWN", "source_missing"
+        return _bars_volume_state(cur, symbol, timeframe)
 
     cur.execute(
         """
@@ -143,7 +166,7 @@ def main() -> None:
 
                 regime_code, regime_source = _latest_regime(cur, symbol, timeframe)
                 volatility_state, liquidity_state, feature_source = _feature_state(cur, symbol, timeframe)
-                volume_state, spread_state, snapshot_source = _snapshot_state(cur, symbol)
+                volume_state, spread_state, snapshot_source = _snapshot_state(cur, symbol, timeframe)
                 session_state, calendar_source = _session_state(cur)
 
                 evidence = {
