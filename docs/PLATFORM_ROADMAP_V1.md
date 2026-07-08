@@ -1,4 +1,4 @@
-# FINAM_CORE_PLATFORM_V1
+# MARKETCORE_PLATFORM_V1
 
 ====================================================================
 1. MARKET PLATFORM                                        [100%]

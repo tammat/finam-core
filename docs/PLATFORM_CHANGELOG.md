@@ -1,4 +1,4 @@
-# FINAM CORE PLATFORM CHANGELOG
+# MARKETCORE PLATFORM CHANGELOG
 
 
 ==============================================================================

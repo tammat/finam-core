@@ -28,7 +28,7 @@ class HomeVersionVM:
     product_subtitle: str = "Trading Intelligence Platform"
     product_version: str = "1.0.0"
     dashboard_version: str = "1.0.0"
-    repo: str = "finam-core"
+    repo: str = "marketcore"
     git_commit: str = "UNKNOWN"
     git_tag: str = "UNKNOWN"
 

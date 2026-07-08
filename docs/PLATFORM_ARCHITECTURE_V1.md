@@ -1,4 +1,4 @@
-# FINAM CORE PLATFORM
+# MARKETCORE PLATFORM
 # Architecture Freeze V6
 
 ==============================================================================
