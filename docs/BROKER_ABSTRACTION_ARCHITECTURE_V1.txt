@@ -1,0 +1,69 @@
+BROKER_ABSTRACTION_ARCHITECTURE_V1
+
+STATUS:
+ARCHITECTURE_DRAFT
+
+PURPOSE:
+Separate MarketCore platform identity from broker-specific integrations.
+
+PRODUCT:
+MarketCore
+
+PRODUCT SUBTITLE:
+Market Research & Analytics Platform
+
+DEFAULT LOGO:
+🧠 MarketCore
+
+BROKER LAYER:
+Broker integrations are adapters.
+
+Current adapter:
+- Finam
+
+Future adapters:
+- T-Bank
+- QUIK
+- Interactive Brokers
+- Binance
+
+RULE:
+MarketCore is the platform.
+Finam is a broker adapter.
+
+UI STATUS BAR REQUIREMENTS:
+The status bar must display:
+
+- timezone selector
+- currency selector
+- broker selector
+- current time
+
+TIME FORMAT:
+DD-MM-YY HH:MM
+
+EXAMPLE:
+TZ: Europe/Moscow | Currency: RUB | Broker: Finam | 08-07-26 03:42
+
+DEFAULT VALUES:
+timezone=Europe/Moscow
+currency=RUB
+broker=Finam
+
+ARCHITECTURAL RULES:
+- Product branding must use MarketCore.
+- Broker-specific code may use Finam.
+- FinamClient must remain broker-specific.
+- Broker adapters must not affect Research Layer.
+- Broker adapters must not be callable from UI directly.
+- Execution remains disabled unless separately approved.
+
+SAFETY:
+runtime_allowed=0
+execution_allowed=0
+micro_live_allowed=0
+orders_changed=0
+fills_changed=0
+
+VERDICT:
+BROKER_ABSTRACTION_ARCHITECTURE_V1_READY
