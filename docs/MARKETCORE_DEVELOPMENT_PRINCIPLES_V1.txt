@@ -1,0 +1,443 @@
+====================================================================
+
+                    MARKETCORE
+
+          DEVELOPMENT PRINCIPLES V1
+
+====================================================================
+
+STATUS
+
+PROJECT STANDARD
+
+====================================================================
+
+PURPOSE
+
+Зафиксировать обязательные правила разработки MarketCore.
+
+Документ применяется ко всем новым изменениям в проекте.
+
+====================================================================
+
+1. MAIN DEVELOPMENT RULE
+
+Любая новая функция проходит последовательность:
+
+Idea
+
+↓
+
+Architecture
+
+↓
+
+Contract
+
+↓
+
+Storage
+
+↓
+
+Provider
+
+↓
+
+ViewModel
+
+↓
+
+Component
+
+↓
+
+Widget or Dashboard
+
+↓
+
+Bash Test
+
+↓
+
+Git Commit
+
+↓
+
+Checkpoint Tag
+
+====================================================================
+
+2. ARCHITECTURE FIRST
+
+Запрещено начинать разработку с произвольного HTML,
+скрипта или страницы.
+
+Сначала фиксируется архитектурное место изменения.
+
+Вопросы перед началом:
+
+- это новый Widget?
+- это новый Component?
+- это новый Provider?
+- это новый ViewModel?
+- это новый Dashboard?
+- это новая Page?
+- это изменение Research Layer?
+- это изменение Execution Layer?
+
+Если ответ неочевиден, сначала создается архитектурный документ.
+
+====================================================================
+
+3. LAYER SEPARATION
+
+Обязательная цепочка:
+
+Provider
+
+↓
+
+ViewModel
+
+↓
+
+Component
+
+↓
+
+Dashboard
+
+↓
+
+Page
+
+Provider получает данные.
+
+ViewModel описывает данные.
+
+Component отображает данные.
+
+Dashboard собирает компоненты.
+
+Page только связывает Provider и Renderer.
+
+====================================================================
+
+4. ZERO HTML POLICY
+
+Новые пользовательские страницы не должны содержать прямой HTML.
+
+Запрещено писать напрямую:
+
+div
+
+section
+
+table
+
+button
+
+a
+
+form
+
+Нужно использовать:
+
+Header
+
+Sidebar
+
+Widget
+
+Card
+
+DataTable
+
+Toolbar
+
+Button
+
+Badge
+
+Alert
+
+DashboardRenderer
+
+Исключения допускаются только для низкоуровневых компонентов.
+
+====================================================================
+
+5. I18N FIRST
+
+Любой текст, который видит пользователь,
+должен проходить через i18n.
+
+Запрещено выводить:
+
+- raw resource_key;
+- strategy_code;
+- status_code;
+- source_version;
+- table_name;
+- provider_name;
+- технические checkpoint-коды.
+
+Исключения:
+
+- логи;
+- SQL;
+- diagnostics;
+- internal reports;
+- engineering mode.
+
+====================================================================
+
+6. SAFETY FIRST
+
+Execution остается заблокированным.
+
+Любой Presentation код не должен содержать:
+
+send_order
+
+place_order
+
+cancel_order
+
+execute_order
+
+FinamClient
+
+LiveExecution
+
+PaperExecution
+
+INSERT INTO orders
+
+INSERT INTO fills
+
+UPDATE runtime
+
+UPDATE execution
+
+====================================================================
+
+7. POSTGRESQL ONLY
+
+PostgreSQL является единственным допустимым хранилищем.
+
+SQLite запрещен.
+
+Исключения не допускаются.
+
+====================================================================
+
+8. BASH TEST ONLY
+
+Тесты проекта выполняются через bash.
+
+pytest и unittest не используются.
+
+Каждый тест обязан:
+
+- печатать заголовок;
+- завершаться правильным exit code;
+- печатать VERDICT;
+- фиксировать safety flags.
+
+Обязательный финальный блок:
+
+runtime_changed=0
+
+execution_changed=0
+
+orders_changed=0
+
+fills_changed=0
+
+micro_live_allowed=0
+
+VERDICT=...
+
+====================================================================
+
+9. CHECKPOINT DISCIPLINE
+
+Каждый завершенный этап фиксируется:
+
+git commit
+
+git tag
+
+git push
+
+git push --tags
+
+Тег должен начинаться с:
+
+checkpoint_
+
+====================================================================
+
+10. READ ONLY ANALYTICS
+
+Research Layer, Edge Score, Explain, Shadow Observation
+и Daily Analytics являются read-only analytical layers.
+
+Они не могут:
+
+- отправлять заявки;
+- менять runtime;
+- менять execution;
+- менять orders;
+- менять fills.
+
+====================================================================
+
+11. BROKER SEPARATION
+
+MarketCore является платформой.
+
+Finam является broker adapter.
+
+Запрещено смешивать product branding и broker integration.
+
+Product UI показывает:
+
+MarketCore
+
+Broker UI показывает:
+
+Finam
+
+====================================================================
+
+12. UI MODE SEPARATION
+
+Operator Mode показывает только пользовательские функции.
+
+Engineering Mode показывает:
+
+- diagnostics;
+- OOS;
+- robustness;
+- timers;
+- internal queues;
+- source_version;
+- checkpoint pages;
+- raw technical identifiers.
+
+Инженерные страницы не должны попадать в основное меню.
+
+====================================================================
+
+13. WIDGET FIRST RULE
+
+Перед созданием новой страницы нужно ответить:
+
+Можно ли решить задачу новым Widget?
+
+Если да, отдельная Page не создается.
+
+Dashboard является композицией Widgets.
+
+====================================================================
+
+14. ROUTE HEALTHCHECK
+
+Любой новый route обязан иметь HTTP healthcheck.
+
+Минимум:
+
+HTTP 200
+
+route visible only where intended
+
+no 404
+
+no dangerous action
+
+no raw i18n keys in operator mode
+
+====================================================================
+
+15. MOBILE FIRST FOR OPERATOR UI
+
+Operator UI обязан учитывать mobile layout.
+
+Правила:
+
+Header всегда сверху.
+
+Sidebar превращается в Drawer.
+
+Таблицы превращаются в Cards.
+
+Dashboard становится одноколоночным.
+
+Ключевая информация видна без прокрутки.
+
+====================================================================
+
+16. UI ACCEPTANCE
+
+Новая пользовательская страница принимается только если проверены:
+
+Header
+
+Sidebar
+
+Dashboard
+
+Widgets
+
+I18N
+
+Buttons
+
+Icons
+
+Responsive Layout
+
+Mobile Layout
+
+HTTP Route
+
+Safety
+
+====================================================================
+
+17. NO REGRESSION RULE
+
+Новая функция не должна ухудшать:
+
+- Research Layer;
+- Shadow Observation;
+- Dashboard Framework;
+- Component Library;
+- I18N;
+- Operator Workspace;
+- Safety Gates.
+
+Если риск есть, сначала создается regression audit.
+
+====================================================================
+
+18. FINAL PRINCIPLE
+
+Любой новый код должен уменьшать сложность системы,
+а не увеличивать ее.
+
+Если изменение добавляет новый способ сделать то,
+что уже умеет Framework, изменение отклоняется.
+
+====================================================================
+
+VERDICT
+
+MARKETCORE_DEVELOPMENT_PRINCIPLES_V1_READY
+
+====================================================================
+
+END OF DOCUMENT

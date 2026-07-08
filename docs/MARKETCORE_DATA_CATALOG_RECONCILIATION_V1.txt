@@ -1,0 +1,70 @@
+====================================================================
+
+MARKETCORE_DATA_CATALOG_RECONCILIATION_V1
+
+====================================================================
+
+GOAL
+
+Полная инвентаризация информационных ресурсов MarketCore.
+
+Не создавать новые источники данных.
+
+Определить:
+
+- что уже существует;
+- что используется;
+- что не используется;
+- чего не хватает;
+- что можно объединить;
+- что необходимо для Market Knowledge Platform.
+
+====================================================================
+
+AUDIT OBJECTS
+
+1. PostgreSQL Schemas
+
+2. Tables
+
+3. Views
+
+4. Materialized Views
+
+5. Dictionaries
+
+6. Analytics Tables
+
+7. Runtime Tables
+
+8. Knowledge Tables
+
+9. Presentation Tables
+
+10. Market Data
+
+11. Research Data
+
+12. Edge Data
+
+13. Shadow Data
+
+14. Portfolio Data
+
+15. Risk Data
+
+16. External Data
+
+====================================================================
+
+STATUS
+
+READ ONLY
+
+====================================================================
+
+VERDICT
+
+MARKETCORE_DATA_CATALOG_RECONCILIATION_V1_READY
+
+====================================================================
