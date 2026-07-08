@@ -6,6 +6,8 @@ from datetime import date
 import psycopg2
 import psycopg2.extras
 
+from market_context_column_map_v1 import read_mapped_value
+
 SOURCE_VERSION = "MARKET_CONTEXT_COLLECTOR_V1"
 
 
@@ -33,9 +35,9 @@ def _latest_regime(cur, symbol: str, timeframe: str) -> tuple[str, str]:
     if not row:
         return "UNKNOWN", "no_row"
 
-    for key in ("regime_code", "regime", "market_regime", "state"):
-        if key in row and row[key]:
-            return str(row[key]).upper(), "analytics_regime_snapshots_v2"
+    value = read_mapped_value(row, "regime")
+    if value != "UNKNOWN":
+        return value, "analytics_regime_snapshots_v2"
 
     return "UNKNOWN", "no_regime_column"
 
@@ -58,18 +60,8 @@ def _feature_state(cur, symbol: str, timeframe: str) -> tuple[str, str, str]:
     if not row:
         return "UNKNOWN", "UNKNOWN", "no_row"
 
-    volatility = "UNKNOWN"
-    liquidity = "UNKNOWN"
-
-    for key in ("volatility_state", "vol_state", "atr_state"):
-        if key in row and row[key]:
-            volatility = str(row[key]).upper()
-            break
-
-    for key in ("liquidity_state", "liq_state", "volume_state"):
-        if key in row and row[key]:
-            liquidity = str(row[key]).upper()
-            break
+    volatility = read_mapped_value(row, "volatility")
+    liquidity = read_mapped_value(row, "liquidity")
 
     return volatility, liquidity, "feature_snapshots"
 
@@ -92,18 +84,8 @@ def _snapshot_state(cur, symbol: str) -> tuple[str, str, str]:
     if not row:
         return "UNKNOWN", "UNKNOWN", "no_row"
 
-    volume_state = "UNKNOWN"
-    spread_state = "UNKNOWN"
-
-    for key in ("volume_state", "volume_quality", "volume_regime"):
-        if key in row and row[key]:
-            volume_state = str(row[key]).upper()
-            break
-
-    for key in ("spread_state", "spread_quality", "spread_regime"):
-        if key in row and row[key]:
-            spread_state = str(row[key]).upper()
-            break
+    volume_state = read_mapped_value(row, "volume")
+    spread_state = read_mapped_value(row, "spread")
 
     return volume_state, spread_state, "market_snapshot_v1"
 
@@ -124,9 +106,9 @@ def _session_state(cur) -> tuple[str, str]:
     if not row:
         return "UNKNOWN", "no_row"
 
-    for key in ("session_state", "event_type", "calendar_state"):
-        if key in row and row[key]:
-            return str(row[key]).upper(), "market_event_calendar"
+    value = read_mapped_value(row, "session")
+    if value != "UNKNOWN":
+        return value, "market_event_calendar"
 
     return "UNKNOWN", "no_session_column"
 
