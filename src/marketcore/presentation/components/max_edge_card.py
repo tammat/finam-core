@@ -46,17 +46,17 @@ def render_edge_score_explain_card(current: dict) -> str:
 def render_max_edge_card(current: dict) -> str:
     return f"""
     <div class="card max-edge-card">
-        <h2>🎯 Максимальный edge</h2>
+        <h2>edge.score.max.title</h2>
         <div class="kpi-grid">
-            <div class="kpi-card"><div class="kpi-label">Инструмент</div><div class="kpi-value">{_v(current.get("symbol"))}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Стратегия</div><div class="kpi-value">{_v(current.get("strategy_code"))}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Score</div><div class="kpi-value">{_v(current.get("edge_score"))}</div></div>
-            <div class="kpi-card"><div class="kpi-label">Доверие</div><div class="kpi-value">{_v(current.get("confidence"))}</div></div>
+            <div class="kpi-card"><div class="kpi-label">edge.score.max.symbol</div><div class="kpi-value">{_v(current.get("symbol"))}</div></div>
+            <div class="kpi-card"><div class="kpi-label">edge.score.max.strategy</div><div class="kpi-value">{_v(current.get("strategy_code"))}</div></div>
+            <div class="kpi-card"><div class="kpi-label">edge.score.max.score</div><div class="kpi-value">{_v(current.get("edge_score"))}</div></div>
+            <div class="kpi-card"><div class="kpi-label">edge.score.max.confidence</div><div class="kpi-value">{_v(current.get("confidence"))}</div></div>
         </div>
         <div class="meta-row">
-            <span>TF: {_v(current.get("timeframe"))}</span>
-            <span>Рекомендация: {_v(current.get("recommendation_code"))}</span>
-            <span>Сделки: {_v(current.get("trades"))}</span>
+            <span>edge.score.max.timeframe {_v(current.get("timeframe"))}</span>
+            <span>edge.score.max.recommendation {_v(current.get("recommendation_code"))}</span>
+            <span>edge.score.max.trades {_v(current.get("trades"))}</span>
         </div>
         {render_edge_score_explain_card(current)}
     </div>
