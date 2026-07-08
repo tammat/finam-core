@@ -7,6 +7,7 @@ import psycopg2
 import psycopg2.extras
 
 from market_context_column_map_v1 import read_mapped_value
+from market_context_state_inference_v1 import infer_liquidity_state, infer_spread_state, infer_volume_state
 
 SOURCE_VERSION = "MARKET_CONTEXT_COLLECTOR_V1"
 
@@ -62,6 +63,8 @@ def _feature_state(cur, symbol: str, timeframe: str) -> tuple[str, str, str]:
 
     volatility = read_mapped_value(row, "volatility")
     liquidity = read_mapped_value(row, "liquidity")
+    if liquidity == "UNKNOWN":
+        liquidity = infer_liquidity_state(row)
 
     return volatility, liquidity, "feature_snapshots"
 
@@ -86,6 +89,11 @@ def _snapshot_state(cur, symbol: str) -> tuple[str, str, str]:
 
     volume_state = read_mapped_value(row, "volume")
     spread_state = read_mapped_value(row, "spread")
+
+    if volume_state == "UNKNOWN":
+        volume_state = infer_volume_state(row)
+    if spread_state == "UNKNOWN":
+        spread_state = infer_spread_state(row)
 
     return volume_state, spread_state, "market_snapshot_v1"
 
