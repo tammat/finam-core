@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from marketcore.presentation.components.layout.sidebar import render_sidebar
+
 from marketcore.presentation.components.layout.status_bar import render_status_bar
 from marketcore.presentation.navigation import NavigationProvider
 from marketcore.presentation.components.navigation import render_navigation
@@ -7,7 +9,6 @@ from marketcore.presentation.components.navigation import render_navigation
 from html import escape
 
 from marketcore.presentation.page import Page
-from marketcore.presentation.registry import menu_pages
 
 
 def _e(value: object) -> str:
@@ -299,15 +300,7 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
     else:
         page_title = title or "MarketCore"
         route = active_route or "/"
-
-    menu_html = []
-    for item in menu_pages():
-        active = " active" if item.route == route else ""
-        icon = getattr(item, "icon", "") or ""
-        menu_html.append(
-            f'<a class="{active.strip()}" href="{_e(item.route)}">'
-            f'{_e(icon)} {_e(item.title)}</a>'
-        )
+    sidebar_html = render_sidebar(route)
 
     return f"""<!doctype html>
 <html lang="ru">
@@ -321,16 +314,11 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
 </head>
 <body>
 <div class="shell">
-    <aside class="sidebar">
-        <div class="brand">MarketCore</div>
-        <nav class="menu">
-            {''.join(menu_html)}
-        </nav>
-    </aside>
+    {sidebar_html}
     <main class="main">
         <div class="topbar">
             <div class="topbar-title">{_e(page_title)}</div>
-            <div class="topbar-meta">Runtime · Paper · <span id="ui-clock">--.--.---- --:--:--</span></div>
+            <div class="topbar-meta">Read-only · MarketCore · <span id="ui-clock">--.--.---- --:--:--</span></div>
         </div>
         {content}
     </main>
