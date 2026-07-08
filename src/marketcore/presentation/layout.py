@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from marketcore.presentation.components.layout.status_bar import render_status_bar
 from marketcore.presentation.navigation import NavigationProvider
 from marketcore.presentation.components.navigation import render_navigation
 
@@ -334,5 +336,6 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
     </main>
 </div>
 {CLOCK_JS}
+{render_status_bar()}
 </body>
 </html>"""
