@@ -1,0 +1,36 @@
+MARKETCORE_POSTGRES_CLEANUP_ALLOWLIST_V1
+
+GOAL:
+Define safe allowlist for PostgreSQL cleanup.
+
+MODE:
+ALLOWLIST_ONLY
+NO_DELETE
+NO_DROP
+NO_TRUNCATE
+
+RULES:
+- cleanup is forbidden without explicit allowlist
+- research evidence is preserved
+- shadow history is preserved
+- edge score history is preserved
+- checkpoints are preserved
+- execution remains disabled
+
+SAFE ACTION CLASSES:
+1. VACUUM ANALYZE
+2. ANALYZE
+3. REVIEW_EMPTY_TECHNICAL_TABLE
+4. REVIEW_TMP_BACKUP_OLD_COPY_STAGING_TABLE
+
+FORBIDDEN ACTIONS:
+- DELETE FROM
+- DROP TABLE
+- TRUNCATE
+- UPDATE runtime
+- UPDATE execution
+- modifying orders
+- modifying fills
+
+VERDICT:
+MARKETCORE_POSTGRES_CLEANUP_ALLOWLIST_V1_READY
