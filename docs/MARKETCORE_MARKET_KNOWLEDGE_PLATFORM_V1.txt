@@ -1,0 +1,45 @@
+MARKETCORE_MARKET_KNOWLEDGE_PLATFORM_V1
+
+STATUS:
+ARCHITECTURE_START
+
+GOAL:
+Add market context layer for Edge interpretation.
+
+PURPOSE:
+MarketCore must understand not only instrument/strategy score, but also market context:
+- market regime
+- volatility
+- liquidity
+- correlation
+- sector / instrument relations
+- calendar context
+- knowledge graph links
+
+EDGE RELATION:
+Edge Score V2 remains frozen and read-only.
+Market Knowledge enriches Edge interpretation, not execution.
+
+FIRST LAYER:
+1. market regime registry
+2. instrument context
+3. volatility context
+4. liquidity context
+5. correlation context
+6. edge context bridge
+
+FORBIDDEN:
+- execution
+- orders
+- fills
+- runtime mutation
+- Edge Score V2 formula change
+
+SAFETY:
+runtime_allowed=0
+execution_allowed=0
+micro_live_allowed=0
+orders_changed=0
+fills_changed=0
+
+VERDICT=MARKETCORE_MARKET_KNOWLEDGE_PLATFORM_V1_READY
