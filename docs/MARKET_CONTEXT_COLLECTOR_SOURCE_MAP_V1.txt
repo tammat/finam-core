@@ -1,0 +1,257 @@
+====================================================================
+
+MARKET_CONTEXT_COLLECTOR_SOURCE_MAP_V1
+
+====================================================================
+
+STATUS
+
+SOURCE RECONCILIATION
+
+====================================================================
+
+PURPOSE
+
+Определить реальные источники данных
+для knowledge.market_context_v1.
+
+Collector не вычисляет данные повторно.
+
+Collector агрегирует уже существующие
+источники MarketCore.
+
+====================================================================
+
+TARGET
+
+knowledge.market_context_v1
+
+====================================================================
+
+FIELD MAPPING
+
+------------------------------------------------------------
+
+symbol
+
+Primary source
+
+analytics.edge_score_model_v2
+
+Fallback
+
+knowledge.instrument_v1
+
+------------------------------------------------------------
+
+timeframe
+
+Primary source
+
+analytics.edge_score_model_v2
+
+------------------------------------------------------------
+
+regime_code
+
+Preferred source
+
+public.analytics_regime_snapshots_v2
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+volatility_state
+
+Preferred source
+
+public.feature_snapshots
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+liquidity_state
+
+Preferred source
+
+public.feature_snapshots
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+volume_state
+
+Preferred source
+
+public.market_snapshot_v1
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+spread_state
+
+Preferred source
+
+public.market_snapshot_v1
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+session_state
+
+Preferred source
+
+public.market_event_calendar
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+correlation_state
+
+Phase 2
+
+Correlation Engine
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+sector_strength_state
+
+Phase 2
+
+Sector Engine
+
+Fallback
+
+UNKNOWN
+
+------------------------------------------------------------
+
+confidence
+
+Baseline
+
+0
+
+Future
+
+Context Classifier
+
+------------------------------------------------------------
+
+evidence_json
+
+Collector metadata
+
+Source table
+
+Snapshot timestamp
+
+Classification method
+
+====================================================================
+
+COLLECTOR PIPELINE
+
+analytics_regime_snapshots_v2
+                │
+feature_snapshots
+                │
+market_snapshot_v1
+                │
+market_event_calendar
+                │
+edge_score_model_v2
+                │
+                ▼
+      MARKET_CONTEXT_COLLECTOR
+                │
+                ▼
+knowledge.market_context_v1
+                │
+                ▼
+EDGE_CONTEXT_BRIDGE
+                │
+                ▼
+RECOMMENDATION_INTELLIGENCE
+
+====================================================================
+
+PHASE 1
+
+Use only existing data.
+
+Do not calculate new market indicators.
+
+====================================================================
+
+PHASE 2
+
+Correlation Engine
+
+Sector Engine
+
+Market Regime Classifier
+
+====================================================================
+
+PHASE 3
+
+Macro Layer
+
+Calendar Layer
+
+News Layer
+
+====================================================================
+
+SAFETY
+
+No execution.
+
+No runtime mutation.
+
+No Edge Score modification.
+
+runtime_allowed=0
+
+execution_allowed=0
+
+orders_changed=0
+
+fills_changed=0
+
+micro_live_allowed=0
+
+====================================================================
+
+VERDICT
+
+MARKET_CONTEXT_COLLECTOR_SOURCE_MAP_V1_READY
+
+====================================================================
+
+END OF DOCUMENT
+
+====================================================================
