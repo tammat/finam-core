@@ -34,7 +34,7 @@ def render_status_bar(
     if broker not in BROKER_OPTIONS:
         broker = DEFAULT_BROKER
 
-    now = datetime.now(ZoneInfo(timezone)).strftime("%d-%m-%y %H:%M")
+    now = datetime.now(ZoneInfo(timezone)).strftime("%d.%m.%y %H:%M")
 
     return f"""
     <div class="marketcore-status-bar">
