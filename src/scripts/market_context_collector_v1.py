@@ -209,6 +209,20 @@ def main() -> None:
                         %s::jsonb,
                         %s
                     )
+                    ON CONFLICT (symbol, timeframe, context_date, source_version)
+                    WHERE source_version='MARKET_CONTEXT_COLLECTOR_V1'
+                    DO UPDATE SET
+                        regime_code=EXCLUDED.regime_code,
+                        volatility_state=EXCLUDED.volatility_state,
+                        liquidity_state=EXCLUDED.liquidity_state,
+                        volume_state=EXCLUDED.volume_state,
+                        spread_state=EXCLUDED.spread_state,
+                        correlation_state=EXCLUDED.correlation_state,
+                        sector_strength_state=EXCLUDED.sector_strength_state,
+                        session_state=EXCLUDED.session_state,
+                        confidence=EXCLUDED.confidence,
+                        evidence_json=EXCLUDED.evidence_json,
+                        created_at=now()
                     """,
                     (
                         symbol,
