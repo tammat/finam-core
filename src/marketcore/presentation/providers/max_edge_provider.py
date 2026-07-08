@@ -47,6 +47,7 @@ class MaxEdgeProvider:
                         rec.reconciliation_verdict,
                         rec.score_delta,
                         rec.rank_delta,
+                        explain.edge_score_explain_groups,
                         r.confidence,
                         r.expectancy,
                         r.profit_factor,
@@ -72,6 +73,29 @@ class MaxEdgeProvider:
                         ORDER BY rr.check_ts DESC
                         LIMIT 1
                     ) rec ON true
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            COALESCE(
+                                jsonb_agg(
+                                    jsonb_build_object(
+                                        'group_code', e.group_code,
+                                        'group_score', e.group_score,
+                                        'group_weight', e.group_weight,
+                                        'group_contribution', e.group_contribution,
+                                        'edge_score_v2', e.edge_score_v2,
+                                        'model_verdict', e.model_verdict
+                                    )
+                                    ORDER BY e.group_code
+                                ),
+                                '[]'::jsonb
+                            ) AS edge_score_explain_groups
+                        FROM analytics.edge_score_model_v2_explain e
+                        WHERE e.symbol = r.symbol
+                          AND e.strategy_code = r.strategy_code
+                          AND e.timeframe = r.timeframe
+                          AND e.source_version = 'EDGE_SCORE_MODEL_V2_PART_4_EXPLAIN_CARD'
+                    ) explain ON true
+
                     WHERE r.source_version='MAX_EDGE_DISCOVERY_ENGINE_V1'
                       AND r.status='ACTIVE'
                     ORDER BY r.ranking_ts DESC, r.rank_no ASC
