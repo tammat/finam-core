@@ -1,0 +1,149 @@
+====================================================================
+
+MARKET_CONTEXT_SPREAD_SOURCE_DECISION_V1
+
+====================================================================
+
+STATUS
+
+ARCHITECTURAL DECISION
+
+====================================================================
+
+BACKGROUND
+
+Market Knowledge Coverage audit completed.
+
+Current coverage:
+
+Regime.............100%
+
+Volatility.........100%
+
+Liquidity..........100%
+
+Volume.............100%
+
+Session............100%
+
+Spread...............0%
+
+====================================================================
+
+ROOT CAUSE
+
+Spread coverage is NOT limited by Collector.
+
+Spread coverage is limited by available market data.
+
+Current audited sources:
+
+public.market_snapshot_v1
+
+public.market_bars
+
+public.market_ticks
+
+public.market_data
+
+feature_snapshots
+
+No reliable bid/ask or normalized spread source
+was confirmed.
+
+====================================================================
+
+DECISION
+
+Spread SHALL NOT be synthesized.
+
+Spread SHALL NOT be estimated.
+
+Spread SHALL NOT be inferred.
+
+MarketCore stores UNKNOWN until
+a trusted source becomes available.
+
+====================================================================
+
+ACCEPTABLE SOURCES
+
+1.
+
+Order Book
+
+(best bid / best ask)
+
+2.
+
+Normalized spread feed
+
+3.
+
+Broker market depth
+
+4.
+
+Exchange Level 2
+
+====================================================================
+
+FORBIDDEN SOURCES
+
+Calculated close-close difference
+
+ATR
+
+Volatility
+
+Price range
+
+Synthetic approximation
+
+====================================================================
+
+IMPLEMENTATION RULE
+
+Collector
+
+must preserve
+
+UNKNOWN
+
+instead of generating unreliable values.
+
+====================================================================
+
+FUTURE
+
+After Order Book support:
+
+MARKET_CONTEXT_SPREAD_ENGINE_V1
+
+will populate
+
+spread_state
+
+====================================================================
+
+KNOWLEDGE IMPACT
+
+Knowledge Coverage
+
+may legitimately remain below 100%
+
+until trusted spread data exists.
+
+This is acceptable.
+
+====================================================================
+
+VERDICT
+
+MARKET_CONTEXT_SPREAD_SOURCE_DECISION_V1_READY
+
+====================================================================
+
+END OF DOCUMENT
+
+====================================================================
