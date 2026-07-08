@@ -7,6 +7,15 @@ def _v(value) -> str:
     return escape(str(value if value is not None else ""))
 
 
+def _strategy_key(value) -> str:
+    code = str(value if value is not None else "")
+    return "strategy." + code.lower().replace("_", ".")
+
+def _strategy_label(value) -> str:
+    key = _strategy_key(value)
+    return f'<span data-i18n-key="{_v(key)}">{_v(key)}</span>'
+
+
 def render_edge_score_shadow_daily_card(vm: dict) -> str:
     rows = vm.get("rows") or []
 
@@ -16,7 +25,7 @@ def render_edge_score_shadow_daily_card(vm: dict) -> str:
             "<tr>"
             f"<td>{_v(row.get('trade_date'))}</td>"
             f"<td>{_v(row.get('symbol'))}</td>"
-            f"<td>{_v(row.get('strategy_code'))}</td>"
+            f"<td>{_strategy_label(row.get('strategy_code'))}</td>"
             f"<td>{_v(row.get('timeframe'))}</td>"
             f"<td>{_v(row.get('observations_count'))}</td>"
             f"<td>{_v(row.get('runtime_seen_count'))}</td>"

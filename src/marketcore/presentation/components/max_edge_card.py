@@ -7,6 +7,15 @@ def _v(value) -> str:
     return escape(str(value if value is not None else ""))
 
 
+def _strategy_key(value) -> str:
+    code = str(value if value is not None else "")
+    return "strategy." + code.lower().replace("_", ".")
+
+def _strategy_label(value) -> str:
+    key = _strategy_key(value)
+    return f'<span data-i18n-key="{_v(key)}">{_v(key)}</span>'
+
+
 def render_edge_score_explain_card(current: dict) -> str:
     groups = current.get("edge_score_explain_groups") or []
     if not groups:
@@ -49,7 +58,7 @@ def render_max_edge_card(current: dict) -> str:
         <h2>edge.score.max.title</h2>
         <div class="kpi-grid">
             <div class="kpi-card"><div class="kpi-label">edge.score.max.symbol</div><div class="kpi-value">{_v(current.get("symbol"))}</div></div>
-            <div class="kpi-card"><div class="kpi-label">edge.score.max.strategy</div><div class="kpi-value">{_v(current.get("strategy_code"))}</div></div>
+            <div class="kpi-card"><div class="kpi-label">edge.score.max.strategy</div><div class="kpi-value">{_strategy_label(current.get("strategy_code"))}</div></div>
             <div class="kpi-card"><div class="kpi-label">edge.score.max.score</div><div class="kpi-value">{_v(current.get("edge_score"))}</div></div>
             <div class="kpi-card"><div class="kpi-label">edge.score.max.confidence</div><div class="kpi-value">{_v(current.get("confidence"))}</div></div>
         </div>
