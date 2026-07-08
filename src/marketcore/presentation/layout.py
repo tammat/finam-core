@@ -297,7 +297,7 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
         page_title = page.title
         route = page.route
     else:
-        page_title = title or "FINAM Core"
+        page_title = title or "MarketCore"
         route = active_route or "/"
 
     menu_html = []
@@ -322,7 +322,7 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
 <body>
 <div class="shell">
     <aside class="sidebar">
-        <div class="brand">FINAM Core</div>
+        <div class="brand">MarketCore</div>
         <nav class="menu">
             {''.join(menu_html)}
         </nav>

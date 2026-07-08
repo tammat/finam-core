@@ -1,0 +1,31 @@
+MARKETCORE_UI_MIGRATION_V1
+
+STATUS:
+ACTIVE
+
+PURPOSE:
+Migrate old engineering UI pages to MarketCore Presentation Platform.
+
+RULES:
+- No new research logic.
+- No execution.
+- No runtime mutation.
+- No raw HTML pages for new UI.
+- Use Provider -> ViewModel -> DashboardRenderer -> Component Library.
+- Hide engineering pages from operator mode.
+- Header must be visible on all operator pages.
+- Sidebar must expose only product-level sections.
+- i18n keys must not be visible as final user text.
+
+FIRST TARGETS:
+1. Home /
+2. Max Edge /max-edge
+3. Shadow /edge-score-shadow
+4. Daily Shadow /edge-score-shadow-daily
+5. System /system
+
+OLD UI STATUS:
+DEPRECATED
+
+VERDICT:
+MARKETCORE_UI_MIGRATION_V1_READY
