@@ -1,0 +1,88 @@
+====================================================================
+
+MARKET_CONTEXT_RECOMMENDATION_COVERAGE_DEFINITION_V1
+
+====================================================================
+
+STATUS
+
+APPROVED
+
+====================================================================
+
+PURPOSE
+
+Зафиксировать официальные определения
+метрик Recommendation Coverage.
+
+====================================================================
+
+RULE 1
+
+Recommendation Universe
+
+Последние уникальные RecommendationContext.
+
+Natural Key:
+
+(symbol,timeframe)
+
+====================================================================
+
+RULE 2
+
+Recommendation Result Coverage
+
+contexts_with_recommendation
+/
+contexts_loaded
+
+Expected:
+
+100%
+
+====================================================================
+
+RULE 3
+
+Recommendation Edge Coverage
+
+active_edge_contexts_with_recommendation
+/
+active_edge_contexts
+
+Expected:
+
+100%
+
+====================================================================
+
+RULE 4
+
+Operator Coverage
+
+visible_recommendations
+/
+generated_recommendations
+
+Expected:
+
+100%
+
+====================================================================
+
+RULE
+
+Все расчеты выполняются
+
+только по
+
+DISTINCT ON(symbol,timeframe)
+
+====================================================================
+
+VERDICT
+
+MARKET_CONTEXT_RECOMMENDATION_COVERAGE_DEFINITION_V1_READY
+
+====================================================================
