@@ -3,62 +3,22 @@ from __future__ import annotations
 
 ROUTE_LABELS_RU = {
     "/": "Рабочий стол",
-
-    "/paper-edge-discovery": "Edge",
-    "/edge-validation-queue": "Проверка",
-    "/edge-validation-pipeline": "Этапы",
-    "/edge-robustness-check": "Устойчивость",
-    "/edge-oos-validation": "Вне выборки",
-    "/edge-oos-backtest": "Тест вне выборки",
-    "/micro-live-readiness": "Проба",
-
-    "/paper-edge-market-data-binding": "Данные",
-    "/paper-edge-market-data-freshness": "Свежесть",
-    "/paper-edge-market-symbol-alias-plan": "Alias",
-    "/market-universe-ranking": "Рейтинг",
-    "/market-universe-research-queue": "Кандидаты",
-    "/market-universe-research-queue-timer-health": "Таймер Research",
-
-    "/paper-sample-accumulation-monitor": "Выборка",
-    "/paper-sample-collection-timer-health": "Таймер",
-    "/paper-runtime-sample-collection-phase-close": "Фаза",
-    "/phase-ii-paper-edge-discovery-summary": "Итоги",
-    "/paper-runtime-sample-collection-operations": "Операции",
-    "/paper-sample-operations-timer-health": "Таймер операций",
-    "/paper-runtime-sample-collection-daily-summary": "Сводка",
-
-    "/runtime": "Runtime",
-    "/portfolio": "Портфель",
-    "/orders": "Заявки",
-    "/risk": "Риски",
-
-    "/knowledge-graph": "Знания",
+    "/edge-factory": "Фабрика Edge",
+    "/max-edge": "Лучший Edge",
+    "/edge-score-shadow": "Shadow-наблюдение",
+    "/edge-score-shadow-daily": "Ежедневная аналитика",
     "/research": "Исследования",
-    "/validation": "Валидация",
-    "/ai": "AI",
-
-    "/logs": "Логи",
+    "/market-model": "Модель рынка",
+    "/market-universe-ranking": "Рейтинг рынка",
+    "/market-universe-research-queue": "Очередь исследований",
+    "/knowledge-graph": "Граф знаний",
+    "/portfolio": "Портфель",
+    "/risk": "Риски",
+    "/feature-store": "Признаки",
+    "/validation": "Проверка",
     "/system": "Система",
+    "/logs": "Журнал",
     "/settings": "Настройки",
-    "/marketcore-ui-systemd-health": "UI",
-    "/marketcore-ui-route-health-matrix": "Маршруты",
-    "/edge-pipeline-v2": "Этапы V2",
-    "edge_pipeline_v2.subtitle": "Единый снимок состояния кандидатов через Platform API.",
-    "edge_pipeline_v2.total": "Всего",
-    "edge_pipeline_v2.research": "Исследование",
-    "edge_pipeline_v2.validation": "Проверка",
-    "edge_pipeline_v2.robustness": "Устойчивость",
-    "edge_pipeline_v2.oos": "OOS",
-    "edge_pipeline_v2.risk": "Риск",
-    "edge_pipeline_v2.trading": "Торговля",
-    "edge_pipeline_v2.candidates": "Кандидаты",
-    "edge_pipeline_v2.instrument": "Инструмент",
-    "edge_pipeline_v2.asset": "Актив",
-    "edge_pipeline_v2.strategy": "Стратегия",
-    "edge_pipeline_v2.stage": "Этап",
-    "edge_pipeline_v2.status": "Статус",
-    "edge_pipeline_v2.priority": "Приоритет",
-    "edge_pipeline_v2.backtest": "Бэктест",
 }
 
 
@@ -72,13 +32,9 @@ def route_labels() -> dict[str, str]:
 try:
     ROUTE_LABELS_RU.update({
         "/edge-pipeline-v2": "Этапы V2",
-        "/paper-edge-discovery": "Edge",
         "/edge-validation-queue": "Проверка",
         "/edge-validation-pipeline": "Этапы",
         "/edge-robustness-check": "Устойчивость",
-        "/edge-oos-validation": "Вне выборки",
-        "/edge-oos-backtest": "Тест вне выборки",
-        "/micro-live-readiness": "Проба",
     })
 except NameError:
     pass
@@ -135,7 +91,7 @@ try:
         "strategy.platform.category": "Категория",
         "strategy.platform.status": "Статус",
         "strategy.platform.priority": "Приоритет",
-        "strategy.platform.paper": "Paper",
+        "strategy.platform.paper": "Тестовый контур",
         "strategy.platform.risk": "Risk",
         "strategy.platform.live": "Live",
 
@@ -267,7 +223,7 @@ try:
         "edge.platform.decision": "Decision",
         "edge.platform.recommendation": "Recommendation",
         "edge.platform.replay": "Replay",
-        "edge.platform.paper": "Paper",
+        "edge.platform.paper": "Тестовый контур",
         "edge.platform.live": "Live",
         "edge.platform.edge_name": "Edge",
         "edge.platform.enabled": "Включено",
@@ -331,7 +287,7 @@ try:
         "risk.platform.kill_switch": "Kill Switch",
         "risk.platform.decision": "Decision",
         "risk.platform.recommendation": "Recommendation",
-        "risk.platform.paper": "Paper",
+        "risk.platform.paper": "Тестовый контур",
         "risk.platform.live": "Live",
 
         "risk.platform.risk_name": "Risk",
@@ -396,7 +352,7 @@ try:
         "trading.platform.quantity": "Quantity",
         "trading.platform.decision": "Decision",
         "trading.platform.recommendation": "Recommendation",
-        "trading.platform.paper": "Paper",
+        "trading.platform.paper": "Тестовый контур",
         "trading.platform.live": "Live",
         "trading.platform.sent": "Sent",
 
@@ -520,7 +476,7 @@ try:
         "edge.verdict.CANDIDATE": "Кандидат",
         "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
         "edge.candidate.status.VALIDATION": "Валидация",
-        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.PAPER": "Тестовый контур",
         "edge.candidate.status.SHADOW": "Shadow",
         "edge.candidate.status.MICRO_LIVE": "Micro Live",
         "edge.validation.stage.NOT_STARTED": "Не начато",
@@ -713,7 +669,7 @@ try:
         "edge.verdict.CANDIDATE": "Кандидат",
         "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
         "edge.candidate.status.VALIDATION": "Валидация",
-        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.PAPER": "Тестовый контур",
         "edge.candidate.status.SHADOW": "Shadow",
         "edge.candidate.status.MICRO_LIVE": "Micro Live",
         "edge.validation.stage.NOT_STARTED": "Не начато",
@@ -765,7 +721,7 @@ try:
         "edge.verdict.CANDIDATE": "Кандидат",
         "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
         "edge.candidate.status.VALIDATION": "Валидация",
-        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.PAPER": "Тестовый контур",
         "edge.candidate.status.SHADOW": "Shadow",
         "edge.candidate.status.MICRO_LIVE": "Micro Live",
         "edge.validation.stage.NOT_STARTED": "Не начато",
@@ -800,7 +756,7 @@ except NameError:
 
 try:
     ROUTE_LABELS_RU.update({
-        "edge.factory.title": "Edge Factory",
+        "edge.factory.title": "Фабрика Edge",
         "edge.factory.subtitle": "Главный экран исследовательской фабрики",
         "edge.factory.funnel": "Воронка",
         "edge.factory.bottleneck": "Узкое место",
@@ -809,7 +765,7 @@ try:
         "edge.factory.observations": "Observations",
         "edge.factory.candidates": "Candidates",
         "edge.factory.validated": "Validated",
-        "edge.factory.paper": "Paper"
+        "edge.factory.paper": "Тестовый контур"
     })
 except NameError:
     pass
@@ -846,7 +802,7 @@ try:
         "edge.verdict.CANDIDATE": "Кандидат",
         "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
         "edge.candidate.status.VALIDATION": "Валидация",
-        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.PAPER": "Тестовый контур",
         "edge.candidate.status.SHADOW": "Shadow",
         "edge.candidate.status.MICRO_LIVE": "Micro Live",
         "edge.validation.stage.NOT_STARTED": "Не начато",
@@ -889,7 +845,7 @@ try:
         "edge.verdict.CANDIDATE": "Кандидат",
         "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
         "edge.candidate.status.VALIDATION": "Валидация",
-        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.PAPER": "Тестовый контур",
         "edge.candidate.status.SHADOW": "Shadow",
         "edge.candidate.status.MICRO_LIVE": "Micro Live",
         "edge.validation.stage.NOT_STARTED": "Не начато",
@@ -932,7 +888,7 @@ try:
         "edge.verdict.CANDIDATE": "Кандидат",
         "edge.candidate.status.EDGE_CANDIDATE": "Edge-кандидат",
         "edge.candidate.status.VALIDATION": "Валидация",
-        "edge.candidate.status.PAPER": "Paper",
+        "edge.candidate.status.PAPER": "Тестовый контур",
         "edge.candidate.status.SHADOW": "Shadow",
         "edge.candidate.status.MICRO_LIVE": "Micro Live",
         "edge.validation.stage.NOT_STARTED": "Не начато",

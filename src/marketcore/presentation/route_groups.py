@@ -12,62 +12,42 @@ class RouteGroup:
 
 
 ROUTE_GROUPS: tuple[RouteGroup, ...] = (
-    RouteGroup("home", "Главное", 10, ("/",)),
+    RouteGroup("home", "Главная", 10, ("/",)),
 
-    RouteGroup("market", "Рынок", 20, (
+    RouteGroup("research", "Исследования", 20, (
+        "/edge-factory",
+        "/max-edge",
+        "/edge-score-shadow",
+        "/edge-score-shadow-daily",
+        "/research",
+    )),
+
+    RouteGroup("market", "Рынок", 30, (
+        "/market-model",
         "/market-universe-ranking",
         "/market-universe-research-queue",
-        "/market-universe-research-queue-timer-health",
-        "/paper-edge-market-data-binding",
-        "/paper-edge-market-data-freshness",
-        "/paper-edge-market-symbol-alias-plan",
+        "/knowledge-graph",
     )),
 
-    RouteGroup("edge", "Edge", 30, (
-        "/paper-edge-discovery",
-        "/edge-validation-queue",
-        "/edge-validation-pipeline",
-        "/edge-robustness-check",
-        "/edge-oos-validation",
-        "/edge-oos-backtest",
-        "/micro-live-readiness",
-    )),
-
-    RouteGroup("sample", "Выборка", 40, (
-        "/paper-sample-accumulation-monitor",
-        "/paper-sample-collection-timer-health",
-        "/paper-runtime-sample-collection-phase-close",
-        "/phase-ii-paper-edge-discovery-summary",
-        "/paper-runtime-sample-collection-operations",
-        "/paper-sample-operations-timer-health",
-        "/paper-runtime-sample-collection-daily-summary",
-    )),
-
-    RouteGroup("trading", "Торговля", 50, (
-        "/runtime",
+    RouteGroup("portfolio", "Портфель", 40, (
         "/portfolio",
-        "/orders",
         "/risk",
     )),
 
-    RouteGroup("knowledge", "Знания", 60, (
-        "/knowledge-graph",
-        "/research",
+    RouteGroup("data", "Данные", 50, (
+        "/feature-store",
         "/validation",
-        "/ai",
     )),
 
-    RouteGroup("system", "Система", 70, (
-        "/logs",
+    RouteGroup("system", "Система", 90, (
         "/system",
+        "/logs",
         "/settings",
-        "/marketcore-ui-systemd-health",
-        "/marketcore-ui-route-health-matrix",
     )),
 )
 
 
-OTHER_GROUP = RouteGroup("other", "Прочее", 999, ())
+OTHER_GROUP = RouteGroup("other", "Инженерный режим", 999, ())
 
 
 def group_for_route(route: str) -> RouteGroup:
