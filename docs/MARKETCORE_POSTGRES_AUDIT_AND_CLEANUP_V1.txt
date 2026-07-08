@@ -1,0 +1,18 @@
+MARKETCORE_POSTGRES_AUDIT_AND_CLEANUP_V1
+
+GOAL:
+Audit PostgreSQL state and prepare safe cleanup plan.
+
+RULES:
+- read-only first
+- no DELETE in audit
+- no TRUNCATE
+- no DROP
+- cleanup only after dry-run report
+- preserve research evidence
+- preserve checkpoints
+- preserve shadow history
+- execution remains disabled
+
+VERDICT:
+MARKETCORE_POSTGRES_AUDIT_AND_CLEANUP_V1_READY
