@@ -1,0 +1,692 @@
+MARKETCORE_MARKET_KNOWLEDGE_SCHEMA_V1
+
+STATUS:
+ARCHITECTURE_SCHEMA_DRAFT
+
+GOAL:
+Define the first ontology and PostgreSQL schema plan for MarketCore Market Knowledge Platform.
+
+PURPOSE:
+Create a broker-independent market knowledge layer that enriches Edge interpretation with market context.
+
+IMPORTANT:
+This stage defines ontology and schema plan only.
+No execution.
+No runtime mutation.
+No Edge Score V2 formula change.
+
+============================================================
+1. CORE PRINCIPLE
+============================================================
+
+Market Knowledge is not a trading engine.
+
+Market Knowledge does not send orders.
+
+Market Knowledge does not change runtime.
+
+Market Knowledge does not change execution.
+
+Market Knowledge enriches interpretation of Edge.
+
+Core chain:
+
+Market
+↓
+Regime
+↓
+Instrument
+↓
+Context
+↓
+Strategy
+↓
+Edge
+↓
+Recommendation
+
+============================================================
+2. BUSINESS ONTOLOGY
+============================================================
+
+Primary entities:
+
+1. Market
+2. Exchange
+3. Asset Class
+4. Sector
+5. Industry
+6. Instrument
+7. Market Regime
+8. Market Context
+9. Strategy
+10. Edge
+11. Observation
+12. Recommendation
+
+Entity hierarchy:
+
+Market
+↓
+Exchange
+↓
+Asset Class
+↓
+Sector
+↓
+Industry
+↓
+Instrument
+↓
+Market Regime
+↓
+Market Context
+↓
+Strategy
+↓
+Edge
+↓
+Observation
+↓
+Recommendation
+
+============================================================
+3. ENTITY DEFINITIONS
+============================================================
+
+Market:
+A broad market domain, for example Russian market, US market, commodity market.
+
+Exchange:
+A trading venue, for example MOEX, SPB, NYSE, NASDAQ.
+
+Asset Class:
+Instrument group:
+- equity
+- futures
+- fx
+- bond
+- commodity
+- crypto
+- index
+
+Sector:
+Economic sector:
+- banks
+- oil
+- gas
+- metals
+- technology
+- transport
+- consumer
+- utilities
+
+Industry:
+More detailed classification inside sector.
+
+Instrument:
+Tradable or observable market object:
+- SBER@MISX
+- LKOH@MISX
+- BR
+- NG
+- USD/RUB
+
+Market Regime:
+Detected market state:
+- trend_up
+- trend_down
+- range
+- high_volatility
+- low_volatility
+- low_liquidity
+- news
+- holiday
+- gap
+- abnormal
+
+Market Context:
+Computed or observed context:
+- volatility
+- liquidity
+- correlation
+- spread
+- volume
+- atr
+- session
+- calendar
+- macro
+- sector_strength
+
+Strategy:
+Research strategy family:
+- rsi_mean_reversion
+- vwap_reversion
+- bollinger_reversion
+- breakout
+- momentum
+- conservative_breakout
+
+Edge:
+Research result linked to instrument, strategy and context.
+
+Observation:
+Shadow or research observation confirming, weakening or rejecting edge.
+
+Recommendation:
+Operator-facing interpretation:
+- observe
+- continue_research
+- validate
+- reject
+- add_to_watchlist
+- remove_from_watchlist
+
+============================================================
+4. SEMANTIC RELATIONSHIPS
+============================================================
+
+Market contains Exchange.
+
+Exchange lists Instrument.
+
+Instrument belongs_to Asset Class.
+
+Instrument belongs_to Sector.
+
+Sector contains Industry.
+
+Instrument belongs_to Industry.
+
+Instrument has Market Context.
+
+Instrument is_in Market Regime.
+
+Strategy works_best_in Market Regime.
+
+Strategy weakens_in Market Regime.
+
+Market Regime influences Edge.
+
+Market Context explains Edge.
+
+Instrument correlates_with Instrument.
+
+Observation confirms Edge.
+
+Observation weakens Edge.
+
+Observation rejects Edge.
+
+Recommendation is_based_on Edge.
+
+Recommendation is_explained_by Market Context.
+
+Edge is_enriched_by Market Knowledge.
+
+============================================================
+5. KNOWLEDGE GRAPH EXAMPLES
+============================================================
+
+Example 1:
+
+SBER@MISX
+belongs_to
+Banks
+
+SBER@MISX
+is_listed_on
+MOEX
+
+SBER@MISX
+has_context
+high_liquidity
+
+RSI_MEAN_REVERSION_V1
+works_best_in
+range
+
+Market Regime
+influences
+Edge Score V2 interpretation
+
+Observation
+confirms
+SBER RSI Mean Reversion Edge
+
+------------------------------------------------------------
+
+Example 2:
+
+LKOH@MISX
+belongs_to
+Oil
+
+Oil
+correlates_with
+Brent
+
+VWAP_REVERSION_V1
+works_best_in
+high_liquidity
+
+Market Context
+explains
+Edge stability
+
+============================================================
+6. POSTGRESQL SCHEMA PLAN
+============================================================
+
+Schema name:
+
+knowledge
+
+Tables:
+
+knowledge.market_v1
+knowledge.exchange_v1
+knowledge.asset_class_v1
+knowledge.sector_v1
+knowledge.industry_v1
+knowledge.instrument_v1
+knowledge.market_regime_v1
+knowledge.market_context_v1
+knowledge.strategy_context_v1
+knowledge.edge_context_v1
+knowledge.relationship_v1
+knowledge.observation_v1
+knowledge.recommendation_v1
+
+============================================================
+7. TABLE PLAN
+============================================================
+
+knowledge.market_v1
+
+Columns:
+- market_id
+- market_code
+- market_name
+- description
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.exchange_v1
+
+Columns:
+- exchange_id
+- market_id
+- exchange_code
+- exchange_name
+- timezone
+- currency
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.asset_class_v1
+
+Columns:
+- asset_class_id
+- asset_class_code
+- asset_class_name
+- description
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.sector_v1
+
+Columns:
+- sector_id
+- sector_code
+- sector_name
+- description
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.industry_v1
+
+Columns:
+- industry_id
+- sector_id
+- industry_code
+- industry_name
+- description
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.instrument_v1
+
+Columns:
+- instrument_id
+- symbol
+- exchange_id
+- asset_class_id
+- sector_id
+- industry_id
+- instrument_name
+- currency
+- lot_size
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.market_regime_v1
+
+Columns:
+- regime_id
+- regime_code
+- regime_name
+- regime_group
+- description
+- is_active
+- created_at
+- updated_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.market_context_v1
+
+Columns:
+- context_id
+- symbol
+- regime_code
+- context_date
+- timeframe
+- volatility_state
+- liquidity_state
+- volume_state
+- spread_state
+- correlation_state
+- sector_strength_state
+- session_state
+- confidence
+- evidence_json
+- created_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.strategy_context_v1
+
+Columns:
+- strategy_context_id
+- strategy_code
+- regime_code
+- asset_class_code
+- sector_code
+- expected_behavior
+- confidence
+- evidence_json
+- created_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.edge_context_v1
+
+Columns:
+- edge_context_id
+- symbol
+- strategy_code
+- timeframe
+- regime_code
+- context_id
+- edge_score_v2
+- context_confidence
+- context_verdict
+- explanation
+- created_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.relationship_v1
+
+Columns:
+- relationship_id
+- source_type
+- source_code
+- relation_type
+- target_type
+- target_code
+- weight
+- confidence
+- evidence_json
+- valid_from
+- valid_to
+- is_active
+- created_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.observation_v1
+
+Columns:
+- observation_id
+- symbol
+- strategy_code
+- timeframe
+- observation_type
+- observation_value
+- regime_code
+- context_id
+- confirms_edge
+- weakens_edge
+- rejects_edge
+- evidence_json
+- created_at
+- source_version
+
+------------------------------------------------------------
+
+knowledge.recommendation_v1
+
+Columns:
+- recommendation_id
+- symbol
+- strategy_code
+- timeframe
+- recommendation_code
+- recommendation_text
+- reason_code
+- regime_code
+- context_id
+- confidence
+- execution_allowed
+- runtime_allowed
+- micro_live_allowed
+- created_at
+- source_version
+
+============================================================
+8. DATA SOURCE RULES
+============================================================
+
+Market:
+manual dictionary
+
+Exchange:
+manual dictionary
+
+Asset Class:
+manual dictionary
+
+Sector:
+manual dictionary
+
+Industry:
+manual dictionary
+
+Instrument:
+market data plus manual classification
+
+Market Regime:
+computed
+
+Market Context:
+computed from market data and analytics
+
+Strategy Context:
+computed from research and historical behavior
+
+Edge Context:
+bridge from Edge Score V2 to Market Knowledge
+
+Relationship:
+computed or manually curated with evidence
+
+Observation:
+from Shadow Observation and Research Platform
+
+Recommendation:
+from Explain Layer plus Market Knowledge
+
+============================================================
+9. VERSIONING
+============================================================
+
+Every table must include:
+
+source_version
+
+Important computed tables must include:
+
+created_at
+
+Optional for future:
+
+knowledge_schema_version
+knowledge_rule_version
+knowledge_source_version
+
+Versioning rule:
+Knowledge rules may change without rewriting historical observations.
+
+============================================================
+10. SAFETY RULES
+============================================================
+
+Market Knowledge Platform must not:
+
+- send orders
+- place orders
+- cancel orders
+- execute orders
+- call broker API
+- modify runtime
+- modify execution
+- insert orders
+- insert fills
+- update Edge Score V2 formulas
+
+Required invariants:
+
+runtime_allowed=0
+execution_allowed=0
+micro_live_allowed=0
+orders_changed=0
+fills_changed=0
+
+============================================================
+11. EDGE SCORE V2 RELATION
+============================================================
+
+Edge Score V2 remains frozen.
+
+Market Knowledge does not change Edge Score V2.
+
+Market Knowledge creates additional interpretation layer:
+
+Edge Score V2
+↓
+Market Context
+↓
+Edge Context
+↓
+Recommendation
+
+Purpose:
+Explain why a candidate is strong or weak under current market conditions.
+
+============================================================
+12. FIRST IMPLEMENTATION ORDER
+============================================================
+
+Step 1:
+Create knowledge schema.
+
+Step 2:
+Create dictionary tables:
+- market_v1
+- exchange_v1
+- asset_class_v1
+- sector_v1
+- industry_v1
+- instrument_v1
+- market_regime_v1
+
+Step 3:
+Create context tables:
+- market_context_v1
+- strategy_context_v1
+- edge_context_v1
+
+Step 4:
+Create relationship table:
+- relationship_v1
+
+Step 5:
+Create observation and recommendation tables:
+- observation_v1
+- recommendation_v1
+
+Step 6:
+Build read-only bridge from Edge Score V2 to Edge Context.
+
+============================================================
+13. ACCEPTANCE CRITERIA
+============================================================
+
+Schema document exists.
+
+No execution terms appear as allowed actions.
+
+Edge Score V2 remains frozen.
+
+PostgreSQL schema plan is explicit.
+
+Safety invariants are present.
+
+Broker independence is preserved.
+
+VERDICT=MARKETCORE_MARKET_KNOWLEDGE_SCHEMA_V1_READY
+
+============================================================
+END OF DOCUMENT
+============================================================
