@@ -9,6 +9,7 @@ import psycopg2.extras
 from marketcore.presentation.widgets.contracts import WidgetViewModel
 from marketcore.presentation.widgets.registry import default_widget_registry
 from marketcore.presentation.providers.knowledge_coverage_provider import KnowledgeCoverageProvider
+from marketcore.presentation.providers.recommendation_widget_provider import RecommendationWidgetProvider
 
 
 def _count(cur, table_name: str) -> int:
@@ -48,6 +49,7 @@ class OperatorHomeWidgetsProvider:
         items = {item.widget_id: item for item in registry.all()}
 
         knowledge_coverage_widget = KnowledgeCoverageProvider().load()
+        recommendation_widget = RecommendationWidgetProvider().load()
 
         return [
             WidgetViewModel(
@@ -104,6 +106,7 @@ class OperatorHomeWidgetsProvider:
                 },
                 updated_at=updated_at,
             ),
+            recommendation_widget,
             knowledge_coverage_widget,
             WidgetViewModel(
                 widget_id="system",
