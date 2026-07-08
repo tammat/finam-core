@@ -1,0 +1,342 @@
+====================================================================
+
+                    MARKETCORE
+
+                  ROADMAP V3
+
+====================================================================
+
+STATUS
+
+ACTIVE
+
+====================================================================
+
+MISSION
+
+Создать промышлененную исследовательскую платформу для анализа рынка,
+поиска устойчивых торговых преимуществ, объяснения результатов,
+наблюдения за их поведением и поддержки принятия решений оператором.
+
+Execution не является текущей целью проекта.
+
+====================================================================
+
+PHASE 1
+
+RESEARCH PLATFORM
+
+STATUS
+
+COMPLETED
+
+------------------------------------------------------------
+
+Completed
+
+Core Platform
+
+PostgreSQL
+
+Feature Store
+
+Research Platform
+
+Global Edge Discovery
+
+Edge Score V2
+
+Explain Layer
+
+Shadow Observation
+
+Daily Analytics
+
+Dashboard
+
+Risk Freeze
+
+No Hardcode Audit
+
+Presentation Foundation
+
+====================================================================
+
+PHASE 2
+
+OPERATOR WORKSPACE
+
+STATUS
+
+ACTIVE
+
+------------------------------------------------------------
+
+Goals
+
+Создать единое рабочее место аналитика.
+
+Operator должен понимать состояние системы менее чем за 30 секунд.
+
+------------------------------------------------------------
+
+Includes
+
+Presentation Platform
+
+Dashboard Framework
+
+Component Library
+
+Navigation Framework
+
+I18N Framework
+
+Branding
+
+Operator Home
+
+Status Bar
+
+Widget Library
+
+Theme
+
+Accessibility
+
+Mobile Layout
+
+====================================================================
+
+PHASE 3
+
+MARKET KNOWLEDGE PLATFORM
+
+STATUS
+
+PLANNED
+
+------------------------------------------------------------
+
+Goals
+
+Создать модель рынка.
+
+------------------------------------------------------------
+
+Includes
+
+Knowledge Graph
+
+Market Regimes
+
+Volatility Layer
+
+Liquidity Layer
+
+Correlation Layer
+
+Macro Layer
+
+Calendar Layer
+
+Instrument Relations
+
+====================================================================
+
+PHASE 4
+
+RESEARCH PLATFORM V3
+
+STATUS
+
+PLANNED
+
+------------------------------------------------------------
+
+Goals
+
+Автоматический поиск новых устойчивых edge.
+
+------------------------------------------------------------
+
+Includes
+
+Hypothesis Generator
+
+Strategy Generator
+
+Feature Generator
+
+Research Scheduler
+
+Auto Validation
+
+Ranking Engine
+
+====================================================================
+
+PHASE 5
+
+BROKER ABSTRACTION
+
+STATUS
+
+PLANNED
+
+------------------------------------------------------------
+
+Goals
+
+Полностью отделить платформу от конкретного брокера.
+
+------------------------------------------------------------
+
+Platform
+
+MarketCore
+
+------------------------------------------------------------
+
+Broker Adapters
+
+Finam
+
+T-Bank
+
+QUIK
+
+Interactive Brokers
+
+Binance
+
+Others
+
+====================================================================
+
+PHASE 6
+
+EXECUTION PLATFORM
+
+STATUS
+
+LOCKED
+
+------------------------------------------------------------
+
+Execution допускается только после отдельного архитектурного решения.
+
+Execution не развивается одновременно с Research Platform.
+
+Execution использует результаты Research Platform,
+но не влияет на неё.
+
+====================================================================
+
+ARCHITECTURAL PRINCIPLES
+
+Research Layer
+
+Frozen
+
+Analytics Layer
+
+Frozen
+
+Shadow Layer
+
+Frozen
+
+Presentation Layer
+
+Active
+
+Execution Layer
+
+Locked
+
+====================================================================
+
+MAIN RULE
+
+Любая новая функция проходит путь:
+
+Idea
+
+↓
+
+Architecture
+
+↓
+
+Storage
+
+↓
+
+Provider
+
+↓
+
+ViewModel
+
+↓
+
+Component
+
+↓
+
+Dashboard
+
+↓
+
+Bash Test
+
+↓
+
+Checkpoint
+
+====================================================================
+
+PROJECT VISION
+
+MarketCore является независимой исследовательской платформой.
+
+Finam является одним из Broker Adapter.
+
+Research Platform не зависит от Broker Layer.
+
+Presentation Platform не зависит от Execution Layer.
+
+Execution Layer не может изменять Research Layer.
+
+====================================================================
+
+CURRENT PRIORITY
+
+1
+
+Operator Workspace
+
+2
+
+Presentation Platform
+
+3
+
+Market Knowledge Platform
+
+4
+
+Research Platform V3
+
+5
+
+Broker Abstraction
+
+6
+
+Execution Platform
+
+====================================================================
+
+END OF DOCUMENT
