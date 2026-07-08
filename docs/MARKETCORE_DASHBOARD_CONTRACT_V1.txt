@@ -1,0 +1,147 @@
+MARKETCORE_DASHBOARD_CONTRACT_V1
+
+STATUS:
+DRAFT_FOR_IMPLEMENTATION
+
+PURPOSE:
+Define one unified dashboard contract for all MarketCore analytical screens.
+
+SCOPE:
+This contract applies to:
+- Max Edge
+- Shadow Observation
+- Daily Shadow Observation
+- Market Model
+- Portfolio
+- Risk
+- Research
+- System dashboards
+
+DASHBOARD STRUCTURE:
+
+Dashboard
+  Header
+  Toolbar
+  KPI Panel
+  Alert Panel
+  Filter Panel
+  Summary Cards
+  Main Data Table
+  Charts
+  Details
+  Footer
+
+HEADER:
+Required fields:
+- icon
+- title
+- subtitle
+- updated_at
+- refresh action
+
+TOOLBAR:
+Allowed actions only:
+- refresh
+- home
+- back
+- open
+- export
+- settings
+- help
+
+Forbidden toolbar actions:
+- send_order
+- place_order
+- cancel_order
+- execute_order
+- live_execution
+- paper_execution
+
+KPI PANEL:
+KPI cards must contain:
+- key
+- label_key
+- value
+- hint_key
+- tone
+- icon
+
+ALERT PANEL:
+Alerts must be limited to important operational information.
+Maximum visible alerts: 5.
+
+Allowed alert types:
+- info
+- warning
+- danger
+- success
+
+FILTER PANEL:
+Standard filters:
+- symbol
+- strategy
+- asset_class
+- timeframe
+- status
+- date
+- search
+
+MAIN TABLE:
+All dashboards must use a common DataTable component.
+
+TABLE COLUMNS:
+Each column must contain:
+- key
+- label_key
+- value_type
+- sortable
+- align
+
+CHARTS:
+Charts are optional.
+Charts must be declared through a chart contract, not embedded as raw HTML.
+
+DETAILS:
+Details section is optional.
+Used for drill-down and explanation.
+
+FOOTER:
+Required fields:
+- updated_at
+- rows_count
+- source
+- source_version
+
+I18N:
+No visible user text is allowed directly in dashboard components.
+All labels must be resource keys:
+- page.*
+- dashboard.*
+- column.*
+- button.*
+- status.*
+- tooltip.*
+- message.*
+
+SAFETY:
+Dashboard layer must not:
+- send orders
+- change runtime
+- change execution
+- insert orders
+- insert fills
+- call FinamClient
+- call ExecutionEngine
+
+ACCEPTANCE:
+A dashboard is accepted only if:
+- provider returns ViewModel only
+- component receives ViewModel only
+- no SQL in component
+- no user text outside i18n
+- route healthcheck passes
+- dangerous action audit passes
+- buttons and icons audit passes
+
+VERDICT:
+MARKETCORE_DASHBOARD_CONTRACT_V1_READY

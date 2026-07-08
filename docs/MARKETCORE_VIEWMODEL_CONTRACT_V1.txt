@@ -1,0 +1,194 @@
+MARKETCORE_VIEWMODEL_CONTRACT_V1
+
+STATUS:
+DRAFT_FOR_IMPLEMENTATION
+
+PURPOSE:
+Define a unified ViewModel contract for all MarketCore dashboards.
+
+RULE:
+Provider returns ViewModel.
+Component renders ViewModel.
+Page connects provider and component.
+No SQL in component.
+No HTML in provider.
+
+PAGE CONTRACT:
+
+Page:
+  route
+  title_key
+  icon
+  menu_order
+  provider
+  renderer
+
+Page responsibility:
+- instantiate provider
+- receive ViewModel
+- call dashboard renderer
+
+Page must not:
+- execute SQL
+- build custom HTML
+- call execution
+- change runtime
+- change orders or fills
+
+PROVIDER CONTRACT:
+
+Provider returns DashboardViewModel only.
+
+Provider may:
+- read PostgreSQL
+- aggregate data
+- map rows to ViewModel
+
+Provider must not:
+- return HTML
+- call execution
+- mutate runtime
+- mutate orders
+- mutate fills
+
+VIEWMODEL CONTRACT:
+
+DashboardViewModel:
+  dashboard_id
+  title_key
+  subtitle_key
+  icon
+  updated_at
+  toolbar
+  kpis
+  alerts
+  filters
+  summary_cards
+  table
+  charts
+  details
+  footer
+  safety
+
+TOOLBAR ITEM:
+
+ToolbarItem:
+  key
+  label_key
+  icon
+  href
+  disabled
+  action_type
+
+Allowed action_type:
+- navigation
+- refresh
+- export
+- open
+- help
+- settings
+
+Forbidden action_type:
+- execution
+- order
+- live
+- broker
+
+KPI ITEM:
+
+KpiItem:
+  key
+  label_key
+  value
+  hint_key
+  tone
+  icon
+
+ALERT ITEM:
+
+AlertItem:
+  key
+  label_key
+  message_key
+  tone
+  icon
+
+FILTER ITEM:
+
+FilterItem:
+  key
+  label_key
+  value
+  options
+  enabled
+
+TABLE MODEL:
+
+TableModel:
+  columns
+  rows
+  rows_count
+  empty_message_key
+
+TableColumn:
+  key
+  label_key
+  value_type
+  sortable
+  align
+
+CHART MODEL:
+
+ChartModel:
+  key
+  title_key
+  chart_type
+  data
+  options
+
+DETAIL MODEL:
+
+DetailModel:
+  key
+  title_key
+  body
+
+FOOTER MODEL:
+
+FooterModel:
+  updated_at
+  rows_count
+  source
+  source_version
+
+SAFETY MODEL:
+
+SafetyModel:
+  runtime_allowed
+  execution_allowed
+  micro_live_allowed
+  orders_changed
+  fills_changed
+
+Required safety values for read-only dashboards:
+  runtime_allowed=0
+  execution_allowed=0
+  micro_live_allowed=0
+  orders_changed=0
+  fills_changed=0
+
+I18N:
+All visible labels must be keys.
+The ViewModel must not contain hardcoded Russian or English user-facing labels.
+
+ACCEPTANCE:
+ViewModel contract is accepted if:
+- dataclasses exist
+- provider can construct DashboardViewModel
+- renderer can render DashboardViewModel
+- no dangerous actions exist
+- safety fields are explicit
+- bash test passes
+
+VERDICT:
+MARKETCORE_VIEWMODEL_CONTRACT_V1_READY
