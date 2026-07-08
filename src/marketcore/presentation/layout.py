@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from marketcore.presentation.i18n.runtime import tr, translate
+
 from marketcore.presentation.components.layout.sidebar import render_sidebar
 
 from marketcore.presentation.components.layout.status_bar import render_status_bar
@@ -301,13 +303,14 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
         page_title = title or "MarketCore"
         route = active_route or "/"
     sidebar_html = render_sidebar(route)
+    localized_page_title = translate(page_title)
 
     return f"""<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_e(page_title)}</title>
+<title>{_e(localized_page_title)}</title>
 <style>
 {BASE_CSS}
 </style>
@@ -317,7 +320,7 @@ def render_layout(page: Page | None = None, content: str = "", title: str | None
     {sidebar_html}
     <main class="main">
         <div class="topbar">
-            <div class="topbar-title">{_e(page_title)}</div>
+            <div class="topbar-title">{_e(localized_page_title)}</div>
             <div class="topbar-meta">Read-only · MarketCore · <span id="ui-clock">--.--.---- --:--:--</span></div>
         </div>
         {content}

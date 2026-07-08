@@ -1,0 +1,21 @@
+MARKETCORE_OPERATOR_HOME_I18N_FINAL_FIX_V1
+
+GOAL:
+Complete localization of Operator Workspace.
+
+RULES:
+- no raw page.*
+- no raw widget.*
+- no raw statusbar.*
+- no raw column.*
+- no raw button.*
+- no raw dashboard.*
+- every rendered key must exist in presentation.ui_resource_v1
+- operator mode must show only localized text
+
+SUCCESS CRITERIA:
+RAW_I18N_KEYS_VISIBLE=0
+I18N_COVERAGE=100%
+
+VERDICT:
+MARKETCORE_OPERATOR_HOME_I18N_FINAL_FIX_V1_READY

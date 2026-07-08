@@ -5,6 +5,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from marketcore.presentation.components.common.html import h
+from marketcore.presentation.i18n.runtime import tr
 
 DEFAULT_TZ = "Europe/Moscow"
 DEFAULT_CURRENCY = "RUB"
@@ -69,13 +70,13 @@ def render_status_bar(
     return f"""
     <div class="marketcore-status-bar">
         <span class="status-bar-brand">🧠 MarketCore</span>
-        <span class="status-bar-item" data-i18n-key="statusbar.broker">statusbar.broker: {_select("broker", BROKER_OPTIONS, broker)}</span>
-        <span class="status-bar-item" data-i18n-key="statusbar.connection">statusbar.connection: {h(connection_status)}</span>
-        <span class="status-bar-item" data-i18n-key="statusbar.timezone">statusbar.timezone: {_select("timezone", TZ_OPTIONS, timezone)}</span>
-        <span class="status-bar-item" data-i18n-key="statusbar.currency">statusbar.currency: {_select("currency", CURRENCY_OPTIONS, currency)}</span>
-        <span class="status-bar-item" data-i18n-key="statusbar.portfolio">statusbar.portfolio: {h(_money(portfolio_value, currency))}</span>
-        <span class="status-bar-item status-bar-pnl status-bar-pnl-{h(pnl_tone)}" data-i18n-key="statusbar.daily_pnl">statusbar.daily_pnl: {pnl_icon} {h(_money_signed(daily_pnl, currency))} ({h(_pct(daily_pnl_pct))})</span>
-        <span class="status-bar-item" data-i18n-key="statusbar.last_data_update">statusbar.last_data_update: {h(last_data_update)}</span>
-        <span class="status-bar-item status-bar-time" data-i18n-key="statusbar.local_time">statusbar.local_time: {h(now)}</span>
+        <span class="status-bar-item">{tr("statusbar.broker")}: {_select("broker", BROKER_OPTIONS, broker)}</span>
+        <span class="status-bar-item">{tr("statusbar.connection")}: {h(connection_status)}</span>
+        <span class="status-bar-item">{tr("statusbar.timezone")}: {_select("timezone", TZ_OPTIONS, timezone)}</span>
+        <span class="status-bar-item">{tr("statusbar.currency")}: {_select("currency", CURRENCY_OPTIONS, currency)}</span>
+        <span class="status-bar-item">{tr("statusbar.portfolio")}: {h(_money(portfolio_value, currency))}</span>
+        <span class="status-bar-item status-bar-pnl status-bar-pnl-{h(pnl_tone)}">{tr("statusbar.daily_pnl")}: {pnl_icon} {h(_money_signed(daily_pnl, currency))} ({h(_pct(daily_pnl_pct))})</span>
+        <span class="status-bar-item">{tr("statusbar.last_data_update")}: {h(last_data_update)}</span>
+        <span class="status-bar-item status-bar-time">{tr("statusbar.local_time")}: {h(now)}</span>
     </div>
     """

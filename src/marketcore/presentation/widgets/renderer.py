@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from marketcore.presentation.components.common.html import h
+from marketcore.presentation.i18n.runtime import tr
 from marketcore.presentation.widgets.contracts import WidgetViewModel
 
 
@@ -18,7 +19,7 @@ def render_widget(vm: WidgetViewModel) -> str:
     <section class="marketcore-widget" data-widget-id="{h(vm.widget_id)}">
         <header class="widget-header">
             <span class="widget-icon">{h(vm.icon)}</span>
-            <h2 data-i18n-key="{h(vm.title_key)}">{h(vm.title_key)}</h2>
+            <h2>{tr(vm.title_key)}</h2>
         </header>
         <div class="widget-body">
             {''.join(rows)}
