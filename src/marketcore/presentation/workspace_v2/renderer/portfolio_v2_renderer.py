@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from html import escape
-
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
 from marketcore.presentation.framework.theme_model import ThemeModel
 from marketcore.presentation.framework.theme_resolver import ThemeResolverV1
+from marketcore.presentation.render_tree.render_document import RenderDocument
+from marketcore.presentation.render_tree.render_node import RenderNode
 from marketcore.presentation.workspace_v2.formatter.portfolio_v2_formatter import (
     PortfolioV2Formatter,
 )
@@ -31,7 +31,7 @@ def render_portfolio_v2(
     vm: PortfolioV2ViewModel,
     locale_code: str = "ru",
     theme_code: str = "DEFAULT",
-) -> str:
+) -> RenderDocument:
     i18n = UiI18nResolverV1(locale_code=locale_code)
     theme = ThemeResolverV1().resolve(theme_code)
     formatter = PortfolioV2Formatter()
@@ -55,53 +55,86 @@ def render_portfolio_v2(
 
     row_style = _value_row_layout(theme)
 
-    html = [
-        f'<main class="mc-v2-shell" style="{escape(shell_style)}">',
-        '<section class="mc-v2-page">',
-        f'<h1>{escape(i18n.text(vm.title_key))}</h1>',
-        f'<header class="mc-v2-header">{escape(i18n.text(vm.subtitle_key))}</header>',
-    ]
+    section_nodes = []
 
     for section in vm.sections:
-        html.append(
-            f'<section class="mc-v2-section" data-section="{escape(section.section_type.value)}">'
-        )
-        html.append(f'<h2>{escape(i18n.text(section.title_key))}</h2>')
-        html.append(f'<p>{escape(i18n.text(section.subtitle_key))}</p>')
-        html.append(f'<div class="mc-v2-grid" style="{escape(grid_style)}">')
+        card_nodes = []
 
         for card in section.cards:
-            html.append(
-                "<article "
-                f'class="mc-v2-card" '
-                f'style="{escape(card_style)}" '
-                f'data-card="{escape(card.card_type.value)}" '
-                f'data-status="{escape(card.status_code.value)}">'
-            )
-            html.append(f'<h3>{escape(i18n.text(card.title_key))}</h3>')
-            html.append(f'<div>{escape(i18n.text(card.subtitle_key))}</div>')
-
+            value_nodes = []
             values = card.payload.get("values", {})
             column_keys = card.payload.get("column_keys", {})
 
-            if values:
-                html.append('<dl class="mc-v2-values">')
-                for column_name, raw_value in values.items():
-                    column_key = str(column_keys.get(column_name, column_name))
-                    html.append(
-                        f'<div class="mc-v2-value-row" style="{escape(row_style)}">'
-                        f"<dt>{escape(i18n.text(column_key))}</dt>"
-                        f"<dd>{escape(formatter.value(str(column_name), raw_value))}</dd>"
-                        "</div>"
+            for column_name, raw_value in values.items():
+                column_key = str(column_keys.get(column_name, column_name))
+                value_nodes.append(
+                    RenderNode(
+                        "div",
+                        props={"class": "mc-v2-value-row", "style": row_style},
+                        children=(
+                            RenderNode("dt", text=i18n.text(column_key)),
+                            RenderNode("dd", text=formatter.value(str(column_name), raw_value)),
+                        ),
                     )
-                html.append("</dl>")
+                )
 
-            html.append("</article>")
+            children = [
+                RenderNode("h3", text=i18n.text(card.title_key)),
+                RenderNode("div", text=i18n.text(card.subtitle_key)),
+            ]
 
-        html.append("</div>")
-        html.append("</section>")
+            if value_nodes:
+                children.append(
+                    RenderNode(
+                        "dl",
+                        props={"class": "mc-v2-values"},
+                        children=tuple(value_nodes),
+                    )
+                )
 
-    html.append("</section>")
-    html.append("</main>")
+            card_nodes.append(
+                RenderNode(
+                    "article",
+                    props={
+                        "class": "mc-v2-card",
+                        "style": card_style,
+                        "data-card": card.card_type.value,
+                        "data-status": card.status_code.value,
+                    },
+                    children=tuple(children),
+                )
+            )
 
-    return "\n".join(html)
+        section_nodes.append(
+            RenderNode(
+                "section",
+                props={"class": "mc-v2-section", "data-section": section.section_type.value},
+                children=(
+                    RenderNode("h2", text=i18n.text(section.title_key)),
+                    RenderNode("p", text=i18n.text(section.subtitle_key)),
+                    RenderNode(
+                        "div",
+                        props={"class": "mc-v2-grid", "style": grid_style},
+                        children=tuple(card_nodes),
+                    ),
+                ),
+            )
+        )
+
+    return RenderDocument(
+        root=RenderNode(
+            "main",
+            props={"class": "mc-v2-shell", "style": shell_style},
+            children=(
+                RenderNode(
+                    "section",
+                    props={"class": "mc-v2-page"},
+                    children=(
+                        RenderNode("h1", text=i18n.text(vm.title_key)),
+                        RenderNode("header", props={"class": "mc-v2-header"}, text=i18n.text(vm.subtitle_key)),
+                        *tuple(section_nodes),
+                    ),
+                ),
+            ),
+        )
+    )
