@@ -10,6 +10,12 @@ import psycopg2.extras
 from marketcore.presentation.workspace_v2.design_system_v1 import (
     render_action_card,
     render_kpi_card,
+    render_kpi_card_v2,
+)
+from marketcore.presentation.workspace_v2.display_terms_v1 import (
+    load_terms,
+    term_label,
+    term_tooltip,
 )
 
 
@@ -82,6 +88,21 @@ def render_workspace_v2_portfolio_v1() -> str:
             gate = cur.fetchone() or {}
             production_status = str(gate.get("gate_status") or "LOCKED")
 
+            terms = load_terms(
+                cur,
+                [
+                    "PROFIT_FACTOR",
+                    "EXPECTANCY_R",
+                    "FEEDBACK_QUEUE",
+                    "MODE",
+                    "PAPER_MODE",
+                    "STATUS_WARNING",
+                    "STATUS_LOCKED",
+                    "STATUS_PASS",
+                ],
+                mode="short",
+            )
+
             position_rows = 0
             capital_rows = 0
             for table_name in (
@@ -118,10 +139,10 @@ def render_workspace_v2_portfolio_v1() -> str:
   </section>
 
   <section class="mc-v2-grid" style="margin-top:12px">
-    {render_kpi_card("PF", _fmt_num(paper.get("profit_factor")), "WARNING", "Коэфф. прибыльности")}
-    {render_kpi_card("Ожид.", _fmt_num(paper.get("expectancy_r")), "WARNING", "Ожидание в R")}
-    {render_kpi_card("Реком.", feedback_rows, "WARNING", "Очередь рекомендаций")}
-    {render_kpi_card("Режим", "Paper", "WARNING", "Без реальных заявок")}
+    {render_kpi_card_v2(term_label(terms, "PROFIT_FACTOR"), _fmt_num(paper.get("profit_factor")), "WARNING", term_label(terms, "STATUS_WARNING"), term_tooltip(terms, "PROFIT_FACTOR"))}
+    {render_kpi_card_v2(term_label(terms, "EXPECTANCY_R"), _fmt_num(paper.get("expectancy_r")), "WARNING", term_label(terms, "STATUS_WARNING"), term_tooltip(terms, "EXPECTANCY_R"))}
+    {render_kpi_card_v2(term_label(terms, "FEEDBACK_QUEUE"), feedback_rows, "WARNING", term_label(terms, "STATUS_WARNING"), term_tooltip(terms, "FEEDBACK_QUEUE"))}
+    {render_kpi_card_v2(term_label(terms, "MODE"), term_label(terms, "PAPER_MODE"), "WARNING", term_label(terms, "STATUS_WARNING"), term_tooltip(terms, "PAPER_MODE"))}
   </section>
 
   <section class="mc-v2-grid" style="margin-top:12px">

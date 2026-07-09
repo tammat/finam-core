@@ -52,3 +52,14 @@ def render_action_card(title: str, body: str, action_label: str, href: str) -> s
         f'<a class="mc-v2-button" href="{_safe(href)}">{_safe(action_label)}</a>'
         '</section>'
     )
+
+def render_kpi_card_v2(label: str, value: Any, status_code: str = "", status_label: str = "", hint: str = "") -> str:
+    badge = render_badge(status_label, status_code) if status_code else ""
+    return (
+        '<section class="mc-v2-card mc-v2-kpi">'
+        f'<div class="mc-v2-kpi-label">{_safe(label)}</div>'
+        f'<div class="mc-v2-kpi-value">{_safe(value)}</div>'
+        f'{badge}'
+        f'<div class="mc-v2-kpi-label">{_safe(hint)}</div>'
+        '</section>'
+    )
