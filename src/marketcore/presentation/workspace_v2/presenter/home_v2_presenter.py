@@ -48,6 +48,7 @@ class HomeV2Presenter:
             status_label_key="ui.status.ok",
             cards=(
                 self._nav_card("home.card.portfolio", "home.card.portfolio.title", "/workspace-v2/portfolio", 10),
+                self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
                 self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20),
                 self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30),
                 self._nav_card("home.card.runtime", "home.card.runtime.title", "/runtime", 40),
