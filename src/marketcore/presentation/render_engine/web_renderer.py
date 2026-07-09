@@ -7,7 +7,7 @@ from marketcore.presentation.render_tree.render_document import RenderDocument
 from marketcore.presentation.render_tree.render_node import RenderNode
 
 
-class HtmlAdapter:
+class WebRenderer:
     TAGS = {
         "main": "main",
         "section": "section",
