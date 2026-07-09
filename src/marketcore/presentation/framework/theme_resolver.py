@@ -1,32 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
 
-
-@dataclass(frozen=True, slots=True)
-class ThemeProperty:
-    property_code: str
-    property_value: str
-    property_type: str
-    description_key: str
-    display_order: int
+from marketcore.presentation.framework.mapper.theme_mapper import ThemeModelMapper
 
 
-@dataclass(frozen=True, slots=True)
-class ThemeModel:
-    theme_code: str
-    theme_name_key: str
-    description_key: str
-    properties: dict[str, ThemeProperty]
-
-    def get(self, property_code: str, default: str = "") -> str:
-        prop = self.properties.get(property_code)
-        return prop.property_value if prop else default
-
+from marketcore.presentation.framework.theme_model import ThemeModel
 
 class ThemeResolverV1:
     def __init__(self) -> None:
@@ -78,22 +60,8 @@ class ThemeResolverV1:
                     (theme["theme_code"],),
                 )
 
-                props = {
-                    str(row["property_code"]): ThemeProperty(
-                        property_code=str(row["property_code"]),
-                        property_value=str(row["property_value"]),
-                        property_type=str(row["property_type"]),
-                        description_key=str(row["description_key"]),
-                        display_order=int(row["display_order"]),
-                    )
-                    for row in cur.fetchall()
-                }
+                property_rows = list(cur.fetchall())
 
-        model = ThemeModel(
-            theme_code=str(theme["theme_code"]),
-            theme_name_key=str(theme["theme_name_key"]),
-            description_key=str(theme["description_key"]),
-            properties=props,
-        )
+        model = ThemeModelMapper.with_properties(theme, property_rows)
         self._cache[key] = model
         return model
