@@ -54,7 +54,7 @@ class HomeV2Presenter:
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
             cards=tuple(
-                self._status_card(item.item_code, item.title_key, item.subtitle_key, item.status_code, item.status_label_key, index)
+                self._status_card(item, index)
                 for index, item in enumerate(status_items, start=1)
             ),
         )
@@ -90,22 +90,22 @@ class HomeV2Presenter:
 
     def _status_card(
         self,
-        item_code: str,
-        title_key: str,
-        subtitle_key: str,
-        status_code: UiStatusCode,
-        status_label_key: str,
+        item,
         priority: int,
     ) -> BaseCard:
         return BaseCard(
-            widget_id=f"home.card.status.{item_code}",
+            widget_id=f"home.card.status.{item.item_code}",
             widget_type=WidgetType.BASE,
             card_type=CardType.KPI,
-            title_key=title_key,
-            subtitle_key=subtitle_key,
-            status_code=status_code,
-            status_label_key=status_label_key,
+            title_key=item.title_key,
+            subtitle_key=item.subtitle_key,
+            status_code=item.status_code,
+            status_label_key=item.status_label_key,
             priority=priority,
+            payload={
+                "rows_total": item.rows_total,
+                "updated_at": item.updated_at,
+            },
         )
 
     def _nav_card(self, widget_id: str, title_key: str, target: str, priority: int) -> BaseCard:

@@ -36,6 +36,18 @@ def render_home_v2(vm: HomeV2ViewModel, locale_code: str = "ru") -> str:
             )
             html.append(f'<h3>{escape(i18n.text(card.title_key))}</h3>')
             html.append(f'<div>{escape(i18n.text(card.subtitle_key))}</div>')
+
+            rows_total = card.payload.get("rows_total")
+            updated_at = card.payload.get("updated_at")
+            if rows_total is not None:
+                html.append(
+                    f'<div>{escape(i18n.text("home.card.status.rows"))}: {escape(str(rows_total))}</div>'
+                )
+            if updated_at:
+                html.append(
+                    f'<div>{escape(i18n.text("home.card.status.updated"))}: {escape(str(updated_at))}</div>'
+                )
+
             if target:
                 html.append(f'<a class="mc-v2-button" href="{escape(target)}">{escape(i18n.text("ui.action.open"))}</a>')
             html.append("</article>")

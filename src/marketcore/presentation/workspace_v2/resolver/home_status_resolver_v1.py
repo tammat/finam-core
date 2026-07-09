@@ -69,6 +69,7 @@ class HomeStatusResolverV1:
             status_code=status_code,
             status_label_key=self._status_label_key(status_code),
             rows_total=rows_total,
+            updated_at=self._updated_at(cur, table_names),
         )
 
     def _runtime_item(self, cur: Any) -> HomeStatusItemV1:
@@ -81,7 +82,43 @@ class HomeStatusResolverV1:
             status_code=status_code,
             status_label_key=self._status_label_key(status_code),
             rows_total=rows_total,
+            updated_at=self._updated_at(cur, self.RUNTIME_TABLES),
         )
+
+    def _updated_at(
+        self,
+        cur: Any,
+        table_names: tuple[str, ...],
+    ) -> str:
+
+        for table_name in table_names:
+
+            if not self._table_exists(cur, table_name):
+                continue
+
+            schema_name, object_name = table_name.split(".",1)
+
+            cur.execute(
+                """
+                SELECT pg_stat_get_last_analyze_time(c.oid) AS ts
+                FROM pg_class c
+                JOIN pg_namespace n
+                  ON n.oid=c.relnamespace
+                WHERE n.nspname=%s
+                  AND c.relname=%s
+                """,
+                (
+                    schema_name,
+                    object_name,
+                ),
+            )
+
+            row=cur.fetchone()
+
+            if row and row["ts"]:
+                return str(row["ts"])
+
+        return ""
 
     def _safe_count(self, cur: Any, table_name: str) -> int:
         if not self._table_exists(cur, table_name):

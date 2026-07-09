@@ -13,3 +13,4 @@ class HomeStatusItemV1:
     status_code: UiStatusCode
     status_label_key: str
     rows_total: int
+    updated_at: str
