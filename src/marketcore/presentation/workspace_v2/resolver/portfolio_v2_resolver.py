@@ -12,7 +12,7 @@ from marketcore.presentation.workspace_v2.domain.portfolio_model_v1 import Portf
 
 class PortfolioV2Resolver:
     SUMMARY_VIEW = "public.v_real_portfolio_summary_ru"
-    POSITIONS_VIEW = "public.v_real_portfolio_positions_ru"
+    POSITIONS_VIEW = "presentation.v_workspace_v2_portfolio_positions_ru"
     DASHBOARD_VIEW = "public.v_positions_dashboard_ru"
     VISUALIZATION_VIEW = "public.v_portfolio_visualization_ru"
 
