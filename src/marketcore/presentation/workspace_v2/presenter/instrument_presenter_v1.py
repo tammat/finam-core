@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from marketcore.presentation.framework.registry import UiStatusCode
 from marketcore.presentation.workspace_v2.resolver.instrument_display_resolver_v1 import (
     InstrumentDisplayResolverV1,
 )
@@ -15,26 +16,13 @@ class InstrumentPresenterV1:
     def card(self, symbol: str) -> InstrumentCardViewModelV1:
         instrument = self._resolver.resolve(symbol)
 
-        icon = {
-            "STOCK": "📈",
-            "SHARE": "📈",
-            "FUTURES": "📊",
-            "FUTURE": "📊",
-            "FX": "💱",
-            "CURRENCY": "💱",
-            "BOND": "📄",
-            "ETF": "🧺",
-        }.get(instrument.asset_class.upper(), "◼")
-
-        status = "fallback" if instrument.fallback_used else "ok"
-
         return InstrumentCardViewModelV1(
-            title=instrument.display_name,
-            subtitle=instrument.symbol,
-            badge=instrument.asset_class,
-            status=status,
-            icon=icon,
-            tooltip=f"{instrument.display_name} / {instrument.exchange} / {instrument.currency}",
+            title_key=instrument.title_key,
+            subtitle_key=instrument.subtitle_key,
+            badge_key=instrument.badge_key,
+            status_code=UiStatusCode.FALLBACK if instrument.fallback_used else UiStatusCode.OK,
+            icon_key=instrument.brand_icon_key,
+            tooltip_key=instrument.tooltip_key,
             navigation_target=f"/workspace-v2/instruments/{instrument.symbol}",
             source_table=instrument.source_table,
             fallback_used=instrument.fallback_used,

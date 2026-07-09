@@ -7,7 +7,7 @@ import psycopg2
 import psycopg2.extras
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InstrumentPresentation:
     symbol: str
     display_name: str
@@ -17,6 +17,12 @@ class InstrumentPresentation:
     currency: str
     source_table: str
     fallback_used: bool
+
+    title_key: str
+    subtitle_key: str
+    tooltip_key: str
+    brand_icon_key: str
+    badge_key: str
 
 
 class InstrumentDisplayResolverV1:
@@ -113,6 +119,12 @@ class InstrumentDisplayResolverV1:
             currency="RUB",
             source_table="public.moex_top_universe",
             fallback_used=False,
+
+            title_key="instrument.title",
+            subtitle_key="instrument.subtitle",
+            tooltip_key="instrument.tooltip.default",
+            brand_icon_key="brand.default",
+            badge_key="instrument.asset_class",
         )
 
     def _build(
@@ -141,6 +153,12 @@ class InstrumentDisplayResolverV1:
             currency=str(row.get("currency") or "RUB"),
             source_table=source_table,
             fallback_used=fallback_used,
+
+            title_key="instrument.title",
+            subtitle_key="instrument.subtitle",
+            tooltip_key="instrument.tooltip.default",
+            brand_icon_key="brand.default",
+            badge_key="instrument.asset_class",
         )
 
     def _fallback(self, symbol: str) -> InstrumentPresentation:
@@ -153,6 +171,12 @@ class InstrumentDisplayResolverV1:
             currency="UNKNOWN",
             source_table="fallback",
             fallback_used=True,
+
+            title_key="instrument.title",
+            subtitle_key="instrument.subtitle",
+            tooltip_key="instrument.tooltip.default",
+            brand_icon_key="brand.default",
+            badge_key="instrument.asset_class",
         )
 
 

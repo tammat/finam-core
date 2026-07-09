@@ -50,6 +50,7 @@ class UiStatusCode(StrEnum):
     LOCKED = "LOCKED"
     ERROR = "ERROR"
     ARCHIVED = "ARCHIVED"
+    FALLBACK = "FALLBACK"
 
 
 class ActionCode(StrEnum):
