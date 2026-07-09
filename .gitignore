@@ -79,3 +79,28 @@ _wip/
 
 # Runtime snapshots
 data/snapshot.json
+
+# ==================================================
+# MarketCore local runtime / temporary files
+# ==================================================
+
+tmp/
+reports/
+
+__pycache__/
+*.py[cod]
+*.pyo
+
+.vscode/
+.idea/
+
+.DS_Store
+
+data/snapshot.json
+
+*.tmp
+*.bak
+*.orig
+*.rej
+
+tmp/untracked_review_*/
