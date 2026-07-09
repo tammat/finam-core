@@ -14,12 +14,16 @@ from marketcore.presentation.framework.registry import (
 from marketcore.presentation.workspace_v2.resolver.home_status_resolver_v1 import (
     HomeStatusResolverV1,
 )
+from marketcore.presentation.workspace_v2.resolver.home_operator_dashboard_resolver_v1 import (
+    HomeOperatorDashboardResolverV1,
+)
 from marketcore.presentation.workspace_v2.viewmodel.home_v2_viewmodel import HomeV2ViewModel
 
 
 class HomeV2Presenter:
     def __init__(self) -> None:
         self._status_resolver = HomeStatusResolverV1()
+        self._operator_resolver = HomeOperatorDashboardResolverV1()
 
     def load(self) -> HomeV2ViewModel:
         system_section = BaseSection(
@@ -59,6 +63,21 @@ class HomeV2Presenter:
             ),
         )
 
+        operator_items = self._operator_resolver.resolve()
+        operator_section = BaseSection(
+            section_id="home.operator.section",
+            section_type=SectionType.SUMMARY,
+            title_key="home.operator.section.title",
+            subtitle_key="home.operator.section.subtitle",
+            order=18,
+            status_code=UiStatusCode.WARNING,
+            status_label_key="ui.status.warning",
+            cards=tuple(
+                self._operator_card(item, index)
+                for index, item in enumerate(operator_items, start=1)
+            ),
+        )
+
         navigation_section = BaseSection(
             section_id="home.section.navigation",
             section_type=SectionType.ACTIONS,
@@ -83,7 +102,7 @@ class HomeV2Presenter:
             subtitle_key="home.workspace.subtitle",
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
-            sections=(system_section, status_section, navigation_section),
+            sections=(system_section, status_section, operator_section, navigation_section),
         )
 
         return HomeV2ViewModel(layout=layout)
@@ -105,6 +124,25 @@ class HomeV2Presenter:
             payload={
                 "rows_total": item.rows_total,
                 "updated_at": item.updated_at,
+            },
+        )
+
+    def _operator_card(
+        self,
+        item,
+        priority: int,
+    ) -> BaseCard:
+        return BaseCard(
+            widget_id=f"home.operator.{item.item_code}",
+            widget_type=WidgetType.BASE,
+            card_type=CardType.KPI,
+            title_key=item.title_key,
+            subtitle_key=item.subtitle_key,
+            status_code=item.status_code,
+            status_label_key=item.status_label_key,
+            priority=priority,
+            payload={
+                "rows_total": item.rows_total,
             },
         )
 
