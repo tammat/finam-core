@@ -8,9 +8,14 @@ import psycopg2
 import psycopg2.extras
 
 from marketcore.presentation.workspace_v2.design_system_v1 import (
-    render_kpi_card,
-    render_progress,
     render_action_card,
+    render_kpi_card_v2,
+    render_progress,
+)
+from marketcore.presentation.workspace_v2.display_terms_v1 import (
+    load_terms,
+    term_label,
+    term_tooltip,
 )
 
 
@@ -46,19 +51,6 @@ def _component_map(cur, snapshot_id: int) -> dict[str, dict[str, Any]]:
     return {str(r["component_code"]): dict(r) for r in cur.fetchall()}
 
 
-def _feedback_rows(cur) -> list[dict[str, Any]]:
-    cur.execute("""
-        SELECT feedback_reason_code, feedback_severity_code,
-               recommended_action_code, count(*) AS rows_total
-        FROM analytics.paper_execution_feedback_v1
-        WHERE source_version='PAPER_EXECUTION_FEEDBACK_ENGINE_V1'
-        GROUP BY feedback_reason_code, feedback_severity_code, recommended_action_code
-        ORDER BY rows_total DESC, feedback_reason_code
-        LIMIT 6
-    """)
-    return [dict(r) for r in cur.fetchall()]
-
-
 def _paper_summary(cur) -> dict[str, Any]:
     cur.execute("""
         SELECT trades_total, profit_factor, expectancy_r, win_rate
@@ -82,32 +74,80 @@ def _production_gate(cur, snapshot_id: int) -> dict[str, Any]:
     return dict(row) if row else {"gate_status": "LOCKED", "gate_reason": "NO_GATE"}
 
 
-def _term(cur, term_code: str, mode: str = "short") -> str:
-    column = {
-        "full": "caption_full",
-        "short": "caption_short",
-        "mobile": "caption_mobile",
-    }.get(mode, "caption_short")
-    cur.execute(f"""
-        SELECT {column} AS caption
-        FROM presentation.workspace_v2_display_term_v1
-        WHERE term_code=%s
-          AND enabled
-        LIMIT 1
-    """, (term_code,))
-    row = cur.fetchone()
-    return str(row["caption"]) if row else term_code
+def _feedback_rows(cur) -> list[dict[str, Any]]:
+    cur.execute("""
+        SELECT
+            f.feedback_reason_code,
+            f.feedback_severity_code,
+            f.recommended_action_code,
+            count(*) AS rows_total,
+            coalesce(rr.caption_short, f.feedback_reason_code) AS reason_caption,
+            coalesce(ss.caption_short, f.feedback_severity_code) AS severity_caption,
+            coalesce(aa.caption_short, f.recommended_action_code) AS action_caption
+        FROM analytics.paper_execution_feedback_v1 f
+        LEFT JOIN presentation.ui_resource_v1 rr
+          ON rr.resource_key='paper.feedback.reason.'||lower(f.feedback_reason_code)
+         AND rr.locale_code='ru'
+        LEFT JOIN presentation.ui_resource_v1 ss
+          ON ss.resource_key='paper.feedback.severity.'||lower(f.feedback_severity_code)
+         AND ss.locale_code='ru'
+        LEFT JOIN presentation.ui_resource_v1 aa
+          ON aa.resource_key='paper.feedback.'||lower(f.recommended_action_code)
+         AND aa.locale_code='ru'
+        WHERE f.source_version='PAPER_EXECUTION_FEEDBACK_ENGINE_V1'
+        GROUP BY
+            f.feedback_reason_code,
+            f.feedback_severity_code,
+            f.recommended_action_code,
+            rr.caption_short,
+            ss.caption_short,
+            aa.caption_short
+        ORDER BY rows_total DESC, f.feedback_reason_code
+        LIMIT 6
+    """)
+    return [dict(r) for r in cur.fetchall()]
 
 
 def render_mission_control_v1() -> str:
     with psycopg2.connect("postgresql:///finam_core") as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            terms = load_terms(
+                cur,
+                [
+                    "WORKSPACE_TITLE",
+                    "HOME",
+                    "PROJECT_STATE",
+                    "RESEARCH_STATE",
+                    "READY_STATE",
+                    "NEXT_ACTION",
+                    "CONTINUE_PAPER",
+                    "CHECK_APPROVAL",
+                    "MAIN_REASONS",
+                    "MARKET_MODEL_QUALITY",
+                    "LEARNING_READINESS",
+                    "ROBUSTNESS",
+                    "PAPER_COVERAGE",
+                    "PRODUCTION_READINESS",
+                    "TRADES",
+                    "PROFIT_FACTOR",
+                    "EXPECTANCY_R",
+                    "PORTFOLIO",
+                    "INSTRUMENTS",
+                    "PAPER_MODE",
+                    "OPEN_ACTION",
+                    "STATUS_WARNING",
+                    "STATUS_PASS",
+                    "STATUS_LOCKED",
+                ],
+                mode="short",
+            )
+
             snapshot_id = _latest_model_health_snapshot(cur)
             if snapshot_id is None:
                 return render_action_card(
-                    "Центр управления",
-                    "Нет снимка здоровья модели. Сначала выполните MARKETCORE_MODEL_HEALTH_ENGINE_V1.",
-                    "Открыть диагностику",
+                    term_label(terms, "HOME"),
+                    term_tooltip(terms, "PRODUCTION_READINESS"),
+                    term_label(terms, "OPEN_ACTION"),
                     "/runtime",
                 )
 
@@ -122,50 +162,56 @@ def render_mission_control_v1() -> str:
             paper_coverage = components.get("PAPER_COVERAGE", {})
 
             production_status = str(production.get("gate_status", "LOCKED"))
-            main_state = "Исследование" if production_status != "PASS" else "Готово"
-            next_action = "Продолжать бумажную проверку" if production_status != "PASS" else "Проверить допуск"
+            if production_status == "PASS":
+                main_state = term_label(terms, "READY_STATE")
+                next_action = term_label(terms, "CHECK_APPROVAL")
+                status_label = term_label(terms, "STATUS_PASS")
+            else:
+                main_state = term_label(terms, "RESEARCH_STATE")
+                next_action = term_label(terms, "CONTINUE_PAPER")
+                status_label = term_label(terms, "STATUS_WARNING")
 
             feedback_html = "".join(
                 "<li>"
-                f"<b>{_safe(r['feedback_reason_code'])}</b> "
-                f"<span>{_safe(r['feedback_severity_code'])}</span> "
+                f"<b>{_safe(r['reason_caption'])}</b> "
+                f"<span>{_safe(r['severity_caption'])}</span> "
                 f"<em>{_safe(r['rows_total'])}</em>"
                 "</li>"
                 for r in feedback
-            ) or "<li>Нет активных рекомендаций</li>"
+            ) or f"<li>{_safe(term_tooltip(terms, 'MAIN_REASONS'))}</li>"
 
             return f"""
 <link rel="stylesheet" href="/static/workspace_v2_design_system_v1.css">
 <main class="mc-v2-shell">
   <section class="mc-v2-card">
-    <div class="mc-v2-kpi-label">MarketCore Workspace V2</div>
-    <h1>Центр управления</h1>
+    <div class="mc-v2-kpi-label">{_safe(term_label(terms, "WORKSPACE_TITLE"))}</div>
+    <h1>{_safe(term_label(terms, "HOME"))}</h1>
     <div class="mc-v2-badge mc-v2-badge-warning">{_safe(main_state)}</div>
-    <p>Production: <b>{_safe(production_status)}</b>. Далее: <b>{_safe(next_action)}</b>.</p>
+    <p>{_safe(term_label(terms, "PRODUCTION_READINESS"))}: <b>{_safe(production_status)}</b>. {_safe(term_label(terms, "NEXT_ACTION"))}: <b>{_safe(next_action)}</b>.</p>
   </section>
 
   <section class="mc-v2-grid" style="margin-top:12px">
-    {render_kpi_card(_term(cur, "MARKET_MODEL_QUALITY", "short"), _fmt_pct(market_quality.get("component_value")), str(market_quality.get("component_status", "")), "Качество модели")}
-    {render_kpi_card(_term(cur, "LEARNING_READINESS", "short"), _fmt_pct(learning.get("component_value")), str(learning.get("component_status", "")), "Готовность к обучению")}
-    {render_kpi_card(_term(cur, "ROBUSTNESS", "short"), _fmt_pct(robustness.get("component_value")), str(robustness.get("component_status", "")), "Защита от переобучения")}
-    {render_kpi_card(_term(cur, "PAPER_COVERAGE", "short"), _fmt_pct(paper_coverage.get("component_value")), str(paper_coverage.get("component_status", "")), "Бумажная проверка")}
+    {render_kpi_card_v2(term_label(terms, "MARKET_MODEL_QUALITY"), _fmt_pct(market_quality.get("component_value")), str(market_quality.get("component_status", "")), status_label, term_tooltip(terms, "MARKET_MODEL_QUALITY"))}
+    {render_kpi_card_v2(term_label(terms, "LEARNING_READINESS"), _fmt_pct(learning.get("component_value")), str(learning.get("component_status", "")), status_label, term_tooltip(terms, "LEARNING_READINESS"))}
+    {render_kpi_card_v2(term_label(terms, "ROBUSTNESS"), _fmt_pct(robustness.get("component_value")), str(robustness.get("component_status", "")), status_label, term_tooltip(terms, "ROBUSTNESS"))}
+    {render_kpi_card_v2(term_label(terms, "PAPER_COVERAGE"), _fmt_pct(paper_coverage.get("component_value")), str(paper_coverage.get("component_status", "")), status_label, term_tooltip(terms, "PAPER_COVERAGE"))}
   </section>
 
   <section class="mc-v2-card" style="margin-top:12px">
-    <h2>Готовн.</h2>
-    {render_progress(learning.get("component_value", 0), "Готовность к обучению")}
-    <p>Сделки: <b>{_safe(paper.get("trades_total"))}</b>. PF: <b>{_safe(paper.get("profit_factor"))}</b>. Ожид.: <b>{_safe(paper.get("expectancy_r"))}</b>.</p>
+    <h2>{_safe(term_label(terms, "LEARNING_READINESS"))}</h2>
+    {render_progress(learning.get("component_value", 0), term_label(terms, "LEARNING_READINESS"))}
+    <p>{_safe(term_label(terms, "TRADES"))}: <b>{_safe(paper.get("trades_total"))}</b>. {_safe(term_label(terms, "PROFIT_FACTOR"))}: <b>{_safe(paper.get("profit_factor"))}</b>. {_safe(term_label(terms, "EXPECTANCY_R"))}: <b>{_safe(paper.get("expectancy_r"))}</b>.</p>
   </section>
 
   <section class="mc-v2-card" style="margin-top:12px">
-    <h2>Главные причины</h2>
+    <h2>{_safe(term_label(terms, "MAIN_REASONS"))}</h2>
     <ul>{feedback_html}</ul>
   </section>
 
   <section class="mc-v2-grid" style="margin-top:12px">
-    {render_action_card("Портфель", "Капитал, позиции, риск и PnL.", "Открыть", "/workspace-v2/portfolio")}
-    {render_action_card("Инструменты", "Поиск и добавление новых инструментов.", "Открыть", "/workspace-v2/instruments")}
-    {render_action_card("Бумага", "Paper Simulation, аналитика, устойчивость.", "Открыть", "/workspace-v2/paper")}
+    {render_action_card(term_label(terms, "PORTFOLIO"), term_tooltip(terms, "PORTFOLIO"), term_label(terms, "OPEN_ACTION"), "/workspace-v2/portfolio")}
+    {render_action_card(term_label(terms, "INSTRUMENTS"), term_tooltip(terms, "INSTRUMENTS"), term_label(terms, "OPEN_ACTION"), "/workspace-v2/instruments")}
+    {render_action_card(term_label(terms, "PAPER_MODE"), term_tooltip(terms, "PAPER_MODE"), term_label(terms, "OPEN_ACTION"), "/workspace-v2/paper")}
   </section>
 </main>
 """
