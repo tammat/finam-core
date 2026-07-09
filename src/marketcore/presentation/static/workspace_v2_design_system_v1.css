@@ -1,0 +1,122 @@
+:root {
+  --mc-v2-bg: #0b1220;
+  --mc-v2-surface: #111827;
+  --mc-v2-surface-soft: #172033;
+  --mc-v2-text: #eef2ff;
+  --mc-v2-muted: #94a3b8;
+  --mc-v2-border: rgba(255,255,255,.12);
+  --mc-v2-ok: #22c55e;
+  --mc-v2-warning: #f59e0b;
+  --mc-v2-blocked: #ef4444;
+  --mc-v2-info: #38bdf8;
+  --mc-v2-radius: 18px;
+  --mc-v2-gap: 12px;
+  --mc-v2-touch: 44px;
+}
+
+.mc-v2-shell {
+  background: var(--mc-v2-bg);
+  color: var(--mc-v2-text);
+  min-height: 100vh;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.mc-v2-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--mc-v2-gap);
+}
+
+.mc-v2-card {
+  background: var(--mc-v2-surface);
+  border: 1px solid var(--mc-v2-border);
+  border-radius: var(--mc-v2-radius);
+  padding: 16px;
+}
+
+.mc-v2-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mc-v2-kpi-label {
+  color: var(--mc-v2-muted);
+  font-size: 13px;
+}
+
+.mc-v2-kpi-value {
+  font-size: 28px;
+  font-weight: 760;
+}
+
+.mc-v2-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--mc-v2-border);
+  font-size: 13px;
+}
+
+.mc-v2-badge-ok { color: var(--mc-v2-ok); }
+.mc-v2-badge-warning { color: var(--mc-v2-warning); }
+.mc-v2-badge-blocked { color: var(--mc-v2-blocked); }
+.mc-v2-badge-locked { color: var(--mc-v2-muted); }
+
+.mc-v2-progress {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.10);
+  overflow: hidden;
+}
+
+.mc-v2-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--mc-v2-info);
+}
+
+.mc-v2-button {
+  min-height: var(--mc-v2-touch);
+  min-width: var(--mc-v2-touch);
+  border-radius: 12px;
+  border: 1px solid var(--mc-v2-border);
+  background: var(--mc-v2-surface-soft);
+  color: var(--mc-v2-text);
+  padding: 0 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.mc-v2-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+@media (max-width: 820px) {
+  .mc-v2-grid {
+    display: block;
+  }
+
+  .mc-v2-card {
+    margin: 10px 0;
+    padding: 14px;
+  }
+
+  .mc-v2-kpi-value {
+    font-size: 24px;
+  }
+
+  .mc-v2-desktop-only {
+    display: none !important;
+  }
+
+  .mc-v2-phone-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
