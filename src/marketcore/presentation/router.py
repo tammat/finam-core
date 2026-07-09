@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import traceback
 
+
 from marketcore.presentation.layout import render_layout
+from marketcore.presentation.workspace_v2.home_v1 import (
+    render_workspace_v2_home_v1,
+)
+
 
 
 def route(path: str) -> tuple[int, bytes]:
     try:
+
+        if path in ("/workspace-v2", "/workspace-v2/"):
+            return (
+                200,
+                render_workspace_v2_home_v1().encode("utf-8"),
+            )
+
         from marketcore.presentation.registry import get_page
 
         page = get_page(path)
