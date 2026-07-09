@@ -37,6 +37,18 @@ def render_home_v2(vm: HomeV2ViewModel, locale_code: str = "ru") -> str:
             html.append(f'<h3>{escape(i18n.text(card.title_key))}</h3>')
             html.append(f'<div>{escape(i18n.text(card.subtitle_key))}</div>')
 
+            if "rows_total" in card.payload:
+                html.append(
+                    f'<div>{escape(i18n.text("home.operator.rows"))}: '
+                    f'{escape(str(card.payload["rows_total"]))}</div>'
+                )
+
+            if card.payload.get("updated_at"):
+                html.append(
+                    f'<div>{escape(i18n.text("home.operator.updated"))}: '
+                    f'{escape(str(card.payload["updated_at"]))}</div>'
+                )
+
             rows_total = card.payload.get("rows_total")
             updated_at = card.payload.get("updated_at")
             if rows_total is not None:

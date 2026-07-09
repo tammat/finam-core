@@ -143,6 +143,7 @@ class HomeV2Presenter:
             priority=priority,
             payload={
                 "rows_total": item.rows_total,
+                "updated_at": item.updated_at,
             },
         )
 
