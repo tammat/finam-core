@@ -50,7 +50,7 @@ def render_portfolio_v2(vm: PortfolioV2ViewModel, locale_code: str = "ru") -> st
                     html.append(
                         "<div class=\"mc-v2-value-row\">"
                         f"<dt>{escape(i18n.text(column_key))}</dt>"
-                        f"<dd>{escape(formatter.value(raw_value))}</dd>"
+                        f"<dd>{escape(formatter.value(str(column_name), raw_value))}</dd>"
                         "</div>"
                     )
                 html.append("</dl>")
