@@ -7,6 +7,9 @@ from marketcore.presentation.layout import render_layout
 from marketcore.presentation.workspace_v2.home_v1 import (
     render_workspace_v2_home_v1,
 )
+from marketcore.presentation.workspace_v2.portfolio_v1 import (
+    render_workspace_v2_portfolio_v1,
+)
 
 
 
@@ -17,6 +20,12 @@ def route(path: str) -> tuple[int, bytes]:
             return (
                 200,
                 render_workspace_v2_home_v1().encode("utf-8"),
+            )
+
+        if path in ("/workspace-v2/portfolio", "/workspace-v2/portfolio/"):
+            return (
+                200,
+                render_workspace_v2_portfolio_v1().encode("utf-8"),
             )
 
         from marketcore.presentation.registry import get_page
