@@ -11,10 +11,16 @@ from marketcore.presentation.framework.registry import (
     UiStatusCode,
     WidgetType,
 )
+from marketcore.presentation.workspace_v2.resolver.home_status_resolver_v1 import (
+    HomeStatusResolverV1,
+)
 from marketcore.presentation.workspace_v2.viewmodel.home_v2_viewmodel import HomeV2ViewModel
 
 
 class HomeV2Presenter:
+    def __init__(self) -> None:
+        self._status_resolver = HomeStatusResolverV1()
+
     def load(self) -> HomeV2ViewModel:
         system_section = BaseSection(
             section_id="home.section.system",
@@ -38,6 +44,7 @@ class HomeV2Presenter:
             ),
         )
 
+        status_items = self._status_resolver.resolve()
         status_section = BaseSection(
             section_id="home.section.status",
             section_type=SectionType.SUMMARY,
@@ -46,13 +53,9 @@ class HomeV2Presenter:
             order=15,
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
-            cards=(
-                self._status_card("home.card.status.system", "home.card.status.system.title", "home.card.status.ready.subtitle", UiStatusCode.OK, 10),
-                self._status_card("home.card.status.portfolio", "home.card.status.portfolio.title", "home.card.status.ready.subtitle", UiStatusCode.OK, 20),
-                self._status_card("home.card.status.research", "home.card.status.research.title", "home.card.status.pending.subtitle", UiStatusCode.WARNING, 30),
-                self._status_card("home.card.status.probe", "home.card.status.probe.title", "home.card.status.pending.subtitle", UiStatusCode.WARNING, 40),
-                self._status_card("home.card.status.observation", "home.card.status.observation.title", "home.card.status.pending.subtitle", UiStatusCode.WARNING, 50),
-                self._status_card("home.card.status.runtime", "home.card.status.runtime.title", "home.card.status.blocked.subtitle", UiStatusCode.BLOCKED, 60),
+            cards=tuple(
+                self._status_card(item.item_code, item.title_key, item.subtitle_key, item.status_code, item.status_label_key, index)
+                for index, item in enumerate(status_items, start=1)
             ),
         )
 
@@ -87,26 +90,21 @@ class HomeV2Presenter:
 
     def _status_card(
         self,
-        widget_id: str,
+        item_code: str,
         title_key: str,
         subtitle_key: str,
         status_code: UiStatusCode,
+        status_label_key: str,
         priority: int,
     ) -> BaseCard:
         return BaseCard(
-            widget_id=widget_id,
+            widget_id=f"home.card.status.{item_code}",
             widget_type=WidgetType.BASE,
             card_type=CardType.KPI,
             title_key=title_key,
             subtitle_key=subtitle_key,
             status_code=status_code,
-            status_label_key=(
-                "ui.status.ok"
-                if status_code == UiStatusCode.OK
-                else "ui.status.warning"
-                if status_code == UiStatusCode.WARNING
-                else "ui.status.blocked"
-            ),
+            status_label_key=status_label_key,
             priority=priority,
         )
 
