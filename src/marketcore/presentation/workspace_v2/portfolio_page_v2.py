@@ -8,9 +8,11 @@ from marketcore.presentation.workspace_v2.renderer.portfolio_v2_renderer import 
 )
 
 
-def render_workspace_v2_portfolio_page_v2() -> str:
+def render_workspace_v2_portfolio_page_v2(
+    theme_code: str = "DEFAULT",
+) -> str:
     vm = PortfolioV2Presenter().load(limit=200)
-    return render_portfolio_v2(vm)
+    return render_portfolio_v2(vm, theme_code=theme_code)
 
 
 if __name__ == "__main__":

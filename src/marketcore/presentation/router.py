@@ -15,4 +15,13 @@ def route(path: str) -> tuple[int, bytes]:
     if path in ("/workspace-v2/portfolio", "/workspace-v2/portfolio/"):
         return 200, render_workspace_v2_portfolio_page_v2().encode("utf-8")
 
+
+    if path in ("/workspace-v2/portfolio/phone",):
+        return (
+            200,
+            render_workspace_v2_portfolio_page_v2(
+                theme_code="PHONE",
+            ).encode("utf-8"),
+        )
+
     return 404, b"Not found"
