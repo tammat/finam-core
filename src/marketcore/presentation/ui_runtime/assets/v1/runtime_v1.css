@@ -1,0 +1,9 @@
+[data-marketcore-ui-runtime="v1"] {
+    box-sizing: border-box;
+}
+
+[data-marketcore-ui-runtime="v1"] *,
+[data-marketcore-ui-runtime="v1"] *::before,
+[data-marketcore-ui-runtime="v1"] *::after {
+    box-sizing: inherit;
+}

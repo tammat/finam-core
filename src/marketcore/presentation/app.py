@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
+    ui_runtime_asset_content_type_v1,
+)
+
 import os
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,11 +42,17 @@ def _error_page(exc: BaseException) -> bytes:
 class MarketCoreUiHandler(BaseHTTPRequestHandler):
     def _send_html(self, code: int, body: bytes) -> None:
         self.send_response(code)
-        content_type = (
-            "application/json; charset=utf-8"
-            if self.path.startswith("/api/v1/render-tree/")
-            else "text/html; charset=utf-8"
+        asset_content_type = ui_runtime_asset_content_type_v1(
+            self.path
         )
+
+        if asset_content_type is not None:
+            content_type = asset_content_type
+        elif self.path.startswith("/api/v1/render-tree/"):
+            content_type = "application/json; charset=utf-8"
+        else:
+            content_type = "text/html; charset=utf-8"
+
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
