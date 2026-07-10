@@ -5,7 +5,7 @@ echo "=== TEST_MARKETCORE_RENDER_ENGINE_HTML_ADAPTER_RETIRE_V1 ==="
 
 files=(
   "src/marketcore/presentation/render_engine/__init__.py"
-  "src/marketcore/presentation/render_engine/web_renderer.py"
+  "src/marketcore/presentation/adapters/web/render_document_to_html_v1.py"
   "src/marketcore/presentation/render_tree/render_node.py"
   "src/marketcore/presentation/render_tree/render_document.py"
   "src/marketcore/presentation/workspace_v2/portfolio_page_v2.py"
