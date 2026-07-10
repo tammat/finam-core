@@ -44,6 +44,12 @@ UI_RUNTIME_ASSETS_V1: tuple[UiRuntimeAssetDefinitionV1, ...] = (
         relative_path="render_tree_validator_v1.js",
         content_type="application/javascript; charset=utf-8",
     ),
+    UiRuntimeAssetDefinitionV1(
+        asset_code="browser_dom_driver_js",
+        route="/assets/marketcore/ui-runtime/v1/browser-dom-driver.js",
+        relative_path="browser_dom_driver_v1.js",
+        content_type="application/javascript; charset=utf-8",
+    ),
 )
 
 _ASSET_BY_ROUTE = {
