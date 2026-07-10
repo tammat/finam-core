@@ -3,6 +3,7 @@ from __future__ import annotations
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
 from marketcore.presentation.framework.theme_model import ThemeModel
 from marketcore.presentation.framework.theme_resolver import ThemeResolverV1
+from marketcore.presentation.render_tree.node_types import RenderNodeType
 from marketcore.presentation.render_tree.render_document import RenderDocument
 from marketcore.presentation.render_tree.render_node import RenderNode
 from marketcore.presentation.workspace_v2.formatter.portfolio_v2_formatter import (
@@ -15,16 +16,31 @@ from marketcore.presentation.workspace_v2.viewmodel.portfolio_v2_viewmodel impor
 
 def _theme_px(theme: ThemeModel, property_code: str) -> str:
     value = theme.get(property_code)
+
     if not value:
-        raise RuntimeError(f"THEME_PROPERTY_NOT_FOUND:{property_code}")
+        raise RuntimeError(
+            f"THEME_PROPERTY_NOT_FOUND:{property_code}"
+        )
+
     return f"{int(value)}px"
 
 
 def _value_row_layout(theme: ThemeModel) -> str:
     layout = theme.get("VALUE_ROW_LAYOUT", "INLINE")
+    gap = _theme_px(theme, "VALUE_ROW_GAP")
+
     if layout == "STACKED":
-        return "display:grid;grid-template-columns:1fr;gap:" + _theme_px(theme, "VALUE_ROW_GAP") + ";"
-    return "display:grid;grid-template-columns:1fr auto;gap:" + _theme_px(theme, "VALUE_ROW_GAP") + ";"
+        return (
+            "display:grid;"
+            "grid-template-columns:1fr;"
+            f"gap:{gap};"
+        )
+
+    return (
+        "display:grid;"
+        "grid-template-columns:1fr auto;"
+        f"gap:{gap};"
+    )
 
 
 def render_portfolio_v2(
@@ -44,7 +60,9 @@ def render_portfolio_v2(
 
     grid_style = (
         "display:grid;"
-        f"grid-template-columns:repeat(auto-fit,minmax({_theme_px(theme, 'GRID_MIN_CARD_WIDTH')},1fr));"
+        "grid-template-columns:"
+        "repeat(auto-fit,minmax("
+        f"{_theme_px(theme, 'GRID_MIN_CARD_WIDTH')},1fr));"
         f"gap:{_theme_px(theme, 'GRID_GAP')};"
     )
 
@@ -54,39 +72,60 @@ def render_portfolio_v2(
     )
 
     row_style = _value_row_layout(theme)
-
-    section_nodes = []
+    section_nodes: list[RenderNode] = []
 
     for section in vm.sections:
-        card_nodes = []
+        card_nodes: list[RenderNode] = []
 
         for card in section.cards:
-            value_nodes = []
+            value_nodes: list[RenderNode] = []
             values = card.payload.get("values", {})
             column_keys = card.payload.get("column_keys", {})
 
             for column_name, raw_value in values.items():
-                column_key = str(column_keys.get(column_name, column_name))
+                column_key = str(
+                    column_keys.get(column_name, column_name)
+                )
+
                 value_nodes.append(
                     RenderNode(
-                        "div",
-                        props={"class": "mc-v2-value-row", "style": row_style},
+                        node_type=RenderNodeType.METRIC_ROW,
+                        props={
+                            "class": "mc-v2-value-row",
+                            "style": row_style,
+                        },
                         children=(
-                            RenderNode("dt", text=i18n.text(column_key)),
-                            RenderNode("dd", text=formatter.value(str(column_name), raw_value)),
+                            RenderNode(
+                                node_type=RenderNodeType.METRIC_LABEL,
+                                text=i18n.text(column_key),
+                            ),
+                            RenderNode(
+                                node_type=RenderNodeType.METRIC_VALUE,
+                                text=formatter.value(
+                                    str(column_name),
+                                    raw_value,
+                                ),
+                            ),
                         ),
                     )
                 )
 
-            children = [
-                RenderNode("h3", text=i18n.text(card.title_key)),
-                RenderNode("div", text=i18n.text(card.subtitle_key)),
+            card_children: list[RenderNode] = [
+                RenderNode(
+                    node_type=RenderNodeType.TITLE,
+                    props={"level": 3},
+                    text=i18n.text(card.title_key),
+                ),
+                RenderNode(
+                    node_type=RenderNodeType.TEXT,
+                    text=i18n.text(card.subtitle_key),
+                ),
             ]
 
             if value_nodes:
-                children.append(
+                card_children.append(
                     RenderNode(
-                        "dl",
+                        node_type=RenderNodeType.METRIC_LIST,
                         props={"class": "mc-v2-values"},
                         children=tuple(value_nodes),
                     )
@@ -94,27 +133,40 @@ def render_portfolio_v2(
 
             card_nodes.append(
                 RenderNode(
-                    "article",
+                    node_type=RenderNodeType.CARD,
                     props={
                         "class": "mc-v2-card",
                         "style": card_style,
                         "data-card": card.card_type.value,
                         "data-status": card.status_code.value,
                     },
-                    children=tuple(children),
+                    children=tuple(card_children),
                 )
             )
 
         section_nodes.append(
             RenderNode(
-                "section",
-                props={"class": "mc-v2-section", "data-section": section.section_type.value},
+                node_type=RenderNodeType.SECTION,
+                props={
+                    "class": "mc-v2-section",
+                    "data-section": section.section_type.value,
+                },
                 children=(
-                    RenderNode("h2", text=i18n.text(section.title_key)),
-                    RenderNode("p", text=i18n.text(section.subtitle_key)),
                     RenderNode(
-                        "div",
-                        props={"class": "mc-v2-grid", "style": grid_style},
+                        node_type=RenderNodeType.TITLE,
+                        props={"level": 2},
+                        text=i18n.text(section.title_key),
+                    ),
+                    RenderNode(
+                        node_type=RenderNodeType.SUBTITLE,
+                        text=i18n.text(section.subtitle_key),
+                    ),
+                    RenderNode(
+                        node_type=RenderNodeType.GRID,
+                        props={
+                            "class": "mc-v2-grid",
+                            "style": grid_style,
+                        },
                         children=tuple(card_nodes),
                     ),
                 ),
@@ -123,15 +175,26 @@ def render_portfolio_v2(
 
     return RenderDocument(
         root=RenderNode(
-            "main",
-            props={"class": "mc-v2-shell", "style": shell_style},
+            node_type=RenderNodeType.WORKSPACE,
+            props={
+                "class": "mc-v2-shell",
+                "style": shell_style,
+            },
             children=(
                 RenderNode(
-                    "section",
+                    node_type=RenderNodeType.PAGE,
                     props={"class": "mc-v2-page"},
                     children=(
-                        RenderNode("h1", text=i18n.text(vm.title_key)),
-                        RenderNode("header", props={"class": "mc-v2-header"}, text=i18n.text(vm.subtitle_key)),
+                        RenderNode(
+                            node_type=RenderNodeType.TITLE,
+                            props={"level": 1},
+                            text=i18n.text(vm.title_key),
+                        ),
+                        RenderNode(
+                            node_type=RenderNodeType.HEADER,
+                            props={"class": "mc-v2-header"},
+                            text=i18n.text(vm.subtitle_key),
+                        ),
                         *tuple(section_nodes),
                     ),
                 ),
