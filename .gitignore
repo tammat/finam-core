@@ -51,6 +51,7 @@ __pycache__/
 /data/*.sqlite*
 logs.txt
 *.txt
+!docs/vision/MARKETCORE_PROFIT_FACTORY_BLUEPRINT_V1.txt
 logs*
 .env
 .env.paper_safe
