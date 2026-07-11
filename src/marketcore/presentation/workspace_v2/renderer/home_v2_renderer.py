@@ -41,6 +41,26 @@ def render_home_v2(
 
             rows_total = card.payload.get("rows_total")
             updated_at = card.payload.get("updated_at")
+            primary_value = card.payload.get("primary_value")
+            quality = card.payload.get("quality")
+
+            if primary_value is not None:
+                card_children.append(
+                    RenderNode(
+                        node_type=RenderNodeType.TEXT,
+                        props={"class": "mc-v2-kpi-value", "data-field": "primary_value"},
+                        text=str(primary_value),
+                    )
+                )
+
+            if quality:
+                card_children.append(
+                    RenderNode(
+                        node_type=RenderNodeType.TEXT,
+                        props={"class": "mc-v2-trust-badge", "data-field": "quality"},
+                        text=f'{i18n.text("home.profit_factory.quality")}: {quality}',
+                    )
+                )
 
             if rows_total is not None:
                 card_children.append(

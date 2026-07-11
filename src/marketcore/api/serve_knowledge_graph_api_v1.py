@@ -9,6 +9,10 @@ from urllib.parse import parse_qs, urlparse, unquote
 import psycopg2
 import psycopg2.extras
 
+from marketcore.services.profit_factory_kpi_service_v1 import (
+    ProfitFactoryKpiServiceV1,
+)
+
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 HOST = os.getenv("KG_API_HOST", "127.0.0.1")
 PORT = int(os.getenv("KG_API_PORT", "8095"))
@@ -62,6 +66,32 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/kg/v1/health":
                 data = fetch_one("SELECT count(*) AS nodes FROM knowledge_graph.v_api_kg_entity_summary_v1;")
                 self.send_json(200, response("OK", {"service": "knowledge_graph_api_v1", **data}))
+                return
+
+            if path == "/api/kg/v1/profit-factory/kpi-summary":
+                scope = q.get("scope", ["REAL"])[0]
+                try:
+                    data = ProfitFactoryKpiServiceV1(DB).summary(scope=scope)
+                except ValueError as exc:
+                    self.send_json(400, response("ERROR", {}, {"error": str(exc)}))
+                    return
+                self.send_json(200, response("OK", data, {
+                    "source": "analytics.profit_factory_kpi_summary_v1",
+                    "trust_gate": "financial_kpi_eligible=true",
+                }))
+                return
+
+            if path == "/api/kg/v1/profit-factory/kpi-candidates":
+                scope = q.get("scope", ["REAL"])[0]
+                try:
+                    data = ProfitFactoryKpiServiceV1(DB).candidates(scope=scope)
+                except ValueError as exc:
+                    self.send_json(400, response("ERROR", [], {"error": str(exc)}))
+                    return
+                self.send_json(200, response("OK", data, {
+                    "source": "analytics.profit_factory_kpi_candidate_v1",
+                    "trust_gate": "financial_kpi_eligible=true",
+                }))
                 return
 
             if path == "/api/kg/v1/statistics":

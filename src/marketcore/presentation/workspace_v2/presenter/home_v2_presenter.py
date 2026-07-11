@@ -17,6 +17,10 @@ from marketcore.presentation.workspace_v2.resolver.home_status_resolver_v1 impor
 from marketcore.presentation.workspace_v2.resolver.home_operator_dashboard_resolver_v1 import (
     HomeOperatorDashboardResolverV1,
 )
+from marketcore.presentation.workspace_v2.resolver.profit_factory_control_center_resolver_v1 import (
+    ProfitFactoryControlCenterResolverV1,
+)
+import os
 from marketcore.presentation.workspace_v2.viewmodel.home_v2_viewmodel import HomeV2ViewModel
 
 
@@ -26,6 +30,28 @@ class HomeV2Presenter:
         self._operator_resolver = HomeOperatorDashboardResolverV1()
 
     def load(self) -> HomeV2ViewModel:
+        profit = ProfitFactoryControlCenterResolverV1(
+            scope=os.getenv("MARKETCORE_PROFIT_SCOPE", "REAL")
+        ).resolve()
+        profit_status = (
+            UiStatusCode.OK if profit["status"] == "OK" else UiStatusCode.WARNING
+        )
+        profit_section = BaseSection(
+            section_id="home.profit_factory.control_center",
+            section_type=SectionType.SUMMARY,
+            title_key="home.profit_factory.title",
+            subtitle_key="home.profit_factory.subtitle",
+            order=5,
+            status_code=profit_status,
+            status_label_key=("ui.status.ok" if profit_status == UiStatusCode.OK else "ui.status.warning"),
+            cards=(
+                self._profit_card("decision", "home.profit_factory.decision", profit["decision"], profit_status, 1, profit["quality"]),
+                self._profit_card("expected", "home.profit_factory.expected", self._money(profit["expected_profit"]), profit_status, 2),
+                self._profit_card("realized", "home.profit_factory.realized", self._money(profit["realized_profit"]), profit_status, 3),
+                self._profit_card("gap", "home.profit_factory.gap", self._money(profit["profit_gap"]), profit_status, 4),
+                self._profit_card("roi", "home.profit_factory.roi", self._percent(profit["realized_roi"]), profit_status, 5),
+            ),
+        )
         system_section = BaseSection(
             section_id="home.section.system",
             section_type=SectionType.SUMMARY,
@@ -87,6 +113,7 @@ class HomeV2Presenter:
             status_code=UiStatusCode.OK,
             status_label_key="ui.status.ok",
             cards=(
+                self._nav_card("home.card.profit", "home.card.profit.title", "/", 5, self._percent(profit["realized_roi"])),
                 self._nav_card("home.card.portfolio", "home.card.portfolio.title", "/workspace-v2/portfolio", 10),
                 self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
                 self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20),
@@ -102,10 +129,27 @@ class HomeV2Presenter:
             subtitle_key="home.workspace.subtitle",
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
-            sections=(system_section, status_section, operator_section, navigation_section),
+            sections=(profit_section, system_section, status_section, operator_section, navigation_section),
         )
 
         return HomeV2ViewModel(layout=layout)
+
+    def _profit_card(self, code, title_key, value, status, priority, quality="VERIFIED") -> BaseCard:
+        return BaseCard(
+            widget_id=f"home.profit_factory.{code}", widget_type=WidgetType.KPI,
+            card_type=(CardType.DECISION if code == "decision" else CardType.KPI),
+            title_key=title_key, subtitle_key="home.profit_factory.verified",
+            status_code=status, status_label_key=("ui.status.ok" if status == UiStatusCode.OK else "ui.status.warning"),
+            priority=priority, payload={"primary_value": value, "quality": quality},
+        )
+
+    @staticmethod
+    def _money(value) -> str:
+        return f"{value:,.0f} ₽".replace(",", " ")
+
+    @staticmethod
+    def _percent(value) -> str:
+        return f"{value * 100:.1f}%"
 
     def _status_card(
         self,
@@ -147,7 +191,7 @@ class HomeV2Presenter:
             },
         )
 
-    def _nav_card(self, widget_id: str, title_key: str, target: str, priority: int) -> BaseCard:
+    def _nav_card(self, widget_id: str, title_key: str, target: str, priority: int, metric: str = "") -> BaseCard:
         return BaseCard(
             widget_id=widget_id,
             widget_type=WidgetType.BASE,
@@ -160,4 +204,5 @@ class HomeV2Presenter:
             actions=(
                 {"action_code": ActionCode.OPEN.value, "target": target},
             ),
+            payload={"primary_value": metric} if metric else {},
         )

@@ -7,3 +7,317 @@
 [data-marketcore-ui-runtime="v1"] *::after {
     box-sizing: inherit;
 }
+
+:root {
+    color-scheme: dark;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #071019;
+    color: #eaf2f8;
+}
+
+body {
+    margin: 0;
+    min-width: 320px;
+    background:
+        radial-gradient(circle at 15% 0%, rgba(24, 111, 105, .18), transparent 34rem),
+        linear-gradient(180deg, #09141e 0%, #071019 100%);
+}
+
+[data-marketcore-ui-runtime="v1"] {
+    min-height: 100vh;
+}
+
+.mc-v2-shell { min-height: 100vh; }
+
+.mc-v2-page {
+    width: min(1440px, calc(100% - 48px));
+    margin: 0 auto;
+    padding: 40px 0 72px 248px;
+}
+
+.mc-v2-section[data-section="ACTIONS"] {
+    position: fixed;
+    z-index: 20;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 220px;
+    margin: 0;
+    padding: 28px 14px;
+    border-right: 1px solid rgba(142, 170, 188, .12);
+    background: rgba(7, 16, 25, .94);
+    backdrop-filter: blur(18px);
+}
+
+.mc-v2-section[data-section="ACTIONS"] > h2 {
+    padding: 0 10px;
+    color: #6ee7cf;
+    font-size: .72rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.mc-v2-section[data-section="ACTIONS"] > p {
+    padding: 0 10px;
+    font-size: .72rem;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card {
+    position: relative;
+    width: 100%;
+    min-height: 64px;
+    padding: 14px 12px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    box-shadow: none;
+    transition: width .18s ease, background .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within {
+    width: 330px;
+    border-color: rgba(110, 231, 207, .24);
+    background: linear-gradient(135deg, rgba(23, 51, 61, .98), rgba(10, 25, 35, .99));
+    box-shadow: 18px 22px 45px rgba(0, 0, 0, .35);
+    transform: translateX(3px);
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card h3 {
+    margin: 0;
+    color: #dce8ef;
+    font-size: .82rem;
+    letter-spacing: .02em;
+    text-transform: none;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card > p,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-button {
+    max-height: 0;
+    margin: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: opacity .18s ease, max-height .18s ease, margin .18s ease;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover > p,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within > p,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover .mc-v2-button,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within .mc-v2-button {
+    max-height: 80px;
+    margin-top: 9px;
+    opacity: 1;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-kpi-value {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    margin: 0;
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: #6ee7cf;
+    background: rgba(49, 205, 178, .1);
+    font-size: .76rem;
+    letter-spacing: 0;
+}
+
+.mc-v2-page > h1 {
+    margin: 0;
+    font-size: clamp(1.5rem, 3vw, 2.3rem);
+    letter-spacing: -.04em;
+}
+
+.mc-v2-header {
+    margin-top: 8px;
+    color: #7890a2;
+    font-size: .9rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.mc-v2-section {
+    margin-top: 38px;
+    padding-top: 8px;
+}
+
+.mc-v2-section > h2 {
+    margin: 0;
+    font-size: 1.15rem;
+    letter-spacing: -.015em;
+}
+
+.mc-v2-section > p {
+    margin: 7px 0 18px;
+    color: #7890a2;
+    font-size: .9rem;
+}
+
+.mc-v2-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.mc-v2-card {
+    grid-column: span 3;
+    min-height: 150px;
+    padding: 20px;
+    border: 1px solid rgba(142, 170, 188, .13);
+    border-radius: 16px;
+    background: linear-gradient(145deg, rgba(18, 34, 47, .94), rgba(12, 25, 35, .96));
+    box-shadow: 0 18px 45px rgba(0, 0, 0, .15);
+}
+
+.mc-v2-card[data-card="DECISION"] {
+    grid-column: span 4;
+    border-color: rgba(49, 205, 178, .35);
+    background:
+        linear-gradient(135deg, rgba(28, 105, 94, .36), rgba(14, 31, 42, .96) 68%);
+}
+
+.mc-v2-card[data-status="WARNING"] { border-top: 2px solid #e9a23b; }
+.mc-v2-card[data-status="OK"] { border-top: 2px solid #31cdb2; }
+.mc-v2-card[data-status="BLOCKED"],
+.mc-v2-card[data-status="ERROR"] { border-top: 2px solid #ef6574; }
+
+.mc-v2-card h3 {
+    margin: 0 0 8px;
+    color: #a9bbc7;
+    font-size: .76rem;
+    font-weight: 650;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.mc-v2-card > p,
+.mc-v2-card > div:not(.mc-v2-kpi-value):not(.mc-v2-trust-badge) {
+    color: #7890a2;
+}
+
+.mc-v2-kpi-value {
+    margin-top: 20px;
+    color: #f5fbff;
+    font-size: clamp(1.55rem, 2.4vw, 2.25rem);
+    font-weight: 720;
+    line-height: 1.06;
+    letter-spacing: -.045em;
+}
+
+[data-card="DECISION"] .mc-v2-kpi-value {
+    max-width: 28rem;
+    font-size: clamp(1.25rem, 1.8vw, 1.65rem);
+    line-height: 1.25;
+    letter-spacing: -.025em;
+}
+
+.mc-v2-trust-badge {
+    display: inline-flex;
+    margin-top: 18px;
+    padding: 5px 9px;
+    border: 1px solid rgba(49, 205, 178, .28);
+    border-radius: 999px;
+    color: #6ee7cf;
+    background: rgba(49, 205, 178, .08);
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .045em;
+}
+
+.mc-v2-card-detail {
+    margin-top: 12px;
+    color: #91a6b5;
+    font-size: .8rem;
+}
+
+.mc-v2-button {
+    display: inline-flex;
+    margin-top: 20px;
+    padding: 9px 13px;
+    border-radius: 10px;
+    color: #071019;
+    background: #6ee7cf;
+    font-size: .82rem;
+    font-weight: 750;
+    text-decoration: none;
+}
+
+@media (max-width: 1100px) {
+    .mc-v2-card,
+    .mc-v2-card[data-card="DECISION"] { grid-column: span 6; }
+}
+
+@media (max-width: 680px) {
+    .mc-v2-page { width: min(100% - 28px, 1440px); padding: 92px 0 48px; }
+    .mc-v2-section[data-section="ACTIONS"] {
+        top: 0; right: 0; bottom: auto; width: 100%; height: 72px;
+        padding: 10px 14px; border-right: 0; border-bottom: 1px solid rgba(142,170,188,.12);
+        overflow-x: auto;
+    }
+    .mc-v2-section[data-section="ACTIONS"] > h2,
+    .mc-v2-section[data-section="ACTIONS"] > p { display: none; }
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-grid { flex-direction: row; }
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-card,
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover,
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within {
+        flex: 0 0 auto; width: auto; min-width: 112px; min-height: 50px; transform: none;
+    }
+    .mc-v2-section { margin-top: 28px; }
+    .mc-v2-grid { gap: 10px; }
+    .mc-v2-card,
+    .mc-v2-card[data-card="DECISION"] { grid-column: 1 / -1; min-height: 0; }
+}
+
+/* Однострочное операторское меню: вся карточка является ссылкой. */
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 12px;
+    transform: none;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card > :not(h3):not(.mc-v2-kpi-value):not(.mc-v2-button) {
+    display: none;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card h3 {
+    padding-right: 54px;
+    white-space: nowrap;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-button,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover .mc-v2-button,
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within .mc-v2-button {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: block;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border-radius: 12px;
+    background: transparent;
+    opacity: 0;
+    overflow: hidden;
+    font-size: 0;
+}
+
+@media (max-width: 680px) {
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-card,
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-card:hover,
+    .mc-v2-section[data-section="ACTIONS"] .mc-v2-card:focus-within {
+        width: auto;
+    }
+}
