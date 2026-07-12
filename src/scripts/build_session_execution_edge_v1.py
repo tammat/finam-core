@@ -96,6 +96,19 @@ def reprice(
     return result
 
 
+def microstructure_quality(cur: Any, symbol: str) -> str:
+    cur.execute(
+        """
+        SELECT market_data_quality
+        FROM analytics.market_microstructure_quality_v1
+        WHERE symbol=%s
+        """,
+        (symbol,),
+    )
+    row = cur.fetchone()
+    return str(row["market_data_quality"]) if row else "COLLECTING"
+
+
 def main() -> None:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     run_id = uuid.uuid4()
@@ -110,6 +123,7 @@ def main() -> None:
             """, (config["timeframe"], MIN_BARS, MAX_MARKETS))
             markets = cur.fetchall()
             for market in markets:
+                quote_quality = microstructure_quality(cur, str(market["symbol"]))
                 cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts",
                             (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"])) for row in cur.fetchall()]
@@ -153,6 +167,7 @@ def main() -> None:
                                         "params": base_params, "regime": regime, "session": session, "coverage": coverage,
                                         "policy": policy["code"], "oos": item_metrics, "baseline": baseline_metrics,
                                         "folds": fold_passes(repriced, bars, validation_end),
+                                        "market_data_quality": quote_quality,
                                         "raw_p": one_sided_p([t.net_pnl for t in repriced])})
 
             session_trials = len(session_candidates)
@@ -179,25 +194,28 @@ def main() -> None:
                 adjusted = min(1.0, item["raw_p"] * execution_trials)
                 om, baseline = item["oos"], item["baseline"]
                 delta_pf, delta_exp = om["profit_factor"] - baseline["profit_factor"], om["expectancy"] - baseline["expectancy"]
-                verified = item["coverage"] >= config["minimum_regime_coverage"]
+                regime_verified = item["coverage"] >= config["minimum_regime_coverage"]
+                quote_verified = item["market_data_quality"] == "QUOTE_VERIFIED"
+                verified = regime_verified and quote_verified
                 passed = verified and item["policy"] != "BASELINE" and om["trades"] >= config["minimum_oos_trades"] and om["profit_factor"] >= 1.15 and delta_pf > 0 and delta_exp > 0 and item["folds"] >= 2 and adjusted <= 0.05
                 verdict = "OOS_PASS" if passed else ("OOS_FAIL" if verified else "UNVERIFIED")
-                reason = "PASS" if passed else ("INSUFFICIENT_REGIME_COVERAGE" if not verified else "EXECUTION_OOS_GATE_FAILED")
+                reason = "PASS" if passed else ("INSUFFICIENT_REGIME_COVERAGE" if not regime_verified else ("MICROSTRUCTURE_DATA_UNVERIFIED" if not quote_verified else "EXECUTION_OOS_GATE_FAILED"))
                 cur.execute("""INSERT INTO analytics.execution_edge_result_v1
                     (discovery_run_id,strategy_family,strategy_code,symbol,timeframe,parameter_json,regime_code,session_code,
                      policy_code,oos_trades,oos_profit_factor,oos_expectancy,baseline_oos_profit_factor,baseline_oos_expectancy,
                      delta_profit_factor,delta_expectancy,folds_passed,folds_total,raw_p_value,adjusted_p_value,market_data_quality,
                      trust_status,verdict_code,reason_code,promotion_allowed,source_version)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,3,%s,%s,'BAR_ONLY',%s,%s,%s,false,%s)""",
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,3,%s,%s,%s,%s,%s,%s,false,%s)""",
                     (str(run_id),item["family"],item["strategy"],item["market"]["symbol"],item["market"]["timeframe"],
                      psycopg2.extras.Json(item["params"]),item["regime"],item["session"],item["policy"],om["trades"],
                      om["profit_factor"],om["expectancy"],baseline["profit_factor"],baseline["expectancy"],delta_pf,delta_exp,
-                     item["folds"],item["raw_p"],adjusted,"VERIFIED" if verified else "UNVERIFIED",verdict,reason,SOURCE_VERSION))
+                     item["folds"],item["raw_p"],adjusted,item["market_data_quality"],
+                     "VERIFIED" if verified else "UNVERIFIED",verdict,reason,SOURCE_VERSION))
 
     print(f"discovery_run_id={run_id}")
     print(f"strategy_regime_session_trials={len(session_candidates)}")
     print(f"execution_policy_trials={len(execution_candidates)}")
-    print("liquidity_edge_status=UNVERIFIED_BAR_ONLY")
+    print("liquidity_edge_status=CONTROLLED_BY_MARKET_MICROSTRUCTURE_QUALITY_V1")
     print("promotion_allowed=0")
     print("VERDICT=SESSION_EXECUTION_EDGE_ENGINE_V1_READY")
 

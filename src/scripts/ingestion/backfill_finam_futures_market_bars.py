@@ -131,6 +131,8 @@ def main() -> int:
     parser.add_argument("--lookback-hours", type=int, default=72)
     parser.add_argument("--start-date", default="")
     parser.add_argument("--end-date", default="")
+    parser.add_argument("--chunk-days", type=int, default=7)
+    parser.add_argument("--sleep-sec", type=float, default=0.8)
     args = parser.parse_args()
 
     roots = [x.strip() for x in args.roots.split(",") if x.strip()]
@@ -155,47 +157,54 @@ def main() -> int:
 
     try:
         for symbol in symbols:
-            bars = []
-            last_error = ""
-
-            for attempt in range(1, 4):
-                try:
-                    resp = client.get_bars(
-                        symbol=symbol,
-                        timeframe=args.timeframe,
-                        start=start,
-                        end=end,
-                    )
-                    bars = list(getattr(resp, "bars", []) or [])
-                    last_error = ""
-                    break
-                except grpc.RpcError as exc:
-                    last_error = f"{exc.code()}:{exc.details()}"
+            cursor = start
+            symbol_saved = 0
+            symbol_received = 0
+            while cursor < end:
+                chunk_end = min(end, cursor + timedelta(days=max(1, args.chunk_days)))
+                bars = []
+                last_error = ""
+                for attempt in range(1, 7):
+                    try:
+                        resp = client.get_bars(
+                            symbol=symbol, timeframe=args.timeframe,
+                            start=cursor, end=chunk_end,
+                        )
+                        bars = list(getattr(resp, "bars", []) or [])
+                        last_error = ""
+                        break
+                    except grpc.RpcError as exc:
+                        last_error = f"{exc.code()}:{exc.details()}"
+                        print(
+                            "FINAM_FUTURES_MARKET_BARS_RETRY "
+                            f"symbol={symbol} timeframe={args.timeframe} "
+                            f"from={cursor.isoformat()} to={chunk_end.isoformat()} "
+                            f"attempt={attempt} error={last_error}", flush=True,
+                        )
+                        time.sleep(5.0 * attempt)
+                if last_error:
                     print(
-                        "FINAM_FUTURES_MARKET_BARS_RETRY "
+                        "FINAM_FUTURES_MARKET_BARS_FAILED "
                         f"symbol={symbol} timeframe={args.timeframe} "
-                        f"attempt={attempt} error={last_error}",
-                        flush=True,
+                        f"from={cursor.isoformat()} to={chunk_end.isoformat()} "
+                        f"error={last_error}", flush=True,
                     )
-                    time.sleep(1.5 * attempt)
-
-            if last_error:
-                print(
-                    "FINAM_FUTURES_MARKET_BARS_FAILED "
-                    f"symbol={symbol} timeframe={args.timeframe} "
-                    f"error={last_error}",
-                    flush=True,
-                )
-                continue
-
-            saved = save_bars(symbol, args.timeframe, bars)
-            total += saved
-
+                    raise RuntimeError(
+                        f"FINAM_HISTORY_CHUNK_FAILED symbol={symbol} "
+                        f"from={cursor.isoformat()} to={chunk_end.isoformat()} "
+                        f"error={last_error}"
+                    )
+                saved = save_bars(symbol, args.timeframe, bars)
+                total += saved
+                symbol_saved += saved
+                symbol_received += len(bars)
+                cursor = chunk_end
+                if args.sleep_sec > 0:
+                    time.sleep(args.sleep_sec)
             print(
                 "FINAM_FUTURES_MARKET_BARS_OK "
                 f"symbol={symbol} timeframe={args.timeframe} "
-                f"received={len(bars)} saved={saved}",
-                flush=True,
+                f"received={symbol_received} saved={symbol_saved}", flush=True,
             )
     finally:
         client.close()

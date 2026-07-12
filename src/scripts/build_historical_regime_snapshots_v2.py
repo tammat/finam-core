@@ -17,6 +17,18 @@ SOURCE_VERSION = "HISTORICAL_REGIME_BUILDER_V2"
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 
+def source_sql(symbol: str, timeframe: str) -> tuple[str, tuple]:
+    if symbol == "BR_ROLLING@RTSX":
+        return "SELECT ts,close FROM public.market_bars_br_m5_rolling_v2 ORDER BY ts", ()
+    if symbol == "NG_ROLLING@RTSX":
+        return "SELECT ts,close FROM public.market_bars_ng_m5_rolling_v1 ORDER BY ts", ()
+    return (
+        "SELECT ts,close FROM public.market_bars "
+        "WHERE symbol=%s AND timeframe=%s AND close>0 ORDER BY ts",
+        (symbol, timeframe),
+    )
+
+
 def session(ts: datetime) -> str:
     local = ts.astimezone(MOSCOW)
     minute = local.hour * 60 + local.minute
@@ -78,7 +90,8 @@ def main() -> None:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             for symbol in symbols:
-                cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close>0 ORDER BY ts", (symbol, args.timeframe))
+                query, params = source_sql(symbol, args.timeframe)
+                cur.execute(query, params)
                 bars = cur.fetchall()
                 closes = [float(row["close"]) for row in bars]
                 rows = []

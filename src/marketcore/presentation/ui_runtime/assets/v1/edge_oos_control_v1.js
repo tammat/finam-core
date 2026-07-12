@@ -1,5 +1,19 @@
 "use strict";
 (function () {
+  const actionForms = Array.from(document.querySelectorAll('form[action^="/workspace-v2/control-center/edge-oos/"]'));
+  actionForms.forEach(form => form.addEventListener("submit", event => {
+    const button = form.querySelector('button[type="submit"]');
+    if (!button) return;
+    if (button.disabled) {
+      event.preventDefault();
+      return;
+    }
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.textContent = document.body.dataset.actionRunningLabel || "Запускаю…";
+    document.body.dataset.actionState = "RUNNING";
+  }));
+
   const filter = document.querySelector("[data-oos-filter]");
   const rows = Array.from(document.querySelectorAll("[data-oos-results] tr"));
   const count = document.querySelector("[data-oos-count]");

@@ -403,14 +403,10 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool]:
 
 
 def run_oos_action_v1() -> str:
-    env = dict(os.environ)
-    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
-    result = subprocess.run(
-        [str(PYTHON), "src/scripts/build_momentum_edge_oos_rank_v1.py"],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=30, check=False,
+    return _run_background_action_v1(
+        "src/scripts/build_momentum_edge_oos_rank_v1.py",
+        "Повторная OOS-проверка",
     )
-    verdict = "Проверка завершена" if result.returncode == 0 else "Ошибка проверки"
-    return f"{verdict}. Код: {result.returncode}"
 
 
 def run_hypothesis_action_v1() -> str:
@@ -428,36 +424,31 @@ def run_hypothesis_action_v1() -> str:
 
 
 def run_lead_lag_action_v1() -> str:
-    env = dict(os.environ)
-    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
-    result = subprocess.run(
-        [str(PYTHON), "src/scripts/build_intermarket_lead_lag_engine_v1.py"],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,
+    return _run_background_action_v1(
+        "src/scripts/build_intermarket_lead_lag_engine_v1.py",
+        "Межрыночный Lead/Lag поиск",
     )
-    verdict = "Межрыночный поиск завершён" if result.returncode == 0 else "Ошибка межрыночного поиска"
-    return f"{verdict}. Код: {result.returncode}"
 
 
 def run_relationship_factory_action_v2() -> str:
-    env = dict(os.environ)
-    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
-    result = subprocess.run(
-        [str(PYTHON), "src/scripts/build_relationship_factory_v2.py"],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=180, check=False,
+    return _run_background_action_v1(
+        "src/scripts/build_relationship_factory_v2.py",
+        "Фабрика связей V2",
     )
-    verdict = "Фабрика связей завершила поиск" if result.returncode == 0 else "Ошибка фабрики связей"
-    return f"{verdict}. Код: {result.returncode}"
 
 
 def run_relationship_pipeline_action_v2() -> str:
-    env = dict(os.environ)
-    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
-    result = subprocess.run(
-        [str(PYTHON), "src/scripts/run_relationship_factory_pipeline_v2.py"],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=900, check=False,
+    return _run_background_action_v1(
+        "src/scripts/run_relationship_factory_pipeline_v2.py",
+        "Полная цепочка данных и связей",
     )
-    verdict = "Цепочка данных и связей завершена" if result.returncode == 0 else "Ошибка цепочки данных и связей"
-    return f"{verdict}. Код: {result.returncode}"
+
+
+def run_hypothesis_pipeline_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/run_edge_hypothesis_pipeline_v1.py",
+        "Подготовка данных и проверка гипотез",
+    )
 
 
 def run_signal_funnel_action_v1() -> str:
@@ -683,7 +674,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MarketCore — Edge OOS Control Center</title>
     <link rel="stylesheet" href="/assets/marketcore/ui-runtime/v1/runtime.css"></head>
-	    <body data-active-section="{html.escape(active_section)}"><div class="mc-oos-layout">
+	    <body data-active-section="{html.escape(active_section)}" data-action-running-label="{html.escape(i18n.text('control_center.action.running'))}"><div class="mc-oos-layout">
       <aside class="mc-oos-sidebar"><a class="brand" href="/">MARKETCORE</a>
 	        <nav><a href="/">Главная</a><a href="/workspace-v2/portfolio">Портфель</a>
         <a class="active" href="/workspace-v2/control-center/edge-oos">Edge · OOS <span>{failed}</span></a></nav>
@@ -694,7 +685,9 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <div class="mc-oos-actions"><form method="post" action="/workspace-v2/control-center/edge-oos/run">
           <button class="secondary" type="submit">Повторить OOS</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/discover">
-          <button type="submit">Искать гипотезы</button></form>
+          <button type="submit">{html.escape(i18n.text('control_center.action.generate_hypotheses'))}</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/hypothesis-pipeline">
+          <button type="submit">{html.escape(i18n.text('control_center.action.validate_hypotheses'))}</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/lead-lag">
           <button type="submit">Lead/Lag поиск</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/relationship-factory">

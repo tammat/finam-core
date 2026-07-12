@@ -15,6 +15,7 @@ from marketcore.presentation.workspace_v2.portfolio_page_v2 import (
 from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     render_edge_oos_control_center_v1,
     run_hypothesis_action_v1,
+    run_hypothesis_pipeline_action_v1,
     run_lead_lag_action_v1,
     run_relationship_factory_action_v2,
     run_relationship_pipeline_action_v2,
@@ -131,6 +132,9 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/hypothesis-pipeline":
+        notice = run_hypothesis_pipeline_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice, "hypothesis-discovery").encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/finam-instruments":
         notice = run_finam_instrument_discovery_action_v1()
         return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
