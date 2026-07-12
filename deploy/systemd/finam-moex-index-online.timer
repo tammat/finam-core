@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh IMOEX and RTSI closed candles every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=finam-moex-index-online.service
+
+[Install]
+WantedBy=timers.target

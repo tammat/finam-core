@@ -82,7 +82,7 @@ def normalize_number(v: Any):
         return None
 
 
-def insert_market_bar(cur, cols: list[str], symbol: str, timeframe: str, candle: dict[str, Any]) -> bool:
+def insert_market_bar(cur, cols: list[str], symbol: str, timeframe: str, candle: dict[str, Any], source: str = "MOEX_INDEX_BACKFILL_V1") -> bool:
     ts = candle.get("begin")
     if not ts:
         return False
@@ -96,7 +96,7 @@ def insert_market_bar(cur, cols: list[str], symbol: str, timeframe: str, candle:
         "low": normalize_number(candle.get("low")),
         "close": normalize_number(candle.get("close")),
         "volume": normalize_number(candle.get("volume") or 0),
-        "source": "MOEX_INDEX_BACKFILL_V1",
+        "source": source,
     }
 
     insert_cols = [c for c in mapping if c in cols]

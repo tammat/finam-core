@@ -1,0 +1,17 @@
+[Unit]
+Description=MarketCore MOEX IMOEX RTSI Online Candle Ingestion
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/run_moex_index_online_v2.py
+User=alex
+Group=alex
+
+[Install]
+WantedBy=multi-user.target
