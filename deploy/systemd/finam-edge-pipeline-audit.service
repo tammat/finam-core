@@ -3,7 +3,9 @@ Description=Finam Core Edge Pipeline Audit
 
 [Service]
 Type=oneshot
+User=alex
 WorkingDirectory=/opt/finam-core
 Environment=PYTHONPATH=src
 Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/finam-core/venv/bin/python src/scripts/build_edge_pipeline_audit_v1.py
