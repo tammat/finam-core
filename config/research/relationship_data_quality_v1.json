@@ -1,0 +1,9 @@
+{
+  "contract_version": "RELATIONSHIP_DATA_QUALITY_V1",
+  "timeframe": "M5",
+  "minimum_bars": 20000,
+  "minimum_trading_days": 200,
+  "maximum_latest_age_hours": 96,
+  "minimum_regime_coverage": 0.80,
+  "symbols": ["IMOEX", "IMOEX2", "RTSI", "SBER@MISX", "LKOH@MISX", "GAZP@MISX", "PLZL@MISX", "USDRUBF@RTSX", "BR_ROLLING@RTSX", "GDU6@RTSX", "NVTK@MISX", "SBERP@MISX", "VTBR@MISX", "T@MISX"]
+}
