@@ -1,0 +1,24 @@
+{
+  "catalog_version": "SESSION_EXECUTION_EDGE_CATALOG_V1",
+  "timeframe": "M5",
+  "timezone": "Europe/Moscow",
+  "minimum_regime_confidence": 0.60,
+  "minimum_regime_coverage": 0.80,
+  "minimum_validation_trades": 20,
+  "minimum_oos_trades": 20,
+  "sessions": [
+    {"code": "MOEX_OPEN", "start": "10:00", "end": "10:30"},
+    {"code": "MOEX_FIRST_HOUR", "start": "10:30", "end": "11:00"},
+    {"code": "EUROPE_OVERLAP", "start": "11:00", "end": "16:30"},
+    {"code": "US_OPEN", "start": "16:30", "end": "18:00"},
+    {"code": "EVENING", "start": "18:00", "end": "23:40"},
+    {"code": "MOEX_CLOSE", "start": "23:40", "end": "23:50"}
+  ],
+  "execution_policies": [
+    {"code": "BASELINE", "kind": "FIXED_HOLD", "hold_multiplier": 1.0},
+    {"code": "SHORT_HOLD", "kind": "FIXED_HOLD", "hold_multiplier": 0.5},
+    {"code": "LONG_HOLD", "kind": "FIXED_HOLD", "hold_multiplier": 2.0},
+    {"code": "REGIME_CHANGE_EXIT", "kind": "REGIME_CHANGE_EXIT", "hold_multiplier": 1.0},
+    {"code": "SKIP_OPEN_CLOSE", "kind": "SESSION_FILTER", "excluded_sessions": ["MOEX_OPEN", "MOEX_CLOSE"]}
+  ]
+}
