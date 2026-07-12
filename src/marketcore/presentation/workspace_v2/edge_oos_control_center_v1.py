@@ -36,6 +36,8 @@ ACTION_STATUS_SCRIPTS = {
     "hypothesis-lineage": ("src/scripts/build_canonical_hypothesis_trial_registry_v2.py", "Сквозные связи гипотез"),
     "relative-strength-run": ("src/scripts/run_relative_strength_parameter_adapter_v2.py", "Проверка Relative Strength"),
     "intermarket-lead-lag-run": ("src/scripts/run_intermarket_lead_lag_parameter_adapter_v2.py", "Проверка Intermarket Lead/Lag"),
+    "failure-diagnostics": ("src/scripts/build_hypothesis_failure_diagnostics_v2.py", "Диагностика провалов гипотез"),
+    "gross-net-attribution": ("src/scripts/build_trial_gross_net_attribution_v1.py", "Gross/Net атрибуция"),
 }
 
 
@@ -493,6 +495,44 @@ def _hypothesis_lineage_summary() -> dict:
     return summary
 
 
+def _failure_diagnostics() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT diagnostics_run_id FROM analytics.hypothesis_failure_diagnostic_v2
+                ORDER BY created_at DESC LIMIT 1""")
+            latest = cur.fetchone()
+            if not latest:
+                return [], {"diagnosed": 0, "supported": 0}
+            cur.execute("""SELECT strategy_family,primary_failure_code,stability_status,
+                       gross_cost_attribution_status,recommended_action,count(*) AS candidates
+                FROM analytics.hypothesis_failure_diagnostic_v2 WHERE diagnostics_run_id=%s
+                GROUP BY 1,2,3,4,5 ORDER BY strategy_family""", (latest["diagnostics_run_id"],))
+            rows = [dict(row) for row in cur.fetchall()]
+            summary = {"diagnosed": sum(int(row["candidates"]) for row in rows),
+                       "supported": sum(int(row["candidates"]) for row in rows if row["stability_status"] == "SUPPORTED")}
+    return rows, summary
+
+
+def _gross_net_attribution() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT attribution_run_id FROM analytics.trial_gross_net_attribution_v1
+                ORDER BY created_at DESC LIMIT 1""")
+            latest = cur.fetchone()
+            if not latest:
+                return [], {"trials": 0, "no_raw_edge": 0, "cost_destroyed": 0}
+            cur.execute("""SELECT strategy_family,diagnosis_code,count(*) AS trials,
+                       max(estimated_gross_expectancy) AS best_gross,max(net_expectancy) AS best_net,
+                       max(attribution_status) AS attribution_status
+                FROM analytics.trial_gross_net_attribution_v1 WHERE attribution_run_id=%s
+                GROUP BY 1,2 ORDER BY strategy_family,diagnosis_code""", (latest["attribution_run_id"],))
+            rows = [dict(row) for row in cur.fetchall()]
+            summary = {"trials": sum(int(row["trials"]) for row in rows),
+                       "no_raw_edge": sum(int(row["trials"]) for row in rows if row["diagnosis_code"] == "NO_RAW_EDGE"),
+                       "cost_destroyed": sum(int(row["trials"]) for row in rows if row["diagnosis_code"] == "EDGE_DESTROYED_BY_COSTS")}
+    return rows, summary
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -587,6 +627,20 @@ def run_intermarket_lead_lag_action_v2() -> str:
     )
 
 
+def run_failure_diagnostics_action_v2() -> str:
+    return _run_background_action_v1(
+        "src/scripts/build_hypothesis_failure_diagnostics_v2.py",
+        "Диагностика провалов гипотез",
+    )
+
+
+def run_gross_net_attribution_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/build_trial_gross_net_attribution_v1.py",
+        "Gross/Net атрибуция",
+    )
+
+
 def _run_background_action_v1(script: str, label: str) -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -667,6 +721,8 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     strategy_families, strategy_generator_summary = _strategy_generator()
     strategy_result_rows, strategy_result_summary = _strategy_hypothesis_results()
     hypothesis_lineage = _hypothesis_lineage_summary()
+    failure_rows, failure_summary = _failure_diagnostics()
+    attribution_rows, attribution_summary = _gross_net_attribution()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -809,6 +865,21 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <td>{float(row['best_adjusted_p'] or 1):.4f}</td><td>{html.escape(row['reason_code'].replace('_', ' '))}</td></tr>"""
         for row in strategy_result_rows
     )
+    failure_table_rows = "".join(
+        f"""<tr><td><strong>{html.escape(_strategy_name_ru(row['strategy_family'], row['strategy_family']))}</strong></td>
+        <td>{int(row['candidates'])}</td><td>{html.escape(row['primary_failure_code'].replace('_', ' '))}</td>
+        <td>{'Есть' if row['stability_status'] == 'SUPPORTED' else 'Нет'}</td>
+        <td>{'Недоступно: gross-метрика не сохранена' if row['gross_cost_attribution_status'] != 'AVAILABLE' else 'Доступно'}</td>
+        <td>{html.escape(row['recommended_action'])}</td></tr>"""
+        for row in failure_rows
+    )
+    attribution_table_rows = "".join(
+        f"""<tr><td><strong>{html.escape(_strategy_name_ru(row['strategy_family'], row['strategy_family']))}</strong></td>
+        <td>{'Raw edge уничтожен costs' if row['diagnosis_code'] == 'EDGE_DESTROYED_BY_COSTS' else 'Raw edge отсутствует'}</td>
+        <td>{int(row['trials'])}</td><td>{float(row['best_gross'] or 0):.4f}</td><td>{float(row['best_net'] or 0):.4f}</td>
+        <td>Gross PF требует trade-level replay</td></tr>"""
+        for row in attribution_rows
+    )
     section_nav = "".join(
         (
             _section_link("data-quality-gate", "Качество", f"{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}", active_section),
@@ -928,6 +999,14 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <form method="post" action="/workspace-v2/control-center/edge-oos/hypothesis-lineage"><button class="secondary" type="submit">Обновить сквозные связи</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/relative-strength-run"><button type="submit">Проверить Relative Strength</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/intermarket-lead-lag-run"><button type="submit">Проверить Intermarket Lead/Lag</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/failure-diagnostics"><button class="secondary" type="submit">Диагностика провалов</button></form>
+          <details class="mc-table-spoiler"><summary>Почему edge не найден <span>{failure_summary.get('diagnosed', 0)} кандидата</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Кандидаты</th><th>Главная причина</th><th>Соседняя устойчивость</th><th>Влияние costs</th><th>Следующее действие</th></tr></thead><tbody>{failure_table_rows}</tbody></table></div><p>Новый V3 запрещено настраивать по уже просмотренному OOS: требуется новый untouched участок или nested walk-forward.</p></details>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/gross-net-attribution"><button class="secondary" type="submit">Обновить Gross/Net</button></form>
+          <details class="mc-table-spoiler"><summary>Gross → Costs → Net <span>{attribution_summary.get('trials', 0)} trials</span></summary>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Raw edge отсутствует</span><b>{attribution_summary.get('no_raw_edge', 0)}</b></article>
+          <article><span>Edge уничтожен costs</span><b>{attribution_summary.get('cost_destroyed', 0)}</b></article></div>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Диагноз</th><th>Trials</th><th>Лучший gross</th><th>Лучший net</th><th>Ограничение</th></tr></thead><tbody>{attribution_table_rows}</tbody></table></div>
+          <p>Gross expectancy восстановлено из фиксированного per-trade cost. Gross PF не рассчитывается без повторного trade-level replay.</p></details>
           <details class="mc-table-spoiler"><summary>Результаты по семействам <span>{len(strategy_result_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Вердикт</th><th>Кандидаты</th><th>Лучший PF</th><th>Ожидание</th><th>p скорр.</th><th>Причина</th></tr></thead><tbody>{strategy_result_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
