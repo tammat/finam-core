@@ -101,16 +101,19 @@ def load_points(cur, relation: dict[str, Any], config: dict[str, Any]) -> tuple[
     return [Point(ts, source_index[ts], target[ts], regimes.get(ts, "UNKNOWN")) for ts in usable], coverage
 
 
-def quality_ready(cur, symbols: list[str], timeframe: str) -> bool:
-    for symbol in symbols:
+def quality_ready(cur, sources: list[str], target: str, timeframe: str) -> bool:
+    for symbol in sources:
         cur.execute("""
-            SELECT factory_status FROM analytics.relationship_data_quality_gate_v1
+            SELECT market_data_status FROM analytics.relationship_data_quality_gate_v1
             WHERE symbol=%s AND timeframe=%s ORDER BY created_at DESC LIMIT 1
         """, (symbol, timeframe))
         row = cur.fetchone()
-        if not row or row["factory_status"] != "READY":
+        if not row or row["market_data_status"] != "READY":
             return False
-    return True
+    cur.execute("""SELECT factory_status FROM analytics.relationship_data_quality_gate_v1
+        WHERE symbol=%s AND timeframe=%s ORDER BY created_at DESC LIMIT 1""", (target, timeframe))
+    row = cur.fetchone()
+    return bool(row and row["factory_status"] == "READY")
 
 
 def sample(points: list[Point], impulse: int, lag: int, threshold: float, selected_regime: str,
@@ -166,7 +169,7 @@ def main() -> None:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             for relation in sorted(config["relationships"], key=lambda item: (item["priority"], item["code"])):
                 points, coverage = load_points(cur, relation, config)
-                relation_quality_ready = quality_ready(cur, relation["sources"] + [relation["target"]], config["timeframe"])
+                relation_quality_ready = quality_ready(cur, relation["sources"], relation["target"], config["timeframe"])
                 if len(points) < 100:
                     continue
                 train_end, validation_end = int(len(points) * 0.50), int(len(points) * 0.75)
