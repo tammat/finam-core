@@ -66,6 +66,15 @@ EXECUTION_POLICY_NAMES_RU = {
     "SKIP_OPEN_CLOSE": "Исключить открытие и закрытие",
 }
 
+RELATIONSHIP_FAMILY_NAMES_RU = {
+    "INDEX_TO_STOCK": "Индекс → акция",
+    "SECTOR_TO_STOCK": "Сектор → акция",
+    "MULTIFACTOR_TO_STOCK": "Несколько факторов → акция",
+    "OVERNIGHT_TO_OPEN": "Ночь → открытие MOEX",
+    "LIQUIDITY_TO_RETURN": "Ликвидность → доходность",
+    "PAIR_SPREAD": "Парный спред",
+}
+
 
 def _strategy_name_ru(family: object, code: object = "") -> str:
     family_key = str(family or "").upper()
@@ -230,6 +239,36 @@ def _execution_edges() -> tuple[list[dict], dict]:
             return rows, dict(cur.fetchone() or {})
 
 
+def _relationship_factory() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT discovery_run_id FROM analytics.relationship_factory_result_v2 ORDER BY created_at DESC LIMIT 1")
+            latest = cur.fetchone()
+            if not latest:
+                return [], {}
+            run_id = latest["discovery_run_id"]
+            cur.execute("""
+                SELECT priority,relationship_family,relationship_code,thesis,source_symbols,target_symbol,
+                       impulse_bars,lag_bars,regime_group,session_code,aligned_bars,regime_coverage_ratio,
+                       validation_trades,validation_profit_factor,oos_trades,oos_profit_factor,
+                       oos_expectancy_bps,folds_passed,folds_total,adjusted_p_value,
+                       trust_status,verdict_code,reason_code
+                FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=%s
+                ORDER BY priority,CASE verdict_code WHEN 'OOS_PASS' THEN 1 WHEN 'OOS_FAIL' THEN 2 ELSE 3 END,
+                         adjusted_p_value,oos_trades DESC,oos_profit_factor DESC LIMIT 180
+            """, (run_id,))
+            rows = [dict(row) for row in cur.fetchall()]
+            cur.execute("""
+                SELECT count(*) AS trials,count(DISTINCT relationship_code) AS relationships,
+                       count(DISTINCT relationship_family) AS families,
+                       count(*) FILTER(WHERE verdict_code='OOS_PASS') AS passed,
+                       count(*) FILTER(WHERE verdict_code='OOS_FAIL') AS failed,
+                       count(*) FILTER(WHERE verdict_code='UNVERIFIED') AS unverified
+                FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=%s
+            """, (run_id,))
+            return rows, dict(cur.fetchone() or {})
+
+
 def run_oos_action_v1() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -263,12 +302,24 @@ def run_lead_lag_action_v1() -> str:
     return f"{verdict}. Код: {result.returncode}"
 
 
+def run_relationship_factory_action_v2() -> str:
+    env = dict(os.environ)
+    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
+    result = subprocess.run(
+        [str(ROOT / ".venv/bin/python"), "src/scripts/build_relationship_factory_v2.py"],
+        cwd=ROOT, env=env, capture_output=True, text=True, timeout=180, check=False,
+    )
+    verdict = "Фабрика связей завершила поиск" if result.returncode == 0 else "Ошибка фабрики связей"
+    return f"{verdict}. Код: {result.returncode}"
+
+
 def render_edge_oos_control_center_v1(notice: str = "") -> str:
     rows = _rows()
     hypotheses, hypothesis_summary = _hypotheses()
     lead_lag_rows, lead_lag_summary = _lead_lag()
     session_rows, session_summary = _session_edges()
     execution_rows, execution_summary = _execution_edges()
+    relationship_rows, relationship_summary = _relationship_factory()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -338,6 +389,17 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
         <td><span class="mc-oos-badge {'pass' if row['verdict_code'] == 'OOS_PASS' else 'fail'}">{'НЕТ ДАННЫХ' if row['verdict_code'] == 'UNVERIFIED' else row['verdict_code'].removeprefix('OOS_')}</span></td></tr>"""
         for row in execution_rows
     )
+    relationship_table_rows = "".join(
+        f"""<tr data-factory-row data-priority="{row['priority']}" data-family="{row['relationship_family']}" data-regime="{row['regime_group']}" data-session="{row['session_code']}">
+        <td><strong>P{row['priority']}</strong></td><td><strong>{html.escape(RELATIONSHIP_FAMILY_NAMES_RU.get(row['relationship_family'], row['relationship_family']))}</strong></td>
+        <td>{html.escape(' + '.join(row['source_symbols']) if isinstance(row['source_symbols'], list) else str(row['source_symbols']))}</td><td>{html.escape(row['target_symbol'])}</td>
+        <td>{html.escape(REGIME_NAMES_RU.get(row['regime_group'], row['regime_group']))}</td><td>{html.escape(SESSION_NAMES_RU.get(row['session_code'], 'Все сессии' if row['session_code'] == 'ALL' else row['session_code']))}</td>
+        <td>{row['impulse_bars']} → {row['lag_bars']}</td><td>{row['aligned_bars']}</td><td>{row['oos_trades']}</td>
+        <td>{float(row['oos_profit_factor']):.2f}</td><td class="{'is-positive' if row['oos_expectancy_bps'] > 0 else 'is-negative'}">{float(row['oos_expectancy_bps']):.2f}</td>
+        <td>{row['folds_passed']}/{row['folds_total']}</td><td>{float(row['adjusted_p_value']):.3f}</td><td>{float(row['regime_coverage_ratio']) * 100:.0f}%</td>
+        <td><span class="mc-oos-badge {'pass' if row['verdict_code'] == 'OOS_PASS' else 'fail'}">{'НЕТ ДАННЫХ' if row['verdict_code'] == 'UNVERIFIED' else row['verdict_code'].removeprefix('OOS_')}</span></td></tr>"""
+        for row in relationship_rows
+    )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MarketCore — Edge OOS Control Center</title>
@@ -355,7 +417,9 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <form method="post" action="/workspace-v2/control-center/edge-oos/discover">
           <button type="submit">Искать гипотезы</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/lead-lag">
-          <button type="submit">Lead/Lag поиск</button></form></div></header>{notice_html}
+          <button type="submit">Lead/Lag поиск</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/relationship-factory">
+          <button type="submit">Factory V2</button></form></div></header>{notice_html}
         <section class="mc-oos-kpis"><article><span>Параметров</span><b>{len(rows)}</b></article>
           <article><span>OOS PASS</span><b class="is-positive">{passed}</b></article>
           <article><span>OOS FAIL</span><b class="is-negative">{failed}</b></article>
@@ -379,7 +443,15 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <label>Вердикт <select data-lead-lag-filter><option value="ALL">Все</option><option value="OOS_PASS">PASS</option><option value="OOS_FAIL">FAIL</option><option value="UNVERIFIED">Нет данных</option></select></label></div>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Связь</th><th>Режим</th><th>Импульс</th><th>Лаг</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>IC</th><th>Периоды</th><th>p скорр.</th><th>Покрытие</th><th>Доверие</th><th>Вердикт</th></tr></thead>
           <tbody>{lead_lag_table_rows}</tbody></table></div><p data-lead-lag-count>Показано: {len(lead_lag_rows)}</p></section>
-        <nav class="mc-edge-section-nav" aria-label="Исследования Edge"><a href="#session-edge">Сессии <b>{session_summary.get('trials', 0)}</b></a><a href="#execution-edge">Исполнение <b>{execution_summary.get('trials', 0)}</b></a></nav>
+        <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
+          <p>{relationship_summary.get('relationships', 0)} связей · {relationship_summary.get('trials', 0)} испытаний · PASS {relationship_summary.get('passed', 0)} · FAIL {relationship_summary.get('failed', 0)} · нет данных {relationship_summary.get('unverified', 0)}</p></div>
+          <div class="mc-edge-filters"><label>Приоритет <select data-factory-filter="priority"><option value="ALL">Все</option><option value="1">P1 · Индекс и сектор</option><option value="2">P2 · Многофакторные</option><option value="3">P3 · Overnight</option><option value="4">P4 · Ликвидность</option><option value="5">P5 · Пары</option></select></label>
+          <label>Семейство <select data-factory-filter="family"><option value="ALL">Все</option>{''.join(f'<option value="{code}">{name}</option>' for code, name in RELATIONSHIP_FAMILY_NAMES_RU.items())}</select></label>
+          <label>Режим <select data-factory-filter="regime"><option value="ALL">Все</option><option value="TREND">Тренд</option><option value="RANGE">Боковик</option><option value="EXPANSION">Расширение</option><option value="COMPRESSION">Сжатие</option></select></label>
+          <label>Сессия <select data-factory-filter="session"><option value="ALL">Все</option>{''.join(f'<option value="{code}">{name}</option>' for code, name in SESSION_NAMES_RU.items())}</select></label></div></div>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Приоритет</th><th>Семейство</th><th>Источник</th><th>Цель</th><th>Режим</th><th>Сессия</th><th>Импульс → лаг</th><th>Бары</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>Периоды</th><th>p скорр.</th><th>Покрытие</th><th>Вердикт</th></tr></thead><tbody>{relationship_table_rows}</tbody></table></div>
+          <div class="mc-edge-panel-footer"><span data-factory-count>Показано: {len(relationship_rows)}</span><span>Production заблокирован до OOS PASS и Trust Gate</span></div></section>
+        <nav class="mc-edge-section-nav" aria-label="Исследования Edge"><a href="#relationship-factory">Фабрика связей <b>{relationship_summary.get('trials', 0)}</b></a><a href="#session-edge">Сессии <b>{session_summary.get('trials', 0)}</b></a><a href="#execution-edge">Исполнение <b>{execution_summary.get('trials', 0)}</b></a></nav>
         <section id="session-edge" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">STRATEGY × REGIME × SESSION</p><h2>Сессии</h2>
           <p>{session_summary.get('trials', 0)} испытаний · PASS {session_summary.get('passed', 0)} · FAIL {session_summary.get('failed', 0)} · нет данных {session_summary.get('unverified', 0)}</p></div>
           <div class="mc-edge-filters"><label>Стратегия <select data-session-filter="strategy"><option value="ALL">Все</option><option value="MOMENTUM">Импульс</option><option value="MEAN_REVERSION">Возврат к среднему</option><option value="BREAKOUT">Пробой</option></select></label>

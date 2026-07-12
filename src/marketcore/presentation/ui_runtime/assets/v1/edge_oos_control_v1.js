@@ -42,7 +42,7 @@
       let visible = 0;
       filteredRows.forEach(row => {
         const show = filters.every(select => {
-          const key = select.dataset.sessionFilter || select.dataset.executionFilter;
+          const key = select.dataset.sessionFilter || select.dataset.executionFilter || select.dataset.factoryFilter;
           return select.value === "ALL" || row.dataset[key] === select.value;
         });
         row.hidden = !show;
@@ -55,4 +55,5 @@
   }
   bindMultiFilter("[data-session-filter]", "[data-session-row]", "[data-session-count]");
   bindMultiFilter("[data-execution-filter]", "[data-execution-row]", "[data-execution-count]");
+  bindMultiFilter("[data-factory-filter]", "[data-factory-row]", "[data-factory-count]");
 })();
