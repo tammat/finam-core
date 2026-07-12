@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh active Brent contracts every 5 minutes
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=finam-moex-brent-online.service
+[Install]
+WantedBy=timers.target
