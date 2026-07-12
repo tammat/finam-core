@@ -39,6 +39,7 @@ from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     run_swing_timeframes_action_v1,
     run_swing_data_quality_action_v1,
     run_swing_factory_action_v1,
+    run_forward_incubator_action_v1,
 )
 
 EDGE_OOS_SECTION_ROUTES = {
@@ -150,6 +151,8 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/forward-incubator":
+        return 200, render_edge_oos_control_center_v1(run_forward_incubator_action_v1(), "strategy-generator").encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/swing-timeframes":
         return 200, render_edge_oos_control_center_v1(run_swing_timeframes_action_v1(), "strategy-generator").encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/swing-data-quality":

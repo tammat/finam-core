@@ -42,6 +42,7 @@ ACTION_STATUS_SCRIPTS = {
     "swing-timeframes": ("src/scripts/build_canonical_swing_timeframes_v1.py", "Swing таймфреймы"),
     "swing-data-quality": ("src/scripts/build_swing_data_quality_gate_v1.py", "Качество Swing данных"),
     "swing-factory": ("src/scripts/build_swing_hypothesis_factory_v1.py", "Swing Hypothesis Factory"),
+    "forward-incubator": ("src/scripts/build_forward_edge_incubator_v1.py", "Forward Edge Incubator"),
 }
 
 
@@ -576,6 +577,25 @@ def _swing_summary() -> dict:
     return result
 
 
+def _forward_incubator_summary() -> dict:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT cohort_id,activated_at FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1")
+            latest = cur.fetchone()
+            if not latest: return {"candidates":0,"observations":0}
+            cur.execute("""SELECT count(*) candidates,count(*) FILTER(WHERE incubator_status='ACCUMULATING') accumulating,
+              count(*) FILTER(WHERE incubator_status='WATCH_BLOCKED') watch_blocked,
+              count(*) FILTER(WHERE incubator_status='ROUTER_REQUIRED') router_required,
+              count(*) FILTER(WHERE promotion_allowed) promotion_allowed
+              FROM analytics.forward_edge_incubator_v1 WHERE cohort_id=%s""",(latest["cohort_id"],))
+            result=dict(cur.fetchone() or {}); result["activated_at"]=latest["activated_at"]
+            cur.execute("SELECT count(*) observations FROM analytics.forward_edge_observation_v1 WHERE cohort_id=%s",(latest["cohort_id"],))
+            result.update(dict(cur.fetchone() or {}))
+            cur.execute("SELECT count(*) FILTER(WHERE worker_status='OK') worker_ok,max(updated_at) worker_updated_at FROM analytics.forward_edge_worker_state_v1 WHERE cohort_id=%s",(latest["cohort_id"],))
+            result.update(dict(cur.fetchone() or {}))
+    return result
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -703,6 +723,10 @@ def run_swing_factory_action_v1() -> str:
     return _run_background_action_v1("src/scripts/build_swing_hypothesis_factory_v1.py", "Swing Hypothesis Factory")
 
 
+def run_forward_incubator_action_v1() -> str:
+    return _run_background_action_v1("src/scripts/build_forward_edge_incubator_v1.py", "Forward Edge Incubator")
+
+
 def _run_background_action_v1(script: str, label: str) -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -787,6 +811,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     attribution_rows, attribution_summary = _gross_net_attribution()
     replay_rows, replay_summary = _targeted_trade_replay()
     swing_summary = _swing_summary()
+    forward_summary = _forward_incubator_summary()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -1093,6 +1118,15 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <form method="post" action="/workspace-v2/control-center/edge-oos/swing-data-quality"><button type="submit">Проверить Swing данные</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/swing-factory"><button type="submit">Сформировать Swing гипотезы</button></form></div>
           <p>Nested split 40/20/20/20 · final OOS запечатан commitment-хэшем и не открыт.</p></details>
+          <details class="mc-table-spoiler"><summary>Forward Edge Incubator V1 <span>{forward_summary.get('candidates', 0)} кандидатов</span></summary>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Накапливают</span><b>{forward_summary.get('accumulating', 0)}</b></article>
+          <article><span>Watch blocked</span><b>{forward_summary.get('watch_blocked', 0)}</b></article>
+          <article><span>Router required</span><b>{forward_summary.get('router_required', 0)}</b></article>
+          <article><span>Новые наблюдения</span><b>{forward_summary.get('observations', 0)}</b></article>
+          <article><span>Worker OK</span><b>{forward_summary.get('worker_ok', 0)}</b></article>
+          <article><span>Promotion allowed</span><b>{forward_summary.get('promotion_allowed', 0)}</b></article></div>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/forward-incubator"><button type="submit">Зафиксировать новую forward-когорту</button></form>
+          <p>Принимаются только сигналы после момента фиксации. Исторический backfill запрещён PostgreSQL trigger.</p></details>
           <details class="mc-table-spoiler"><summary>Результаты по семействам <span>{len(strategy_result_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Вердикт</th><th>Кандидаты</th><th>Лучший PF</th><th>Ожидание</th><th>p скорр.</th><th>Причина</th></tr></thead><tbody>{strategy_result_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
