@@ -33,4 +33,26 @@
   }
   if (leadLagFilter) leadLagFilter.addEventListener("input", updateLeadLag);
   updateLeadLag();
+
+  function bindMultiFilter(filterSelector, rowSelector, countSelector) {
+    const filters = Array.from(document.querySelectorAll(filterSelector));
+    const filteredRows = Array.from(document.querySelectorAll(rowSelector));
+    const output = document.querySelector(countSelector);
+    function updateMultiFilter() {
+      let visible = 0;
+      filteredRows.forEach(row => {
+        const show = filters.every(select => {
+          const key = select.dataset.sessionFilter || select.dataset.executionFilter;
+          return select.value === "ALL" || row.dataset[key] === select.value;
+        });
+        row.hidden = !show;
+        visible += Number(show);
+      });
+      if (output) output.textContent = `Показано: ${visible} из ${filteredRows.length}`;
+    }
+    filters.forEach(select => select.addEventListener("input", updateMultiFilter));
+    updateMultiFilter();
+  }
+  bindMultiFilter("[data-session-filter]", "[data-session-row]", "[data-session-count]");
+  bindMultiFilter("[data-execution-filter]", "[data-execution-row]", "[data-execution-count]");
 })();
