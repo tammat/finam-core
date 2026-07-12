@@ -85,6 +85,15 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
         )
         return response.status_code, response.body
 
+    if path in (
+        "/api/v1/render-tree/portfolio/tablet",
+        "/api/v1/render-tree/portfolio/tablet/",
+    ):
+        response = portfolio_render_tree_http_v1(
+            theme_code="TABLET",
+        )
+        return response.status_code, response.body
+
 
     if path in ("/workspace-v2/portfolio", "/workspace-v2/portfolio/"):
         return 200, render_workspace_v2_portfolio_page_v2(
@@ -107,6 +116,14 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
             200,
             render_workspace_v2_portfolio_page_v2(
                 theme_code="PHONE",
+            ).encode("utf-8"),
+        )
+
+    if path in ("/workspace-v2/portfolio/tablet",):
+        return (
+            200,
+            render_workspace_v2_portfolio_page_v2(
+                theme_code="TABLET",
             ).encode("utf-8"),
         )
 

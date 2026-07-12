@@ -74,6 +74,10 @@
     }
 
     function resolveTag(node) {
+        if (node.type === "card" && node.props?.href) {
+            return "a";
+        }
+
         if (node.type === "title") {
             const level = node.props.level;
 

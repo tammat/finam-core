@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -45,21 +46,41 @@ REASON_COLUMN_PATTERNS = (
 
 
 def reason_group(value: str) -> str:
-    v = value.upper()
+    v = " ".join(value.upper().strip().split())
+    if not v or v in {"UNKNOWN", "NONE", "NULL", "N/A", "NA"}:
+        return "UNKNOWN"
+    if re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?", v):
+        return "UNKNOWN"
+    if any(token in v for token in ("SAMPLE", "DATA", "MISSING", "HISTORY", "STALE", "FRESHNESS", "COVERAGE")):
+        return "DATA"
+    if any(token in v for token in ("VOLATILITY", "VOL_LOW", "LOW_VOL", "HIGH_VOL", "ATR_")):
+        return "VOLATILITY"
+    if any(token in v for token in ("LIQUID", "SPREAD", "SLIPPAGE")):
+        return "LIQUIDITY"
     if "RISK" in v or "LIMIT" in v or "EXPOSURE" in v:
         return "RISK"
     if "EDGE" in v or "EXPECTANCY" in v or "PROFIT" in v:
         return "EDGE"
     if "REGIME" in v or "MARKET" in v or "SESSION" in v:
         return "MARKET"
-    if "SAMPLE" in v or "DATA" in v or "MISSING" in v:
-        return "DATA"
+    if any(token in v for token in ("TIME_EXIT", "TIME_EXPIRED", "STOP_LOSS", "STALL_EXIT", "PROTECTIVE", "TAKE_PROFIT", "TRAILING_STOP")):
+        return "EXIT"
+    if any(token in v for token in ("COMPRESSION", "BREAKOUT", "RETEST", "MOMENTUM", "MEAN_REVERSION", "SIGNAL", "SETUP")):
+        return "SETUP"
     if "ORDER" in v or "FILL" in v or "EXECUTION" in v or "BROKER" in v:
         return "EXECUTION"
-    if "LOCK" in v or "BLOCK" in v or "REJECT" in v:
+    if any(token in v for token in ("RESEARCH", "WATCH", "SHADOW_VALIDATION", "REVIEW")):
+        return "RESEARCH"
+    if any(token in v for token in ("DRY_RUN", "ARCHIVED", "CHECKPOINT", "LIFECYCLE")):
+        return "LIFECYCLE"
+    if any(token in v for token in ("LOCK", "BLOCK", "REJECT", "ЗАБЛОКИРОВАН")):
         return "BLOCK"
-    if "ALLOW" in v or "PASS" in v or "READY" in v:
+    if any(token in v for token in ("ALLOW", "PASS", "READY", "ACCEPTED", "SELECTED", "PROMOTE")):
         return "PASS"
+    if any(token in v for token in ("NO_EFFECT", "UNSTABLE", "NOISE", "DEGRADED")):
+        return "QUALITY"
+    if v in {"ACTIVE", "INACTIVE", "PENDING"}:
+        return "LIFECYCLE"
     return "OTHER"
 
 

@@ -74,6 +74,9 @@ class RenderDocumentToHtmlV1:
     def _resolve_tag(cls, node: RenderNode) -> str:
         node_type = node.type_code
 
+        if node_type == RenderNodeType.CARD.value and node.props.get("href"):
+            return "a"
+
         if node_type == RenderNodeType.TITLE.value:
             return cls._title_tag(node.props)
 

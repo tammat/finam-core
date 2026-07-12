@@ -29,7 +29,7 @@ def render_workspace_v2_portfolio_page_v2(
 <title>MarketCore — Портфель</title>
 <link rel="stylesheet" href="/assets/marketcore/ui-runtime/v1/runtime.css">
 </head>
-<body data-timezone="{settings.timezone}" data-currency="{settings.currency}" data-broker="{settings.broker}">
+<body data-device-profile="{theme_code.strip().upper() or 'DEFAULT'}" data-timezone="{settings.timezone}" data-currency="{settings.currency}" data-broker="{settings.broker}">
 <nav class="mc-workspace-nav" aria-label="Основная навигация">
   <a class="mc-workspace-nav__home" href="/">← Главная</a>
   <a href="/workspace-v2/control-center/edge-oos">Control Center</a>

@@ -84,6 +84,7 @@
                 "style",
                 "role",
                 "aria_label",
+                "href",
                 "data-section",
                 "data-card",
                 "data-status",

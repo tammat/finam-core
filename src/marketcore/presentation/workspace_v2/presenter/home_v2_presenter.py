@@ -118,6 +118,7 @@ class HomeV2Presenter:
             cards=(
                 self._nav_card("home.card.profit", "home.card.profit.title", "/", 5, self._percent(profit["realized_roi"])),
                 self._nav_card("home.card.portfolio", "home.card.portfolio.title", "/workspace-v2/portfolio", 10),
+                self._nav_card("home.card.portfolio.tablet", "home.card.portfolio.tablet.title", "/workspace-v2/portfolio/tablet", 14),
                 self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
                 self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20, available=False),
                 self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30, available=False),

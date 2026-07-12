@@ -29,6 +29,8 @@ def render_home_v2(
 
             if card.widget_id == "home.card.portfolio":
                 card_class += " mc-device-desktop-only"
+            elif card.widget_id == "home.card.portfolio.tablet":
+                card_class += " mc-device-tablet-only"
             elif card.widget_id == "home.card.portfolio.phone":
                 card_class += " mc-device-phone-only"
 
@@ -113,27 +115,20 @@ def render_home_v2(
                     )
                 )
 
+            card_props = {
+                "class": card_class,
+                "data-card": card.card_type.value,
+                "data-status": card.status_code.value,
+                "data-availability": str(availability or ""),
+            }
             if target:
-                card_children.append(
-                    RenderNode(
-                        node_type=RenderNodeType.ACTION,
-                        props={
-                            "class": "mc-v2-button",
-                            "href": target,
-                        },
-                        text=i18n.text("ui.action.open"),
-                    )
-                )
+                card_props["href"] = target
+                card_props["aria_label"] = i18n.text(card.title_key)
 
             card_nodes.append(
                 RenderNode(
                     node_type=RenderNodeType.CARD,
-                    props={
-                        "class": card_class,
-                        "data-card": card.card_type.value,
-                        "data-status": card.status_code.value,
-                        "data-availability": str(availability or ""),
-                    },
+                    props=card_props,
                     children=tuple(card_children),
                 )
             )

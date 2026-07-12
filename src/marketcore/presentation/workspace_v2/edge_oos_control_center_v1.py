@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 
+from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
+
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path(__file__).resolve().parents[4]
@@ -83,16 +85,16 @@ RELATIONSHIP_FAMILY_NAMES_RU = {
 COMMODITY_NAMES_RU = {"BR_ROLLING@RTSX": "Brent", "NG_ROLLING@RTSX": "Природный газ"}
 COMMODITY_TIMERS = {"BR_ROLLING@RTSX": "finam-moex-brent-online.timer", "NG_ROLLING@RTSX": "finam-moex-natural-gas-online.timer"}
 
-FUNNEL_ACTIONS_RU = {
-    "DATA": "Восстановить историю, свежесть и пройти Data Quality Gate",
-    "EDGE": "Оставить в Research, расширить гипотезу и повторить OOS",
-    "MARKET": "Ограничить допустимые режимы и торговые сессии",
-    "RISK": "Снизить размер, концентрацию или факторную экспозицию",
-    "EXECUTION": "Проверить broker/order/fill reconciliation и маршрутизацию",
-    "BLOCK": "Открыть governance gate и устранить конкретную блокировку",
-    "PASS": "Наблюдать стабильность, не менять правила без нового OOS",
-    "OTHER": "Провести аудит lineage и классифицировать причину",
-}
+FUNNEL_REASON_GROUPS = (
+    "DATA", "VOLATILITY", "LIQUIDITY", "RISK", "EDGE", "MARKET",
+    "EXIT", "SETUP", "EXECUTION", "RESEARCH", "LIFECYCLE", "BLOCK",
+    "PASS", "QUALITY", "UNKNOWN", "OTHER",
+)
+
+
+def _funnel_i18n_key(group: str, field: str) -> str:
+    normalized = group if group in FUNNEL_REASON_GROUPS else "OTHER"
+    return f"control_center.signal_funnel.reason.{normalized.lower()}.{field}"
 
 SECTION_URLS = {
     "data-quality-gate": "/workspace-v2/control-center/edge-oos/data-quality",
@@ -522,6 +524,7 @@ def _section_link(section_id: str, label: str, value: object, active_section: st
 
 
 def render_edge_oos_control_center_v1(notice: str = "", active_section: str = "") -> str:
+    i18n = UiI18nResolverV1(locale_code="ru")
     if active_section not in {
         "data-quality-gate",
         "commodity-factors",
@@ -662,8 +665,8 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         for row in funnel_stages
     )
     funnel_reason_rows = "".join(
-        f"""<tr><td><strong>{html.escape(row['reason_group'])}</strong></td><td>{int(row['rows_total'])}</td><td>{int(row['reason_values'])}</td>
-        <td>{html.escape(FUNNEL_ACTIONS_RU.get(row['reason_group'], FUNNEL_ACTIONS_RU['OTHER']))}</td></tr>"""
+        f"""<tr><td><strong>{html.escape(i18n.text(_funnel_i18n_key(row['reason_group'], 'label')))}</strong></td><td>{int(row['rows_total'])}</td><td>{int(row['reason_values'])}</td>
+        <td>{html.escape(i18n.text(_funnel_i18n_key(row['reason_group'], 'action')))}</td></tr>"""
         for row in funnel_reasons
     )
     section_nav = "".join(
