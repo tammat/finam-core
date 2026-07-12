@@ -9,7 +9,9 @@ import psycopg2
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path(__file__).resolve().parents[2]
-PYTHON = str(ROOT / ".venv/bin/python")
+PYTHON = os.getenv("MARKETCORE_PYTHON", str(ROOT / ".venv/bin/python"))
+if not Path(PYTHON).exists():
+    PYTHON = "/opt/finam-core/.venv/bin/python"
 TARGETS = ["SBER@MISX", "LKOH@MISX", "GAZP@MISX", "PLZL@MISX"]
 
 
