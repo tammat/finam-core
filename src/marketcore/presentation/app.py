@@ -14,6 +14,14 @@ from marketcore.presentation.router import route, route_post
 
 HOST = os.getenv("MARKETCORE_UI_HOST", "0.0.0.0")
 PORT = int(os.getenv("MARKETCORE_UI_PORT", "8080"))
+LOCAL_CONTROL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _request_hostname(value: str | None) -> str:
+    if not value:
+        return ""
+    parsed = urlparse(value if "://" in value else f"http://{value}")
+    return (parsed.hostname or "").lower()
 
 
 def _to_bytes(payload: object) -> bytes:
@@ -40,6 +48,24 @@ def _error_page(exc: BaseException) -> bytes:
 
 
 class MarketCoreUiHandler(BaseHTTPRequestHandler):
+    def _is_local_control_request(self) -> bool:
+        if self.client_address[0] in {"127.0.0.1", "::1"}:
+            return True
+
+        if _request_hostname(self.headers.get("Host")) not in LOCAL_CONTROL_HOSTS:
+            return False
+
+        fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if fetch_site and fetch_site not in {"same-origin", "same-site", "none"}:
+            return False
+
+        for header in ("Origin", "Referer"):
+            value = self.headers.get(header)
+            if value and _request_hostname(value) not in LOCAL_CONTROL_HOSTS:
+                return False
+
+        return True
+
     def _send_html(self, code: int, body: bytes) -> None:
         self.send_response(code)
         asset_content_type = ui_runtime_asset_content_type_v1(
@@ -70,7 +96,7 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            if self.client_address[0] not in {"127.0.0.1", "::1"}:
+            if not self._is_local_control_request():
                 self._send_html(403, b"Local control only")
                 return
             parsed = urlparse(self.path)

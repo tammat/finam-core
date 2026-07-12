@@ -9,7 +9,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
 
-SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V1"
+SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V2_I18N"
 
 TARGET_TABLES = [
     ("public", "runtime_guard_signal_registry_v1"),
@@ -69,13 +69,13 @@ def reason_group(value: str) -> str:
         return "SETUP"
     if "ORDER" in v or "FILL" in v or "EXECUTION" in v or "BROKER" in v:
         return "EXECUTION"
-    if any(token in v for token in ("RESEARCH", "WATCH", "SHADOW_VALIDATION", "REVIEW")):
+    if any(token in v for token in ("RESEARCH", "WATCH", "SHADOW_VALIDATION", "REVIEW", "ИССЛЕДОВАН")):
         return "RESEARCH"
     if any(token in v for token in ("DRY_RUN", "ARCHIVED", "CHECKPOINT", "LIFECYCLE")):
         return "LIFECYCLE"
     if any(token in v for token in ("LOCK", "BLOCK", "REJECT", "ЗАБЛОКИРОВАН")):
         return "BLOCK"
-    if any(token in v for token in ("ALLOW", "PASS", "READY", "ACCEPTED", "SELECTED", "PROMOTE")):
+    if any(token in v for token in ("ALLOW", "PASS", "READY", "ACCEPTED", "SELECTED", "PROMOTE", "РАЗРЕШЕН", "РАЗРЕШЁН")):
         return "PASS"
     if any(token in v for token in ("NO_EFFECT", "UNSTABLE", "NOISE", "DEGRADED")):
         return "QUALITY"

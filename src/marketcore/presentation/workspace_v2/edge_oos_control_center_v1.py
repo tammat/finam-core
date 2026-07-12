@@ -652,13 +652,19 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     )
     funnel_cards = "".join(
         f"""<article><span>{html.escape(row['stage_name'])}</span><b>{int(row['stage_count'])}</b>
-        <small>{'Источник несопоставим' if row['previous_stage_count'] is not None and row['stage_count'] > row['previous_stage_count'] else ('Конверсия ' + str(row['pass_rate_pct']) + '%' if row['pass_rate_pct'] is not None else 'Начальная стадия')}</small></article>"""
+        <small>{'LIVE заблокирован · заявки не отправляются' if row['stage_code'] == 'ORDERS' and int(row['stage_count']) == 0 and row.get('evidence_json', {}).get('zero_is_expected_while_live_blocked') else ('Источник несопоставим' if row['previous_stage_count'] is not None and row['stage_count'] > row['previous_stage_count'] else ('Конверсия ' + str(row['pass_rate_pct']) + '%' if row['pass_rate_pct'] is not None else 'Начальная стадия'))}</small></article>"""
         for row in funnel_stages
     )
     funnel_reason_rows = "".join(
         f"""<tr><td><strong>{html.escape(i18n.text(_funnel_i18n_key(row['reason_group'], 'label')))}</strong></td><td>{int(row['rows_total'])}</td><td>{int(row['reason_values'])}</td>
         <td>{html.escape(i18n.text(_funnel_i18n_key(row['reason_group'], 'action')))}</td></tr>"""
         for row in funnel_reasons
+    )
+    live_boundary_blocked = bool(
+        len(funnel_stages) > 1
+        and funnel_stages[1]["stage_code"] == "ORDERS"
+        and int(funnel_stages[1]["stage_count"]) == 0
+        and funnel_stages[1].get("evidence_json", {}).get("zero_is_expected_while_live_blocked")
     )
     section_nav = "".join(
         (
@@ -753,9 +759,9 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <div class="mc-oos-kpis mc-commodity-kpis">{commodity_cards}</div>
           <details class="mc-table-spoiler"><summary>Показать сырьевые P2-связи <span>{len(commodity_relations)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Связь</th><th>Цель</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>p скорр.</th><th>Доверие</th><th>Вердикт</th></tr></thead><tbody>{commodity_relation_rows}</tbody></table></div></details></section>
         <section id="signal-funnel" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar"><div><p class="mc-edge-eyebrow">SIGNAL FUNNEL</p><h2>Воронка сигналов</h2>
-          <p>{'Стадии сопоставимы' if funnel_comparable else 'NON-COMPARABLE · источники имеют разные lineage и периоды'}</p></div><span class="mc-oos-badge {'pass' if funnel_comparable else 'fail'}">{'VERIFIED' if funnel_comparable else 'ТРЕБУЕТ LINEAGE'}</span></div>
+          <p>{'Связанная когорта до границы Research → Execution; LIVE-заявки учитываются только после допуска' if funnel_comparable else 'Источники невозможно связать в единую когорту'}</p></div><span class="mc-oos-badge {'fail' if live_boundary_blocked or not funnel_comparable else 'pass'}">{'LIVE ЗАБЛОКИРОВАН' if live_boundary_blocked else ('СОПОСТАВИМО' if funnel_comparable else 'НЕТ СВЯЗНОСТИ')}</span></div>
           <div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div>
-          <details class="mc-table-spoiler"><summary>Причины потерь и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Причины</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div></details></section>
+          <details class="mc-table-spoiler"><summary>Диагностические события и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Варианты причин</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div><p>Диагностические события собраны из журналов системы и не считаются потерями между этапами воронки.</p></details></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
           <p>{relationship_summary.get('relationships', 0)} связей · {relationship_summary.get('trials', 0)} испытаний · PASS {relationship_summary.get('passed', 0)} · FAIL {relationship_summary.get('failed', 0)} · нет данных {relationship_summary.get('unverified', 0)}</p></div>
           <div class="mc-edge-filters"><label>Приоритет <select data-factory-filter="priority"><option value="ALL">Все</option><option value="1">P1 · Индекс и сектор</option><option value="2">P2 · Многофакторные</option><option value="3">P3 · Overnight</option><option value="4">P4 · Ликвидность</option><option value="5">P5 · Пары</option></select></label>
