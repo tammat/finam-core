@@ -8,6 +8,8 @@ set -euo pipefail
 
 cd /opt/finam-core
 export PYTHONPATH=src
+export PYTHONPYCACHEPREFIX="${PYTHONPYCACHEPREFIX:-/tmp/finam-core-pycache}"
+mkdir -p "${PYTHONPYCACHEPREFIX}"
 
 SYMBOL="${SYMBOL:-BRM6@RTSX}"
 STRATEGY="${STRATEGY:-once_buy}"
