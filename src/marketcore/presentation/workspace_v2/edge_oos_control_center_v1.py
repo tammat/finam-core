@@ -33,6 +33,9 @@ ACTION_STATUS_SCRIPTS = {
     "finam-instruments": ("src/scripts/discover_finam_instrument_universe_v1.py", "Поиск инструментов Finam"),
     "strategy-generator": ("src/scripts/build_strategy_family_registry_v2.py", "Генератор стратегий"),
     "strategy-hypothesis-run": ("src/scripts/run_strategy_hypothesis_execution_pipeline_v2.py", "Проверка гипотез V2"),
+    "hypothesis-lineage": ("src/scripts/build_canonical_hypothesis_trial_registry_v2.py", "Сквозные связи гипотез"),
+    "relative-strength-run": ("src/scripts/run_relative_strength_parameter_adapter_v2.py", "Проверка Relative Strength"),
+    "intermarket-lead-lag-run": ("src/scripts/run_intermarket_lead_lag_parameter_adapter_v2.py", "Проверка Intermarket Lead/Lag"),
 }
 
 
@@ -474,6 +477,22 @@ def _strategy_hypothesis_results() -> tuple[list[dict], dict]:
     return rows, summary
 
 
+def _hypothesis_lineage_summary() -> dict:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT count(*) AS hypotheses,
+                       count(*) FILTER(WHERE lifecycle_state='TESTED') AS tested,
+                       count(*) FILTER(WHERE lifecycle_state='UNVERIFIED') AS unverified
+                FROM analytics.canonical_hypothesis_registry_v1""")
+            summary = dict(cur.fetchone() or {})
+            cur.execute("""SELECT count(*) AS trials,
+                       count(*) FILTER(WHERE trust_state='PENDING') AS trust_pending,
+                       count(*) FILTER(WHERE paper_state NOT IN ('NOT_ELIGIBLE')) AS paper_candidates
+                FROM analytics.hypothesis_trial_registry_v2""")
+            summary.update(dict(cur.fetchone() or {}))
+    return summary
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -544,6 +563,27 @@ def run_strategy_hypothesis_action_v2() -> str:
     return _run_background_action_v1(
         "src/scripts/run_strategy_hypothesis_execution_pipeline_v2.py",
         "Проверка гипотез V2",
+    )
+
+
+def run_hypothesis_lineage_action_v2() -> str:
+    return _run_background_action_v1(
+        "src/scripts/build_canonical_hypothesis_trial_registry_v2.py",
+        "Сквозные связи гипотез",
+    )
+
+
+def run_relative_strength_action_v2() -> str:
+    return _run_background_action_v1(
+        "src/scripts/run_relative_strength_parameter_adapter_v2.py",
+        "Проверка Relative Strength",
+    )
+
+
+def run_intermarket_lead_lag_action_v2() -> str:
+    return _run_background_action_v1(
+        "src/scripts/run_intermarket_lead_lag_parameter_adapter_v2.py",
+        "Проверка Intermarket Lead/Lag",
     )
 
 
@@ -626,6 +666,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     funnel_stages, funnel_reasons, funnel_comparable = _signal_funnel()
     strategy_families, strategy_generator_summary = _strategy_generator()
     strategy_result_rows, strategy_result_summary = _strategy_hypothesis_results()
+    hypothesis_lineage = _hypothesis_lineage_summary()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -880,6 +921,13 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>OOS PASS</span><b class="is-positive">{strategy_result_summary.get('oos_pass', 0)}</b></article>
           <article><span>OOS FAIL</span><b class="is-negative">{strategy_result_summary.get('oos_fail', 0)}</b></article>
           <article><span>Нет подтверждения</span><b>{strategy_result_summary.get('unverified', 0)}</b></article></div>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Канонические ID</span><b>{hypothesis_lineage.get('hypotheses', 0)}</b></article>
+          <article><span>Связанные испытания</span><b>{hypothesis_lineage.get('trials', 0)}</b></article>
+          <article><span>Trust Gate ожидают</span><b>{hypothesis_lineage.get('trust_pending', 0)}</b></article>
+          <article><span>Paper-кандидаты</span><b>{hypothesis_lineage.get('paper_candidates', 0)}</b></article></div>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/hypothesis-lineage"><button class="secondary" type="submit">Обновить сквозные связи</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/relative-strength-run"><button type="submit">Проверить Relative Strength</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/intermarket-lead-lag-run"><button type="submit">Проверить Intermarket Lead/Lag</button></form>
           <details class="mc-table-spoiler"><summary>Результаты по семействам <span>{len(strategy_result_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Вердикт</th><th>Кандидаты</th><th>Лучший PF</th><th>Ожидание</th><th>p скорр.</th><th>Причина</th></tr></thead><tbody>{strategy_result_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>

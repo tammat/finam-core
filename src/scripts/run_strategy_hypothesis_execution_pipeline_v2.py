@@ -11,6 +11,7 @@ import psycopg2
 import psycopg2.extras
 
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
+from marketcore.research_window_guard_v1 import require_off_market_research_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -58,6 +59,7 @@ def fold_passes(trades, bars: list[Bar], start: int) -> int:
 
 
 def main() -> None:
+    require_off_market_research_window("STRATEGY_HYPOTHESIS_EXECUTION_PIPELINE_V2")
     execution_run_id = str(uuid.uuid4())
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

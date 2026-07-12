@@ -30,6 +30,9 @@ from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     run_oos_action_v1,
     run_strategy_generator_action_v2,
     run_strategy_hypothesis_action_v2,
+    run_hypothesis_lineage_action_v2,
+    run_relative_strength_action_v2,
+    run_intermarket_lead_lag_action_v2,
 )
 
 EDGE_OOS_SECTION_ROUTES = {
@@ -141,6 +144,15 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/intermarket-lead-lag-run":
+        notice = run_intermarket_lead_lag_action_v2()
+        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
+    if path == "/workspace-v2/control-center/edge-oos/relative-strength-run":
+        notice = run_relative_strength_action_v2()
+        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
+    if path == "/workspace-v2/control-center/edge-oos/hypothesis-lineage":
+        notice = run_hypothesis_lineage_action_v2()
+        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/strategy-hypothesis-run":
         notice = run_strategy_hypothesis_action_v2()
         return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
