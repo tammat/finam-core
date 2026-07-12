@@ -18,4 +18,19 @@
   if (hypothesisFilter) hypothesisFilter.addEventListener("input", () => hypothesisRows.forEach(row => {
     row.hidden = hypothesisFilter.value !== "ALL" && row.dataset.family !== hypothesisFilter.value;
   }));
+  const leadLagFilter = document.querySelector("[data-lead-lag-filter]");
+  const leadLagRows = Array.from(document.querySelectorAll("[data-lead-lag-row]"));
+  const leadLagCount = document.querySelector("[data-lead-lag-count]");
+  function updateLeadLag() {
+    if (!leadLagFilter) return;
+    let visible = 0;
+    leadLagRows.forEach(row => {
+      const show = leadLagFilter.value === "ALL" || row.dataset.verdict === leadLagFilter.value;
+      row.hidden = !show;
+      visible += Number(show);
+    });
+    if (leadLagCount) leadLagCount.textContent = `Показано: ${visible} из ${leadLagRows.length}`;
+  }
+  if (leadLagFilter) leadLagFilter.addEventListener("input", updateLeadLag);
+  updateLeadLag();
 })();

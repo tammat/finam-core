@@ -30,6 +30,25 @@ PARAMETER_NAMES_RU = {
     "breakout_window": "Окно пробоя",
 }
 
+RELATIONSHIP_NAMES_RU = {
+    "BRENT_TO_LKOH": "Brent → ЛУКОЙЛ",
+    "BRENT_TO_GAZP": "Brent → Газпром",
+    "USDRUB_TO_LKOH": "USD/RUB → ЛУКОЙЛ",
+    "USDRUB_TO_GAZP": "USD/RUB → Газпром",
+    "USDRUB_TO_PLZL": "USD/RUB → Полюс",
+    "GOLD_TO_PLZL": "Золото → Полюс",
+    "GAS_TO_GAZP": "Газ → Газпром",
+    "BTC_TO_ETH": "Bitcoin → Ethereum",
+}
+
+REGIME_NAMES_RU = {
+    "ALL": "Все режимы",
+    "TREND": "Тренд",
+    "RANGE": "Боковик",
+    "EXPANSION": "Расширение",
+    "COMPRESSION": "Сжатие",
+}
+
 
 def _strategy_name_ru(family: object, code: object = "") -> str:
     family_key = str(family or "").upper()
@@ -106,6 +125,36 @@ def _hypotheses() -> tuple[list[dict], dict]:
             return rows, dict(cur.fetchone() or {})
 
 
+def _lead_lag() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT discovery_run_id FROM analytics.intermarket_lead_lag_result_v1 ORDER BY created_at DESC LIMIT 1")
+            latest = cur.fetchone()
+            if not latest:
+                return [], {}
+            run_id = latest["discovery_run_id"]
+            cur.execute("""
+                SELECT relationship_code,thesis,source_symbol,target_symbol,impulse_bars,lag_bars,
+                       regime_group,oos_trades,oos_profit_factor,oos_expectancy_bps,oos_hit_rate,
+                       oos_information_coefficient,folds_passed,folds_total,adjusted_p_value,
+                       regime_coverage_ratio,trust_status,verdict_code,hypothesis_score
+                FROM analytics.intermarket_lead_lag_result_v1
+                WHERE discovery_run_id=%s
+                ORDER BY CASE verdict_code WHEN 'OOS_PASS' THEN 1 WHEN 'OOS_FAIL' THEN 2 ELSE 3 END,
+                         adjusted_p_value,hypothesis_score DESC
+                LIMIT 80
+            """, (run_id,))
+            rows = [dict(row) for row in cur.fetchall()]
+            cur.execute("""
+                SELECT count(*) AS trials,count(DISTINCT relationship_code) AS relationships,
+                       count(*) FILTER(WHERE verdict_code='OOS_PASS') AS passed,
+                       count(*) FILTER(WHERE verdict_code='OOS_FAIL') AS failed,
+                       count(*) FILTER(WHERE verdict_code='UNVERIFIED') AS unverified
+                FROM analytics.intermarket_lead_lag_result_v1 WHERE discovery_run_id=%s
+            """, (run_id,))
+            return rows, dict(cur.fetchone() or {})
+
+
 def run_oos_action_v1() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -128,9 +177,21 @@ def run_hypothesis_action_v1() -> str:
     return f"{verdict}. Код: {result.returncode}"
 
 
+def run_lead_lag_action_v1() -> str:
+    env = dict(os.environ)
+    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
+    result = subprocess.run(
+        [str(ROOT / ".venv/bin/python"), "src/scripts/build_intermarket_lead_lag_engine_v1.py"],
+        cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,
+    )
+    verdict = "Межрыночный поиск завершён" if result.returncode == 0 else "Ошибка межрыночного поиска"
+    return f"{verdict}. Код: {result.returncode}"
+
+
 def render_edge_oos_control_center_v1(notice: str = "") -> str:
     rows = _rows()
     hypotheses, hypothesis_summary = _hypotheses()
+    lead_lag_rows, lead_lag_summary = _lead_lag()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -161,6 +222,19 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
         <td><span class="mc-oos-badge {'pass' if row['verdict_code'] == 'OOS_PASS' else 'fail'}">{row['verdict_code'].removeprefix('OOS_')}</span></td></tr>"""
         for row in hypotheses
     )
+    lead_lag_table_rows = "".join(
+        f"""<tr data-lead-lag-row data-verdict="{row['verdict_code']}">
+        <td><strong>{html.escape(RELATIONSHIP_NAMES_RU.get(row['relationship_code'], row['relationship_code']))}</strong><br><small>{html.escape(row['thesis'])}</small></td>
+        <td>{html.escape(REGIME_NAMES_RU.get(row['regime_group'], row['regime_group']))}</td>
+        <td>{row['impulse_bars']} бар.</td><td>{row['lag_bars']} бар.</td><td>{row['oos_trades']}</td>
+        <td>{float(row['oos_profit_factor']):.2f}</td>
+        <td class="{'is-positive' if row['oos_expectancy_bps'] > 0 else 'is-negative'}">{float(row['oos_expectancy_bps']):.2f}</td>
+        <td>{float(row['oos_information_coefficient']):.3f}</td><td>{row['folds_passed']}/{row['folds_total']}</td>
+        <td>{float(row['adjusted_p_value']):.3f}</td><td>{float(row['regime_coverage_ratio']) * 100:.0f}%</td>
+        <td>{'Проверено' if row['trust_status'] == 'VERIFIED' else 'Нет данных'}</td>
+        <td><span class="mc-oos-badge {'pass' if row['verdict_code'] == 'OOS_PASS' else 'fail'}">{'НЕТ ДАННЫХ' if row['verdict_code'] == 'UNVERIFIED' else row['verdict_code'].removeprefix('OOS_')}</span></td></tr>"""
+        for row in lead_lag_rows
+    )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MarketCore — Edge OOS Control Center</title>
@@ -176,7 +250,9 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
         <div class="mc-oos-actions"><form method="post" action="/workspace-v2/control-center/edge-oos/run">
           <button class="secondary" type="submit">Повторить OOS</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/discover">
-          <button type="submit">Искать гипотезы</button></form></div></header>{notice_html}
+          <button type="submit">Искать гипотезы</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/lead-lag">
+          <button type="submit">Lead/Lag поиск</button></form></div></header>{notice_html}
         <section class="mc-oos-kpis"><article><span>Параметров</span><b>{len(rows)}</b></article>
           <article><span>OOS PASS</span><b class="is-positive">{passed}</b></article>
           <article><span>OOS FAIL</span><b class="is-negative">{failed}</b></article>
@@ -191,5 +267,14 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <label>Семейство <select data-hypothesis-filter><option value="ALL">Все</option><option value="MOMENTUM">Следование за импульсом</option><option value="MEAN_REVERSION">Возврат к среднему</option><option value="BREAKOUT">Пробой уровня</option></select></label></div>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Стратегия</th><th>Инструмент</th><th>Режим входа</th><th>Параметры</th><th>Val PF</th><th>OOS PF</th><th>OOS Exp</th><th>Периоды</th><th>Покрытие</th><th>Издержки</th><th>Score</th><th>Доверие</th><th>Вердикт</th></tr></thead>
           <tbody>{hypothesis_rows}</tbody></table></div></section>
+        <section class="mc-oos-kpis"><article><span>Lead/Lag испытаний</span><b>{lead_lag_summary.get('trials', 0)}</b></article>
+          <article><span>Подтверждено</span><b class="is-positive">{lead_lag_summary.get('passed', 0)}</b></article>
+          <article><span>Отклонено</span><b class="is-negative">{lead_lag_summary.get('failed', 0)}</b></article>
+          <article><span>Нет данных</span><b>{lead_lag_summary.get('unverified', 0)}</b></article></section>
+        <section class="mc-oos-panel"><div class="mc-oos-toolbar"><div><h2>Межрыночные Lead/Lag связи</h2>
+          <p>{lead_lag_summary.get('relationships', 0)} связей · значимость скорректирована по всем испытаниям</p></div>
+          <label>Вердикт <select data-lead-lag-filter><option value="ALL">Все</option><option value="OOS_PASS">PASS</option><option value="OOS_FAIL">FAIL</option><option value="UNVERIFIED">Нет данных</option></select></label></div>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Связь</th><th>Режим</th><th>Импульс</th><th>Лаг</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>IC</th><th>Периоды</th><th>p скорр.</th><th>Покрытие</th><th>Доверие</th><th>Вердикт</th></tr></thead>
+          <tbody>{lead_lag_table_rows}</tbody></table></div><p data-lead-lag-count>Показано: {len(lead_lag_rows)}</p></section>
         <footer class="mc-oos-status"><span>DATA: REAL</span><span>OOS REGISTRY: ONLINE</span><span>LIVE: BLOCKED</span><span data-oos-count>Показано: {len(rows)}</span></footer>
       </main></div><script src="/assets/marketcore/ui-runtime/v1/edge-oos-control.js"></script></body></html>"""
