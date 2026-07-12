@@ -32,6 +32,7 @@ ACTION_STATUS_SCRIPTS = {
     "edge-search-pipeline": ("src/scripts/run_relationship_factory_pipeline_v2.py", "Полный цикл поиска edge"),
     "finam-instruments": ("src/scripts/discover_finam_instrument_universe_v1.py", "Поиск инструментов Finam"),
     "strategy-generator": ("src/scripts/build_strategy_family_registry_v2.py", "Генератор стратегий"),
+    "strategy-hypothesis-run": ("src/scripts/run_strategy_hypothesis_execution_pipeline_v2.py", "Проверка гипотез V2"),
 }
 
 
@@ -454,6 +455,25 @@ def _strategy_generator() -> tuple[list[dict], dict]:
     return families, summary
 
 
+def _strategy_hypothesis_results() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT execution_run_id,total_candidates,processed_candidates,oos_pass,oos_fail,
+                       unverified,status,live_allowed,created_at,completed_at
+                FROM analytics.strategy_hypothesis_execution_run_v2 ORDER BY created_at DESC LIMIT 1""")
+            summary = dict(cur.fetchone() or {})
+            rows: list[dict] = []
+            if summary:
+                cur.execute("""SELECT strategy_family,verdict_code,reason_code,count(*) AS candidates,
+                           max(oos_profit_factor) AS best_pf,max(oos_expectancy) AS best_expectancy,
+                           min(adjusted_p_value) AS best_adjusted_p
+                    FROM analytics.strategy_hypothesis_execution_result_v2 WHERE execution_run_id=%s
+                    GROUP BY strategy_family,verdict_code,reason_code ORDER BY strategy_family,verdict_code""",
+                    (summary["execution_run_id"],))
+                rows = [dict(row) for row in cur.fetchall()]
+    return rows, summary
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -517,6 +537,13 @@ def run_strategy_generator_action_v2() -> str:
     return _run_background_action_v1(
         "src/scripts/build_strategy_family_registry_v2.py",
         "Генератор стратегий",
+    )
+
+
+def run_strategy_hypothesis_action_v2() -> str:
+    return _run_background_action_v1(
+        "src/scripts/run_strategy_hypothesis_execution_pipeline_v2.py",
+        "Проверка гипотез V2",
     )
 
 
@@ -598,6 +625,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     commodity_factors, commodity_relations = _commodity_factors()
     funnel_stages, funnel_reasons, funnel_comparable = _signal_funnel()
     strategy_families, strategy_generator_summary = _strategy_generator()
+    strategy_result_rows, strategy_result_summary = _strategy_hypothesis_results()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -733,6 +761,13 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <small>{len(row['parameter_schema'])} параметра · {len(row['allowed_regimes'])} режима · OOS обязательно</small></article>"""
         for row in strategy_families
     )
+    strategy_result_table_rows = "".join(
+        f"""<tr><td><strong>{html.escape(_strategy_name_ru(row['strategy_family'], row['strategy_family']))}</strong></td>
+        <td>{html.escape(row['verdict_code'].replace('OOS_', ''))}</td><td>{int(row['candidates'])}</td>
+        <td>{float(row['best_pf'] or 0):.2f}</td><td>{float(row['best_expectancy'] or 0):.4f}</td>
+        <td>{float(row['best_adjusted_p'] or 1):.4f}</td><td>{html.escape(row['reason_code'].replace('_', ' '))}</td></tr>"""
+        for row in strategy_result_rows
+    )
     section_nav = "".join(
         (
             _section_link("data-quality-gate", "Качество", f"{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}", active_section),
@@ -838,8 +873,14 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <details class="mc-table-spoiler"><summary>Диагностические события и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Варианты причин</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div><p>Диагностические события собраны из журналов системы и не считаются потерями между этапами воронки.</p></details></section>
         <section id="strategy-generator" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">HYPOTHESIS PARAMETER SPACE V2</p><h2>Генератор стратегий</h2>
           <p>{strategy_generator_summary.get('families', 0)} семейств · {strategy_generator_summary.get('candidates', 0)} комбинаций · лимит {strategy_generator_summary.get('trial_limit', 5000)} испытаний</p></div>
-          <form method="post" action="/workspace-v2/control-center/edge-oos/strategy-generator"><button type="submit">Сформировать пространство</button></form></div>
+          <div><form method="post" action="/workspace-v2/control-center/edge-oos/strategy-generator"><button type="submit">Сформировать пространство</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/strategy-hypothesis-run"><button type="submit">Проверить 432 гипотезы</button></form></div></div>
           <div class="mc-oos-kpis mc-commodity-kpis">{strategy_family_cards}</div>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Проверено</span><b>{strategy_result_summary.get('processed_candidates', 0)}</b></article>
+          <article><span>OOS PASS</span><b class="is-positive">{strategy_result_summary.get('oos_pass', 0)}</b></article>
+          <article><span>OOS FAIL</span><b class="is-negative">{strategy_result_summary.get('oos_fail', 0)}</b></article>
+          <article><span>Нет подтверждения</span><b>{strategy_result_summary.get('unverified', 0)}</b></article></div>
+          <details class="mc-table-spoiler"><summary>Результаты по семействам <span>{len(strategy_result_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Вердикт</th><th>Кандидаты</th><th>Лучший PF</th><th>Ожидание</th><th>p скорр.</th><th>Причина</th></tr></thead><tbody>{strategy_result_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
           <p>{relationship_summary.get('relationships', 0)} связей · {relationship_summary.get('trials', 0)} испытаний · PASS {relationship_summary.get('passed', 0)} · FAIL {relationship_summary.get('failed', 0)} · нет данных {relationship_summary.get('unverified', 0)}</p></div>
