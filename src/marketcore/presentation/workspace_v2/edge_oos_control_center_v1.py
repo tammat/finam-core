@@ -395,7 +395,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
         <td class="{'is-positive' if row['delta_profit_factor'] > 0 else 'is-negative'}">{float(row['delta_profit_factor']):+.2f}</td>
         <td class="{'is-positive' if row['delta_expectancy'] > 0 else 'is-negative'}">{float(row['delta_expectancy']):+.3f}</td>
         <td>{row['folds_passed']}/{row['folds_total']}</td><td>{float(row['adjusted_p_value']):.3f}</td>
-        <td>{'Котировки' if row['market_data_quality'] == 'QUOTE_VERIFIED' else 'Только бары'}</td>
+        <td>{'Котировки bid/ask' if row['market_data_quality'] == 'QUOTE_VERIFIED' else 'OHLCV M1/M5'}</td>
         <td><span class="mc-oos-badge {'pass' if row['verdict_code'] == 'OOS_PASS' else 'fail'}">{'НЕТ ДАННЫХ' if row['verdict_code'] == 'UNVERIFIED' else row['verdict_code'].removeprefix('OOS_')}</span></td></tr>"""
         for row in execution_rows
     )
@@ -475,7 +475,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <label>Режим <select data-execution-filter="regime"><option value="ALL">Все</option><option value="trend_up">Тренд вверх</option><option value="trend_down">Тренд вниз</option><option value="range_normal">Боковик</option><option value="compression">Сжатие</option><option value="trend_up_expansion">Расширение вверх</option><option value="trend_down_expansion">Расширение вниз</option></select></label>
           <label>Сессия <select data-execution-filter="session"><option value="ALL">Все</option>{''.join(f'<option value="{code}">{name}</option>' for code, name in SESSION_NAMES_RU.items())}</select></label>
           <label>Политика выхода <select data-execution-filter="policy"><option value="ALL">Все</option>{''.join(f'<option value="{code}">{name}</option>' for code, name in EXECUTION_POLICY_NAMES_RU.items())}</select></label></div></div>
-          <div class="mc-edge-data-warning"><b>Ликвидность не подтверждена</b><span>Доступны только M5-бары. Улучшение проскальзывания останется заблокировано до подключения bid/ask и объёма.</span></div>
+          <div class="mc-edge-data-warning"><b>Котировки и стакан не подтверждены</b><span>OHLCV M1/M5 и объём доступны. Спред, глубина и фактическое проскальзывание останутся заблокированы до подключения bid/ask, сделок и order book.</span></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(execution_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Политика</th><th>Стратегия</th><th>Инструмент</th><th>Режим</th><th>Сессия</th><th>OOS сделки</th><th>PF</th><th>Δ PF</th><th>Δ ожидание</th><th>Периоды</th><th>p скорр.</th><th>Данные</th><th>Вердикт</th></tr></thead><tbody>{execution_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span data-execution-count>Показано: {len(execution_rows)}</span><span>Сравнение с базовым исполнением на тех же входах</span></div></section>
         <footer class="mc-oos-status"><span>DATA: REAL</span><span>OOS REGISTRY: ONLINE</span><span>LIVE: BLOCKED</span><span data-oos-count>Показано: {len(rows)}</span></footer>
