@@ -10,11 +10,17 @@ from marketcore.presentation.workspace_v2.presenter.home_v2_presenter import (
 from marketcore.presentation.workspace_v2.presenter.portfolio_v2_presenter import (
     PortfolioV2Presenter,
 )
+from marketcore.presentation.workspace_v2.presenter.control_center_v2_presenter import (
+    ControlCenterV2Presenter,
+)
 from marketcore.presentation.workspace_v2.renderer.home_v2_renderer import (
     render_home_v2,
 )
 from marketcore.presentation.workspace_v2.renderer.portfolio_v2_renderer import (
     render_portfolio_v2,
+)
+from marketcore.presentation.workspace_v2.renderer.control_center_v2_renderer import (
+    render_control_center_v2,
 )
 
 
@@ -35,4 +41,10 @@ def portfolio_render_tree_http_v1(
         theme_code=theme_code,
     )
 
+    return build_render_tree_http_response_v1(document)
+
+
+def control_center_render_tree_http_v2() -> RenderTreeHttpResponseV1:
+    view_model = ControlCenterV2Presenter().load()
+    document = render_control_center_v2(view_model)
     return build_render_tree_http_response_v1(document)

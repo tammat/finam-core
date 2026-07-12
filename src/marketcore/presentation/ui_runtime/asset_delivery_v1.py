@@ -80,6 +80,18 @@ UI_RUNTIME_ASSETS_V1: tuple[UiRuntimeAssetDefinitionV1, ...] = (
         relative_path="home_runtime_v1.html",
         content_type="text/html; charset=utf-8",
     ),
+    UiRuntimeAssetDefinitionV1(
+        asset_code="control_center_runtime_v2_js",
+        route="/assets/marketcore/ui-runtime/v1/control-center-runtime-v2.js",
+        relative_path="control_center_runtime_v2.js",
+        content_type="application/javascript; charset=utf-8",
+    ),
+    UiRuntimeAssetDefinitionV1(
+        asset_code="control_center_runtime_v2_html",
+        route="/workspace-v2/control-center/edge-oos",
+        relative_path="control_center_runtime_v2.html",
+        content_type="text/html; charset=utf-8",
+    ),
 )
 
 _ASSET_BY_ROUTE = {

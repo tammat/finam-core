@@ -7,6 +7,7 @@ from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
 )
 
 from marketcore.presentation.workspace_v2.render_tree_http_v1 import (
+    control_center_render_tree_http_v2,
     home_render_tree_http_v1,
     portfolio_render_tree_http_v1,
 )
@@ -65,6 +66,9 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
     if path == "/api/v1/control-center/action-status":
         action_code = (query.get("action") or [""])[0]
         return 200, json.dumps(action_status_v1(action_code), ensure_ascii=False).encode("utf-8")
+    if path in ("/api/v2/render-tree/control-center/edge", "/api/v2/render-tree/control-center/edge/"):
+        response = control_center_render_tree_http_v2()
+        return response.status_code, response.body
     if path in (
         "/workspace-v2",
         "/workspace-v2/",
@@ -125,6 +129,10 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
         ).encode("utf-8")
 
     if path in ("/workspace-v2/control-center/edge-oos", "/workspace-v2/control-center/edge-oos/"):
+        response = load_ui_runtime_asset_v1("/workspace-v2/control-center/edge-oos")
+        return response.status_code, response.body
+
+    if path in ("/workspace-v2/control-center/edge-oos/legacy", "/workspace-v2/control-center/edge-oos/legacy/"):
         return 200, render_edge_oos_control_center_v1().encode("utf-8")
 
     if path in EDGE_OOS_SECTION_ROUTES:
