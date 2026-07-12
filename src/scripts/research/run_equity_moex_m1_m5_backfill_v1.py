@@ -140,11 +140,32 @@ def insert_market_bar(cur, cols: list[str], symbol: str, timeframe: str, candle:
     return True
 
 
+def resample_closed_m5(cur, symbol: str, date_from: str, date_till: str) -> int:
+    cur.execute("""
+        WITH minute_rows AS (
+            SELECT *,date_trunc('hour',ts)+floor(extract(minute FROM ts)/5)*interval '5 minutes' AS bucket
+            FROM public.market_bars
+            WHERE symbol=%s AND timeframe='M1' AND ts >= %s::date AND ts < (%s::date + interval '1 day')
+        ), complete AS (
+            SELECT bucket AS ts,(array_agg(open ORDER BY ts))[1] AS open,max(high) AS high,min(low) AS low,
+                   (array_agg(close ORDER BY ts DESC))[1] AS close,sum(coalesce(volume,0)) AS volume
+            FROM minute_rows WHERE bucket+interval '5 minutes' <= now()
+            GROUP BY bucket HAVING count(DISTINCT ts)=5
+        )
+        INSERT INTO public.market_bars(symbol,timeframe,ts,open,high,low,close,volume,source)
+        SELECT %s,'M5',ts,open,high,low,close,volume,'MOEX_ISS_RESAMPLED_M5_V1' FROM complete
+        ON CONFLICT(symbol,timeframe,ts) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,
+            close=excluded.close,volume=excluded.volume,source=excluded.source
+    """, (symbol, date_from, date_till, symbol))
+    return cur.rowcount
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--days", type=int, default=20)
     parser.add_argument("--symbols", default=",".join(TARGETS))
+    parser.add_argument("--resample-only", action="store_true")
     args = parser.parse_args()
 
     dsn = os.environ.get("DATABASE_URL")
@@ -169,14 +190,20 @@ def main() -> int:
                 sec_code = moex_sec_code(symbol)
 
                 for timeframe, interval in TIMEFRAMES.items():
-                    candles = fetch_moex_candles(sec_code, interval, date_from, date_till)
-                    fetched = len(candles)
-                    saved = 0
-
-                    if args.apply:
-                        for candle in candles:
-                            if insert_market_bar(cur, cols, symbol, timeframe, candle):
-                                saved += 1
+                    if args.resample_only and timeframe != "M5":
+                        continue
+                    if timeframe == "M5":
+                        candles = []
+                        fetched = 0
+                        saved = resample_closed_m5(cur, symbol, date_from, date_till) if args.apply else 0
+                    else:
+                        candles = fetch_moex_candles(sec_code, interval, date_from, date_till)
+                        fetched = len(candles)
+                        saved = 0
+                        if args.apply:
+                            for candle in candles:
+                                if insert_market_bar(cur, cols, symbol, timeframe, candle):
+                                    saved += 1
 
                     total_fetched += fetched
                     total_saved += saved
