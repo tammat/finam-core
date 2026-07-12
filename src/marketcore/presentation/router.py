@@ -19,8 +19,26 @@ from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     run_relationship_factory_action_v2,
     run_relationship_pipeline_action_v2,
     run_signal_funnel_action_v1,
+    run_data_quality_action_v1,
+    run_session_execution_action_v1,
+    run_edge_search_pipeline_action_v1,
+    run_finam_instrument_discovery_action_v1,
     run_oos_action_v1,
 )
+
+EDGE_OOS_SECTION_ROUTES = {
+    "/workspace-v2/control-center/edge-oos/data-quality": "data-quality-gate",
+    "/workspace-v2/control-center/edge-oos/commodity-factors": "commodity-factors",
+    "/workspace-v2/control-center/edge-oos/discover": "hypothesis-discovery",
+    "/workspace-v2/control-center/edge-oos/lead-lag": "lead-lag",
+    "/workspace-v2/control-center/edge-oos/relationship-factory": "relationship-factory",
+    "/workspace-v2/control-center/edge-oos/relationship-pipeline": "relationship-factory",
+    "/workspace-v2/control-center/edge-oos/signal-funnel": "signal-funnel",
+    "/workspace-v2/control-center/edge-oos/session-execution": "session-edge",
+    "/workspace-v2/control-center/edge-oos/execution-edge": "execution-edge",
+    "/workspace-v2/control-center/edge-oos/edge-search-pipeline": "relationship-factory",
+    "/workspace-v2/control-center/edge-oos/finam-instruments": "finam-instruments",
+}
 
 
 def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, bytes]:
@@ -78,6 +96,11 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
     if path in ("/workspace-v2/control-center/edge-oos", "/workspace-v2/control-center/edge-oos/"):
         return 200, render_edge_oos_control_center_v1().encode("utf-8")
 
+    if path in EDGE_OOS_SECTION_ROUTES:
+        return 200, render_edge_oos_control_center_v1(
+            active_section=EDGE_OOS_SECTION_ROUTES[path],
+        ).encode("utf-8")
+
 
     if path in ("/workspace-v2/portfolio/phone",):
         return (
@@ -91,6 +114,18 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/finam-instruments":
+        notice = run_finam_instrument_discovery_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
+    if path == "/workspace-v2/control-center/edge-oos/data-quality":
+        notice = run_data_quality_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
+    if path == "/workspace-v2/control-center/edge-oos/session-execution":
+        notice = run_session_execution_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
+    if path == "/workspace-v2/control-center/edge-oos/edge-search-pipeline":
+        notice = run_edge_search_pipeline_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/run":
         notice = run_oos_action_v1()
         return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")

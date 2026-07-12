@@ -30,6 +30,10 @@ def render_workspace_v2_portfolio_page_v2(
 <link rel="stylesheet" href="/assets/marketcore/ui-runtime/v1/runtime.css">
 </head>
 <body data-timezone="{settings.timezone}" data-currency="{settings.currency}" data-broker="{settings.broker}">
+<nav class="mc-workspace-nav" aria-label="Основная навигация">
+  <a class="mc-workspace-nav__home" href="/">← Главная</a>
+  <a href="/workspace-v2/control-center/edge-oos">Control Center</a>
+</nav>
 <div data-marketcore-ui-runtime="v1">{content}</div>
 <script src="/assets/marketcore/ui-runtime/v1/portfolio-workspace.js"></script>
 </body>

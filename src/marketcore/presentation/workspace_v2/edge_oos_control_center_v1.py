@@ -94,6 +94,15 @@ FUNNEL_ACTIONS_RU = {
     "OTHER": "Провести аудит lineage и классифицировать причину",
 }
 
+SECTION_URLS = {
+    "data-quality-gate": "/workspace-v2/control-center/edge-oos/data-quality",
+    "commodity-factors": "/workspace-v2/control-center/edge-oos/commodity-factors",
+    "signal-funnel": "/workspace-v2/control-center/edge-oos/signal-funnel",
+    "relationship-factory": "/workspace-v2/control-center/edge-oos/relationship-factory",
+    "session-edge": "/workspace-v2/control-center/edge-oos/session-execution",
+    "execution-edge": "/workspace-v2/control-center/edge-oos/execution-edge",
+}
+
 
 def _format_datetime_ru(value: object, timezone: str = "Europe/Moscow") -> str:
     if value is None:
@@ -459,7 +468,72 @@ def run_signal_funnel_action_v1() -> str:
     return "Воронка сигналов и причины потерь обновлены"
 
 
-def render_edge_oos_control_center_v1(notice: str = "") -> str:
+def _run_background_action_v1(script: str, label: str) -> str:
+    env = dict(os.environ)
+    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
+    running = subprocess.run(["pgrep", "-f", script], capture_output=True, text=True, check=False)
+    if running.returncode == 0:
+        return f"{label} уже выполняется в фоне"
+    log_dir = ROOT / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"{Path(script).stem}.log"
+    with log_path.open("ab") as log_file:
+        subprocess.Popen(
+            [str(PYTHON), script], cwd=ROOT, env=env,
+            stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+    return f"{label} запущен в фоне. Результаты появятся после обновления страницы"
+
+
+def run_data_quality_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/build_relationship_data_quality_gate_v1.py",
+        "Проверка качества данных",
+    )
+
+
+def run_session_execution_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/build_session_execution_edge_v1.py",
+        "Поиск по сессиям и исполнению",
+    )
+
+
+def run_edge_search_pipeline_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/run_relationship_factory_pipeline_v2.py",
+        "Полный цикл поиска edge",
+    )
+
+
+def run_finam_instrument_discovery_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/discover_finam_instrument_universe_v1.py",
+        "Поиск новых инструментов Finam",
+    )
+
+
+def _section_link(section_id: str, label: str, value: object, active_section: str) -> str:
+    active = ' class="active"' if active_section == section_id else ""
+    return (
+        f'<a{active} href="{html.escape(SECTION_URLS[section_id])}">'
+        f"{html.escape(label)} <b>{html.escape(str(value))}</b></a>"
+    )
+
+
+def render_edge_oos_control_center_v1(notice: str = "", active_section: str = "") -> str:
+    if active_section not in {
+        "data-quality-gate",
+        "commodity-factors",
+        "hypothesis-discovery",
+        "lead-lag",
+        "relationship-factory",
+        "signal-funnel",
+        "session-edge",
+        "execution-edge",
+        "finam-instruments",
+    }:
+        active_section = ""
     rows = _rows()
     hypotheses, hypothesis_summary = _hypotheses()
     lead_lag_rows, lead_lag_summary = _lead_lag()
@@ -475,6 +549,15 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
     if rows and rows[0].get("oos_start") and rows[0].get("oos_end"):
         oos_bars = "2846"
     last_run = max((row.get("updated_at") for row in rows), default=None)
+    quality_blocked = int(quality_summary.get("blocked", 0) or 0)
+    relationship_passed = int(relationship_summary.get("passed", 0) or 0)
+    next_step = (
+        "Сначала восстановить данные и покрытие режимами"
+        if quality_blocked else
+        "Запустить поиск связей по режимам и сессиям"
+        if relationship_passed == 0 else
+        "Проверить найденных кандидатов на строгом OOS"
+    )
 
     table_rows = "".join(
         f"""<tr data-verdict="{html.escape(str(row['verdict_code']))}">
@@ -583,13 +666,23 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
         <td>{html.escape(FUNNEL_ACTIONS_RU.get(row['reason_group'], FUNNEL_ACTIONS_RU['OTHER']))}</td></tr>"""
         for row in funnel_reasons
     )
+    section_nav = "".join(
+        (
+            _section_link("data-quality-gate", "Качество", f"{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}", active_section),
+            _section_link("commodity-factors", "Сырьё", len(commodity_relations), active_section),
+            _section_link("signal-funnel", "Воронка", len(funnel_stages), active_section),
+            _section_link("relationship-factory", "Фабрика связей", relationship_summary.get("trials", 0), active_section),
+            _section_link("session-edge", "Сессии", session_summary.get("trials", 0), active_section),
+            _section_link("execution-edge", "Исполнение", execution_summary.get("trials", 0), active_section),
+        )
+    )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MarketCore — Edge OOS Control Center</title>
     <link rel="stylesheet" href="/assets/marketcore/ui-runtime/v1/runtime.css"></head>
-    <body><div class="mc-oos-layout">
-      <aside class="mc-oos-sidebar"><a class="brand" href="/workspace-v2">MARKETCORE</a>
-        <nav><a href="/workspace-v2">Обзор</a><a href="/workspace-v2/portfolio">Портфель</a>
+	    <body data-active-section="{html.escape(active_section)}"><div class="mc-oos-layout">
+      <aside class="mc-oos-sidebar"><a class="brand" href="/">MARKETCORE</a>
+	        <nav><a href="/">Главная</a><a href="/workspace-v2/portfolio">Портфель</a>
         <a class="active" href="/workspace-v2/control-center/edge-oos">Edge · OOS <span>{failed}</span></a></nav>
         <div class="mc-oos-safety"><b>LIVE LOCK</b><small>Продвижение разрешено только после OOS_PASS</small></div>
       </aside>
@@ -606,7 +699,33 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <form method="post" action="/workspace-v2/control-center/edge-oos/relationship-pipeline">
           <button type="submit">Проверить всю цепочку</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/signal-funnel">
-          <button class="secondary" type="submit">Обновить воронку</button></form></div></header>{notice_html}
+          <button class="secondary" type="submit">Обновить воронку</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/finam-instruments">
+          <button type="submit">Найти инструменты Finam</button></form></div></header>{notice_html}
+        <details class="mc-edge-action-center" aria-label="План поиска edge">
+          <summary class="mc-edge-action-heading"><div><p>EDGE SEARCH PLAYBOOK</p><h2>План поиска edge</h2><span>{html.escape(next_step)}</span></div>
+            <strong>{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)} источников готовы · PASS {relationship_passed}</strong></summary>
+          <div class="mc-edge-action-grid">
+            <article data-state="{'BLOCKED' if quality_blocked else 'READY'}"><span>Шаг 1 · Данные</span><h3>Data Quality Gate</h3><p>Свежесть, глубина истории, ошибки OHLC и покрытие режимами.</p>
+              <b>{'Заблокировано: ' + str(quality_blocked) if quality_blocked else 'Готово к исследованию'}</b>
+              <form method="post" action="/workspace-v2/control-center/edge-oos/data-quality"><button type="submit">Проверить данные</button></form></article>
+            <article data-state="ACTIVE"><span>Шаг 2 · Связи</span><h3>Relationship Factory</h3><p>Индексы, сырьё, валюты и многофакторные Lead/Lag-гипотезы.</p>
+              <b>{relationship_summary.get('trials', 0)} испытаний · PASS {relationship_passed}</b>
+              <form method="post" action="/workspace-v2/control-center/edge-oos/edge-search-pipeline"><button type="submit">Запустить полный цикл</button></form></article>
+            <article data-state="ACTIVE"><span>Шаг 3 · Время</span><h3>Сессии и исполнение</h3><p>Раздельный PF по режимам, торговым сессиям и политикам выхода.</p>
+              <b>{session_summary.get('trials', 0)} сессий · {execution_summary.get('trials', 0)} политик</b>
+              <form method="post" action="/workspace-v2/control-center/edge-oos/session-execution"><button type="submit">Искать по сессиям</button></form></article>
+            <article data-state="ACTIVE"><span>Шаг 4 · Доверие</span><h3>Строгий OOS</h3><p>Повторная проверка текущих кандидатов: holdout, устойчивость, издержки и отсутствие утечки.</p>
+              <b>{'Есть кандидаты OOS_PASS' if relationship_passed else 'PASS пока нет — повторная проверка разрешена'}</b>
+              <form method="post" action="/workspace-v2/control-center/edge-oos/run"><button type="submit">Повторить OOS</button></form></article>
+            <article data-state="ACTIVE"><span>Диагностика · Воронка</span><h3>Потери сигналов</h3><p>Обновить стадии, конверсии, причины блокировок и рекомендуемые действия.</p>
+              <b>{len(funnel_stages)} стадий · {len(funnel_reasons)} групп причин</b>
+              <form method="post" action="/workspace-v2/control-center/edge-oos/signal-funnel"><button type="submit">Обновить воронку</button></form></article>
+            <article id="finam-instruments" data-state="ACTIVE"><span>Расширение · Finam</span><h3>Новые инструменты</h3><p>Получить активный каталог брокера и отделить готовые к исследованию инструменты от требующих истории.</p>
+              <b>Каталог → M5 → Data Gate → режимы → OOS</b>
+              <form method="post" action="/workspace-v2/control-center/edge-oos/finam-instruments"><button type="submit">Найти новые инструменты</button></form></article>
+          </div>
+        </details>
         <section class="mc-oos-kpis"><article><span>Параметров</span><b>{len(rows)}</b></article>
           <article><span>OOS PASS</span><b class="is-positive">{passed}</b></article>
           <article><span>OOS FAIL</span><b class="is-negative">{failed}</b></article>
@@ -616,7 +735,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <label>Вердикт <select data-oos-filter><option value="ALL">Все</option><option value="OOS_PASS">PASS</option><option value="OOS_FAIL">FAIL</option></select></label></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Порог</th><th>Сделки</th><th>PF</th><th>Ожидание</th><th>Просадка</th><th>Периоды</th><th>Вердикт</th><th>Продвижение</th></tr></thead>
           <tbody data-oos-results>{table_rows}</tbody></table></div></details></section>
-        <section class="mc-oos-panel mc-hypothesis-panel"><div class="mc-oos-toolbar"><div><h2>Поиск новых гипотез</h2>
+        <section id="hypothesis-discovery" class="mc-oos-panel mc-hypothesis-panel"><div class="mc-oos-toolbar"><div><h2>Поиск новых гипотез</h2>
           <p>{hypothesis_summary.get('hypotheses', 0)} комбинаций · {hypothesis_summary.get('markets', 0)} рынков · {hypothesis_summary.get('families', 0)} семейства · PASS {hypothesis_summary.get('passed', 0)}</p></div>
           <label>Семейство <select data-hypothesis-filter><option value="ALL">Все</option><option value="MOMENTUM">Следование за импульсом</option><option value="MEAN_REVERSION">Возврат к среднему</option><option value="BREAKOUT">Пробой уровня</option></select></label></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(hypotheses)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Стратегия</th><th>Инструмент</th><th>Режим входа</th><th>Параметры</th><th>Val PF</th><th>OOS PF</th><th>OOS Exp</th><th>Периоды</th><th>Покрытие</th><th>Издержки</th><th>Score</th><th>Доверие</th><th>Вердикт</th></tr></thead>
@@ -625,7 +744,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <article><span>Подтверждено</span><b class="is-positive">{lead_lag_summary.get('passed', 0)}</b></article>
           <article><span>Отклонено</span><b class="is-negative">{lead_lag_summary.get('failed', 0)}</b></article>
           <article><span>Нет данных</span><b>{lead_lag_summary.get('unverified', 0)}</b></article></section>
-        <section class="mc-oos-panel"><div class="mc-oos-toolbar"><div><h2>Межрыночные Lead/Lag связи</h2>
+        <section id="lead-lag" class="mc-oos-panel"><div class="mc-oos-toolbar"><div><h2>Межрыночные Lead/Lag связи</h2>
           <p>{lead_lag_summary.get('relationships', 0)} связей · значимость скорректирована по всем испытаниям</p></div>
           <label>Вердикт <select data-lead-lag-filter><option value="ALL">Все</option><option value="OOS_PASS">PASS</option><option value="OOS_FAIL">FAIL</option><option value="UNVERIFIED">Нет данных</option></select></label></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(lead_lag_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Связь</th><th>Режим</th><th>Импульс</th><th>Лаг</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>IC</th><th>Периоды</th><th>p скорр.</th><th>Покрытие</th><th>Доверие</th><th>Вердикт</th></tr></thead>
@@ -649,7 +768,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <label>Сессия <select data-factory-filter="session"><option value="ALL">Все</option>{''.join(f'<option value="{code}">{name}</option>' for code, name in SESSION_NAMES_RU.items())}</select></label></div></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(relationship_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Приоритет</th><th>Семейство</th><th>Источник</th><th>Цель</th><th>Режим</th><th>Сессия</th><th>Импульс → лаг</th><th>Бары</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>Периоды</th><th>p скорр.</th><th>Покрытие</th><th>Вердикт</th></tr></thead><tbody>{relationship_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span data-factory-count>Показано: {len(relationship_rows)}</span><span>Production заблокирован до OOS PASS и Trust Gate</span></div></section>
-        <nav class="mc-edge-section-nav" aria-label="Исследования Edge"><a href="#data-quality-gate">Качество <b>{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}</b></a><a href="#commodity-factors">Сырьё <b>{len(commodity_relations)}</b></a><a href="#signal-funnel">Воронка <b>{len(funnel_stages)}</b></a><a href="#relationship-factory">Фабрика связей <b>{relationship_summary.get('trials', 0)}</b></a><a href="#session-edge">Сессии <b>{session_summary.get('trials', 0)}</b></a><a href="#execution-edge">Исполнение <b>{execution_summary.get('trials', 0)}</b></a></nav>
+        <nav class="mc-edge-section-nav" aria-label="Исследования Edge">{section_nav}</nav>
         <section id="session-edge" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">STRATEGY × REGIME × SESSION</p><h2>Сессии</h2>
           <p>{session_summary.get('trials', 0)} испытаний · PASS {session_summary.get('passed', 0)} · FAIL {session_summary.get('failed', 0)} · нет данных {session_summary.get('unverified', 0)}</p></div>
           <div class="mc-edge-filters"><label>Стратегия <select data-session-filter="strategy"><option value="ALL">Все</option><option value="MOMENTUM">Импульс</option><option value="MEAN_REVERSION">Возврат к среднему</option><option value="BREAKOUT">Пробой</option></select></label>
@@ -667,4 +786,14 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(execution_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Политика</th><th>Стратегия</th><th>Инструмент</th><th>Режим</th><th>Сессия</th><th>OOS сделки</th><th>PF</th><th>Δ PF</th><th>Δ ожидание</th><th>Периоды</th><th>p скорр.</th><th>Данные</th><th>Вердикт</th></tr></thead><tbody>{execution_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span data-execution-count>Показано: {len(execution_rows)}</span><span>Сравнение с базовым исполнением на тех же входах</span></div></section>
         <footer class="mc-oos-status"><span>DATA: REAL</span><span>OOS REGISTRY: ONLINE</span><span>LIVE: BLOCKED</span><span data-oos-count>Показано: {len(rows)}</span></footer>
-      </main></div><script src="/assets/marketcore/ui-runtime/v1/edge-oos-control.js"></script></body></html>"""
+      </main></div><script src="/assets/marketcore/ui-runtime/v1/edge-oos-control.js"></script>
+      <script>
+      (() => {{
+        const sectionId = document.body.dataset.activeSection;
+        if (!sectionId) return;
+        const section = document.getElementById(sectionId);
+        if (!section) return;
+        section.dataset.activeSection = "true";
+        requestAnimationFrame(() => section.scrollIntoView({{block: "start"}}));
+      }})();
+      </script></body></html>"""
