@@ -248,14 +248,24 @@ def _relationship_factory() -> tuple[list[dict], dict]:
                 return [], {}
             run_id = latest["discovery_run_id"]
             cur.execute("""
+                WITH ranked AS (
+                    SELECT priority,relationship_family,relationship_code,thesis,source_symbols,target_symbol,
+                           impulse_bars,lag_bars,regime_group,session_code,aligned_bars,regime_coverage_ratio,
+                           validation_trades,validation_profit_factor,oos_trades,oos_profit_factor,
+                           oos_expectancy_bps,folds_passed,folds_total,adjusted_p_value,
+                           trust_status,verdict_code,reason_code,
+                           row_number() OVER (PARTITION BY relationship_family ORDER BY
+                               CASE verdict_code WHEN 'OOS_PASS' THEN 1 WHEN 'OOS_FAIL' THEN 2 ELSE 3 END,
+                               adjusted_p_value,oos_trades DESC,oos_profit_factor DESC) AS family_rank
+                    FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=%s
+                )
                 SELECT priority,relationship_family,relationship_code,thesis,source_symbols,target_symbol,
                        impulse_bars,lag_bars,regime_group,session_code,aligned_bars,regime_coverage_ratio,
                        validation_trades,validation_profit_factor,oos_trades,oos_profit_factor,
                        oos_expectancy_bps,folds_passed,folds_total,adjusted_p_value,
                        trust_status,verdict_code,reason_code
-                FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=%s
-                ORDER BY priority,CASE verdict_code WHEN 'OOS_PASS' THEN 1 WHEN 'OOS_FAIL' THEN 2 ELSE 3 END,
-                         adjusted_p_value,oos_trades DESC,oos_profit_factor DESC LIMIT 180
+                FROM ranked WHERE family_rank <= 90
+                ORDER BY priority,relationship_family,family_rank
             """, (run_id,))
             rows = [dict(row) for row in cur.fetchall()]
             cur.execute("""
