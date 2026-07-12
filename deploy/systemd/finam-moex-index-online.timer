@@ -1,5 +1,5 @@
 [Unit]
-Description=Refresh IMOEX and RTSI closed candles every 5 minutes
+Description=Refresh IMOEX IMOEX2 and RTSI closed candles every 5 minutes
 
 [Timer]
 OnBootSec=1min

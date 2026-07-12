@@ -15,7 +15,7 @@ import psycopg2.extras
 import requests
 
 
-TARGETS = ["IMOEX", "RTSI"]
+TARGETS = ["IMOEX", "IMOEX2", "RTSI"]
 TIMEFRAMES = {"M1": 1, "M5": 5}
 
 
