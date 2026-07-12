@@ -31,6 +31,7 @@
         "data-section": "data-section",
         "data-card": "data-card",
         "data-status": "data-status",
+        "data-availability": "data-availability",
         "data-field": "data-field"
     });
 

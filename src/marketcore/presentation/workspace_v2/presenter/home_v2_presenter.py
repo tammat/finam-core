@@ -119,10 +119,10 @@ class HomeV2Presenter:
                 self._nav_card("home.card.profit", "home.card.profit.title", "/", 5, self._percent(profit["realized_roi"])),
                 self._nav_card("home.card.portfolio", "home.card.portfolio.title", "/workspace-v2/portfolio", 10),
                 self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
-                self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20),
-                self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30),
+                self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20, available=False),
+                self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30, available=False),
                 self._nav_card("home.card.edge", "home.card.edge.title", "/workspace-v2/control-center/edge-oos", 35, edge_metric),
-                self._nav_card("home.card.runtime", "home.card.runtime.title", "/runtime", 40),
+                self._nav_card("home.card.runtime", "home.card.runtime.title", "/runtime", 40, available=False),
             ),
         )
 
@@ -195,20 +195,31 @@ class HomeV2Presenter:
             },
         )
 
-    def _nav_card(self, widget_id: str, title_key: str, target: str, priority: int, metric: str = "") -> BaseCard:
+    def _nav_card(
+        self,
+        widget_id: str,
+        title_key: str,
+        target: str,
+        priority: int,
+        metric: str = "",
+        available: bool = True,
+    ) -> BaseCard:
         return BaseCard(
             widget_id=widget_id,
             widget_type=WidgetType.BASE,
             card_type=CardType.ACTION,
             title_key=title_key,
             subtitle_key="ui.action.open",
-            status_code=UiStatusCode.OK,
-            status_label_key="ui.status.ok",
+            status_code=UiStatusCode.OK if available else UiStatusCode.WARNING,
+            status_label_key="ui.status.ok" if available else "ui.status.warning",
             priority=priority,
-            actions=(
+            actions=((
                 {"action_code": ActionCode.OPEN.value, "target": target},
-            ),
-            payload={"primary_value": metric} if metric else {},
+            ) if available else ()),
+            payload={
+                **({"primary_value": metric} if metric else {}),
+                "availability": "AVAILABLE" if available else "UNAVAILABLE",
+            },
         )
 
     @staticmethod

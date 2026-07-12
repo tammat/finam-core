@@ -142,6 +142,54 @@ body {
     letter-spacing: 0;
 }
 
+.mc-v2-availability {
+    display: inline-flex;
+    width: max-content;
+    margin: 8px 0 0;
+    padding: 3px 8px;
+    border-radius: 999px;
+    color: #6ee7cf;
+    background: rgba(49, 205, 178, .11);
+    font-size: .65rem;
+    font-weight: 800;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.mc-v2-availability[data-availability="UNAVAILABLE"] {
+    color: #9aaab3;
+    background: rgba(142, 170, 188, .09);
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card[data-availability="UNAVAILABLE"] {
+    opacity: .52;
+    cursor: not-allowed;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card[data-availability="UNAVAILABLE"]:hover {
+    width: 100%;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+}
+
+.mc-v2-section[data-section="ACTIONS"] .mc-v2-card > .mc-v2-availability {
+    display: inline-flex;
+    max-height: 32px;
+    margin-top: 8px;
+    padding: 3px 8px;
+    opacity: 1;
+    overflow: visible;
+}
+
+.mc-device-phone-only { display: none; }
+
+@media (max-width: 800px) {
+    .mc-device-desktop-only { display: none !important; }
+    .mc-device-phone-only { display: block; }
+}
+
 .mc-v2-page > h1 {
     margin: 0;
     font-size: clamp(1.5rem, 3vw, 2.3rem);

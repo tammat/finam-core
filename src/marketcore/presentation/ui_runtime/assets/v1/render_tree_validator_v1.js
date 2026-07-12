@@ -87,6 +87,7 @@
                 "data-section",
                 "data-card",
                 "data-status",
+                "data-availability",
                 "data-field"
             ],
             requiredProps: [],
@@ -124,6 +125,7 @@
                 "style",
                 "role",
                 "aria_label",
+                "data-availability",
                 "data-field"
             ],
             requiredProps: [],

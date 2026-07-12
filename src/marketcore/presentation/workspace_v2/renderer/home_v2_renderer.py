@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
+from marketcore.presentation.services.datetime_service import DateTimeService
 from marketcore.presentation.render_tree.node_types import RenderNodeType
 from marketcore.presentation.render_tree.render_document import RenderDocument
 from marketcore.presentation.render_tree.render_node import RenderNode
@@ -14,6 +15,7 @@ def render_home_v2(
     locale_code: str = "ru",
 ) -> RenderDocument:
     i18n = UiI18nResolverV1(locale_code=locale_code)
+    datetime_service = DateTimeService()
     layout = vm.layout
 
     section_nodes: list[RenderNode] = []
@@ -23,6 +25,12 @@ def render_home_v2(
 
         for card in section.ordered_cards():
             target = ""
+            card_class = "mc-v2-card"
+
+            if card.widget_id == "home.card.portfolio":
+                card_class += " mc-device-desktop-only"
+            elif card.widget_id == "home.card.portfolio.phone":
+                card_class += " mc-device-phone-only"
 
             if card.actions:
                 target = str(card.actions[0].get("target", ""))
@@ -43,6 +51,19 @@ def render_home_v2(
             updated_at = card.payload.get("updated_at")
             primary_value = card.payload.get("primary_value")
             quality = card.payload.get("quality")
+            availability = card.payload.get("availability")
+
+            if availability:
+                card_children.append(
+                    RenderNode(
+                        node_type=RenderNodeType.TEXT,
+                        props={
+                            "class": "mc-v2-availability",
+                            "data-availability": str(availability),
+                        },
+                        text=("Доступно" if availability == "AVAILABLE" else "Недоступно"),
+                    )
+                )
 
             if primary_value is not None:
                 card_children.append(
@@ -87,7 +108,7 @@ def render_home_v2(
                         },
                         text=(
                             f'{i18n.text("home.card.status.updated")}: '
-                            f"{updated_at}"
+                            f'{datetime_service.format_datetime(updated_at)}'
                         ),
                     )
                 )
@@ -108,9 +129,10 @@ def render_home_v2(
                 RenderNode(
                     node_type=RenderNodeType.CARD,
                     props={
-                        "class": "mc-v2-card",
+                        "class": card_class,
                         "data-card": card.card_type.value,
                         "data-status": card.status_code.value,
+                        "data-availability": str(availability or ""),
                     },
                     children=tuple(card_children),
                 )
