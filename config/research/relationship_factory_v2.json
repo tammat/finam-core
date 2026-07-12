@@ -1,0 +1,26 @@
+{
+  "catalog_version": "RELATIONSHIP_FACTORY_CATALOG_V2",
+  "timeframe": "M5",
+  "timezone": "Europe/Moscow",
+  "impulse_bars": [1, 3, 6],
+  "lag_bars": [1, 3, 6, 12],
+  "regime_groups": ["ALL", "TREND", "RANGE", "EXPANSION", "COMPRESSION"],
+  "session_groups": ["ALL", "MOEX_OPEN", "MOEX_FIRST_HOUR", "EUROPE_OVERLAP", "US_OPEN", "EVENING", "MOEX_CLOSE"],
+  "signal_quantile": 0.75,
+  "minimum_aligned_bars": 1200,
+  "minimum_regime_confidence": 0.60,
+  "minimum_regime_coverage": 0.80,
+  "minimum_validation_trades": 20,
+  "minimum_oos_trades": 20,
+  "relationships": [
+    {"priority": 1, "family": "INDEX_TO_STOCK", "code": "IMOEX_TO_SBER", "sources": ["IMOEX"], "target": "SBER@MISX", "construction": "SINGLE_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Индексный импульс может опережать переоценку Сбера."},
+    {"priority": 1, "family": "INDEX_TO_STOCK", "code": "IMOEX_TO_LKOH", "sources": ["IMOEX"], "target": "LKOH@MISX", "construction": "SINGLE_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Индексный импульс может опережать переоценку ЛУКОЙЛа."},
+    {"priority": 1, "family": "INDEX_TO_STOCK", "code": "IMOEX_TO_GAZP", "sources": ["IMOEX"], "target": "GAZP@MISX", "construction": "SINGLE_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Индексный импульс может опережать переоценку Газпрома."},
+    {"priority": 1, "family": "INDEX_TO_STOCK", "code": "IMOEX_TO_PLZL", "sources": ["IMOEX"], "target": "PLZL@MISX", "construction": "SINGLE_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Индексный импульс может опережать переоценку Полюса."},
+    {"priority": 1, "family": "INDEX_TO_STOCK", "code": "RTSI_TO_SBER", "sources": ["RTSI"], "target": "SBER@MISX", "construction": "SINGLE_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Долларовый индекс может опережать переоценку Сбера."},
+    {"priority": 1, "family": "INDEX_TO_STOCK", "code": "RTSI_TO_LKOH", "sources": ["RTSI"], "target": "LKOH@MISX", "construction": "SINGLE_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Долларовый индекс может опережать переоценку ЛУКОЙЛа."},
+    {"priority": 1, "family": "SECTOR_TO_STOCK", "code": "FINANCIAL_PROXY_TO_SBER", "sources": ["SBERP@MISX", "VTBR@MISX", "T@MISX"], "target": "SBER@MISX", "construction": "EQUAL_WEIGHT_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Равновзвешенный импульс других финансовых акций может опережать Сбер."},
+    {"priority": 1, "family": "SECTOR_TO_STOCK", "code": "ENERGY_PROXY_TO_LKOH", "sources": ["GAZP@MISX", "NVTK@MISX"], "target": "LKOH@MISX", "construction": "EQUAL_WEIGHT_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Импульс других нефтегазовых акций может опережать ЛУКОЙЛ."},
+    {"priority": 1, "family": "SECTOR_TO_STOCK", "code": "ENERGY_PROXY_TO_GAZP", "sources": ["LKOH@MISX", "NVTK@MISX"], "target": "GAZP@MISX", "construction": "EQUAL_WEIGHT_RETURN", "direction": 1, "cost_bps": 8, "thesis": "Импульс других нефтегазовых акций может опережать Газпром."}
+  ]
+}
