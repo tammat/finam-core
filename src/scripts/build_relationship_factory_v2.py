@@ -101,6 +101,18 @@ def load_points(cur, relation: dict[str, Any], config: dict[str, Any]) -> tuple[
     return [Point(ts, source_index[ts], target[ts], regimes.get(ts, "UNKNOWN")) for ts in usable], coverage
 
 
+def quality_ready(cur, symbols: list[str], timeframe: str) -> bool:
+    for symbol in symbols:
+        cur.execute("""
+            SELECT factory_status FROM analytics.relationship_data_quality_gate_v1
+            WHERE symbol=%s AND timeframe=%s ORDER BY created_at DESC LIMIT 1
+        """, (symbol, timeframe))
+        row = cur.fetchone()
+        if not row or row["factory_status"] != "READY":
+            return False
+    return True
+
+
 def sample(points: list[Point], impulse: int, lag: int, threshold: float, selected_regime: str,
            selected_session: str, timezone: str, cost_bps: float, direction: int) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -154,6 +166,7 @@ def main() -> None:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             for relation in sorted(config["relationships"], key=lambda item: (item["priority"], item["code"])):
                 points, coverage = load_points(cur, relation, config)
+                relation_quality_ready = quality_ready(cur, relation["sources"] + [relation["target"]], config["timeframe"])
                 if len(points) < 100:
                     continue
                 train_end, validation_end = int(len(points) * 0.50), int(len(points) * 0.75)
@@ -168,16 +181,17 @@ def main() -> None:
                                 oos_rows = [row for row in rows if validation_end <= row["index"] < len(points)]
                                 candidates.append({"relation": relation, "impulse": impulse, "lag": lag, "regime": regime,
                                     "session": session, "threshold": threshold, "aligned": len(points), "coverage": coverage,
+                                    "quality_ready": relation_quality_ready,
                                     "validation": metrics(validation_rows), "oos": metrics(oos_rows),
                                     "folds": folds(oos_rows, validation_end, len(points))})
             total_trials = len(candidates)
             for item in candidates:
                 relation, validation, oos = item["relation"], item["validation"], item["oos"]
                 adjusted_p = min(1.0, oos["raw_p"] * total_trials)
-                verified = item["aligned"] >= config["minimum_aligned_bars"] and item["coverage"] >= config["minimum_regime_coverage"]
+                verified = item["quality_ready"] and item["aligned"] >= config["minimum_aligned_bars"] and item["coverage"] >= config["minimum_regime_coverage"]
                 passed = verified and validation["trades"] >= config["minimum_validation_trades"] and validation["profit_factor"] >= 1.05 and validation["expectancy"] > 0 and oos["trades"] >= config["minimum_oos_trades"] and oos["profit_factor"] >= 1.15 and oos["expectancy"] > 0 and item["folds"] >= 2 and adjusted_p <= 0.05
                 verdict = "OOS_PASS" if passed else ("OOS_FAIL" if verified else "UNVERIFIED")
-                reason = "PASS" if passed else ("INSUFFICIENT_ALIGNED_HISTORY" if item["aligned"] < config["minimum_aligned_bars"] else ("INSUFFICIENT_REGIME_COVERAGE" if not verified else "RELATIONSHIP_OOS_GATE_FAILED"))
+                reason = "PASS" if passed else ("DATA_QUALITY_GATE_BLOCKED" if not item["quality_ready"] else ("INSUFFICIENT_ALIGNED_HISTORY" if item["aligned"] < config["minimum_aligned_bars"] else ("INSUFFICIENT_REGIME_COVERAGE" if item["coverage"] < config["minimum_regime_coverage"] else "RELATIONSHIP_OOS_GATE_FAILED")))
                 cur.execute("""INSERT INTO analytics.relationship_factory_result_v2
                     (discovery_run_id,catalog_version,priority,relationship_family,relationship_code,thesis,source_symbols,
                      source_construction,target_symbol,timeframe,impulse_bars,lag_bars,regime_group,session_code,signal_threshold,
