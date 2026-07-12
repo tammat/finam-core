@@ -1,5 +1,5 @@
 [Unit]
-Description=MarketCore MOEX IMOEX RTSI Online Candle Ingestion
+Description=MarketCore MOEX IMOEX IMOEX2 RTSI Online Candle Ingestion
 After=network-online.target postgresql.service
 Wants=network-online.target
 
