@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
     load_ui_runtime_asset_v1,
 )
@@ -13,6 +15,7 @@ from marketcore.presentation.workspace_v2.portfolio_page_v2 import (
     render_workspace_v2_portfolio_page_v2,
 )
 from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
+    action_status_v1,
     render_edge_oos_control_center_v1,
     run_hypothesis_action_v1,
     run_hypothesis_pipeline_action_v1,
@@ -44,6 +47,9 @@ EDGE_OOS_SECTION_ROUTES = {
 
 def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, bytes]:
     query = query or {}
+    if path == "/api/v1/control-center/action-status":
+        action_code = (query.get("action") or [""])[0]
+        return 200, json.dumps(action_status_v1(action_code), ensure_ascii=False).encode("utf-8")
     if path in (
         "/workspace-v2",
         "/workspace-v2/",

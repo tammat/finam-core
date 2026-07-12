@@ -1,5 +1,49 @@
 "use strict";
 (function () {
+  const storageKey = "marketcore.controlCenter.activeAction";
+  const statusBar = document.querySelector("[data-action-status]");
+  const statusText = document.querySelector("[data-action-status-text]");
+  const statusPct = document.querySelector("[data-action-progress-pct]");
+  const statusFill = document.querySelector("[data-action-progress-fill]");
+
+  function showStatus(label, pct, running) {
+    if (!statusBar) return;
+    const safePct = Math.max(0, Math.min(100, Number(pct) || 0));
+    statusBar.hidden = false;
+    statusBar.dataset.state = running ? "RUNNING" : "COMPLETE";
+    statusText.textContent = `${running ? "Выполняется" : "Завершено"} «${label}»`;
+    statusPct.textContent = `${safePct}%`;
+    statusFill.style.width = `${safePct}%`;
+  }
+
+  async function pollAction(action) {
+    try {
+      const response = await fetch(`/api/v1/control-center/action-status?action=${encodeURIComponent(action.code)}`, {cache: "no-store"});
+      const status = await response.json();
+      const label = status.known ? status.label : action.label;
+      showStatus(label, status.progress_pct, status.running);
+      if (status.running) {
+        window.setTimeout(() => pollAction(action), 1500);
+      } else {
+        localStorage.removeItem(storageKey);
+        window.setTimeout(() => { if (statusBar) statusBar.hidden = true; }, 5000);
+      }
+    } catch (_) {
+      showStatus(action.label, 10, true);
+      window.setTimeout(() => pollAction(action), 3000);
+    }
+  }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+    if (saved && saved.code && saved.label) {
+      showStatus(saved.label, 10, true);
+      pollAction(saved);
+    }
+  } catch (_) {
+    localStorage.removeItem(storageKey);
+  }
+
   const actionForms = Array.from(document.querySelectorAll('form[action^="/workspace-v2/control-center/edge-oos/"]'));
   actionForms.forEach(form => form.addEventListener("submit", event => {
     const button = form.querySelector('button[type="submit"]');
@@ -10,6 +54,11 @@
     }
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
+    const label = button.textContent.trim();
+    const code = form.action.split("/").filter(Boolean).pop();
+    const action = {code, label};
+    localStorage.setItem(storageKey, JSON.stringify(action));
+    showStatus(label, 5, true);
     button.textContent = document.body.dataset.actionRunningLabel || "Запускаю…";
     document.body.dataset.actionState = "RUNNING";
   }));

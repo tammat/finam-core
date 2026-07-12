@@ -20,6 +20,35 @@ PYTHON = Path(os.getenv("MARKETCORE_PYTHON", str(ROOT / ".venv/bin/python")))
 if not PYTHON.exists():
     PYTHON = Path("/opt/finam-core/.venv/bin/python")
 
+ACTION_STATUS_SCRIPTS = {
+    "run": ("src/scripts/build_momentum_edge_oos_rank_v1.py", "Повторная OOS-проверка"),
+    "discover": ("src/scripts/build_edge_regime_hypothesis_discovery_v2.py", "Поиск гипотез"),
+    "hypothesis-pipeline": ("src/scripts/run_edge_hypothesis_pipeline_v1.py", "Проверка гипотез"),
+    "lead-lag": ("src/scripts/build_intermarket_lead_lag_engine_v1.py", "Lead/Lag поиск"),
+    "relationship-factory": ("src/scripts/build_relationship_factory_v2.py", "Фабрика связей V2"),
+    "relationship-pipeline": ("src/scripts/run_relationship_factory_pipeline_v2.py", "Проверка всей цепочки"),
+    "data-quality": ("src/scripts/build_relationship_data_quality_gate_v1.py", "Проверка качества данных"),
+    "session-execution": ("src/scripts/build_session_execution_edge_v1.py", "Поиск по сессиям и исполнению"),
+    "edge-search-pipeline": ("src/scripts/run_relationship_factory_pipeline_v2.py", "Полный цикл поиска edge"),
+    "finam-instruments": ("src/scripts/discover_finam_instrument_universe_v1.py", "Поиск инструментов Finam"),
+}
+
+
+def action_status_v1(action_code: str) -> dict[str, object]:
+    definition = ACTION_STATUS_SCRIPTS.get(action_code)
+    if definition is None:
+        return {"known": False, "running": False, "progress_pct": 100, "label": "Неизвестный процесс"}
+    script, label = definition
+    result = subprocess.run(["pgrep", "-f", script], capture_output=True, text=True, check=False)
+    running = result.returncode == 0
+    return {
+        "known": True,
+        "running": running,
+        "progress_pct": 10 if running else 100,
+        "progress_kind": "stage" if running else "complete",
+        "label": label,
+    }
+
 STRATEGY_NAMES_RU = {
     "MOMENTUM": "Следование за импульсом",
     "MEAN_REVERSION": "Возврат к среднему",
@@ -703,7 +732,11 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <form method="post" action="/workspace-v2/control-center/edge-oos/signal-funnel">
           <button class="secondary" type="submit">Обновить воронку</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/finam-instruments">
-          <button type="submit">Найти инструменты Finam</button></form></div></header>{notice_html}
+          <button type="submit">Найти инструменты Finam</button></form></div></header>
+        <section class="mc-action-status" data-action-status data-state="RUNNING" hidden aria-live="polite">
+          <div class="mc-action-status-head"><strong data-action-status-text>Выполняется</strong><span data-action-progress-pct>0%</span></div>
+          <div class="mc-action-progress" role="progressbar" aria-label="Ход выполнения"><span data-action-progress-fill></span></div>
+        </section>{notice_html}
         <details class="mc-edge-action-center" aria-label="План поиска edge">
           <summary class="mc-edge-action-heading"><div><p>EDGE SEARCH PLAYBOOK</p><h2>План поиска edge</h2><span>{html.escape(next_step)}</span></div>
             <strong>{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)} источников готовы · PASS {relationship_passed}</strong></summary>
