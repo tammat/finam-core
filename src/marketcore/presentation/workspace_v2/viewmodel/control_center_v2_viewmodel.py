@@ -54,3 +54,4 @@ class ControlCenterV2ViewModel:
     funnel_stages: tuple[SignalFunnelStageV2, ...]
     loss_reasons: tuple[SignalLossReasonV2, ...]
     funnel_comparable: bool
+    shadow_summary: dict[str, Any]

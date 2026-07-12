@@ -19,6 +19,7 @@ class ControlCenterV2Resolver:
                 forward = self._forward(cur)
                 execution = self._execution(cur)
                 funnel_stages, loss_reasons, funnel_comparable = self._signal_funnel(cur)
+                shadow = self._shadow(cur)
 
         return {
             "quality": quality,
@@ -29,6 +30,7 @@ class ControlCenterV2Resolver:
             "funnel_stages": funnel_stages,
             "loss_reasons": loss_reasons,
             "funnel_comparable": funnel_comparable,
+            "shadow": shadow,
         }
 
     @staticmethod
@@ -143,3 +145,35 @@ class ControlCenterV2Resolver:
             """, (reason_latest["signal_funnel_reason_snapshot_id"],))
             reasons = [dict(row) for row in cur.fetchall()]
         return stages, reasons, comparable
+
+    @staticmethod
+    def _shadow(cur) -> dict[str, Any]:
+        cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_trade_v1') AS table_name")
+        if not cur.fetchone()["table_name"]:
+            return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}
+        cur.execute("SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1")
+        latest = cur.fetchone()
+        if not latest:
+            return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}
+        cur.execute("""
+            SELECT count(*) total,count(*) FILTER (WHERE shadow_status='PENDING_ENTRY') pending,
+                   count(*) FILTER (WHERE shadow_status='OPEN') open,count(*) FILTER (WHERE shadow_status='CLOSED') closed,
+                   coalesce(sum(net_pnl) FILTER (WHERE shadow_status='CLOSED'),0) net_pnl,
+                   count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) unsafe
+            FROM analytics.forward_edge_shadow_trade_v1 WHERE cohort_id=%s
+        """, (latest["cohort_id"],))
+        result = dict(cur.fetchone() or {})
+        cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_exit_variant_v1') AS table_name")
+        if cur.fetchone()["table_name"]:
+            cur.execute("""
+                SELECT count(*) trailing_total,
+                       count(*) FILTER (WHERE variant_status='OPEN') trailing_open,
+                       count(*) FILTER (WHERE variant_status='CLOSED') trailing_closed,
+                       count(*) FILTER (WHERE exit_reason='TRAILING_STOP') trailing_exits,
+                       coalesce(sum(net_pnl) FILTER (WHERE variant_status='CLOSED'),0) trailing_net_pnl,
+                       count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) trailing_unsafe
+                FROM analytics.forward_edge_shadow_exit_variant_v1
+                WHERE cohort_id=%s AND policy_code='ATR_TRAIL_14_2_5'
+            """, (latest["cohort_id"],))
+            result.update(dict(cur.fetchone() or {}))
+        return result

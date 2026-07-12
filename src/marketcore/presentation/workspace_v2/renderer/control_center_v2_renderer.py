@@ -88,6 +88,38 @@ def render_control_center_v2(vm: ControlCenterV2ViewModel) -> RenderDocument:
         ),
     )
 
+    shadow = vm.shadow_summary
+    shadow_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "data-section": "SHADOW"},
+        children=(
+            _title("Shadow-сделки", 2),
+            RenderNode(RenderNodeType.SUBTITLE, text="Без брокерских заявок · только новые forward-наблюдения"),
+            RenderNode(
+                RenderNodeType.GRID,
+                props={"class": "mc-v2-grid", "style": "grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"},
+                children=tuple(
+                    RenderNode(
+                        RenderNodeType.CARD,
+                        props={"class": "mc-v2-card", "style": "grid-column:auto;min-height:105px", "data-card": "KPI", "data-status": status},
+                        children=(_title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value"}, text=value)),
+                    )
+                    for label, value, status in (
+                        ("Всего", str(int(shadow.get("total") or 0)), "WARNING"),
+                        ("Ожидают вход", str(int(shadow.get("pending") or 0)), "WARNING"),
+                        ("Открыты", str(int(shadow.get("open") or 0)), "WARNING"),
+                        ("Закрыты", str(int(shadow.get("closed") or 0)), "OK"),
+                        ("Результат", f"{float(shadow.get('net_pnl') or 0):.2f}", "OK" if float(shadow.get("net_pnl") or 0) >= 0 else "BLOCKED"),
+                        ("ATR-трейлинг", str(int(shadow.get("trailing_total") or 0)), "WARNING"),
+                        ("Трейлинг сработал", str(int(shadow.get("trailing_exits") or 0)), "OK"),
+                        ("Результат трейлинга", f"{float(shadow.get('trailing_net_pnl') or 0):.2f}", "OK" if float(shadow.get("trailing_net_pnl") or 0) >= 0 else "BLOCKED"),
+                        ("Нарушения", str(int(shadow.get("unsafe") or 0) + int(shadow.get("trailing_unsafe") or 0)), "OK" if int(shadow.get("unsafe") or 0) + int(shadow.get("trailing_unsafe") or 0) == 0 else "BLOCKED"),
+                    )
+                ),
+            ),
+        ),
+    )
+
     funnel = RenderNode(
         RenderNodeType.SECTION,
         props={"class": "mc-v2-section", "data-section": "FUNNEL"},
@@ -170,6 +202,7 @@ def render_control_center_v2(vm: ControlCenterV2ViewModel) -> RenderDocument:
                         RenderNode(RenderNodeType.HEADER, props={"class": "mc-v2-header"}, text=vm.subtitle),
                         navigation,
                         traffic,
+                        shadow_section,
                         funnel,
                         recommendations,
                         relationship_section,

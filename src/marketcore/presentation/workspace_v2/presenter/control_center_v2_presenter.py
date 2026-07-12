@@ -35,7 +35,7 @@ REASON_LABELS = {
     "LIFECYCLE": "Жизненный цикл",
     "BLOCK": "Блокировка",
     "QUALITY": "Качество",
-    "UNKNOWN": "Не определено",
+    "UNKNOWN": "Нет предпосылок",
     "OTHER": "Прочее",
 }
 
@@ -53,7 +53,7 @@ REASON_ACTIONS = {
     "LIFECYCLE": "Проверить связи гипотезы и её текущий статус",
     "BLOCK": "Сначала снять блокирующее ограничение",
     "QUALITY": "Восстановить качество исходных данных",
-    "UNKNOWN": "Уточнить источник неопределённости",
+    "UNKNOWN": "Проверить наличие рыночных предпосылок",
     "OTHER": "Разобрать исходные коды причин",
 }
 
@@ -97,6 +97,7 @@ class ControlCenterV2Presenter:
             funnel_stages=funnel_stages,
             loss_reasons=loss_reasons,
             funnel_comparable=bool(data["funnel_comparable"]),
+            shadow_summary=data["shadow"],
         )
 
     @staticmethod

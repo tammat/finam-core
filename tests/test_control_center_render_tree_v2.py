@@ -21,6 +21,8 @@ class ControlCenterRenderTreeV2Test(unittest.TestCase):
         self.assertIn("Фабрика связей", encoded)
         self.assertIn("Воронка сигналов", encoded)
         self.assertIn("Причины и действия", encoded)
+        self.assertIn("Shadow-сделки", encoded)
+        self.assertIn("Нарушения", encoded)
         self.assertIn("OOS PASS", encoded)
         self.assertNotIn("<table", encoded)
         self.assertNotIn("<style", encoded)
