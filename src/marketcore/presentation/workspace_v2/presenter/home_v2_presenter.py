@@ -21,6 +21,8 @@ from marketcore.presentation.workspace_v2.resolver.profit_factory_control_center
     ProfitFactoryControlCenterResolverV1,
 )
 import os
+import psycopg2
+import psycopg2.extras
 from marketcore.presentation.workspace_v2.viewmodel.home_v2_viewmodel import HomeV2ViewModel
 
 
@@ -30,6 +32,7 @@ class HomeV2Presenter:
         self._operator_resolver = HomeOperatorDashboardResolverV1()
 
     def load(self) -> HomeV2ViewModel:
+        edge_metric = self._edge_metric()
         profit = ProfitFactoryControlCenterResolverV1(
             scope=os.getenv("MARKETCORE_PROFIT_SCOPE", "REAL")
         ).resolve()
@@ -118,6 +121,7 @@ class HomeV2Presenter:
                 self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
                 self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20),
                 self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30),
+                self._nav_card("home.card.edge", "home.card.edge.title", "/workspace-v2/control-center/edge-oos", 35, edge_metric),
                 self._nav_card("home.card.runtime", "home.card.runtime.title", "/runtime", 40),
             ),
         )
@@ -206,3 +210,20 @@ class HomeV2Presenter:
             ),
             payload={"primary_value": metric} if metric else {},
         )
+
+    @staticmethod
+    def _edge_metric() -> str:
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("""SELECT count(*) FILTER(WHERE verdict_code='OOS_PASS') AS passed
+                        FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=(
+                            SELECT discovery_run_id FROM analytics.relationship_factory_result_v2 ORDER BY created_at DESC LIMIT 1)""")
+                    passed = int((cur.fetchone() or {}).get("passed") or 0)
+                    cur.execute("""SELECT count(*) AS symbols,count(*) FILTER(WHERE factory_status='READY') AS ready
+                        FROM analytics.relationship_data_quality_gate_v1 WHERE audit_run_id=(
+                            SELECT audit_run_id FROM analytics.relationship_data_quality_gate_v1 ORDER BY created_at DESC LIMIT 1)""")
+                    quality = dict(cur.fetchone() or {})
+            return f"PASS {passed} · DATA {int(quality.get('ready') or 0)}/{int(quality.get('symbols') or 0)}"
+        except Exception:
+            return "EDGE STATUS"

@@ -12,6 +12,9 @@ import psycopg2.extras
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path(__file__).resolve().parents[4]
+PYTHON = Path(os.getenv("MARKETCORE_PYTHON", str(ROOT / ".venv/bin/python")))
+if not PYTHON.exists():
+    PYTHON = Path("/opt/finam-core/.venv/bin/python")
 
 STRATEGY_NAMES_RU = {
     "MOMENTUM": "Следование за импульсом",
@@ -305,7 +308,7 @@ def run_oos_action_v1() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
     result = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "src/scripts/build_momentum_edge_oos_rank_v1.py"],
+        [str(PYTHON), "src/scripts/build_momentum_edge_oos_rank_v1.py"],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=30, check=False,
     )
     verdict = "Проверка завершена" if result.returncode == 0 else "Ошибка проверки"
@@ -315,19 +318,22 @@ def run_oos_action_v1() -> str:
 def run_hypothesis_action_v1() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
-    result = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "src/scripts/build_edge_regime_hypothesis_discovery_v2.py"],
-        cwd=ROOT, env=env, capture_output=True, text=True, timeout=90, check=False,
+    script = "src/scripts/build_edge_regime_hypothesis_discovery_v2.py"
+    running = subprocess.run(["pgrep", "-f", script], capture_output=True, text=True, check=False)
+    if running.returncode == 0:
+        return "Поиск гипотез уже выполняется в фоне"
+    subprocess.Popen(
+        [str(PYTHON), script], cwd=ROOT, env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
     )
-    verdict = "Поиск гипотез завершён" if result.returncode == 0 else "Ошибка поиска гипотез"
-    return f"{verdict}. Код: {result.returncode}"
+    return "Поиск гипотез запущен в фоне. Страница остаётся доступной"
 
 
 def run_lead_lag_action_v1() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
     result = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "src/scripts/build_intermarket_lead_lag_engine_v1.py"],
+        [str(PYTHON), "src/scripts/build_intermarket_lead_lag_engine_v1.py"],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=120, check=False,
     )
     verdict = "Межрыночный поиск завершён" if result.returncode == 0 else "Ошибка межрыночного поиска"
@@ -338,7 +344,7 @@ def run_relationship_factory_action_v2() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
     result = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "src/scripts/build_relationship_factory_v2.py"],
+        [str(PYTHON), "src/scripts/build_relationship_factory_v2.py"],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=180, check=False,
     )
     verdict = "Фабрика связей завершила поиск" if result.returncode == 0 else "Ошибка фабрики связей"
@@ -349,7 +355,7 @@ def run_relationship_pipeline_action_v2() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
     result = subprocess.run(
-        [str(ROOT / ".venv/bin/python"), "src/scripts/run_relationship_factory_pipeline_v2.py"],
+        [str(PYTHON), "src/scripts/run_relationship_factory_pipeline_v2.py"],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=900, check=False,
     )
     verdict = "Цепочка данных и связей завершена" if result.returncode == 0 else "Ошибка цепочки данных и связей"
