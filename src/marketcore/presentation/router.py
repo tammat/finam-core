@@ -35,6 +35,7 @@ from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     run_intermarket_lead_lag_action_v2,
     run_failure_diagnostics_action_v2,
     run_gross_net_attribution_action_v1,
+    run_targeted_trade_replay_action_v1,
 )
 
 EDGE_OOS_SECTION_ROUTES = {
@@ -146,6 +147,9 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/targeted-trade-replay":
+        notice = run_targeted_trade_replay_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/gross-net-attribution":
         notice = run_gross_net_attribution_action_v1()
         return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")

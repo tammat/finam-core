@@ -38,6 +38,7 @@ ACTION_STATUS_SCRIPTS = {
     "intermarket-lead-lag-run": ("src/scripts/run_intermarket_lead_lag_parameter_adapter_v2.py", "Проверка Intermarket Lead/Lag"),
     "failure-diagnostics": ("src/scripts/build_hypothesis_failure_diagnostics_v2.py", "Диагностика провалов гипотез"),
     "gross-net-attribution": ("src/scripts/build_trial_gross_net_attribution_v1.py", "Gross/Net атрибуция"),
+    "targeted-trade-replay": ("src/scripts/run_targeted_trade_level_replay_v1.py", "Точный trade-level replay"),
 }
 
 
@@ -533,6 +534,28 @@ def _gross_net_attribution() -> tuple[list[dict], dict]:
     return rows, summary
 
 
+def _targeted_trade_replay() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT replay_run_id FROM analytics.targeted_trade_level_replay_v1 ORDER BY created_at DESC LIMIT 1")
+            latest = cur.fetchone()
+            if not latest:
+                return [], {"candidates": 0, "gross_pf_1": 0, "net_positive": 0}
+            cur.execute("""SELECT strategy_family,count(*) AS candidates,sum(replayed_trades) AS trades,
+                       max(gross_profit_factor) AS best_gross_pf,max(net_profit_factor) AS best_net_pf,
+                       max(gross_expectancy) AS best_gross_expectancy,max(net_expectancy) AS best_net_expectancy
+                FROM analytics.targeted_trade_level_replay_v1 WHERE replay_run_id=%s GROUP BY 1 ORDER BY 1""",
+                (latest["replay_run_id"],))
+            rows = [dict(row) for row in cur.fetchall()]
+            cur.execute("""SELECT count(*) AS candidates,
+                       count(*) FILTER(WHERE gross_profit_factor>1) AS gross_pf_1,
+                       count(*) FILTER(WHERE gross_profit_factor>=1.1) AS gross_pf_11,
+                       count(*) FILTER(WHERE net_expectancy>0) AS net_positive
+                FROM analytics.targeted_trade_level_replay_v1 WHERE replay_run_id=%s""", (latest["replay_run_id"],))
+            summary = dict(cur.fetchone() or {})
+    return rows, summary
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -641,6 +664,13 @@ def run_gross_net_attribution_action_v1() -> str:
     )
 
 
+def run_targeted_trade_replay_action_v1() -> str:
+    return _run_background_action_v1(
+        "src/scripts/run_targeted_trade_level_replay_v1.py",
+        "Точный trade-level replay",
+    )
+
+
 def _run_background_action_v1(script: str, label: str) -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -723,6 +753,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     hypothesis_lineage = _hypothesis_lineage_summary()
     failure_rows, failure_summary = _failure_diagnostics()
     attribution_rows, attribution_summary = _gross_net_attribution()
+    replay_rows, replay_summary = _targeted_trade_replay()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -880,6 +911,12 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <td>Gross PF требует trade-level replay</td></tr>"""
         for row in attribution_rows
     )
+    replay_table_rows = "".join(
+        f"""<tr><td><strong>{html.escape(_strategy_name_ru(row['strategy_family'], row['strategy_family']))}</strong></td>
+        <td>{int(row['candidates'])}</td><td>{int(row['trades'])}</td><td>{float(row['best_gross_pf'] or 0):.3f}</td>
+        <td>{float(row['best_net_pf'] or 0):.3f}</td><td>{float(row['best_gross_expectancy'] or 0):.4f}</td>
+        <td>{float(row['best_net_expectancy'] or 0):.4f}</td></tr>""" for row in replay_rows
+    )
     section_nav = "".join(
         (
             _section_link("data-quality-gate", "Качество", f"{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}", active_section),
@@ -1007,6 +1044,12 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>Edge уничтожен costs</span><b>{attribution_summary.get('cost_destroyed', 0)}</b></article></div>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Диагноз</th><th>Trials</th><th>Лучший gross</th><th>Лучший net</th><th>Ограничение</th></tr></thead><tbody>{attribution_table_rows}</tbody></table></div>
           <p>Gross expectancy восстановлено из фиксированного per-trade cost. Gross PF не рассчитывается без повторного trade-level replay.</p></details>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/targeted-trade-replay"><button type="submit">Точный replay 155 кандидатов</button></form>
+          <details class="mc-table-spoiler"><summary>Точный trade-level replay <span>{replay_summary.get('candidates', 0)} кандидатов</span></summary>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Gross PF &gt; 1</span><b>{replay_summary.get('gross_pf_1', 0)}</b></article>
+          <article><span>Gross PF ≥ 1,10</span><b>{replay_summary.get('gross_pf_11', 0)}</b></article>
+          <article><span>Net ожидание &gt; 0</span><b>{replay_summary.get('net_positive', 0)}</b></article></div>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Кандидаты</th><th>Сделки</th><th>Лучший gross PF</th><th>Лучший net PF</th><th>Gross ожидание</th><th>Net ожидание</th></tr></thead><tbody>{replay_table_rows}</tbody></table></div></details>
           <details class="mc-table-spoiler"><summary>Результаты по семействам <span>{len(strategy_result_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Вердикт</th><th>Кандидаты</th><th>Лучший PF</th><th>Ожидание</th><th>p скорр.</th><th>Причина</th></tr></thead><tbody>{strategy_result_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
