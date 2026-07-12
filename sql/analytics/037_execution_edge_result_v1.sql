@@ -1,0 +1,35 @@
+CREATE TABLE IF NOT EXISTS analytics.execution_edge_result_v1 (
+    id BIGSERIAL PRIMARY KEY,
+    discovery_run_id UUID NOT NULL,
+    strategy_family TEXT NOT NULL,
+    strategy_code TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    parameter_json JSONB NOT NULL,
+    regime_code TEXT NOT NULL,
+    session_code TEXT NOT NULL,
+    policy_code TEXT NOT NULL,
+    baseline_policy_code TEXT NOT NULL DEFAULT 'BASELINE',
+    oos_trades INTEGER NOT NULL,
+    oos_profit_factor NUMERIC NOT NULL,
+    oos_expectancy NUMERIC NOT NULL,
+    baseline_oos_profit_factor NUMERIC NOT NULL,
+    baseline_oos_expectancy NUMERIC NOT NULL,
+    delta_profit_factor NUMERIC NOT NULL,
+    delta_expectancy NUMERIC NOT NULL,
+    folds_passed INTEGER NOT NULL,
+    folds_total INTEGER NOT NULL,
+    raw_p_value NUMERIC NOT NULL,
+    adjusted_p_value NUMERIC NOT NULL,
+    market_data_quality TEXT NOT NULL CHECK (market_data_quality IN ('BAR_ONLY','QUOTE_VERIFIED')),
+    trust_status TEXT NOT NULL CHECK (trust_status IN ('VERIFIED','UNVERIFIED')),
+    verdict_code TEXT NOT NULL CHECK (verdict_code IN ('OOS_PASS','OOS_FAIL','UNVERIFIED')),
+    reason_code TEXT NOT NULL,
+    promotion_allowed BOOLEAN NOT NULL DEFAULT false,
+    source_version TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (discovery_run_id,strategy_code,symbol,timeframe,parameter_json,regime_code,session_code,policy_code)
+);
+
+CREATE INDEX IF NOT EXISTS execution_edge_result_v1_rank_idx ON analytics.execution_edge_result_v1
+    (discovery_run_id,verdict_code,adjusted_p_value,delta_expectancy DESC);
