@@ -11,3 +11,7 @@ flock -n /tmp/marketcore-forward-edge-shadow-trailing-v1.lock \
   env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/project_forward_edge_shadow_trailing_v1.py
 flock -n /tmp/marketcore-shadow-experiment-guard-v1.lock \
   env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/build_shadow_experiment_guard_v1.py
+flock -n /tmp/marketcore-swing-shadow-guard-v1.lock \
+  env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/build_swing_shadow_experiment_guard_v1.py
+flock -n /tmp/marketcore-swing-forward-shadow-router-v1.lock \
+  env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/run_swing_forward_shadow_router_v1.py
