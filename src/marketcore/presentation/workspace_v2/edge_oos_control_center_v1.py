@@ -39,6 +39,9 @@ ACTION_STATUS_SCRIPTS = {
     "failure-diagnostics": ("src/scripts/build_hypothesis_failure_diagnostics_v2.py", "Диагностика провалов гипотез"),
     "gross-net-attribution": ("src/scripts/build_trial_gross_net_attribution_v1.py", "Gross/Net атрибуция"),
     "targeted-trade-replay": ("src/scripts/run_targeted_trade_level_replay_v1.py", "Точный trade-level replay"),
+    "swing-timeframes": ("src/scripts/build_canonical_swing_timeframes_v1.py", "Swing таймфреймы"),
+    "swing-data-quality": ("src/scripts/build_swing_data_quality_gate_v1.py", "Качество Swing данных"),
+    "swing-factory": ("src/scripts/build_swing_hypothesis_factory_v1.py", "Swing Hypothesis Factory"),
 }
 
 
@@ -556,6 +559,23 @@ def _targeted_trade_replay() -> tuple[list[dict], dict]:
     return rows, summary
 
 
+def _swing_summary() -> dict:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT timeframe,count(*) bars,count(DISTINCT symbol) symbols FROM analytics.swing_market_bars_v1 GROUP BY 1")
+            bars = {row["timeframe"]: dict(row) for row in cur.fetchall()}
+            cur.execute("SELECT audit_run_id FROM analytics.swing_data_quality_gate_v1 ORDER BY created_at DESC LIMIT 1")
+            audit = cur.fetchone()
+            cur.execute("SELECT count(*) rows,count(*) FILTER(WHERE quality_status='READY') ready FROM analytics.swing_data_quality_gate_v1 WHERE audit_run_id=%s", (audit["audit_run_id"],))
+            quality = dict(cur.fetchone() or {})
+            cur.execute("SELECT factory_run_id FROM analytics.swing_hypothesis_factory_v1 ORDER BY created_at DESC LIMIT 1")
+            factory = cur.fetchone()
+            cur.execute("SELECT count(*) candidates,count(*) FILTER(WHERE final_oos_opened) opened FROM analytics.swing_hypothesis_factory_v1 WHERE factory_run_id=%s", (factory["factory_run_id"],))
+            result = dict(cur.fetchone() or {})
+            result.update({"bars": bars, "quality_rows": quality.get("rows", 0), "quality_ready": quality.get("ready", 0)})
+    return result
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -671,6 +691,18 @@ def run_targeted_trade_replay_action_v1() -> str:
     )
 
 
+def run_swing_timeframes_action_v1() -> str:
+    return _run_background_action_v1("src/scripts/build_canonical_swing_timeframes_v1.py", "Swing таймфреймы")
+
+
+def run_swing_data_quality_action_v1() -> str:
+    return _run_background_action_v1("src/scripts/build_swing_data_quality_gate_v1.py", "Качество Swing данных")
+
+
+def run_swing_factory_action_v1() -> str:
+    return _run_background_action_v1("src/scripts/build_swing_hypothesis_factory_v1.py", "Swing Hypothesis Factory")
+
+
 def _run_background_action_v1(script: str, label: str) -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -754,6 +786,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     failure_rows, failure_summary = _failure_diagnostics()
     attribution_rows, attribution_summary = _gross_net_attribution()
     replay_rows, replay_summary = _targeted_trade_replay()
+    swing_summary = _swing_summary()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -1050,6 +1083,16 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>Gross PF ≥ 1,10</span><b>{replay_summary.get('gross_pf_11', 0)}</b></article>
           <article><span>Net ожидание &gt; 0</span><b>{replay_summary.get('net_positive', 0)}</b></article></div>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Кандидаты</th><th>Сделки</th><th>Лучший gross PF</th><th>Лучший net PF</th><th>Gross ожидание</th><th>Net ожидание</th></tr></thead><tbody>{replay_table_rows}</tbody></table></div></details>
+          <details class="mc-table-spoiler"><summary>Swing Research V1 <span>{swing_summary.get('candidates', 0)} гипотез</span></summary>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>H1 бары</span><b>{swing_summary.get('bars', {}).get('H1', {}).get('bars', 0)}</b></article>
+          <article><span>H4 бары</span><b>{swing_summary.get('bars', {}).get('H4', {}).get('bars', 0)}</b></article>
+          <article><span>D1 бары</span><b>{swing_summary.get('bars', {}).get('D1', {}).get('bars', 0)}</b></article>
+          <article><span>Data Quality</span><b>{swing_summary.get('quality_ready', 0)}/{swing_summary.get('quality_rows', 0)}</b></article>
+          <article><span>Final OOS открыт</span><b>{swing_summary.get('opened', 0)}</b></article></div>
+          <div class="mc-oos-actions"><form method="post" action="/workspace-v2/control-center/edge-oos/swing-timeframes"><button type="submit">Обновить H1/H4/D1</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/swing-data-quality"><button type="submit">Проверить Swing данные</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/swing-factory"><button type="submit">Сформировать Swing гипотезы</button></form></div>
+          <p>Nested split 40/20/20/20 · final OOS запечатан commitment-хэшем и не открыт.</p></details>
           <details class="mc-table-spoiler"><summary>Результаты по семействам <span>{len(strategy_result_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Вердикт</th><th>Кандидаты</th><th>Лучший PF</th><th>Ожидание</th><th>p скорр.</th><th>Причина</th></tr></thead><tbody>{strategy_result_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
