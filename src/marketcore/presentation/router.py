@@ -55,6 +55,8 @@ EDGE_OOS_SECTION_ROUTES = {
     "/workspace-v2/control-center/edge-oos/edge-search-pipeline": "relationship-factory",
     "/workspace-v2/control-center/edge-oos/finam-instruments": "finam-instruments",
     "/workspace-v2/control-center/edge-oos/strategy-generator": "strategy-generator",
+    # Diagnostic actions also need a safe GET route: bookmarked operator links must not 404.
+    "/workspace-v2/control-center/edge-oos/failure-diagnostics": "strategy-generator",
 }
 
 

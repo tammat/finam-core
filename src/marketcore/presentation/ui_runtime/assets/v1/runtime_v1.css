@@ -289,6 +289,11 @@ body {
 .mc-v2-card[data-status="OK"] { border-top: 2px solid #31cdb2; }
 .mc-v2-card[data-status="BLOCKED"],
 .mc-v2-card[data-status="ERROR"] { border-top: 2px solid #ef6574; }
+.mc-v2-card[data-status="LOCKED"] { border-top: 2px solid #ef6574; }
+.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card h3::before{content:"";display:inline-block;width:10px;height:10px;margin:0 9px 1px 0;border-radius:50%;background:#7e919b;box-shadow:0 0 0 3px rgba(126,145,155,.13)}
+.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card[data-status="OK"] h3::before{background:#58dc9d;box-shadow:0 0 0 3px rgba(88,220,157,.13)}
+.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card[data-status="WARNING"] h3::before{background:#f7bd4d;box-shadow:0 0 0 3px rgba(247,189,77,.13)}
+.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card[data-status="BLOCKED"] h3::before,.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card[data-status="LOCKED"] h3::before{background:#ff7885;box-shadow:0 0 0 3px rgba(255,120,133,.13)}
 
 .mc-v2-card h3 {
     margin: 0 0 8px;
@@ -376,6 +381,14 @@ body {
     .mc-v2-card,
     .mc-v2-card[data-card="DECISION"] { grid-column: 1 / -1; min-height: 0; }
 }
+
+/* Operator traffic lights: each colour has a fixed meaning across every Edge branch. */
+.mc-traffic-overview{margin:24px 0 28px;padding:16px 18px;border:1px solid #1b4250;border-radius:16px;background:linear-gradient(145deg,#0c202a,#091821)}
+.mc-traffic-overview-title{display:flex;justify-content:space-between;gap:16px;align-items:baseline;margin-bottom:13px}.mc-traffic-overview-title p{margin:0;color:#62e4cf;font-size:.68rem;font-weight:850;letter-spacing:.14em}.mc-traffic-overview-title span{color:#829aa6;font-size:.72rem}
+.mc-traffic-grid{display:grid;grid-template-columns:repeat(6,minmax(125px,1fr));gap:9px}.mc-traffic-light{display:grid;grid-template-columns:12px 1fr;column-gap:8px;align-items:center;min-height:58px;padding:10px 11px;border:1px solid #1a3844;border-radius:11px;background:#0a1821;color:#e0edf1;text-decoration:none;transition:border-color .15s ease,transform .15s ease}.mc-traffic-light:hover{border-color:#4fcfb9;transform:translateY(-1px)}.mc-traffic-light i,.mc-nav-light{display:block;width:9px;height:9px;border-radius:50%;background:#778c97;box-shadow:0 0 0 3px rgba(119,140,151,.12)}.mc-traffic-light span{font-size:.75rem;font-weight:800}.mc-traffic-light small{grid-column:2;color:#8aa0aa;font-size:.64rem;line-height:1.28}.mc-traffic-light.is-green i,.mc-nav-light.is-green{background:#58dc9d;box-shadow:0 0 0 3px rgba(88,220,157,.13)}.mc-traffic-light.is-amber i,.mc-nav-light.is-amber{background:#f7bd4d;box-shadow:0 0 0 3px rgba(247,189,77,.13)}.mc-traffic-light.is-red i,.mc-nav-light.is-red{background:#ff7885;box-shadow:0 0 0 3px rgba(255,120,133,.13)}.mc-traffic-light.is-blue i,.mc-nav-light.is-blue{background:#69b6ff;box-shadow:0 0 0 3px rgba(105,182,255,.13)}.mc-traffic-light.is-neutral i,.mc-nav-light.is-neutral{background:#778c97}
+.mc-edge-section-nav a{align-items:center}.mc-edge-section-nav .mc-nav-light{flex:0 0 auto;margin-right:7px}
+@media(max-width:1200px){.mc-traffic-grid{grid-template-columns:repeat(3,minmax(155px,1fr)}}@media(max-width:760px){.mc-traffic-overview-title{display:block}.mc-traffic-overview-title span{display:block;margin-top:6px}.mc-traffic-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mc-v2-section[data-section="OBSERVATION"] .mc-v2-grid{grid-template-columns:repeat(5,minmax(0,1fr))}.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card{grid-column:auto;min-width:0;padding:16px}.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card .mc-v2-kpi-value{font-size:1.1rem;line-height:1.25}@media(max-width:1100px){.mc-v2-section[data-section="OBSERVATION"] .mc-v2-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:680px){.mc-v2-section[data-section="OBSERVATION"] .mc-v2-grid{grid-template-columns:1fr}.mc-v2-section[data-section="OBSERVATION"] .mc-v2-card{grid-column:1/-1}}
 
 .mc-oos-actions { display:flex; gap:10px; flex-wrap:wrap; }
 .mc-action-status { margin:0 0 18px; padding:14px 18px; border:1px solid #2dd4bf66; border-radius:16px; background:#0b2428; color:#dffcf7; }

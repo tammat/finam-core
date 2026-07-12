@@ -772,10 +772,22 @@ def run_finam_instrument_discovery_action_v1() -> str:
     )
 
 
-def _section_link(section_id: str, label: str, value: object, active_section: str) -> str:
+def _traffic_light(state: str, label: str, detail: str, href: str = "") -> str:
+    """A single, honest operating state: green is never inferred from activity alone."""
+    tag = "a" if href else "div"
+    href_attr = f' href="{html.escape(href)}"' if href else ""
+    return (
+        f'<{tag} class="mc-traffic-light is-{html.escape(state)}"{href_attr} '
+        f'title="{html.escape(detail)}"><i aria-hidden="true"></i><span>{html.escape(label)}</span>'
+        f'<small>{html.escape(detail)}</small></{tag}>'
+    )
+
+
+def _section_link(section_id: str, label: str, value: object, active_section: str, state: str = "neutral") -> str:
     active = ' class="active"' if active_section == section_id else ""
     return (
         f'<a{active} href="{html.escape(SECTION_URLS[section_id])}">'
+        f'<i class="mc-nav-light is-{html.escape(state)}" aria-hidden="true"></i>'
         f"{html.escape(label)} <b>{html.escape(str(value))}</b></a>"
     )
 
@@ -820,6 +832,18 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     last_run = max((row.get("updated_at") for row in rows), default=None)
     quality_blocked = int(quality_summary.get("blocked", 0) or 0)
     relationship_passed = int(relationship_summary.get("passed", 0) or 0)
+    quality_ready = int(quality_summary.get("factory_ready", 0) or 0)
+    quality_total = int(quality_summary.get("symbols", 0) or 0)
+    quality_state = "green" if quality_total and quality_ready == quality_total else ("amber" if quality_ready else "red")
+    edge_state = "green" if relationship_passed else "red"
+    forward_candidates = int(forward_summary.get("candidates", 0) or 0)
+    forward_promoted = int(forward_summary.get("promotion_allowed", 0) or 0)
+    forward_observations = int(forward_summary.get("observations", 0) or 0)
+    forward_state = "green" if forward_promoted else ("amber" if forward_candidates else "neutral")
+    swing_opened = int(swing_summary.get("opened", 0) or 0)
+    swing_state = "green" if swing_opened else "blue"
+    execution_quote_verified = int(execution_summary.get("quote_verified", 0) or 0)
+    execution_state = "green" if execution_quote_verified else "amber"
     next_step = (
         "Сначала восстановить данные и покрытие режимами"
         if quality_blocked else
@@ -977,15 +1001,23 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     )
     section_nav = "".join(
         (
-            _section_link("data-quality-gate", "Качество", f"{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}", active_section),
-            _section_link("commodity-factors", "Сырьё", len(commodity_relations), active_section),
-            _section_link("signal-funnel", "Воронка", len(funnel_stages), active_section),
-            _section_link("relationship-factory", "Фабрика связей", relationship_summary.get("trials", 0), active_section),
-            _section_link("session-edge", "Сессии", session_summary.get("trials", 0), active_section),
-            _section_link("execution-edge", "Исполнение", execution_summary.get("trials", 0), active_section),
-            _section_link("strategy-generator", "Генератор", strategy_generator_summary.get("candidates", 0), active_section),
+            _section_link("data-quality-gate", "Качество", f"{quality_ready}/{quality_total}", active_section, quality_state),
+            _section_link("commodity-factors", "Сырьё", len(commodity_relations), active_section, quality_state),
+            _section_link("signal-funnel", "Воронка", len(funnel_stages), active_section, "red" if live_boundary_blocked else "green"),
+            _section_link("relationship-factory", "Фабрика связей", relationship_summary.get("trials", 0), active_section, edge_state),
+            _section_link("session-edge", "Сессии", session_summary.get("trials", 0), active_section, edge_state),
+            _section_link("execution-edge", "Исполнение", execution_summary.get("trials", 0), active_section, execution_state),
+            _section_link("strategy-generator", "Генератор", strategy_generator_summary.get("candidates", 0), active_section, edge_state),
         )
     )
+    traffic_lights = "".join((
+        _traffic_light(quality_state, "Данные", f"{quality_ready} из {quality_total} источников готовы", SECTION_URLS["data-quality-gate"]),
+        _traffic_light(edge_state, "OOS edge", f"Подтверждено: {relationship_passed}; без OOS PASS продвижение запрещено", SECTION_URLS["relationship-factory"]),
+        _traffic_light(forward_state, "Forward", f"{forward_candidates} кандидатов, {forward_observations} новых наблюдений", SECTION_URLS["strategy-generator"]),
+        _traffic_light(swing_state, "Swing", "Финальный OOS открыт" if swing_opened else "Финальный OOS запечатан до готовности данных", SECTION_URLS["strategy-generator"]),
+        _traffic_light(execution_state, "Исполнение", "Bid/ask подтверждены" if execution_quote_verified else "Нет подтверждённых bid/ask и стакана", SECTION_URLS["execution-edge"]),
+        _traffic_light("red", "LIVE", "Заявки заблокированы до OOS PASS и Trust Gate"),
+    ))
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MarketCore — Edge OOS Control Center</title>
@@ -1020,6 +1052,10 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <div class="mc-action-status-head"><strong data-action-status-text>Выполняется</strong><span data-action-progress-pct>0%</span></div>
           <div class="mc-action-progress" role="progressbar" aria-label="Ход выполнения"><span data-action-progress-fill></span></div>
         </section>{notice_html}
+        <section class="mc-traffic-overview" aria-label="Операционный светофор">
+          <div class="mc-traffic-overview-title"><p>ОПЕРАЦИОННЫЙ СВЕТОФОР</p><span>Зелёный — подтверждено · жёлтый — наблюдение или ограничение · красный — стоп</span></div>
+          <div class="mc-traffic-grid">{traffic_lights}</div>
+        </section>
         <details class="mc-edge-action-center" aria-label="План поиска edge">
           <summary class="mc-edge-action-heading"><div><p>EDGE SEARCH PLAYBOOK</p><h2>План поиска edge</h2><span>{html.escape(next_step)}</span></div>
             <strong>{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)} источников готовы · PASS {relationship_passed}</strong></summary>

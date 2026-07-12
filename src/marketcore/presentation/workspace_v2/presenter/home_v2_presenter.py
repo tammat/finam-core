@@ -33,6 +33,7 @@ class HomeV2Presenter:
 
     def load(self) -> HomeV2ViewModel:
         edge_metric = self._edge_metric()
+        operating = self._operating_status()
         profit = ProfitFactoryControlCenterResolverV1(
             scope=os.getenv("MARKETCORE_PROFIT_SCOPE", "REAL")
         ).resolve()
@@ -53,6 +54,22 @@ class HomeV2Presenter:
                 self._profit_card("realized", "home.profit_factory.realized", self._money(profit["realized_profit"]), profit_status, 3),
                 self._profit_card("gap", "home.profit_factory.gap", self._money(profit["profit_gap"]), profit_status, 4),
                 self._profit_card("roi", "home.profit_factory.roi", self._percent(profit["realized_roi"]), profit_status, 5),
+            ),
+        )
+        operating_section = BaseSection(
+            section_id="home.section.operating_traffic",
+            section_type=SectionType.OBSERVATION,
+            title_key="home.section.status.title",
+            subtitle_key="home.section.status.subtitle",
+            order=1,
+            status_code=UiStatusCode.WARNING,
+            status_label_key="ui.status.warning",
+            cards=(
+                self._traffic_card("data", "home.card.status.research.title", "home.card.status.pending.subtitle", operating["data"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/data-quality", 1),
+                self._traffic_card("edge", "home.card.edge.title", "home.card.status.blocked.subtitle", operating["edge"], UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos/relationship-factory", 2),
+                self._traffic_card("forward", "home.card.status.observation.title", "home.card.status.pending.subtitle", operating["forward"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/strategy-generator", 3),
+                self._traffic_card("execution", "home.card.status.runtime.title", "home.card.status.pending.subtitle", operating["execution"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/execution-edge", 4),
+                self._traffic_card("live", "home.card.control_center.title", "home.card.status.blocked.subtitle", "LIVE: продвижение заблокировано", UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos", 5),
             ),
         )
         system_section = BaseSection(
@@ -133,7 +150,7 @@ class HomeV2Presenter:
             subtitle_key="home.workspace.subtitle",
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
-            sections=(profit_section, system_section, status_section, operator_section, navigation_section),
+            sections=(operating_section, profit_section, system_section, status_section, operator_section, navigation_section),
         )
 
         return HomeV2ViewModel(layout=layout)
@@ -145,6 +162,19 @@ class HomeV2Presenter:
             title_key=title_key, subtitle_key="home.profit_factory.verified",
             status_code=status, status_label_key=("ui.status.ok" if status == UiStatusCode.OK else "ui.status.warning"),
             priority=priority, payload={"primary_value": value, "quality": quality},
+        )
+
+    @staticmethod
+    def _traffic_card(code, title_key, subtitle_key, value, status, target, priority) -> BaseCard:
+        return BaseCard(
+            widget_id=f"home.traffic.{code}", widget_type=WidgetType.STATUS,
+            card_type=CardType.ACTION, title_key=title_key,
+            subtitle_key=subtitle_key,
+            status_code=status,
+            status_label_key=("ui.status.ok" if status == UiStatusCode.OK else "ui.status.warning"),
+            priority=priority,
+            actions=({"action_code": ActionCode.OPEN.value, "target": target},),
+            payload={"primary_value": value},
         )
 
     @staticmethod
@@ -238,3 +268,40 @@ class HomeV2Presenter:
             return f"PASS {passed} · DATA {int(quality.get('ready') or 0)}/{int(quality.get('symbols') or 0)}"
         except Exception:
             return "EDGE STATUS"
+
+    @staticmethod
+    def _operating_status() -> dict[str, str]:
+        """Only measured facts are exposed on the operator's first screen."""
+        fallback = {
+            "data": "Данные: статус уточняется",
+            "edge": "OOS edge: статус уточняется",
+            "forward": "Forward: статус уточняется",
+            "execution": "Исполнение: статус уточняется",
+        }
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("""SELECT count(*) AS symbols,count(*) FILTER(WHERE factory_status='READY') AS ready
+                        FROM analytics.relationship_data_quality_gate_v1 WHERE audit_run_id=(
+                        SELECT audit_run_id FROM analytics.relationship_data_quality_gate_v1 ORDER BY created_at DESC LIMIT 1)""")
+                    quality = dict(cur.fetchone() or {})
+                    cur.execute("""SELECT count(*) FILTER(WHERE verdict_code='OOS_PASS') AS passed
+                        FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=(
+                        SELECT discovery_run_id FROM analytics.relationship_factory_result_v2 ORDER BY created_at DESC LIMIT 1)""")
+                    edge = dict(cur.fetchone() or {})
+                    cur.execute("""SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1""")
+                    cohort = cur.fetchone()
+                    forward = {"candidates": 0, "observations": 0}
+                    if cohort:
+                        cur.execute("""SELECT count(*) candidates FROM analytics.forward_edge_incubator_v1 WHERE cohort_id=%s""", (cohort["cohort_id"],))
+                        forward.update(dict(cur.fetchone() or {}))
+                        cur.execute("""SELECT count(*) observations FROM analytics.forward_edge_observation_v1 WHERE cohort_id=%s""", (cohort["cohort_id"],))
+                        forward.update(dict(cur.fetchone() or {}))
+            return {
+                "data": f"Данные: {int(quality.get('ready') or 0)}/{int(quality.get('symbols') or 0)} источников готовы",
+                "edge": f"OOS edge: подтверждено {int(edge.get('passed') or 0)}",
+                "forward": f"Forward: {int(forward.get('candidates') or 0)} кандидатов · {int(forward.get('observations') or 0)} наблюдений",
+                "execution": "Исполнение: bid/ask и стакан не подтверждены",
+            }
+        except Exception:
+            return fallback

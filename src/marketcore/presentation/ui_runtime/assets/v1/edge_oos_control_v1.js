@@ -45,7 +45,9 @@
   }
 
   const actionForms = Array.from(document.querySelectorAll('form[action^="/workspace-v2/control-center/edge-oos/"]'));
-  actionForms.forEach(form => form.addEventListener("submit", event => {
+  actionForms.forEach(form => form.addEventListener("submit", async event => {
+    // Keep the operator in context: POST starts the job, progress stays on this page.
+    event.preventDefault();
     const button = form.querySelector('button[type="submit"]');
     if (!button) return;
     if (button.disabled) {
@@ -61,6 +63,17 @@
     showStatus(label, 5, true);
     button.textContent = document.body.dataset.actionRunningLabel || "Запускаю…";
     document.body.dataset.actionState = "RUNNING";
+    try {
+      const response = await fetch(form.action, {method: "POST", credentials: "same-origin"});
+      if (!response.ok) throw new Error(`HTTP_${response.status}`);
+      pollAction(action);
+    } catch (_) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.textContent = label;
+      localStorage.removeItem(storageKey);
+      showStatus(`${label}: не удалось запустить`, 0, false);
+    }
   }));
 
   const filter = document.querySelector("[data-oos-filter]");
