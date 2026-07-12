@@ -1,0 +1,13 @@
+[Unit]
+Description=MarketCore MOEX Natural Gas Active Contracts Online Ingestion
+After=network-online.target postgresql.service
+Wants=network-online.target
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/run_moex_natural_gas_online_v1.py
+User=alex
+Group=alex

@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh active Natural Gas contracts every 5 minutes
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=finam-moex-natural-gas-online.service
+[Install]
+WantedBy=timers.target

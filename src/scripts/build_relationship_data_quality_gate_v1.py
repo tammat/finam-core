@@ -17,7 +17,9 @@ SOURCE_VERSION = "RELATIONSHIP_DATA_QUALITY_GATE_V1"
 
 def source_sql(symbol: str) -> tuple[str, tuple]:
     if symbol == "BR_ROLLING@RTSX":
-        return "SELECT ts,open,high,low,close FROM public.market_bars_br_m5_rolling_v1", ()
+        return "SELECT ts,open,high,low,close FROM public.market_bars_br_m5_rolling_v2", ()
+    if symbol == "NG_ROLLING@RTSX":
+        return "SELECT ts,open,high,low,close FROM public.market_bars_ng_m5_rolling_v1", ()
     return "SELECT ts,open,high,low,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s", (symbol, "M5")
 
 
