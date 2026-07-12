@@ -62,7 +62,7 @@ def render_status_bar(
     if broker not in BROKER_OPTIONS:
         broker = DEFAULT_BROKER
 
-    now = datetime.now(ZoneInfo(timezone)).strftime("%d.%m.%y %H:%M")
+    now = datetime.now(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
     pnl_value = Decimal(str(daily_pnl if daily_pnl is not None else "0"))
     pnl_tone = "positive" if pnl_value > 0 else "negative" if pnl_value < 0 else "neutral"
     pnl_icon = "🟢" if pnl_value > 0 else "🔴" if pnl_value < 0 else "⚪"

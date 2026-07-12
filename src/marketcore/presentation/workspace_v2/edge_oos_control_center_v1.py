@@ -4,7 +4,9 @@ import html
 import json
 import os
 import subprocess
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -91,6 +93,24 @@ FUNNEL_ACTIONS_RU = {
     "PASS": "Наблюдать стабильность, не менять правила без нового OOS",
     "OTHER": "Провести аудит lineage и классифицировать причину",
 }
+
+
+def _format_datetime_ru(value: object, timezone: str = "Europe/Moscow") -> str:
+    if value is None:
+        return "нет данных"
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return html.escape(value)
+    if isinstance(parsed, datetime):
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo("UTC"))
+        return parsed.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
+    if isinstance(parsed, date):
+        return parsed.strftime("%d.%m.%Y")
+    return html.escape(str(parsed))
 
 
 def _strategy_name_ru(family: object, code: object = "") -> str:
@@ -532,7 +552,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
     quality_table_rows = "".join(
         f"""<tr data-quality-row data-market="{row['market_data_status']}" data-factory="{row['factory_status']}">
         <td><strong>{html.escape(row['symbol'])}</strong></td><td>{row['timeframe']}</td><td>{row['bars']}</td><td>{row['trading_days']}</td>
-        <td>{html.escape(str(row['last_ts'] or 'нет данных'))}</td><td>{float(row['latest_age_hours'] or 0):.1f} ч</td>
+        <td>{_format_datetime_ru(row['last_ts'])}</td><td>{float(row['latest_age_hours'] or 0):.1f} ч</td>
         <td>{row['duplicate_rows']}</td><td>{row['invalid_ohlc_rows']}</td><td>{float(row['regime_coverage_ratio']) * 100:.0f}%</td>
         <td><span class="mc-oos-badge {'pass' if row['market_data_status'] == 'READY' else 'fail'}">{row['market_data_status']}</span></td>
         <td><span class="mc-oos-badge {'pass' if row['factory_status'] == 'READY' else 'fail'}">{row['factory_status']}</span></td>
@@ -592,7 +612,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <article><span>OOS FAIL</span><b class="is-negative">{failed}</b></article>
           <article><span>Holdout</span><b>{oos_bars} баров</b></article></section>
         <section class="mc-oos-panel"><div class="mc-oos-toolbar"><div><h2>Рейтинг параметров</h2>
-          <p>Последний запуск: {html.escape(str(last_run or 'нет данных'))}</p></div>
+          <p>Последний запуск: {_format_datetime_ru(last_run)}</p></div>
           <label>Вердикт <select data-oos-filter><option value="ALL">Все</option><option value="OOS_PASS">PASS</option><option value="OOS_FAIL">FAIL</option></select></label></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Порог</th><th>Сделки</th><th>PF</th><th>Ожидание</th><th>Просадка</th><th>Периоды</th><th>Вердикт</th><th>Продвижение</th></tr></thead>
           <tbody data-oos-results>{table_rows}</tbody></table></div></details></section>

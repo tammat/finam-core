@@ -59,7 +59,7 @@ class PortfolioV2Formatter:
 
         if isinstance(value, datetime):
             dt = value if value.tzinfo is not None else value.replace(tzinfo=ZoneInfo("UTC"))
-            return dt.astimezone(ZoneInfo(self._settings.timezone)).strftime("%d.%m.%Y %H:%M:%S")
+            return dt.astimezone(ZoneInfo(self._settings.timezone)).strftime("%d.%m.%Y, %H:%M")
 
         text_value = str(value).strip()
         if not text_value:

@@ -37,7 +37,7 @@ def _best_edge(cur) -> dict:
 
 class OperatorHomeWidgetsProvider:
     def load(self) -> list[WidgetViewModel]:
-        updated_at = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%y %H:%M")
+        updated_at = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y, %H:%M")
         registry = default_widget_registry()
 
         with psycopg2.connect("postgresql:///finam_core") as conn:

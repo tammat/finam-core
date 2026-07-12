@@ -20,6 +20,6 @@ class DateTimeService:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=ZoneInfo("UTC"))
 
-            return dt.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y %H:%M:%S")
+            return dt.astimezone(ZoneInfo(timezone)).strftime("%d.%m.%Y, %H:%M")
         except Exception:
             return str(value)

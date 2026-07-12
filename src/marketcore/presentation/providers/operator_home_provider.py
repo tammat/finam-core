@@ -43,7 +43,7 @@ def _latest_score(cur) -> dict:
 
 class OperatorHomeProvider:
     def load(self) -> DashboardViewModel:
-        now = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%y %H:%M")
+        now = datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y, %H:%M")
 
         with psycopg2.connect("postgresql:///finam_core") as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
