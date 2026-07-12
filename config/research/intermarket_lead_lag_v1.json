@@ -1,0 +1,20 @@
+{
+  "catalog_version": "INTERMARKET_RELATIONSHIP_CATALOG_V1",
+  "timeframe": "M5",
+  "impulse_bars": [1, 3, 6],
+  "lag_bars": [1, 3, 6, 12],
+  "regime_groups": ["ALL", "TREND", "RANGE", "EXPANSION", "COMPRESSION"],
+  "signal_quantile": 0.75,
+  "minimum_regime_confidence": 0.60,
+  "minimum_regime_coverage": 0.80,
+  "relationships": [
+    {"code": "BRENT_TO_LKOH", "source": "BR_ROLLING@RTSX", "target": "LKOH@MISX", "direction": 1, "cost_bps": 8, "thesis": "Изменение цены нефти передаётся рублёвой оценке нефтяной компании с задержкой."},
+    {"code": "BRENT_TO_GAZP", "source": "BR_ROLLING@RTSX", "target": "GAZP@MISX", "direction": 1, "cost_bps": 8, "thesis": "Сырьевой импульс может опережать переоценку крупного экспортёра."},
+    {"code": "USDRUB_TO_LKOH", "source": "USDRUBF@RTSX", "target": "LKOH@MISX", "direction": 1, "cost_bps": 8, "thesis": "Ослабление рубля повышает рублёвую оценку экспортной выручки."},
+    {"code": "USDRUB_TO_GAZP", "source": "USDRUBF@RTSX", "target": "GAZP@MISX", "direction": 1, "cost_bps": 8, "thesis": "Валютный импульс может опережать переоценку экспортёра."},
+    {"code": "USDRUB_TO_PLZL", "source": "USDRUBF@RTSX", "target": "PLZL@MISX", "direction": 1, "cost_bps": 8, "thesis": "Рост валютного курса может повышать рублёвую стоимость золотой выручки."},
+    {"code": "GOLD_TO_PLZL", "source": "GDU6@RTSX", "target": "PLZL@MISX", "direction": 1, "cost_bps": 8, "thesis": "Цена золота может опережать переоценку золотодобывающей компании."},
+    {"code": "GAS_TO_GAZP", "source": "NGN6@RTSX", "target": "GAZP@MISX", "direction": 1, "cost_bps": 8, "thesis": "Газовый фьючерс может передавать отраслевой импульс акции."},
+    {"code": "BTC_TO_ETH", "source": "BTCUSD", "target": "ETHUSD", "direction": 1, "cost_bps": 20, "thesis": "Лидер крипторынка может опережать переоценку второго ликвидного актива."}
+  ]
+}
