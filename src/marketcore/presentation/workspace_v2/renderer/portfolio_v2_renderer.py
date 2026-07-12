@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from numbers import Number
+
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
 from marketcore.presentation.framework.theme_model import ThemeModel
 from marketcore.presentation.framework.theme_resolver import ThemeResolverV1
@@ -12,6 +14,7 @@ from marketcore.presentation.workspace_v2.formatter.portfolio_v2_formatter impor
 from marketcore.presentation.workspace_v2.viewmodel.portfolio_v2_viewmodel import (
     PortfolioV2ViewModel,
 )
+from marketcore.presentation.services.operator_settings_v1 import OperatorSettingsV1
 
 
 def _theme_px(theme: ThemeModel, property_code: str) -> str:
@@ -47,10 +50,11 @@ def render_portfolio_v2(
     vm: PortfolioV2ViewModel,
     locale_code: str = "ru",
     theme_code: str = "DEFAULT",
+    settings: OperatorSettingsV1 | None = None,
 ) -> RenderDocument:
     i18n = UiI18nResolverV1(locale_code=locale_code)
     theme = ThemeResolverV1().resolve(theme_code)
-    formatter = PortfolioV2Formatter()
+    formatter = PortfolioV2Formatter(settings)
 
     shell_style = (
         f"max-width:{_theme_px(theme, 'SHELL_MAX_WIDTH')};"
@@ -87,6 +91,13 @@ def render_portfolio_v2(
                     column_keys.get(column_name, column_name)
                 )
 
+                value_class = "mc-v2-metric-value"
+                if "p&l" in str(column_name).lower() and isinstance(raw_value, Number):
+                    if raw_value < 0:
+                        value_class += " is-negative"
+                    elif raw_value > 0:
+                        value_class += " is-positive"
+
                 value_nodes.append(
                     RenderNode(
                         node_type=RenderNodeType.METRIC_ROW,
@@ -101,6 +112,7 @@ def render_portfolio_v2(
                             ),
                             RenderNode(
                                 node_type=RenderNodeType.METRIC_VALUE,
+                                props={"class": value_class},
                                 text=formatter.value(
                                     str(column_name),
                                     raw_value,

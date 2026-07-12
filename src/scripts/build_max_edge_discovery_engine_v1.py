@@ -69,18 +69,32 @@ def main() -> None:
 
             if paper_exists:
                 cur.execute("""
+                    WITH latest_paper AS (
+                        SELECT DISTINCT ON (candidate_id)
+                            candidate_id, symbol, strategy_code, timeframe,
+                            trades, net_after_tax, max_drawdown, snapshot_ts
+                        FROM analytics.paper_portfolio_mtm_snapshot_v1
+                        ORDER BY candidate_id, snapshot_ts DESC, snapshot_id DESC
+                    )
                     SELECT
-                        candidate_id::text AS candidate_id,
-                        symbol::text AS symbol,
-                        strategy_code::text AS strategy_code,
-                        timeframe::text AS timeframe,
-                        coalesce(trades,0)::int AS trades,
-                        coalesce(net_after_tax,0)::numeric AS net_after_tax,
-                        coalesce(max_drawdown,0)::numeric AS max_drawdown,
-                        0::numeric AS expectancy,
-                        0::numeric AS profit_factor
-                    FROM analytics.paper_portfolio_mtm_snapshot_v1
-                    ORDER BY snapshot_id DESC
+                        p.candidate_id::text AS candidate_id,
+                        p.symbol::text AS symbol,
+                        p.strategy_code::text AS strategy_code,
+                        p.timeframe::text AS timeframe,
+                        coalesce(p.trades,0)::int AS trades,
+                        coalesce(p.net_after_tax,0)::numeric AS net_after_tax,
+                        coalesce(p.max_drawdown,0)::numeric AS max_drawdown,
+                        coalesce(o.expectancy,0)::numeric AS expectancy,
+                        coalesce(o.profit_factor,0)::numeric AS profit_factor
+                    FROM latest_paper p
+                    JOIN analytics.edge_candidate_v1 c
+                      ON c.id=p.candidate_id
+                    JOIN analytics.edge_observation_v1 o
+                      ON o.observation_uuid=c.observation_uuid
+                     AND o.strategy_code=c.strategy_code
+                     AND o.symbol=c.symbol
+                     AND o.timeframe=c.timeframe
+                    ORDER BY p.candidate_id
                     LIMIT 200;
                 """)
                 source_rows = [dict(r) for r in cur.fetchall()]

@@ -16,7 +16,9 @@ from psycopg2 import sql
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 LIMIT = int(os.getenv("STRATEGY_EXECUTION_RUNNER_LIMIT", "20"))
 MAX_BARS = int(os.getenv("STRATEGY_EXECUTION_MAX_BARS", "5000"))
+RESEARCH_BATCH_ID = os.getenv("STRATEGY_EXECUTION_RESEARCH_BATCH_ID")
 RUNNER_VERSION = "STRATEGY_EXECUTION_RUNNER_V1"
+ENGINE_NAME = "STRATEGY_EXECUTION_RUNNER_V1"
 SCORE_FORMULA_VERSION = "EDGE_SCORE_ENGINE_PENDING"
 
 
@@ -153,9 +155,10 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
                 side = -1
         elif family == "MOMENTUM":
             prev = bars[i - lookback].close
-            if close > prev:
+            momentum_pct = ((close - prev) / prev) * 100.0
+            if momentum_pct >= threshold:
                 side = 1
-            elif close < prev:
+            elif momentum_pct <= -threshold:
                 side = -1
         else:
             mean = statistics.fmean(window)
@@ -242,14 +245,17 @@ def main() -> None:
 
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
+            batch_filter = "AND research_batch_id=%s" if RESEARCH_BATCH_ID else ""
+            query_params = (RESEARCH_BATCH_ID, LIMIT) if RESEARCH_BATCH_ID else (LIMIT,)
+            cur.execute(f"""
                 SELECT *
                 FROM analytics.edge_lab_run_v1
                 WHERE status_code='QUEUED'
+                  {batch_filter}
                 ORDER BY created_at ASC, id ASC
                 LIMIT %s
                 FOR UPDATE SKIP LOCKED;
-            """, (LIMIT,))
+            """, query_params)
             runs = cur.fetchall()
 
             for run in runs:
@@ -398,7 +404,7 @@ def main() -> None:
             cur.execute("SELECT count(*) AS trades FROM analytics.research_trade_v1")
             trade_row = cur.fetchone()
 
-    print("=== STRATEGY_EXECUTION_RUNNER_V1 ===")
+    print(f"=== {ENGINE_NAME} ===")
     print(f"limit={LIMIT}")
     print(f"processed={processed}")
     print(f"failed={failed}")
@@ -414,10 +420,10 @@ def main() -> None:
     print("micro_live_allowed=0")
 
     if failed:
-        print("VERDICT=STRATEGY_EXECUTION_RUNNER_V1_FAILED")
+        print(f"VERDICT={ENGINE_NAME}_FAILED")
         raise SystemExit(1)
 
-    print("VERDICT=STRATEGY_EXECUTION_RUNNER_V1_READY")
+    print(f"VERDICT={ENGINE_NAME}_READY")
 
 
 if __name__ == "__main__":

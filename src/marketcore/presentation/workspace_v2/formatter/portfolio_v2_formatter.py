@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from marketcore.presentation.services.operator_settings_v1 import OperatorSettingsV1
 
 
 class PortfolioV2Formatter:
+    def __init__(self, settings: OperatorSettingsV1 | None = None) -> None:
+        self._settings = settings or OperatorSettingsV1.load()
     MONEY_KEYWORDS = (
         "цена",
         "стоимость",
@@ -25,6 +31,7 @@ class PortfolioV2Formatter:
         "доля",
         "yield",
         "%",
+        "change",
     )
 
     @staticmethod
@@ -46,28 +53,37 @@ class PortfolioV2Formatter:
     def section_id(section_code: str) -> str:
         return f"portfolio.section.{section_code.lower()}"
 
-    @classmethod
-    def value(cls, column_name: str, value: Any) -> str:
+    def value(self, column_name: str, value: Any) -> str:
         if value is None:
             return "—"
+
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=ZoneInfo("UTC"))
+            return dt.astimezone(ZoneInfo(self._settings.timezone)).strftime("%d.%m.%Y %H:%M:%S")
 
         text_value = str(value).strip()
         if not text_value:
             return "—"
 
-        decimal_value = cls._try_decimal(text_value)
+        decimal_value = self._try_decimal(text_value)
         if decimal_value is None:
             return text_value
 
         column = column_name.lower()
 
-        if any(marker in column for marker in cls.PERCENT_KEYWORDS):
-            return cls._format_decimal(decimal_value) + "%"
+        if any(marker in column for marker in self.PERCENT_KEYWORDS):
+            return self._format_decimal(decimal_value) + "%"
 
-        if any(marker in column for marker in cls.MONEY_KEYWORDS):
-            return cls._format_decimal(decimal_value) + " ₽"
+        if any(marker in column for marker in self.MONEY_KEYWORDS):
+            return self._format_decimal(decimal_value) + " " + self._currency_symbol()
 
-        return cls._format_decimal(decimal_value)
+        return self._format_decimal(decimal_value)
+
+    @staticmethod
+    def _currency_symbol() -> str:
+        # Источник v_real_portfolio_summary_ru номинирован в RUB.
+        # Не переименовываем валюту без доказанного FX-преобразования.
+        return "₽"
 
     @staticmethod
     def _try_decimal(value: str) -> Decimal | None:

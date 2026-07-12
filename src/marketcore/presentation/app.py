@@ -7,9 +7,9 @@ from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
 import os
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-from marketcore.presentation.router import route
+from marketcore.presentation.router import route, route_post
 
 
 HOST = os.getenv("MARKETCORE_UI_HOST", "0.0.0.0")
@@ -61,9 +61,21 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         try:
             parsed = urlparse(self.path)
-            code, payload = route(parsed.path)
+            code, payload = route(parsed.path, parse_qs(parsed.query))
             body = _to_bytes(payload)
             self._send_html(code, body)
+        except Exception as exc:
+            traceback.print_exc()
+            self._send_html(500, _error_page(exc))
+
+    def do_POST(self) -> None:
+        try:
+            if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                self._send_html(403, b"Local control only")
+                return
+            parsed = urlparse(self.path)
+            code, payload = route_post(parsed.path)
+            self._send_html(code, _to_bytes(payload))
         except Exception as exc:
             traceback.print_exc()
             self._send_html(500, _error_page(exc))

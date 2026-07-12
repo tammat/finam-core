@@ -12,9 +12,15 @@ from marketcore.presentation.workspace_v2.render_tree_http_v1 import (
 from marketcore.presentation.workspace_v2.portfolio_page_v2 import (
     render_workspace_v2_portfolio_page_v2,
 )
+from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
+    render_edge_oos_control_center_v1,
+    run_hypothesis_action_v1,
+    run_oos_action_v1,
+)
 
 
-def route(path: str) -> tuple[int, bytes]:
+def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, bytes]:
+    query = query or {}
     if path in (
         "/workspace-v2",
         "/workspace-v2/",
@@ -59,7 +65,14 @@ def route(path: str) -> tuple[int, bytes]:
 
 
     if path in ("/workspace-v2/portfolio", "/workspace-v2/portfolio/"):
-        return 200, render_workspace_v2_portfolio_page_v2().encode("utf-8")
+        return 200, render_workspace_v2_portfolio_page_v2(
+            timezone=(query.get("timezone") or [None])[0],
+            currency=(query.get("currency") or [None])[0],
+            broker=(query.get("broker") or [None])[0],
+        ).encode("utf-8")
+
+    if path in ("/workspace-v2/control-center/edge-oos", "/workspace-v2/control-center/edge-oos/"):
+        return 200, render_edge_oos_control_center_v1().encode("utf-8")
 
 
     if path in ("/workspace-v2/portfolio/phone",):
@@ -70,4 +83,14 @@ def route(path: str) -> tuple[int, bytes]:
             ).encode("utf-8"),
         )
 
+    return 404, b"Not found"
+
+
+def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/run":
+        notice = run_oos_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
+    if path == "/workspace-v2/control-center/edge-oos/discover":
+        notice = run_hypothesis_action_v1()
+        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
     return 404, b"Not found"

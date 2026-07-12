@@ -27,6 +27,18 @@ _ASSET_ROOT = Path(__file__).resolve().parent / "assets" / "v1"
 
 UI_RUNTIME_ASSETS_V1: tuple[UiRuntimeAssetDefinitionV1, ...] = (
     UiRuntimeAssetDefinitionV1(
+        asset_code="edge_oos_control_js",
+        route="/assets/marketcore/ui-runtime/v1/edge-oos-control.js",
+        relative_path="edge_oos_control_v1.js",
+        content_type="application/javascript; charset=utf-8",
+    ),
+    UiRuntimeAssetDefinitionV1(
+        asset_code="portfolio_workspace_js",
+        route="/assets/marketcore/ui-runtime/v1/portfolio-workspace.js",
+        relative_path="portfolio_workspace_v1.js",
+        content_type="application/javascript; charset=utf-8",
+    ),
+    UiRuntimeAssetDefinitionV1(
         asset_code="runtime_js",
         route="/assets/marketcore/ui-runtime/v1/runtime.js",
         relative_path="runtime_v1.js",
