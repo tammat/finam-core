@@ -63,11 +63,11 @@ def main() -> None:
 
             cur.execute("""
                 SELECT
-                    queue_rank,
+                    candidate_rank AS queue_rank,
                     symbol,
-                    recommended_strategy_family AS strategy,
+                    strategy,
                     timeframe,
-                    ''::text AS side,
+                    side,
                     candidate_status,
                     expectancy,
                     profit_factor,
@@ -77,7 +77,7 @@ def main() -> None:
                     score,
                     source_table,
                     refreshed_at
-                FROM marketcore_ui.market_universe_research_queue_v1
+                FROM marketcore_ui.paper_edge_research_candidates_v1
                 ORDER BY
                     CASE
                         WHEN COALESCE(trades,0) >= 30
@@ -92,7 +92,7 @@ def main() -> None:
                     COALESCE(score,0) DESC,
                     COALESCE(profit_factor,0) DESC,
                     COALESCE(expectancy,0) DESC,
-                    queue_rank
+                    candidate_rank
                 LIMIT 50;
             """)
             candidates = [dict(row) for row in cur.fetchall()]
@@ -114,9 +114,9 @@ def main() -> None:
                     INSERT INTO marketcore_ui.edge_validation_queue_v1 (
                         queue_rank,
                         symbol,
-                        recommended_strategy_family AS strategy,
+                        strategy,
                         timeframe,
-                        ''::text AS side,
+                        side,
                         candidate_status,
                         validation_status,
                         priority,
@@ -129,7 +129,7 @@ def main() -> None:
                         evidence_summary,
                         risk_notes,
                         recommended_action,
-                        source_queue_rank,
+                        source_candidate_rank,
                         source_table,
                         source_version,
                         refreshed_at,
