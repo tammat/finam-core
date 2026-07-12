@@ -9,3 +9,5 @@ flock -n /tmp/marketcore-forward-edge-shadow-trades-v1.lock \
   env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/project_forward_edge_shadow_trades_v1.py
 flock -n /tmp/marketcore-forward-edge-shadow-trailing-v1.lock \
   env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/project_forward_edge_shadow_trailing_v1.py
+flock -n /tmp/marketcore-shadow-experiment-guard-v1.lock \
+  env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python src/scripts/build_shadow_experiment_guard_v1.py

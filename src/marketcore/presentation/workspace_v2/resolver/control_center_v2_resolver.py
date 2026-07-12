@@ -176,4 +176,14 @@ class ControlCenterV2Resolver:
                 WHERE cohort_id=%s AND policy_code='ATR_TRAIL_14_2_5'
             """, (latest["cohort_id"],))
             result.update(dict(cur.fetchone() or {}))
+        cur.execute("SELECT to_regclass('analytics.shadow_experiment_guard_check_v1') AS table_name")
+        if cur.fetchone()["table_name"]:
+            cur.execute("""
+                SELECT check_status,cron_ready,worker_log_ready,websocket_connected,
+                       disk_used_pct,memory_available_mb,reasons_json,created_at
+                FROM analytics.shadow_experiment_guard_check_v1
+                ORDER BY created_at DESC LIMIT 1
+            """)
+            guard = dict(cur.fetchone() or {})
+            result.update({f"guard_{key}": value for key, value in guard.items()})
         return result

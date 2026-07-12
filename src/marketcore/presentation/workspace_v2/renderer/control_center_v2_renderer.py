@@ -105,6 +105,7 @@ def render_control_center_v2(vm: ControlCenterV2ViewModel) -> RenderDocument:
                         children=(_title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value"}, text=value)),
                     )
                     for label, value, status in (
+                        ("Готовность", "Готово к открытию" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "Заблокировано", "OK" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "BLOCKED"),
                         ("Всего", str(int(shadow.get("total") or 0)), "WARNING"),
                         ("Ожидают вход", str(int(shadow.get("pending") or 0)), "WARNING"),
                         ("Открыты", str(int(shadow.get("open") or 0)), "WARNING"),
