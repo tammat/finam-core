@@ -28,6 +28,7 @@ from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     run_edge_search_pipeline_action_v1,
     run_finam_instrument_discovery_action_v1,
     run_oos_action_v1,
+    run_strategy_generator_action_v2,
 )
 
 EDGE_OOS_SECTION_ROUTES = {
@@ -42,6 +43,7 @@ EDGE_OOS_SECTION_ROUTES = {
     "/workspace-v2/control-center/edge-oos/execution-edge": "execution-edge",
     "/workspace-v2/control-center/edge-oos/edge-search-pipeline": "relationship-factory",
     "/workspace-v2/control-center/edge-oos/finam-instruments": "finam-instruments",
+    "/workspace-v2/control-center/edge-oos/strategy-generator": "strategy-generator",
 }
 
 
@@ -138,6 +140,9 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
+    if path == "/workspace-v2/control-center/edge-oos/strategy-generator":
+        notice = run_strategy_generator_action_v2()
+        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
     if path == "/workspace-v2/control-center/edge-oos/hypothesis-pipeline":
         notice = run_hypothesis_pipeline_action_v1()
         return 200, render_edge_oos_control_center_v1(notice, "hypothesis-discovery").encode("utf-8")

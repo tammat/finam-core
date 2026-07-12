@@ -31,6 +31,7 @@ ACTION_STATUS_SCRIPTS = {
     "session-execution": ("src/scripts/build_session_execution_edge_v1.py", "Поиск по сессиям и исполнению"),
     "edge-search-pipeline": ("src/scripts/run_relationship_factory_pipeline_v2.py", "Полный цикл поиска edge"),
     "finam-instruments": ("src/scripts/discover_finam_instrument_universe_v1.py", "Поиск инструментов Finam"),
+    "strategy-generator": ("src/scripts/build_strategy_family_registry_v2.py", "Генератор стратегий"),
 }
 
 
@@ -132,6 +133,7 @@ SECTION_URLS = {
     "relationship-factory": "/workspace-v2/control-center/edge-oos/relationship-factory",
     "session-edge": "/workspace-v2/control-center/edge-oos/session-execution",
     "execution-edge": "/workspace-v2/control-center/edge-oos/execution-edge",
+    "strategy-generator": "/workspace-v2/control-center/edge-oos/strategy-generator",
 }
 
 
@@ -431,6 +433,27 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool]:
     return stages, reasons, comparable
 
 
+def _strategy_generator() -> tuple[list[dict], dict]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT strategy_family,name_ru,engine_code,priority,allowed_regimes,
+                       parameter_schema,oos_required,multiple_testing_required,live_allowed
+                FROM analytics.strategy_family_registry_v2 WHERE enabled=true ORDER BY priority""")
+            families = [dict(row) for row in cur.fetchall()]
+            cur.execute("""SELECT parameter_space_run_id FROM analytics.hypothesis_parameter_space_v2
+                ORDER BY created_at DESC LIMIT 1""")
+            latest = cur.fetchone()
+            summary = {"families": len(families), "candidates": 0, "trial_limit": 5000, "risk": "CONTROLLED"}
+            if latest:
+                cur.execute("""SELECT count(*) AS candidates,max(estimated_trials) AS trial_limit,
+                           max(overfit_risk) AS risk
+                    FROM analytics.hypothesis_parameter_space_v2 WHERE parameter_space_run_id=%s""",
+                    (latest["parameter_space_run_id"],))
+                summary.update(dict(cur.fetchone() or {}))
+                summary["run_id"] = str(latest["parameter_space_run_id"])
+    return families, summary
+
+
 def run_oos_action_v1() -> str:
     return _run_background_action_v1(
         "src/scripts/build_momentum_edge_oos_rank_v1.py",
@@ -488,6 +511,13 @@ def run_signal_funnel_action_v1() -> str:
         if result.returncode:
             return f"Ошибка обновления воронки. Код: {result.returncode}"
     return "Воронка сигналов и причины потерь обновлены"
+
+
+def run_strategy_generator_action_v2() -> str:
+    return _run_background_action_v1(
+        "src/scripts/build_strategy_family_registry_v2.py",
+        "Генератор стратегий",
+    )
 
 
 def _run_background_action_v1(script: str, label: str) -> str:
@@ -555,6 +585,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         "session-edge",
         "execution-edge",
         "finam-instruments",
+        "strategy-generator",
     }:
         active_section = ""
     rows = _rows()
@@ -566,6 +597,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     quality_rows, quality_summary = _data_quality_gate()
     commodity_factors, commodity_relations = _commodity_factors()
     funnel_stages, funnel_reasons, funnel_comparable = _signal_funnel()
+    strategy_families, strategy_generator_summary = _strategy_generator()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -695,6 +727,12 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         and int(funnel_stages[1]["stage_count"]) == 0
         and funnel_stages[1].get("evidence_json", {}).get("zero_is_expected_while_live_blocked")
     )
+    strategy_family_cards = "".join(
+        f"""<article><span>P{row['priority']} · {html.escape(row['name_ru'])}</span>
+        <b>{html.escape(row['engine_code'].replace('_', ' '))}</b>
+        <small>{len(row['parameter_schema'])} параметра · {len(row['allowed_regimes'])} режима · OOS обязательно</small></article>"""
+        for row in strategy_families
+    )
     section_nav = "".join(
         (
             _section_link("data-quality-gate", "Качество", f"{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}", active_section),
@@ -703,6 +741,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
             _section_link("relationship-factory", "Фабрика связей", relationship_summary.get("trials", 0), active_section),
             _section_link("session-edge", "Сессии", session_summary.get("trials", 0), active_section),
             _section_link("execution-edge", "Исполнение", execution_summary.get("trials", 0), active_section),
+            _section_link("strategy-generator", "Генератор", strategy_generator_summary.get("candidates", 0), active_section),
         )
     )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -732,7 +771,9 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <form method="post" action="/workspace-v2/control-center/edge-oos/signal-funnel">
           <button class="secondary" type="submit">Обновить воронку</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/finam-instruments">
-          <button type="submit">Найти инструменты Finam</button></form></div></header>
+          <button type="submit">Найти инструменты Finam</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/strategy-generator">
+          <button type="submit">Генератор стратегий</button></form></div></header>
         <section class="mc-action-status" data-action-status data-state="RUNNING" hidden aria-live="polite">
           <div class="mc-action-status-head"><strong data-action-status-text>Выполняется</strong><span data-action-progress-pct>0%</span></div>
           <div class="mc-action-progress" role="progressbar" aria-label="Ход выполнения"><span data-action-progress-fill></span></div>
@@ -795,6 +836,11 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <p>{'Связанная когорта до границы Research → Execution; LIVE-заявки учитываются только после допуска' if funnel_comparable else 'Источники невозможно связать в единую когорту'}</p></div><span class="mc-oos-badge {'fail' if live_boundary_blocked or not funnel_comparable else 'pass'}">{'LIVE ЗАБЛОКИРОВАН' if live_boundary_blocked else ('СОПОСТАВИМО' if funnel_comparable else 'НЕТ СВЯЗНОСТИ')}</span></div>
           <div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div>
           <details class="mc-table-spoiler"><summary>Диагностические события и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Варианты причин</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div><p>Диагностические события собраны из журналов системы и не считаются потерями между этапами воронки.</p></details></section>
+        <section id="strategy-generator" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">HYPOTHESIS PARAMETER SPACE V2</p><h2>Генератор стратегий</h2>
+          <p>{strategy_generator_summary.get('families', 0)} семейств · {strategy_generator_summary.get('candidates', 0)} комбинаций · лимит {strategy_generator_summary.get('trial_limit', 5000)} испытаний</p></div>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/strategy-generator"><button type="submit">Сформировать пространство</button></form></div>
+          <div class="mc-oos-kpis mc-commodity-kpis">{strategy_family_cards}</div>
+          <div class="mc-edge-panel-footer"><span>Риск переобучения: {html.escape(str(strategy_generator_summary.get('risk', 'CONTROLLED')))}</span><span>OOS и поправка множественных испытаний обязательны · LIVE заблокирован</span></div></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
           <p>{relationship_summary.get('relationships', 0)} связей · {relationship_summary.get('trials', 0)} испытаний · PASS {relationship_summary.get('passed', 0)} · FAIL {relationship_summary.get('failed', 0)} · нет данных {relationship_summary.get('unverified', 0)}</p></div>
           <div class="mc-edge-filters"><label>Приоритет <select data-factory-filter="priority"><option value="ALL">Все</option><option value="1">P1 · Индекс и сектор</option><option value="2">P2 · Многофакторные</option><option value="3">P3 · Overnight</option><option value="4">P4 · Ликвидность</option><option value="5">P5 · Пары</option></select></label>
