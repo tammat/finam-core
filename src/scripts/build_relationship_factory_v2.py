@@ -68,7 +68,7 @@ def session_code(ts: Any, timezone: str) -> str:
 
 def load_prices(cur, symbol: str, timeframe: str) -> dict[Any, float]:
     if symbol == "BR_ROLLING@RTSX":
-        cur.execute("SELECT ts,close FROM public.market_bars_br_m5_rolling_v1 WHERE close>0 ORDER BY ts")
+        cur.execute("SELECT ts,close FROM public.market_bars_br_m5_rolling_v2 WHERE close>0 ORDER BY ts")
     else:
         cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close>0 ORDER BY ts", (symbol, timeframe))
     return {row["ts"]: float(row["close"]) for row in cur.fetchall()}
