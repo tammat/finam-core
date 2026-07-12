@@ -10,11 +10,13 @@ from psycopg.rows import dict_row
 
 INDEX_ALIASES = {
     "IMOEX": ["IMOEX", "IMOEX@MISX", "MOEX"],
+    "IMOEX2": ["IMOEX2", "IMOEX2@MISX"],
     "RTSI": ["RTSI", "RTSI@MISX"],
 }
 
 SEARCH_TERMS = [
     "IMOEX",
+    "IMOEX2",
     "RTSI",
     "index",
     "indices",

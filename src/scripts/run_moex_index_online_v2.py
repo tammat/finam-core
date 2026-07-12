@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import argparse
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -50,6 +51,9 @@ def resample_closed_m5(cur, symbol: str, date_from: str, now: datetime) -> int:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--days", type=int, default=0, help="Force historical M1 fetch and M5 rebuild for N calendar days")
+    args = parser.parse_args()
     now = datetime.now(MOSCOW)
     result: list[dict[str, Any]] = []
     total_saved = 0
@@ -63,7 +67,10 @@ def main() -> None:
             for symbol in TARGETS:
                 cur.execute("SELECT max(ts) AS latest FROM public.market_bars WHERE symbol=%s AND timeframe='M1'", (symbol,))
                 previous = cur.fetchone()["latest"]
-                date_from = ((previous or now - timedelta(days=30)).date() - timedelta(days=1)).isoformat()
+                if args.days > 0:
+                    date_from = (now.date() - timedelta(days=args.days)).isoformat()
+                else:
+                    date_from = ((previous or now - timedelta(days=30)).date() - timedelta(days=1)).isoformat()
                 candles = fetch_moex_index_candles(symbol, 1, date_from, now.date().isoformat())
                 complete = [candle for candle in candles if closed_candle(candle, now)]
                 m1_saved = sum(insert_market_bar(cur, columns, symbol, "M1", candle, SOURCE_VERSION) for candle in complete)
