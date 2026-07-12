@@ -78,6 +78,20 @@ RELATIONSHIP_FAMILY_NAMES_RU = {
     "PAIR_SPREAD": "Парный спред",
 }
 
+COMMODITY_NAMES_RU = {"BR_ROLLING@RTSX": "Brent", "NG_ROLLING@RTSX": "Природный газ"}
+COMMODITY_TIMERS = {"BR_ROLLING@RTSX": "finam-moex-brent-online.timer", "NG_ROLLING@RTSX": "finam-moex-natural-gas-online.timer"}
+
+FUNNEL_ACTIONS_RU = {
+    "DATA": "Восстановить историю, свежесть и пройти Data Quality Gate",
+    "EDGE": "Оставить в Research, расширить гипотезу и повторить OOS",
+    "MARKET": "Ограничить допустимые режимы и торговые сессии",
+    "RISK": "Снизить размер, концентрацию или факторную экспозицию",
+    "EXECUTION": "Проверить broker/order/fill reconciliation и маршрутизацию",
+    "BLOCK": "Открыть governance gate и устранить конкретную блокировку",
+    "PASS": "Наблюдать стабильность, не менять правила без нового OOS",
+    "OTHER": "Провести аудит lineage и классифицировать причину",
+}
+
 
 def _strategy_name_ru(family: object, code: object = "") -> str:
     family_key = str(family or "").upper()
@@ -304,6 +318,59 @@ def _data_quality_gate() -> tuple[list[dict], dict]:
             return rows, dict(cur.fetchone() or {})
 
 
+def _commodity_factors() -> tuple[list[dict], list[dict]]:
+    factors: list[dict] = []
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            for symbol in COMMODITY_NAMES_RU:
+                cur.execute("""SELECT symbol,bars,trading_days,last_ts,latest_age_hours,regime_coverage_ratio,
+                           market_data_status,factory_status,reason_codes
+                    FROM analytics.relationship_data_quality_gate_v1 WHERE symbol=%s
+                    ORDER BY created_at DESC LIMIT 1""", (symbol,))
+                row = dict(cur.fetchone() or {"symbol": symbol, "bars": 0, "trading_days": 0,
+                    "regime_coverage_ratio": 0, "market_data_status": "BLOCKED", "factory_status": "BLOCKED", "reason_codes": ["NO_DATA"]})
+                timer = subprocess.run(["systemctl", "is-active", COMMODITY_TIMERS[symbol]], capture_output=True, text=True, check=False)
+                row["timer_status"] = timer.stdout.strip() or "inactive"
+                factors.append(row)
+            cur.execute("SELECT discovery_run_id FROM analytics.relationship_factory_result_v2 ORDER BY created_at DESC LIMIT 1")
+            latest = cur.fetchone()
+            relations: list[dict] = []
+            if latest:
+                cur.execute("""SELECT relationship_code,target_symbol,oos_trades,oos_profit_factor,oos_expectancy_bps,
+                           adjusted_p_value,trust_status,verdict_code,reason_code
+                    FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=%s
+                      AND (relationship_code LIKE 'BRENT%%' OR relationship_code LIKE 'GAS%%')
+                    ORDER BY CASE verdict_code WHEN 'OOS_PASS' THEN 1 WHEN 'OOS_FAIL' THEN 2 ELSE 3 END,
+                             adjusted_p_value,oos_trades DESC LIMIT 40""", (latest["discovery_run_id"],))
+                relations = [dict(row) for row in cur.fetchall()]
+    return factors, relations
+
+
+def _signal_funnel() -> tuple[list[dict], list[dict], bool]:
+    with psycopg2.connect(DB) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT signal_funnel_snapshot_id FROM analytics.signal_funnel_snapshot_v1 ORDER BY created_at DESC LIMIT 1")
+            latest = cur.fetchone()
+            stages: list[dict] = []
+            comparable = True
+            if latest:
+                cur.execute("""SELECT stage_order,stage_code,stage_name,stage_count,previous_stage_count,
+                           pass_rate_pct,stage_status,evidence_json
+                    FROM analytics.signal_funnel_stage_v1 WHERE signal_funnel_snapshot_id=%s ORDER BY stage_order""",
+                    (latest["signal_funnel_snapshot_id"],))
+                stages = [dict(row) for row in cur.fetchall()]
+                comparable = all(row["previous_stage_count"] is None or row["stage_count"] <= row["previous_stage_count"] for row in stages)
+            cur.execute("SELECT signal_funnel_reason_snapshot_id FROM analytics.signal_funnel_reason_snapshot_v1 ORDER BY created_at DESC LIMIT 1")
+            reason_latest = cur.fetchone()
+            reasons: list[dict] = []
+            if reason_latest:
+                cur.execute("""SELECT reason_group,sum(rows_total) AS rows_total,count(*) AS reason_values
+                    FROM analytics.signal_funnel_reason_v1 WHERE signal_funnel_reason_snapshot_id=%s
+                    GROUP BY reason_group ORDER BY sum(rows_total) DESC""", (reason_latest["signal_funnel_reason_snapshot_id"],))
+                reasons = [dict(row) for row in cur.fetchall()]
+    return stages, reasons, comparable
+
+
 def run_oos_action_v1() -> str:
     env = dict(os.environ)
     env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
@@ -362,6 +429,16 @@ def run_relationship_pipeline_action_v2() -> str:
     return f"{verdict}. Код: {result.returncode}"
 
 
+def run_signal_funnel_action_v1() -> str:
+    env = dict(os.environ)
+    env.update({"DATABASE_URL": DB, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
+    for script in ("src/scripts/signal_funnel_analytics_v1.py", "src/scripts/signal_funnel_reason_analytics_v1.py"):
+        result = subprocess.run([str(PYTHON), script], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60, check=False)
+        if result.returncode:
+            return f"Ошибка обновления воронки. Код: {result.returncode}"
+    return "Воронка сигналов и причины потерь обновлены"
+
+
 def render_edge_oos_control_center_v1(notice: str = "") -> str:
     rows = _rows()
     hypotheses, hypothesis_summary = _hypotheses()
@@ -370,6 +447,8 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
     execution_rows, execution_summary = _execution_edges()
     relationship_rows, relationship_summary = _relationship_factory()
     quality_rows, quality_summary = _data_quality_gate()
+    commodity_factors, commodity_relations = _commodity_factors()
+    funnel_stages, funnel_reasons, funnel_comparable = _signal_funnel()
     passed = sum(1 for row in rows if row["verdict_code"] == "OOS_PASS")
     failed = len(rows) - passed
     oos_bars = 0
@@ -460,6 +539,30 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
         <td>{html.escape(', '.join(row['reason_codes']) if isinstance(row['reason_codes'], list) else str(row['reason_codes'])) or '—'}</td></tr>"""
         for row in quality_rows
     )
+    commodity_cards = "".join(
+        f"""<article><span>{html.escape(COMMODITY_NAMES_RU.get(row['symbol'], row['symbol']))} · {html.escape(str(row['timer_status']).upper())}</span>
+        <b class="{'is-positive' if row['market_data_status'] == 'READY' else 'is-negative'}">{row['market_data_status']}</b>
+        <small>{row['bars']} M5 · {row['trading_days']} дней · режимы {float(row['regime_coverage_ratio'] or 0) * 100:.0f}% · Factory {row['factory_status']}</small></article>"""
+        for row in commodity_factors
+    )
+    commodity_relation_rows = "".join(
+        f"""<tr><td><strong>{html.escape(row['relationship_code'].replace('_', ' '))}</strong></td><td>{html.escape(row['target_symbol'])}</td>
+        <td>{row['oos_trades']}</td><td>{float(row['oos_profit_factor']):.2f}</td>
+        <td class="{'is-positive' if row['oos_expectancy_bps'] > 0 else 'is-negative'}">{float(row['oos_expectancy_bps']):.2f}</td>
+        <td>{float(row['adjusted_p_value']):.3f}</td><td>{'Проверено' if row['trust_status'] == 'VERIFIED' else 'Нет данных'}</td>
+        <td><span class="mc-oos-badge {'pass' if row['verdict_code'] == 'OOS_PASS' else 'fail'}">{'НЕТ ДАННЫХ' if row['verdict_code'] == 'UNVERIFIED' else row['verdict_code'].removeprefix('OOS_')}</span></td></tr>"""
+        for row in commodity_relations
+    )
+    funnel_cards = "".join(
+        f"""<article><span>{html.escape(row['stage_name'])}</span><b>{int(row['stage_count'])}</b>
+        <small>{'Источник несопоставим' if row['previous_stage_count'] is not None and row['stage_count'] > row['previous_stage_count'] else ('Конверсия ' + str(row['pass_rate_pct']) + '%' if row['pass_rate_pct'] is not None else 'Начальная стадия')}</small></article>"""
+        for row in funnel_stages
+    )
+    funnel_reason_rows = "".join(
+        f"""<tr><td><strong>{html.escape(row['reason_group'])}</strong></td><td>{int(row['rows_total'])}</td><td>{int(row['reason_values'])}</td>
+        <td>{html.escape(FUNNEL_ACTIONS_RU.get(row['reason_group'], FUNNEL_ACTIONS_RU['OTHER']))}</td></tr>"""
+        for row in funnel_reasons
+    )
     return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MarketCore — Edge OOS Control Center</title>
@@ -481,7 +584,9 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <form method="post" action="/workspace-v2/control-center/edge-oos/relationship-factory">
           <button type="submit">Factory V2</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/relationship-pipeline">
-          <button type="submit">Проверить всю цепочку</button></form></div></header>{notice_html}
+          <button type="submit">Проверить всю цепочку</button></form>
+          <form method="post" action="/workspace-v2/control-center/edge-oos/signal-funnel">
+          <button class="secondary" type="submit">Обновить воронку</button></form></div></header>{notice_html}
         <section class="mc-oos-kpis"><article><span>Параметров</span><b>{len(rows)}</b></article>
           <article><span>OOS PASS</span><b class="is-positive">{passed}</b></article>
           <article><span>OOS FAIL</span><b class="is-negative">{failed}</b></article>
@@ -509,6 +614,13 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <p>{quality_summary.get('symbols', 0)} источников · рынок готов {quality_summary.get('market_ready', 0)} · Factory готова {quality_summary.get('factory_ready', 0)} · заблокировано {quality_summary.get('blocked', 0)}</p></div></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(quality_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Инструмент</th><th>TF</th><th>Бары</th><th>Дни</th><th>Последний бар</th><th>Возраст</th><th>Дубли</th><th>Ошибки OHLC</th><th>Режимы</th><th>Market</th><th>Factory</th><th>Причины</th></tr></thead><tbody>{quality_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span>Календарные разрывы: UNVERIFIED</span><span>Factory запускается только после MARKET READY и покрытия режимами</span></div></section>
+        <section id="commodity-factors" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar"><div><p class="mc-edge-eyebrow">COMMODITY FACTORS</p><h2>Сырьевые факторы</h2><p>Brent и природный газ · online ingestion · P2-связи с экспортёрами</p></div></div>
+          <div class="mc-oos-kpis mc-commodity-kpis">{commodity_cards}</div>
+          <details class="mc-table-spoiler"><summary>Показать сырьевые P2-связи <span>{len(commodity_relations)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Связь</th><th>Цель</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>p скорр.</th><th>Доверие</th><th>Вердикт</th></tr></thead><tbody>{commodity_relation_rows}</tbody></table></div></details></section>
+        <section id="signal-funnel" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar"><div><p class="mc-edge-eyebrow">SIGNAL FUNNEL</p><h2>Воронка сигналов</h2>
+          <p>{'Стадии сопоставимы' if funnel_comparable else 'NON-COMPARABLE · источники имеют разные lineage и периоды'}</p></div><span class="mc-oos-badge {'pass' if funnel_comparable else 'fail'}">{'VERIFIED' if funnel_comparable else 'ТРЕБУЕТ LINEAGE'}</span></div>
+          <div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div>
+          <details class="mc-table-spoiler"><summary>Причины потерь и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Причины</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div></details></section>
         <section id="relationship-factory" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">RELATIONSHIP FACTORY V2</p><h2>Фабрика связей</h2>
           <p>{relationship_summary.get('relationships', 0)} связей · {relationship_summary.get('trials', 0)} испытаний · PASS {relationship_summary.get('passed', 0)} · FAIL {relationship_summary.get('failed', 0)} · нет данных {relationship_summary.get('unverified', 0)}</p></div>
           <div class="mc-edge-filters"><label>Приоритет <select data-factory-filter="priority"><option value="ALL">Все</option><option value="1">P1 · Индекс и сектор</option><option value="2">P2 · Многофакторные</option><option value="3">P3 · Overnight</option><option value="4">P4 · Ликвидность</option><option value="5">P5 · Пары</option></select></label>
@@ -517,7 +629,7 @@ def render_edge_oos_control_center_v1(notice: str = "") -> str:
           <label>Сессия <select data-factory-filter="session"><option value="ALL">Все</option>{''.join(f'<option value="{code}">{name}</option>' for code, name in SESSION_NAMES_RU.items())}</select></label></div></div>
           <details class="mc-table-spoiler"><summary>Показать таблицу <span>{len(relationship_rows)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Приоритет</th><th>Семейство</th><th>Источник</th><th>Цель</th><th>Режим</th><th>Сессия</th><th>Импульс → лаг</th><th>Бары</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>Периоды</th><th>p скорр.</th><th>Покрытие</th><th>Вердикт</th></tr></thead><tbody>{relationship_table_rows}</tbody></table></div></details>
           <div class="mc-edge-panel-footer"><span data-factory-count>Показано: {len(relationship_rows)}</span><span>Production заблокирован до OOS PASS и Trust Gate</span></div></section>
-        <nav class="mc-edge-section-nav" aria-label="Исследования Edge"><a href="#data-quality-gate">Качество <b>{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}</b></a><a href="#relationship-factory">Фабрика связей <b>{relationship_summary.get('trials', 0)}</b></a><a href="#session-edge">Сессии <b>{session_summary.get('trials', 0)}</b></a><a href="#execution-edge">Исполнение <b>{execution_summary.get('trials', 0)}</b></a></nav>
+        <nav class="mc-edge-section-nav" aria-label="Исследования Edge"><a href="#data-quality-gate">Качество <b>{quality_summary.get('factory_ready', 0)}/{quality_summary.get('symbols', 0)}</b></a><a href="#commodity-factors">Сырьё <b>{len(commodity_relations)}</b></a><a href="#signal-funnel">Воронка <b>{len(funnel_stages)}</b></a><a href="#relationship-factory">Фабрика связей <b>{relationship_summary.get('trials', 0)}</b></a><a href="#session-edge">Сессии <b>{session_summary.get('trials', 0)}</b></a><a href="#execution-edge">Исполнение <b>{execution_summary.get('trials', 0)}</b></a></nav>
         <section id="session-edge" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">STRATEGY × REGIME × SESSION</p><h2>Сессии</h2>
           <p>{session_summary.get('trials', 0)} испытаний · PASS {session_summary.get('passed', 0)} · FAIL {session_summary.get('failed', 0)} · нет данных {session_summary.get('unverified', 0)}</p></div>
           <div class="mc-edge-filters"><label>Стратегия <select data-session-filter="strategy"><option value="ALL">Все</option><option value="MOMENTUM">Импульс</option><option value="MEAN_REVERSION">Возврат к среднему</option><option value="BREAKOUT">Пробой</option></select></label>
