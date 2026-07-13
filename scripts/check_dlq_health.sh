@@ -2,11 +2,12 @@
 set -euo pipefail
 
 export DATABASE_URL="${DATABASE_URL:-postgresql://finam:finam@localhost:5432/finam_core}"
+export PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 # warn | fail
 MODE="${1:-warn}"
 
-python - <<PY
+"${PYTHON_BIN}" - <<PY
 import os
 import sys
 import psycopg2

@@ -15,7 +15,7 @@ REQUIRED_TIMERS = [
 ]
 
 REQUIRED_SERVICES = [
-    "finam-multi-asset-breakout-dashboard.service",
+    "finam-marketcore-dashboard.service",
 ]
 
 

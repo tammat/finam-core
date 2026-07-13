@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import uuid
+from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
@@ -11,21 +11,20 @@ import psycopg2.extras
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "SWING_SHADOW_EXPERIMENT_GUARD_V1"
 NAMESPACE = uuid.UUID("5b16d86d-1536-480f-ab3d-d757d6bbf9e6")
-CRITERIA = {
-    "cohort_size": 12,
-    "selection_rule": "TOP_1_PER_TIMEFRAME_X_FAMILY_PRE_FINAL_OOS",
-    "minimum_closed_per_timeframe": 30,
-    "minimum_trading_sessions": 10,
-    "minimum_net_profit_factor": 1.0,
-    "minimum_net_expectancy": 0.0,
-    "fixed_vs_atr_trailing_required": True,
-    "atr_lookback": 14,
-    "atr_multiplier": 2.5,
-    "final_oos_must_remain_sealed": True,
-    "automatic_promotion": False,
-    "paper_allowed": False,
-    "live_allowed": False,
-}
+ROOT = Path(__file__).resolve().parents[2]
+POLICY_PATH = Path(
+    os.getenv(
+        "SWING_FORWARD_SHADOW_POLICY_CONFIG",
+        ROOT / "config/research/swing_forward_shadow_policy_v1.json",
+    )
+)
+
+
+def load_policy() -> dict:
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("policy_version") != "SWING_FORWARD_SHADOW_POLICY_V1":
+        raise RuntimeError("SWING_FORWARD_SHADOW_POLICY_VERSION_INVALID")
+    return policy
 
 DDL = """
 CREATE TABLE IF NOT EXISTS analytics.swing_shadow_cohort_v1 (
@@ -75,6 +74,7 @@ CREATE TABLE IF NOT EXISTS analytics.swing_shadow_guard_check_v1 (
 
 
 def main() -> int:
+    criteria = load_policy()
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(DDL)
@@ -103,7 +103,7 @@ def main() -> int:
                     SELECT * FROM ranked WHERE rank=1 ORDER BY timeframe,strategy_family
                 """, (run["validation_run_id"],))
                 selected = cur.fetchall()
-                if len(selected) != CRITERIA["cohort_size"]:
+                if len(selected) != criteria["cohort_size"]:
                     raise RuntimeError(f"SWING_SHADOW_COHORT_SIZE_INVALID:{len(selected)}")
                 for row in selected:
                     candidate_id = uuid.uuid5(NAMESPACE, f"{cohort_id}:{row['hypothesis_id']}")
@@ -119,7 +119,7 @@ def main() -> int:
                           str(row["hypothesis_id"]),row["strategy_family"],row["symbol"],row["timeframe"],
                           json.dumps(row["parameter_json"]),row["selection_pf"],row["validation_pf"],
                           row["validation_expectancy"],row["validation_folds_passed"],row["adjusted_p_value"],
-                          row["validation_status"],json.dumps(CRITERIA),SOURCE_VERSION))
+                          row["validation_status"],json.dumps(criteria),SOURCE_VERSION))
 
             cur.execute("""SELECT count(*) candidates,count(*) FILTER(WHERE validation_status='VALIDATION_PASS') validation_passed,
                        count(*) FILTER(WHERE final_oos_opened) final_oos_opened,
@@ -136,7 +136,7 @@ def main() -> int:
                 cur.execute("SELECT count(*) observations FROM analytics.swing_shadow_observation_v1 WHERE swing_shadow_cohort_id=%s", (str(cohort_id),))
                 observations = int(cur.fetchone()["observations"])
             reasons = []
-            if int(cohort["candidates"]) != CRITERIA["cohort_size"]: reasons.append("COHORT_SIZE_INVALID")
+            if int(cohort["candidates"]) != criteria["cohort_size"]: reasons.append("COHORT_SIZE_INVALID")
             if int(cohort["final_oos_opened"]): reasons.append("FINAL_OOS_OPENED")
             if int(cohort["unsafe"]): reasons.append("UNSAFE_FLAGS")
             if int(quality["ready"]) != int(quality["total"]): reasons.append("DATA_QUALITY_NOT_READY")

@@ -4,15 +4,27 @@ import json
 import os
 import statistics
 import uuid
+from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "SWING_FORWARD_SHADOW_ROUTER_V1"
-ATR_LOOKBACK = 14
-ATR_MULTIPLIER = 2.5
-COMMISSION_BPS = 8.0
+ROOT = Path(__file__).resolve().parents[2]
+POLICY_PATH = Path(
+    os.getenv(
+        "SWING_FORWARD_SHADOW_POLICY_CONFIG",
+        ROOT / "config/research/swing_forward_shadow_policy_v1.json",
+    )
+)
+
+
+def load_policy() -> dict:
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("policy_version") != "SWING_FORWARD_SHADOW_POLICY_V1":
+        raise RuntimeError("SWING_FORWARD_SHADOW_POLICY_VERSION_INVALID")
+    return policy
 
 DDL = """
 CREATE TABLE IF NOT EXISTS analytics.swing_shadow_observation_v1 (
@@ -65,11 +77,11 @@ CREATE TABLE IF NOT EXISTS analytics.swing_shadow_worker_state_v1 (
 """
 
 
-def atr(bars: list[dict]) -> float | None:
-    if len(bars) < ATR_LOOKBACK + 1:
+def atr(bars: list[dict], lookback: int) -> float | None:
+    if len(bars) < lookback + 1:
         return None
     values = []
-    for previous, current in zip(bars[-ATR_LOOKBACK - 1:-1], bars[-ATR_LOOKBACK:]):
+    for previous, current in zip(bars[-lookback - 1:-1], bars[-lookback:]):
         high, low, previous_close = float(current["high"]), float(current["low"]), float(previous["close"])
         values.append(max(high-low,abs(high-previous_close),abs(low-previous_close)))
     return statistics.fmean(values)
@@ -107,6 +119,10 @@ def side_for(candidate: dict, target: list[dict], benchmark: list[dict] | None) 
 
 
 def main() -> int:
+    policy = load_policy()
+    atr_lookback = int(policy["atr_lookback"])
+    atr_multiplier = float(policy["atr_multiplier"])
+    commission_bps = float(policy["commission_bps"])
     created = entered = closed = trailing_closed = unavailable = 0
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -129,10 +145,10 @@ def main() -> int:
                     if later:
                         entry_bar = later[0]
                         history = [bar for bar in bars if bar["ts"] <= entry_bar["ts"]]
-                        atr_value = atr(history)
+                        atr_value = atr(history, atr_lookback)
                         if atr_value:
                             entry_price = float(entry_bar["open"])
-                            stop = entry_price - ATR_MULTIPLIER*atr_value if observation["side"] == "LONG" else entry_price + ATR_MULTIPLIER*atr_value
+                            stop = entry_price - atr_multiplier*atr_value if observation["side"] == "LONG" else entry_price + atr_multiplier*atr_value
                             cur.execute("UPDATE analytics.swing_shadow_observation_v1 SET entry_ts=%s,entry_price=%s,atr_value=%s,trailing_stop=%s,observation_status='OPEN',updated_at=now() WHERE observation_id=%s", (entry_bar["ts"],entry_price,atr_value,stop,observation["observation_id"]))
                             entered += 1
                             cur.execute("SELECT * FROM analytics.swing_shadow_observation_v1 WHERE observation_id=%s", (observation["observation_id"],))
@@ -150,11 +166,11 @@ def main() -> int:
                             elif observation["side"] == "SHORT" and float(bar["high"]) >= stop:
                                 trail_exit_ts, trail_exit_price = bar["ts"], max(float(bar["open"]),stop)
                             if trail_exit_ts is None:
-                                stop = max(stop,float(bar["high"])-ATR_MULTIPLIER*float(observation["atr_value"])) if observation["side"] == "LONG" else min(stop,float(bar["low"])+ATR_MULTIPLIER*float(observation["atr_value"]))
+                                stop = max(stop,float(bar["high"])-atr_multiplier*float(observation["atr_value"])) if observation["side"] == "LONG" else min(stop,float(bar["low"])+atr_multiplier*float(observation["atr_value"]))
                     if trail_exit_ts is not None and observation["trailing_exit_ts"] is None:
                         direction = 1 if observation["side"] == "LONG" else -1
                         gross = (float(trail_exit_price)-float(observation["entry_price"]))*direction
-                        commission = float(observation["entry_price"])*COMMISSION_BPS/10000
+                        commission = float(observation["entry_price"])*commission_bps/10000
                         cur.execute("UPDATE analytics.swing_shadow_observation_v1 SET trailing_stop=%s,trailing_exit_ts=%s,trailing_exit_price=%s,trailing_gross_pnl=%s,trailing_commission=%s,trailing_net_pnl=%s,trailing_exit_reason='ATR_TRAILING_STOP',updated_at=now() WHERE observation_id=%s", (stop,trail_exit_ts,trail_exit_price,gross,commission,gross-commission,observation["observation_id"]))
                         trailing_closed += 1
                     hold = int(observation["holding_bars"])
@@ -163,7 +179,7 @@ def main() -> int:
                         direction = 1 if observation["side"] == "LONG" else -1
                         exit_price = float(exit_bar["close"])
                         gross = (exit_price-float(observation["entry_price"]))*direction
-                        commission = float(observation["entry_price"])*COMMISSION_BPS/10000
+                        commission = float(observation["entry_price"])*commission_bps/10000
                         if trail_exit_ts is None:
                             trail_gross = gross
                             cur.execute("UPDATE analytics.swing_shadow_observation_v1 SET trailing_exit_ts=%s,trailing_exit_price=%s,trailing_gross_pnl=%s,trailing_commission=%s,trailing_net_pnl=%s,trailing_exit_reason='BASE_HORIZON' WHERE observation_id=%s", (exit_bar["ts"],exit_price,trail_gross,commission,trail_gross-commission,observation["observation_id"]))

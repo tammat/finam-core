@@ -13,6 +13,7 @@ cd /opt/finam-core
 
 set -a
 source .env.paper_safe
+source config/runtime/paper_safe_execution_policy_v1.env
 set +a
 
 exec env PYTHONPATH=src venv/bin/python -u src/scripts/run_market_pipeline.py \

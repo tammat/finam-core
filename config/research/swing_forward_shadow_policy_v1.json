@@ -1,0 +1,17 @@
+{
+  "policy_version": "SWING_FORWARD_SHADOW_POLICY_V1",
+  "cohort_size": 12,
+  "selection_rule": "TOP_1_PER_TIMEFRAME_X_FAMILY_PRE_FINAL_OOS",
+  "minimum_closed_per_timeframe": 30,
+  "minimum_trading_sessions": 10,
+  "minimum_net_profit_factor": 1.0,
+  "minimum_net_expectancy": 0.0,
+  "fixed_vs_atr_trailing_required": true,
+  "atr_lookback": 14,
+  "atr_multiplier": 2.5,
+  "commission_bps": 8.0,
+  "final_oos_must_remain_sealed": true,
+  "automatic_promotion": false,
+  "paper_allowed": false,
+  "live_allowed": false
+}

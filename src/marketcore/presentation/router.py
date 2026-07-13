@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
     load_ui_runtime_asset_v1,
@@ -59,6 +60,27 @@ EDGE_OOS_SECTION_ROUTES = {
     # Diagnostic actions also need a safe GET route: bookmarked operator links must not 404.
     "/workspace-v2/control-center/edge-oos/failure-diagnostics": "strategy-generator",
 }
+
+
+PageHandler = Callable[[], str]
+
+
+class ReadOnlyRouter:
+    """Compatibility router for the standalone read-only status UI."""
+
+    def __init__(self) -> None:
+        self._routes: list[tuple[str, PageHandler]] = []
+
+    def register(self, prefix: str, handler: PageHandler) -> None:
+        self._routes.append((prefix, handler))
+        self._routes.sort(key=lambda item: len(item[0]), reverse=True)
+
+    def resolve(self, path: str) -> PageHandler | None:
+        clean_path = path.split("?", 1)[0]
+        for prefix, handler in self._routes:
+            if clean_path.startswith(prefix):
+                return handler
+        return None
 
 
 def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, bytes]:

@@ -2,11 +2,12 @@
 set -euo pipefail
 
 export DATABASE_URL="${DATABASE_URL:-postgresql://finam:finam@localhost:5432/finam_core}"
+export PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 CHECKPOINT_NAME="${1:-projection_worker}"
 MAX_LAG="${2:-100}"
 
-python - <<PY
+"${PYTHON_BIN}" - <<PY
 import os
 import sys
 import psycopg2

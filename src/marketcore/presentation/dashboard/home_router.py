@@ -22,7 +22,10 @@ class ExecutiveOverviewPage(BaseDashboardPage):
     def render_body(self) -> str:
         vm = self.vm
 
-        from marketcore.presentation.widgets.executive_health.renderer import ExecutiveHealthWidget
+        try:
+            from marketcore.presentation.widgets.executive_health.renderer import ExecutiveHealthWidget
+        except ModuleNotFoundError:
+            return super().render_body()
         from marketcore.presentation.widgets.platform_status.renderer import PlatformStatusWidget
         from marketcore.presentation.widgets.market_summary.renderer import MarketSummaryWidget
         from marketcore.presentation.widgets.research_summary.renderer import ResearchSummaryWidget
