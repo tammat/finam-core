@@ -41,7 +41,12 @@
         "data-availability": "data-availability",
         "data-field": "data-field",
         activation_target: "data-activation-target",
-        tab_index: "tabindex"
+        tab_index: "tabindex",
+        progress_label: "data-progress-label",
+        progress_complete_label: "data-progress-complete-label",
+        confirmation_options: "data-confirmation-options",
+        confirmation_title: "data-confirmation-title",
+        confirmation_label: "data-confirmation-label"
     });
 
     class BrowserDomDriverErrorV1 extends Error {
@@ -152,6 +157,82 @@
         }
     }
 
+    function showInlineProgress(documentObject, sourceElement) {
+        const status = sourceElement.lastElementChild;
+        status.replaceChildren();
+        status.setAttribute("data-runtime-row-progress", "true");
+        status.setAttribute("aria-live", "polite");
+        const bar = documentObject.createElement("div");
+        bar.className = "mc-action-progress";
+        bar.setAttribute("role", "progressbar");
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", "100");
+        const fill = documentObject.createElement("span");
+        const percent = documentObject.createElement("span");
+        percent.setAttribute("data-runtime-row-progress-percent", "true");
+        bar.appendChild(fill);
+        status.append(bar, percent);
+        status.dataset.state = "RUNNING";
+        percent.textContent = "15%";
+        bar.setAttribute("aria-valuenow", "15");
+        fill.style.width = "15%";
+
+        globalObject.setTimeout(() => {
+            percent.textContent = "100%";
+            bar.setAttribute("aria-valuenow", "100");
+            fill.style.width = "100%";
+            status.dataset.state = "COMPLETE";
+        }, 300);
+    }
+
+    function showConfirmationDialog(documentObject, sourceElement) {
+        let options = [];
+        try { options = JSON.parse(sourceElement.dataset.confirmationOptions || "[]"); } catch (_) { options = []; }
+        if (!options.length) return;
+        const dialog = documentObject.createElement("dialog");
+        dialog.className = "mc-runtime-confirmation";
+        const title = documentObject.createElement("h3");
+        title.textContent = sourceElement.dataset.confirmationTitle || "Выберите вариант";
+        const select = documentObject.createElement("select");
+        options.forEach((item) => {
+            const option = documentObject.createElement("option");
+            option.value = String(item.value || item.label || "");
+            option.textContent = String(item.label || item.value || "");
+            option.disabled = item.enabled === false;
+            select.appendChild(option);
+        });
+        const confirm = documentObject.createElement("button");
+        confirm.type = "button";
+        confirm.textContent = sourceElement.dataset.confirmationLabel || "Подтвердить";
+        confirm.addEventListener("click", () => {
+            sourceElement.dataset.confirmedOption = select.value;
+            dialog.close();
+            dialog.remove();
+        });
+        const cancel = documentObject.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = "Отмена";
+        cancel.addEventListener("click", () => { dialog.close(); dialog.remove(); });
+        dialog.append(title, select, confirm, cancel);
+        documentObject.body.appendChild(dialog);
+        dialog.showModal();
+    }
+
+    function activateTableRow(documentObject, sourceElement, target, label, completeLabel) {
+        showInlineProgress(documentObject, sourceElement);
+        const destination = new URL(target, globalObject.location.href);
+        globalObject.setTimeout(() => {
+            globalObject.history.pushState({}, "", `${destination.pathname}${destination.search}${destination.hash}`);
+            if (destination.hash) {
+                const targetElement = documentObject.getElementById(destination.hash.slice(1));
+                if (targetElement) {
+                    targetElement.scrollIntoView({behavior: "smooth", block: "start"});
+                }
+            }
+            showConfirmationDialog(documentObject, sourceElement);
+        }, 320);
+    }
+
     class MarketCoreBrowserDomDriverV1 {
         constructor(options) {
             if (
@@ -241,12 +322,20 @@
 
             if (node.type === "table_row" && node.props?.activation_target) {
                 const activationTarget = String(node.props.activation_target);
-                const navigate = () => globalObject.location.assign(activationTarget);
-                element.addEventListener("dblclick", navigate);
+                const progressLabel = String(node.props.progress_label || "");
+                const progressCompleteLabel = String(node.props.progress_complete_label || progressLabel);
+                const activate = () => activateTableRow(
+                    this.documentObject,
+                    element,
+                    activationTarget,
+                    progressLabel,
+                    progressCompleteLabel
+                );
+                element.addEventListener("dblclick", activate);
                 element.addEventListener("keydown", (event) => {
                     if (event.key === "Enter") {
                         event.preventDefault();
-                        navigate();
+                        activate();
                     }
                 });
             }

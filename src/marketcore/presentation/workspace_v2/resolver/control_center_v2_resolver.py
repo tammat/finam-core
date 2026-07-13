@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+from pathlib import Path
 from typing import Any
 
 import psycopg2
@@ -18,6 +20,15 @@ class ControlCenterV2Resolver:
                 relationships, summary = self._relationships(cur)
                 forward = self._forward(cur)
                 execution = self._execution(cur)
+                execution_quality = self._execution_quality(cur)
+                execution_variants = self._execution_variants(cur)
+                volatility_analysis = self._volatility_analysis(cur)
+                risk_analysis = self._risk_analysis(cur)
+                entry_analysis = self._entry_analysis(cur)
+                market_prerequisites = self._market_prerequisites(cur)
+                exit_analysis = self._exit_analysis(cur)
+                block_analysis = self._block_analysis(cur)
+                shadow_requirements = self._shadow_requirements(cur)
                 funnel_stages, loss_reasons, funnel_comparable = self._signal_funnel(cur)
                 shadow = self._shadow(cur)
 
@@ -27,6 +38,15 @@ class ControlCenterV2Resolver:
             "relationship_summary": summary,
             "forward": forward,
             "execution": execution,
+            "execution_quality": execution_quality,
+            "execution_variants": execution_variants,
+            "volatility_analysis": volatility_analysis,
+            "risk_analysis": risk_analysis,
+            "entry_analysis": entry_analysis,
+            "market_prerequisites": market_prerequisites,
+            "exit_analysis": exit_analysis,
+            "block_analysis": block_analysis,
+            "shadow_requirements": shadow_requirements,
             "funnel_stages": funnel_stages,
             "loss_reasons": loss_reasons,
             "funnel_comparable": funnel_comparable,
@@ -109,6 +129,166 @@ class ControlCenterV2Resolver:
             )
         """)
         return dict(cur.fetchone() or {"trials": 0, "quote_verified": 0})
+
+    @staticmethod
+    def _execution_quality(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT 'PAPER' AS mode,
+                   count(*) AS fills,
+                   count(*) AS linked_fills,
+                   coalesce(sum(f.commission),0) AS commission,
+                   CASE WHEN count(*) > 0 THEN 100.0 ELSE 0 END AS linkage_pct,
+                   false AS quotes_verified
+            FROM public.signal_fills sf
+            LEFT JOIN public.fills f ON f.fill_id=sf.fill_id
+            WHERE sf.created_at >= date_trunc('day', now())
+            UNION ALL
+            SELECT 'SHADOW', count(*), count(*), coalesce(sum(commission),0),
+                   CASE WHEN count(*) > 0 THEN 100.0 ELSE 0 END,
+                   count(*) > 0 AND count(*) FILTER (
+                       WHERE spread_cost IS NOT NULL AND slippage IS NOT NULL
+                   ) = count(*)
+            FROM analytics.forward_edge_shadow_trade_v1
+            WHERE created_at >= date_trunc('day', now())
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _execution_variants(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT policy_code, parameter_json, oos_trades, folds_passed, folds_total,
+                   delta_profit_factor, delta_expectancy, market_data_quality,
+                   verdict_code, reason_code, promotion_allowed
+            FROM analytics.execution_edge_result_v1
+            WHERE discovery_run_id=(
+                SELECT discovery_run_id FROM analytics.execution_edge_result_v1
+                ORDER BY created_at DESC LIMIT 1
+            )
+            ORDER BY promotion_allowed DESC, adjusted_p_value,
+                     folds_passed DESC, delta_expectancy DESC
+            LIMIT 8
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _volatility_analysis(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT regime_group, count(*) AS trials,
+                   sum(oos_trades) AS oos_trades,
+                   round(avg(oos_profit_factor),3) AS profit_factor,
+                   round(avg(oos_expectancy_bps),3) AS expectancy_bps,
+                   count(*) FILTER (WHERE verdict_code='OOS_PASS') AS passed
+            FROM analytics.relationship_factory_result_v2
+            WHERE discovery_run_id=(
+                SELECT discovery_run_id FROM analytics.relationship_factory_result_v2
+                ORDER BY created_at DESC LIMIT 1
+            )
+            GROUP BY regime_group
+            ORDER BY passed DESC, expectancy_bps DESC NULLS LAST
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _risk_analysis(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            WITH active_contracts AS (
+                SELECT DISTINCT symbol FROM public.signal_fills
+                WHERE created_at >= date_trunc('day',now())
+            )
+            SELECT a.symbol,coalesce(r.strategy_family,'—') AS strategy_family,
+                   r.signal_ts,coalesce(r.risk_score,0) AS risk_score,
+                   coalesce(r.position_risk_score,0) AS position_risk_score,
+                   coalesce(r.exposure_risk_score,0) AS exposure_risk_score,
+                   coalesce(r.daily_loss_risk_score,0) AS daily_loss_risk_score,
+                   coalesce(r.correlation_risk_score,0) AS correlation_risk_score,
+                   coalesce(r.risk_decision_code,'NO_CURRENT_RISK_SNAPSHOT') AS risk_decision_code,
+                   coalesce(r.recommendation_code,'REBUILD_RISK_SNAPSHOT') AS recommendation_code,
+                   coalesce(r.ready_for_paper,false) AS ready_for_paper,r.refreshed_at
+            FROM active_contracts a
+            LEFT JOIN LATERAL (
+                SELECT * FROM analytics.risk_decision_snapshot_v1 d
+                WHERE d.symbol=a.symbol ORDER BY refreshed_at DESC LIMIT 1
+            ) r ON true
+            ORDER BY a.symbol
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _entry_analysis(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT strategy_code, symbol, timeframe, parameter_json,
+                   regime_code, session_code, oos_trades, oos_profit_factor,
+                   oos_expectancy, folds_passed, folds_total,
+                   verdict_code, reason_code, promotion_allowed
+            FROM analytics.execution_edge_result_v1
+            WHERE discovery_run_id=(
+                SELECT discovery_run_id FROM analytics.execution_edge_result_v1
+                ORDER BY created_at DESC LIMIT 1
+            )
+            ORDER BY promotion_allowed DESC, adjusted_p_value,
+                     folds_passed DESC, oos_expectancy DESC
+            LIMIT 12
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _market_prerequisites(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT symbol,timeframe,bars,trading_days,latest_age_hours,
+                   regime_coverage_ratio,market_data_status,factory_status,reason_codes
+            FROM analytics.relationship_data_quality_gate_v1
+            WHERE audit_run_id=(SELECT audit_run_id FROM analytics.relationship_data_quality_gate_v1 ORDER BY created_at DESC LIMIT 1)
+            ORDER BY factory_status DESC,latest_age_hours DESC,symbol
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _exit_analysis(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT policy_code,count(*) AS variants,
+                   count(*) FILTER (WHERE variant_status='CLOSED') AS closed,
+                   round(avg(extract(epoch FROM (exit_ts-entry_ts))/60) FILTER (WHERE exit_ts IS NOT NULL),1) AS avg_hold_minutes,
+                   coalesce(sum(net_pnl) FILTER (WHERE variant_status='CLOSED'),0) AS net_pnl,
+                   count(*) FILTER (WHERE exit_reason='TRAILING_STOP') AS trailing_exits,
+                   count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) AS unsafe
+            FROM analytics.forward_edge_shadow_exit_variant_v1
+            WHERE cohort_id=(SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1)
+            GROUP BY policy_code ORDER BY net_pnl DESC
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _block_analysis(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT reason_value,rows_total,source_table,reason_column,evidence_json
+            FROM analytics.signal_funnel_reason_v1
+            WHERE signal_funnel_reason_snapshot_id=(SELECT signal_funnel_reason_snapshot_id FROM analytics.signal_funnel_reason_snapshot_v1 ORDER BY created_at DESC LIMIT 1)
+              AND reason_group='BLOCK'
+            ORDER BY rows_total DESC LIMIT 20
+        """)
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _shadow_requirements(cur) -> list[dict[str, Any]]:
+        policy_path = Path("config/research/swing_forward_shadow_policy_v1.json")
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        cur.execute("""
+            SELECT timeframe,
+                   count(*) FILTER (WHERE shadow_status='CLOSED') AS closed,
+                   count(DISTINCT signal_ts::date) AS sessions
+            FROM analytics.forward_edge_shadow_trade_v1
+            WHERE cohort_id=(SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1)
+            GROUP BY timeframe ORDER BY timeframe
+        """)
+        result = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["minimum_closed"] = int(policy["minimum_closed_per_timeframe"])
+            item["minimum_sessions"] = int(policy["minimum_trading_sessions"])
+            item["missing_closed"] = max(0, item["minimum_closed"] - int(item.get("closed") or 0))
+            item["missing_sessions"] = max(0, item["minimum_sessions"] - int(item.get("sessions") or 0))
+            result.append(item)
+        return result
 
     @staticmethod
     def _signal_funnel(cur) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:

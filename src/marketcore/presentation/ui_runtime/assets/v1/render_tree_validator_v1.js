@@ -118,7 +118,7 @@
             allowsChildren: true
         },
         table_row: {
-            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field", "activation_target", "tab_index"],
+            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field", "activation_target", "tab_index", "progress_label", "progress_complete_label", "confirmation_options", "confirmation_title", "confirmation_label"],
             requiredProps: [],
             allowsText: false,
             allowsChildren: true

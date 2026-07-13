@@ -391,6 +391,28 @@ body {
     .mc-v2-card[data-card="DECISION"] { grid-column: 1 / -1; min-height: 0; }
 }
 
+/* Runtime platform mobile profile: large iPhone Pro Max class (up to 500 CSS px). */
+@media (max-width: 500px) {
+    .mc-v2-page { padding: 14px 12px 56px !important; }
+    .mc-v2-page > h1 { font-size: 1.35rem; line-height: 1.2; }
+    .mc-v2-section { margin-top: 22px; }
+    .mc-v2-section > h2 { font-size: 1rem; }
+    .mc-v2-section > .mc-oos-table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+    .mc-v2-page .mc-oos-table thead,
+    .mc-v2-page .mc-oos-table tbody { width: max-content; min-width: 720px; }
+    .mc-v2-page .mc-oos-table th { font-size: .72rem; padding: 10px 12px; }
+    .mc-v2-page .mc-oos-table td { font-size: .8rem; padding: 11px 12px; }
+    .mc-runtime-confirmation { width: calc(100vw - 24px); max-width: none; }
+    .mc-runtime-confirmation select,
+    .mc-runtime-confirmation button { min-height: 44px; font-size: 1rem; }
+}
+
 /* Operator traffic lights: each colour has a fixed meaning across every Edge branch. */
 .mc-traffic-overview{margin:24px 0 28px;padding:16px 18px;border:1px solid #1b4250;border-radius:16px;background:linear-gradient(145deg,#0c202a,#091821)}
 .mc-traffic-overview-title{display:flex;justify-content:space-between;gap:16px;align-items:baseline;margin-bottom:13px}.mc-traffic-overview-title p{margin:0;color:#62e4cf;font-size:.68rem;font-weight:850;letter-spacing:.14em}.mc-traffic-overview-title span{color:#829aa6;font-size:.72rem}

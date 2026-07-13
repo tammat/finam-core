@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from marketcore.presentation.render_tree.node_types import RenderNodeType
 from marketcore.presentation.render_tree.render_document import RenderDocument
 from marketcore.presentation.render_tree.render_node import RenderNode
@@ -35,11 +37,35 @@ def _resource_code(value: str) -> str:
     return value.strip().lower().replace(" ", "_")
 
 
+def _quality_reason_text(row: dict, i18n: UiI18nResolverV1) -> str:
+    codes = row.get("reason_codes") or []
+    return " · ".join(i18n.text(f"quality.reason.{_resource_code(str(code))}") for code in codes) or "—"
+
+
 def _theme_px(theme: ThemeModel, property_code: str) -> str:
     value = theme.get(property_code)
     if not value:
         raise RuntimeError(f"THEME_PROPERTY_NOT_FOUND:{property_code}")
     return f"{int(value)}px"
+
+
+def _recommendation_options(vm: ControlCenterV2ViewModel, code: str, i18n: UiI18nResolverV1) -> str:
+    if code == "VOLATILITY":
+        values = [{"value": str(row.get("regime_group") or "unknown"), "label": str(row.get("regime_group") or "unknown"), "enabled": int(row.get("passed") or 0) > 0} for row in vm.volatility_analysis]
+    elif code == "SETUP":
+        values = [{"value": str(row.get("policy_code") or row.get("strategy_code") or "observe"), "label": " · ".join(f"{key} {value}" for key, value in sorted((row.get("parameter_json") or {}).items())), "enabled": bool(row.get("promotion_allowed"))} for row in vm.entry_analysis]
+    elif code == "EXECUTION":
+        values = [{"value": str(row.get("mode") or "observe"), "label": f"{row.get('mode')}: {int(row.get('fills') or 0)}", "enabled": bool(row.get("quotes_verified"))} for row in vm.execution_quality]
+    elif code == "RISK":
+        values = [{"value": str(row.get("symbol") or "observe"), "label": f"{row.get('symbol')}: {row.get('risk_decision_code')}", "enabled": bool(row.get("ready_for_paper"))} for row in vm.risk_analysis]
+    else:
+        values = [{"value": "observe", "label": i18n.text("research.solution.collect_evidence"), "enabled": True}]
+    if not any(bool(item.get("enabled")) for item in values):
+        for row in vm.shadow_requirements:
+            values.append({"value": f"observe-{row.get('timeframe')}", "label": f"{row.get('timeframe')}: закрыто {int(row.get('closed') or 0)} из {int(row.get('minimum_closed') or 0)} — не хватает {int(row.get('missing_closed') or 0)}; сессий {int(row.get('sessions') or 0)} из {int(row.get('minimum_sessions') or 0)} — не хватает {int(row.get('missing_sessions') or 0)}", "enabled": True})
+        if len(values) == 0:
+            values.append({"value": "observe", "label": i18n.text("research.solution.collect_evidence"), "enabled": True})
+    return json.dumps(values, ensure_ascii=False)
 
 
 def _relationship_card(item: RelationshipCandidateV2) -> RenderNode:
@@ -223,6 +249,12 @@ def render_control_center_v2(
                         ),
                         "_activation_target": reason.action_target,
                         "_aria_label": i18n.text("research.recommendation.execute_aria").format(reason=reason.label),
+                        "_progress_label": i18n.text("research.recommendation.progress").format(reason=reason.label),
+                        "_progress_complete_label": i18n.text("research.recommendation.progress_complete"),
+                        "_confirmation_options": _recommendation_options(vm, reason.code, i18n),
+                        "_confirmation_title": i18n.text("research.recommendation.confirm_title"),
+                        "_confirmation_label": i18n.text("research.recommendation.confirm"),
+                        "_status": reason.status if reason.action_target else "BLOCKED",
                     }
                     for reason in vm.loss_reasons
                 ),
@@ -236,6 +268,147 @@ def render_control_center_v2(
     )
 
     summary = vm.relationship_summary
+    volatility_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "volatility-analysis", "data-section": "RESEARCH"},
+        children=(
+            _title(i18n.text("research.volatility.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.volatility.subtitle")),
+            data_table_node(
+                (
+                    DataTableColumn("regime", i18n.text("column.market_regime")),
+                    DataTableColumn("trials", i18n.text("column.trials")),
+                    DataTableColumn("trades", i18n.text("column.oos_research_trades")),
+                    DataTableColumn("pf", i18n.text("column.oos_profit_factor")),
+                    DataTableColumn("expectancy", i18n.text("column.expectancy_bps")),
+                    DataTableColumn("passed", i18n.text("column.passed")),
+                ),
+                tuple({
+                    "regime": i18n.text(f"market.regime.{_resource_code(str(row.get('regime_group') or 'unknown'))}"),
+                    "trials": int(row.get("trials") or 0), "trades": int(row.get("oos_trades") or 0),
+                    "pf": f"{float(row.get('profit_factor') or 0):.3f}",
+                    "expectancy": f"{float(row.get('expectancy_bps') or 0):.3f}",
+                    "passed": int(row.get("passed") or 0),
+                } for row in vm.volatility_analysis),
+            ),
+        ),
+    )
+
+    risk_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "risk-analysis", "data-section": "RISK"},
+        children=(
+            _title(i18n.text("research.risk.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.risk.subtitle")),
+            data_table_node(
+                (
+                    DataTableColumn("symbol", i18n.text("column.instrument")),
+                    DataTableColumn("strategy", i18n.text("column.strategy")),
+                    DataTableColumn("risk", i18n.text("column.risk_score")),
+                    DataTableColumn("position", i18n.text("column.position_risk")),
+                    DataTableColumn("exposure", i18n.text("column.exposure_risk")),
+                    DataTableColumn("decision", i18n.text("column.decision")),
+                    DataTableColumn("paper", i18n.text("column.paper_allowed")),
+                ),
+                tuple({
+                    "symbol": row.get("symbol") or "—", "strategy": row.get("strategy_family") or "—",
+                    "risk": f"{float(row.get('risk_score') or 0):.3f}",
+                    "position": f"{float(row.get('position_risk_score') or 0):.3f}",
+                    "exposure": f"{float(row.get('exposure_risk_score') or 0):.3f}",
+                    "decision": row.get("risk_decision_code") or "—",
+                    "paper": i18n.text("status.allowed" if row.get("ready_for_paper") else "status.blocked"),
+                } for row in vm.risk_analysis),
+            ),
+        ),
+    )
+
+    entry_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "entry-analysis", "data-section": "RESEARCH"},
+        children=(
+            _title(i18n.text("research.entry.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.entry.subtitle")),
+            data_table_node(
+                (
+                    DataTableColumn("strategy", i18n.text("column.strategy")),
+                    DataTableColumn("symbol", i18n.text("column.instrument")),
+                    DataTableColumn("parameters", i18n.text("column.parameters")),
+                    DataTableColumn("trades", i18n.text("column.oos_research_trades")),
+                    DataTableColumn("pf", i18n.text("column.oos_profit_factor")),
+                    DataTableColumn("folds", i18n.text("column.folds")),
+                    DataTableColumn("verdict", i18n.text("column.verdict")),
+                    DataTableColumn("solution", i18n.text("column.solution")),
+                ),
+                tuple({
+                    "strategy": row.get("strategy_code") or "—", "symbol": row.get("symbol") or "—",
+                    "parameters": " · ".join(f"{key} {value}" for key, value in sorted((row.get("parameter_json") or {}).items())),
+                    "trades": int(row.get("oos_trades") or 0), "pf": f"{float(row.get('oos_profit_factor') or 0):.3f}",
+                    "folds": f"{int(row.get('folds_passed') or 0)}/{int(row.get('folds_total') or 0)}",
+                    "verdict": row.get("verdict_code") or "—",
+                    "solution": i18n.text("research.solution.promote" if row.get("promotion_allowed") else "research.solution.collect_evidence"),
+                } for row in vm.entry_analysis),
+            ),
+        ),
+    )
+
+    execution_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "execution-quality", "data-section": "EXECUTION"},
+        children=(
+            _title(i18n.text("research.execution.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.execution.subtitle")),
+            data_table_node(
+                (
+                    DataTableColumn("mode", i18n.text("column.mode")), DataTableColumn("fills", i18n.text("column.fills")),
+                    DataTableColumn("linked", i18n.text("column.linked_fills")), DataTableColumn("coverage", i18n.text("column.coverage")),
+                    DataTableColumn("commission", i18n.text("column.commission")), DataTableColumn("quotes", i18n.text("column.quotes_quality")),
+                    DataTableColumn("solution", i18n.text("column.solution")),
+                ),
+                tuple({
+                    "mode": row.get("mode"), "fills": int(row.get("fills") or 0), "linked": int(row.get("linked_fills") or 0),
+                    "coverage": f"{float(row.get('linkage_pct') or 0):.1f}%", "commission": f"{float(row.get('commission') or 0):.4f}",
+                    "quotes": i18n.text("status.verified" if row.get("quotes_verified") else "status.not_verified"),
+                    "solution": i18n.text("research.solution.compare_costs" if row.get("quotes_verified") else "research.solution.connect_quotes"),
+                } for row in vm.execution_quality),
+            ),
+        ),
+    )
+
+    market_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "market-prerequisites", "data-section": "OBSERVATION"},
+        children=(
+            _title(i18n.text("research.market.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.market.subtitle")),
+            data_table_node(
+                (DataTableColumn("symbol", i18n.text("column.instrument")), DataTableColumn("timeframe", "TF"), DataTableColumn("bars", i18n.text("column.bars")), DataTableColumn("days", i18n.text("column.days")), DataTableColumn("age", i18n.text("column.age")), DataTableColumn("coverage", i18n.text("column.coverage")), DataTableColumn("status", i18n.text("column.status")), DataTableColumn("reason", i18n.text("column.loss_reason")), DataTableColumn("solution", i18n.text("column.solution"))),
+                tuple({"symbol": r.get("symbol"), "timeframe": r.get("timeframe"), "bars": r.get("bars"), "days": r.get("trading_days"), "age": f"{float(r.get('latest_age_hours') or 0):.1f} ч", "coverage": f"{float(r.get('regime_coverage_ratio') or 0)*100:.0f}%", "status": i18n.text("status.ready" if r.get("factory_status") == "READY" else "status.blocked"), "reason": _quality_reason_text(r, i18n), "solution": i18n.text("research.solution.use_ready" if r.get("factory_status") == "READY" else "research.solution.refresh_data"), "_status": "OK" if r.get("factory_status") == "READY" else "BLOCKED"} for r in vm.market_prerequisites),
+            ),
+        ),
+    )
+    exit_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "exit-analysis", "data-section": "RESEARCH"},
+        children=(
+            _title(i18n.text("research.exit.title"), 2), RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.exit.subtitle")),
+            data_table_node(
+                (DataTableColumn("policy", i18n.text("column.policy")), DataTableColumn("variants", i18n.text("column.trials")), DataTableColumn("closed", i18n.text("column.closed")), DataTableColumn("hold", i18n.text("column.hold_minutes")), DataTableColumn("pnl", i18n.text("column.net_pnl")), DataTableColumn("trailing", i18n.text("column.trailing_exits")), DataTableColumn("solution", i18n.text("column.solution"))),
+                tuple({"policy": r.get("policy_code"), "variants": r.get("variants"), "closed": r.get("closed"), "hold": f"{float(r.get('avg_hold_minutes') or 0):.1f}", "pnl": f"{float(r.get('net_pnl') or 0):.2f}", "trailing": r.get("trailing_exits"), "solution": i18n.text("research.solution.observe_exit" if int(r.get("closed") or 0) == 0 else "research.solution.compare_exit")} for r in vm.exit_analysis),
+            ),
+        ),
+    )
+    block_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "block-analysis", "data-section": "ALERTS"},
+        children=(
+            _title(i18n.text("research.block.title"), 2), RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.block.subtitle")),
+            data_table_node(
+                (DataTableColumn("reason", i18n.text("column.loss_reason")), DataTableColumn("count", i18n.text("column.event_count")), DataTableColumn("source", i18n.text("column.source")), DataTableColumn("solution", i18n.text("column.solution"))),
+                tuple({"reason": r.get("reason_value"), "count": r.get("rows_total"), "source": f"{r.get('source_table')}.{r.get('reason_column')}", "solution": i18n.text("research.solution.keep_blocked")} for r in vm.block_analysis),
+            ),
+        ),
+    )
+
     relationship_section = RenderNode(
         RenderNodeType.SECTION,
         props={"class": "mc-v2-section", "id": "relationship-factory", "data-section": "RESEARCH"},
@@ -295,6 +468,13 @@ def render_control_center_v2(
                         shadow_section,
                         funnel,
                         recommendations,
+                        volatility_section,
+                        risk_section,
+                        entry_section,
+                        execution_section,
+                        market_section,
+                        exit_section,
+                        block_section,
                         relationship_section,
                     ),
                 ),

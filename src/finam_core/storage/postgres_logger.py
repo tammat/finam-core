@@ -258,10 +258,10 @@ class PostgresLogger:
                     # TRADE_CONTEXT_GUARD_WIRE_TO_TRADES_WRITER_V1
                     # TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_ENFORCEMENT_V1
                     strategy, timeframe, continuous_symbol, payload = self._normalize_trade_context_before_insert_v1(
-                        symbol=symbol,
-                        strategy=strategy,
-                        timeframe=timeframe,
-                        continuous_symbol=continuous_symbol,
+                        symbol=normalized_symbol,
+                        strategy=attribution_decision.strategy,
+                        timeframe=attribution_decision.timeframe,
+                        continuous_symbol=attribution_decision.continuous_symbol,
                         payload=payload,
                     )
                     # Русский комментарий: финальный writer-level guard перед INSERT INTO trades.
@@ -287,14 +287,6 @@ class PostgresLogger:
 
                     cur.execute(
                         """
-                        # TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_ENFORCEMENT_V1
-                        strategy, timeframe, continuous_symbol, payload = self._normalize_trade_context_before_insert_v1(
-                            symbol=symbol,
-                            strategy=strategy,
-                            timeframe=timeframe,
-                            continuous_symbol=continuous_symbol,
-                            payload=payload,
-                        )
                         INSERT INTO trades (
                             symbol, side, qty, price, commission,
                             fill_id, origin, payload, created_at, ts, trade_source,

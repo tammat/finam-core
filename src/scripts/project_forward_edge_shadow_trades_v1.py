@@ -71,7 +71,11 @@ def main() -> int:
             observations = cur.fetchall()
             for row in observations:
                 shadow_trade_id = uuid.uuid5(NAMESPACE, str(row["observation_id"]))
-                cur.execute("SELECT 1 FROM analytics.forward_edge_shadow_trade_v1 WHERE observation_id=%s", (row["observation_id"],))
+                observation_id = str(row["observation_id"])
+                cohort_id_value = str(row["cohort_id"])
+                incubator_candidate_id = str(row["incubator_candidate_id"])
+                hypothesis_id = str(row["hypothesis_id"])
+                cur.execute("SELECT 1 FROM analytics.forward_edge_shadow_trade_v1 WHERE observation_id=%s", (observation_id,))
                 exists = cur.fetchone() is not None
                 cur.execute("""
                     INSERT INTO analytics.forward_edge_shadow_trade_v1 (
@@ -89,7 +93,7 @@ def main() -> int:
                         shadow_only=true,broker_order_sent=false,runtime_allowed=false,
                         execution_enabled=false,source_version=excluded.source_version,updated_at=now()
                 """, (
-                    shadow_trade_id,row["observation_id"],row["cohort_id"],row["incubator_candidate_id"],row["hypothesis_id"],
+                    str(shadow_trade_id),observation_id,cohort_id_value,incubator_candidate_id,hypothesis_id,
                     row["symbol"],row["timeframe"],row["side"],row["signal_ts"],row["entry_ts"],row["exit_ts"],
                     row["entry_price"],row["exit_price"],row["gross_pnl"],row["commission"],row["spread_cost"],
                     row["slippage"],row["net_pnl"],shadow_status(str(row["observation_status"])),SOURCE_VERSION,

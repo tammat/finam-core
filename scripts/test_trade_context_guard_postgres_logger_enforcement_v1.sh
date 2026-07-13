@@ -16,6 +16,19 @@ grep -q "_normalize_trade_context_before_insert_v1" src/finam_core/storage/postg
 grep -q "TRADE_CONTEXT_GUARD_POSTGRES_LOGGER_NORMALIZED" src/finam_core/storage/postgres_logger.py
 grep -q "TradeContextGuardV1" src/finam_core/storage/postgres_logger.py
 
+# The storage guard must receive resolved attribution values. Referencing local
+# names before assignment silently rolls back both canonical fills and trades.
+grep -q "strategy=attribution_decision.strategy" src/finam_core/storage/postgres_logger.py
+grep -q "timeframe=attribution_decision.timeframe" src/finam_core/storage/postgres_logger.py
+grep -q "continuous_symbol=attribution_decision.continuous_symbol" src/finam_core/storage/postgres_logger.py
+
+# Python source must never be embedded in the SQL statement passed to psycopg.
+if sed -n '/cur.execute(/,/INSERT INTO trades/p' src/finam_core/storage/postgres_logger.py \
+    | grep -q 'strategy, timeframe, continuous_symbol, payload ='; then
+    echo "FAIL: Python normalization code is embedded in INSERT INTO trades SQL" >&2
+    exit 1
+fi
+
 PYTHONPATH=src python3 - <<'PY'
 from finam_core.storage.trade_context_guard_v1 import TradeContextGuardV1
 

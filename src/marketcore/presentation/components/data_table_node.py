@@ -36,8 +36,14 @@ def data_table_node(
             RenderNode(
                 RenderNodeType.TABLE_ROW,
                 props={
+                    **({"data-status": str(row["_status"])} if row.get("_status") else {}),
                     **({"activation_target": str(row["_activation_target"])} if row.get("_activation_target") else {}),
                     **({"aria_label": str(row["_aria_label"])} if row.get("_aria_label") else {}),
+                    **({"progress_label": str(row["_progress_label"])} if row.get("_progress_label") else {}),
+                    **({"progress_complete_label": str(row["_progress_complete_label"])} if row.get("_progress_complete_label") else {}),
+                    **({"confirmation_options": str(row["_confirmation_options"])} if row.get("_confirmation_options") else {}),
+                    **({"confirmation_title": str(row["_confirmation_title"])} if row.get("_confirmation_title") else {}),
+                    **({"confirmation_label": str(row["_confirmation_label"])} if row.get("_confirmation_label") else {}),
                     **({"role": "link", "tab_index": 0} if row.get("_activation_target") else {}),
                 },
                 children=tuple(

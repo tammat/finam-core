@@ -80,7 +80,7 @@ class ControlCenterV2Presenter:
         lights = (
             ControlCenterTrafficLightV2("data", "Данные", f"Готово {ready} из {total}", "OK" if total and ready == total else "WARNING", "/workspace-v2/control-center/edge-oos/data-quality"),
             ControlCenterTrafficLightV2("edge", "Edge", f"OOS PASS: {passed}", "OK" if passed else "BLOCKED", "/workspace-v2/control-center/edge-oos/relationship-factory"),
-            ControlCenterTrafficLightV2("watch", "Наблюдение", f"{candidates} кандидатов · {observations} сигналов", "OK" if promoted else "WARNING", "/workspace-v2/control-center/edge-oos/strategy-generator"),
+            ControlCenterTrafficLightV2("watch", "Наблюдение", f"{candidates} кандидатов · {observations} сигналов", "OK" if observations > 0 else "WARNING", "/workspace-v2/control-center/edge-oos/strategy-generator"),
             ControlCenterTrafficLightV2("quotes", "Котировки", f"Подтверждено: {quotes}", "OK" if quotes else "WARNING", "/workspace-v2/control-center/edge-oos/execution-edge"),
             ControlCenterTrafficLightV2("live", "LIVE", "Продвижение запрещено", "BLOCKED", "/workspace-v2/control-center/edge-oos/legacy"),
         )
@@ -98,6 +98,15 @@ class ControlCenterV2Presenter:
             loss_reasons=loss_reasons,
             funnel_comparable=bool(data["funnel_comparable"]),
             shadow_summary=data["shadow"],
+            execution_quality=tuple(data["execution_quality"]),
+            execution_variants=tuple(data["execution_variants"]),
+            volatility_analysis=tuple(data["volatility_analysis"]),
+            risk_analysis=tuple(data["risk_analysis"]),
+            entry_analysis=tuple(data["entry_analysis"]),
+            market_prerequisites=tuple(data["market_prerequisites"]),
+            exit_analysis=tuple(data["exit_analysis"]),
+            block_analysis=tuple(data["block_analysis"]),
+            shadow_requirements=tuple(data["shadow_requirements"]),
         )
 
     @staticmethod

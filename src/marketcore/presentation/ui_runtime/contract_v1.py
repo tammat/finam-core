@@ -105,7 +105,10 @@ _NODE_RULES: dict[RenderNodeType, UiRuntimeNodeRuleV1] = {
     ),
     RenderNodeType.TABLE_ROW: UiRuntimeNodeRuleV1(
         node_type=RenderNodeType.TABLE_ROW,
-        allowed_props=_COMMON_CONTAINER_PROPS | frozenset({"activation_target", "tab_index"}),
+        allowed_props=_COMMON_CONTAINER_PROPS | frozenset({
+            "activation_target", "tab_index", "progress_label", "progress_complete_label",
+            "confirmation_options", "confirmation_title", "confirmation_label"
+        }),
         allows_children=True,
     ),
     RenderNodeType.TABLE_HEADER_CELL: UiRuntimeNodeRuleV1(

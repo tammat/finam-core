@@ -57,3 +57,12 @@ class ControlCenterV2ViewModel:
     loss_reasons: tuple[SignalLossReasonV2, ...]
     funnel_comparable: bool
     shadow_summary: dict[str, Any]
+    execution_quality: tuple[dict[str, Any], ...]
+    execution_variants: tuple[dict[str, Any], ...]
+    volatility_analysis: tuple[dict[str, Any], ...]
+    risk_analysis: tuple[dict[str, Any], ...]
+    entry_analysis: tuple[dict[str, Any], ...]
+    market_prerequisites: tuple[dict[str, Any], ...]
+    exit_analysis: tuple[dict[str, Any], ...]
+    block_analysis: tuple[dict[str, Any], ...]
+    shadow_requirements: tuple[dict[str, Any], ...]
