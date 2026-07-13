@@ -139,6 +139,13 @@ class ControlCenterV2Resolver:
                 SELECT r.reason_group,sum(r.rows_total) AS rows_total,count(*) AS reason_values,
                        p.action_target
                 FROM analytics.signal_funnel_reason_v1 r
+                JOIN presentation.control_center_reason_policy_v1 filter
+                  ON filter.reason_group=r.reason_group
+                 AND filter.source_schema=r.source_schema
+                 AND filter.source_table=r.source_table
+                 AND filter.reason_column=r.reason_column
+                 AND r.reason_value ~ filter.reason_value_pattern
+                 AND filter.enabled
                 JOIN presentation.control_center_recommendation_route_v1 p
                   ON p.reason_group=r.reason_group AND p.enabled
                 WHERE r.signal_funnel_reason_snapshot_id=%s

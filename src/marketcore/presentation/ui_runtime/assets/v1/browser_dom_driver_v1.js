@@ -31,6 +31,7 @@
         style: "style",
         role: "role",
         aria_label: "aria-label",
+        id: "id",
         href: "href",
         target: "target",
         disabled: "aria-disabled",

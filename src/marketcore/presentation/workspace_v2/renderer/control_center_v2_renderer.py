@@ -118,7 +118,7 @@ def render_control_center_v2(
 
     traffic = RenderNode(
         RenderNodeType.SECTION,
-        props={"class": "mc-v2-section", "data-section": "OBSERVATION"},
+        props={"class": "mc-v2-section", "id": "state", "data-section": "OBSERVATION"},
         children=(
             _title("Состояние", 2),
             RenderNode(RenderNodeType.SUBTITLE, text="Зелёный — подтверждено · жёлтый — наблюдение · красный — запрет"),
@@ -172,7 +172,7 @@ def render_control_center_v2(
 
     funnel = RenderNode(
         RenderNodeType.SECTION,
-        props={"class": "mc-v2-section", "data-section": "FUNNEL"},
+        props={"class": "mc-v2-section", "id": "signal-funnel", "data-section": "FUNNEL"},
         children=(
             _title("Воронка сигналов", 2),
             RenderNode(
@@ -200,7 +200,7 @@ def render_control_center_v2(
 
     recommendations = RenderNode(
         RenderNodeType.SECTION,
-        props={"class": "mc-v2-section", "data-section": "ALERTS"},
+        props={"class": "mc-v2-section", "id": "recommendations", "data-section": "ALERTS"},
         children=(
             _title("Причины и действия", 2),
             RenderNode(RenderNodeType.SUBTITLE, text="Сначала устраняются самые частые подтверждённые причины"),
@@ -216,7 +216,11 @@ def render_control_center_v2(
                         "reason": reason.label,
                         "count": reason.count,
                         "action": reason.action,
-                        "status": i18n.text(f"status.{_resource_code(reason.status)}"),
+                        "status": i18n.text(
+                            f"status.{_resource_code(reason.status)}"
+                            if reason.action_target
+                            else "status.execution_section_missing"
+                        ),
                         "_activation_target": reason.action_target,
                         "_aria_label": i18n.text("research.recommendation.execute_aria").format(reason=reason.label),
                     }
@@ -234,7 +238,7 @@ def render_control_center_v2(
     summary = vm.relationship_summary
     relationship_section = RenderNode(
         RenderNodeType.SECTION,
-        props={"class": "mc-v2-section", "data-section": "RESEARCH"},
+        props={"class": "mc-v2-section", "id": "relationship-factory", "data-section": "RESEARCH"},
         children=(
             _title(i18n.text("research.relationship_factory.title"), 2),
             RenderNode(

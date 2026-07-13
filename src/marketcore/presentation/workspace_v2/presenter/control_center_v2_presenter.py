@@ -142,5 +142,5 @@ class ControlCenterV2Presenter:
             count=count,
             action=REASON_ACTIONS.get(code, REASON_ACTIONS["OTHER"]),
             status="WARNING" if count else "OK",
-            action_target=str(row["action_target"]),
+            action_target=str(row.get("action_target") or ""),
         )

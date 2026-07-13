@@ -38,6 +38,7 @@ _COMMON_CONTAINER_PROPS = frozenset(
         "style",
         "role",
         "aria_label",
+        "id",
         "data-section",
         "data-card",
         "data-status",
