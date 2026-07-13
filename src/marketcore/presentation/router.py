@@ -155,7 +155,8 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
         return response.status_code, response.body
 
     if path in ("/workspace-v2/control-center/edge-oos/legacy", "/workspace-v2/control-center/edge-oos/legacy/"):
-        return 200, render_edge_oos_control_center_v1().encode("utf-8")
+        response = load_ui_runtime_asset_v1("/workspace-v2/control-center/edge-oos")
+        return response.status_code, response.body
 
     if path in EDGE_OOS_SECTION_ROUTES:
         return 200, render_edge_oos_control_center_v1(

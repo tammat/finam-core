@@ -43,11 +43,15 @@ def render_home_v2(
                     props={"level": 3},
                     text=i18n.text(card.title_key),
                 ),
-                RenderNode(
-                    node_type=RenderNodeType.TEXT,
-                    text=i18n.text(card.subtitle_key),
-                ),
             ]
+
+            if card.card_type.value != "ACTION":
+                card_children.append(
+                    RenderNode(
+                        node_type=RenderNodeType.TEXT,
+                        text=i18n.text(card.subtitle_key),
+                    )
+                )
 
             rows_total = card.payload.get("rows_total")
             updated_at = card.payload.get("updated_at")

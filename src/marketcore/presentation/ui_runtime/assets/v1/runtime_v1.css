@@ -233,7 +233,7 @@ body {
 
 .mc-v2-page > h1 {
     margin: 0;
-    font-size: clamp(1.5rem, 3vw, 2.3rem);
+    font-size: clamp(1.35rem, 2.4vw, 1.9rem);
     letter-spacing: -.04em;
 }
 
@@ -252,15 +252,24 @@ body {
 
 .mc-v2-section > h2 {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: 1rem;
     letter-spacing: -.015em;
 }
 
 .mc-v2-section > p {
     margin: 7px 0 18px;
     color: #7890a2;
-    font-size: .9rem;
+    font-size: .8rem;
 }
+
+/* Shared compact density for semantic data tables rendered by UI Runtime. */
+.mc-v2-page .mc-oos-table th,
+.mc-v2-page .mc-oos-table td {
+    padding: 10px 12px;
+}
+
+.mc-v2-page .mc-oos-table th { font-size: .62rem; }
+.mc-v2-page .mc-oos-table td { font-size: .72rem; }
 
 .mc-v2-grid {
     display: grid;

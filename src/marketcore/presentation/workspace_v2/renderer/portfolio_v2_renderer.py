@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from numbers import Number
-
+from marketcore.presentation.components.data_table_node import DataTableColumn, data_table_node
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
 from marketcore.presentation.framework.theme_model import ThemeModel
 from marketcore.presentation.framework.theme_resolver import ThemeResolverV1
@@ -28,24 +27,6 @@ def _theme_px(theme: ThemeModel, property_code: str) -> str:
     return f"{int(value)}px"
 
 
-def _value_row_layout(theme: ThemeModel) -> str:
-    layout = theme.get("VALUE_ROW_LAYOUT", "INLINE")
-    gap = _theme_px(theme, "VALUE_ROW_GAP")
-
-    if layout == "STACKED":
-        return (
-            "display:grid;"
-            "grid-template-columns:1fr;"
-            f"gap:{gap};"
-        )
-
-    return (
-        "display:grid;"
-        "grid-template-columns:1fr auto;"
-        f"gap:{gap};"
-    )
-
-
 def render_portfolio_v2(
     vm: PortfolioV2ViewModel,
     locale_code: str = "ru",
@@ -62,99 +43,40 @@ def render_portfolio_v2(
         f"padding:{_theme_px(theme, 'SHELL_PADDING')};"
     )
 
-    grid_style = (
-        "display:grid;"
-        "grid-template-columns:"
-        "repeat(auto-fit,minmax("
-        f"{_theme_px(theme, 'GRID_MIN_CARD_WIDTH')},1fr));"
-        f"gap:{_theme_px(theme, 'GRID_GAP')};"
-    )
-
-    card_style = (
-        f"border-radius:{_theme_px(theme, 'CARD_RADIUS')};"
-        f"padding:{_theme_px(theme, 'CARD_PADDING')};"
-    )
-
-    row_style = _value_row_layout(theme)
     section_nodes: list[RenderNode] = []
 
     for section in vm.sections:
-        card_nodes: list[RenderNode] = []
-
+        ordered_columns: list[str] = []
         for card in section.cards:
-            value_nodes: list[RenderNode] = []
-            values = card.payload.get("values", {})
-            column_keys = card.payload.get("column_keys", {})
+            for column_name in card.payload.get("values", {}):
+                if column_name not in ordered_columns:
+                    ordered_columns.append(str(column_name))
 
-            for column_name, raw_value in values.items():
-                column_key = str(
-                    column_keys.get(column_name, column_name)
-                )
-
-                value_class = "mc-v2-metric-value"
-                if "p&l" in str(column_name).lower() and isinstance(raw_value, Number):
-                    if raw_value < 0:
-                        value_class += " is-negative"
-                    elif raw_value > 0:
-                        value_class += " is-positive"
-
-                value_nodes.append(
-                    RenderNode(
-                        node_type=RenderNodeType.METRIC_ROW,
-                        props={
-                            "class": "mc-v2-value-row",
-                            "style": row_style,
-                        },
-                        children=(
-                            RenderNode(
-                                node_type=RenderNodeType.METRIC_LABEL,
-                                text=i18n.text(column_key),
-                            ),
-                            RenderNode(
-                                node_type=RenderNodeType.METRIC_VALUE,
-                                props={"class": value_class},
-                                text=formatter.value(
-                                    str(column_name),
-                                    raw_value,
-                                ),
-                            ),
-                        ),
-                    )
-                )
-
-            card_children: list[RenderNode] = [
-                RenderNode(
-                    node_type=RenderNodeType.TITLE,
-                    props={"level": 3},
-                    text=i18n.text(card.title_key),
+        table_columns = [DataTableColumn("source", i18n.text("column.data_source"))]
+        for column_name in ordered_columns:
+            column_key = next(
+                (
+                    str(card.payload.get("column_keys", {}).get(column_name, column_name))
+                    for card in section.cards
+                    if column_name in card.payload.get("values", {})
                 ),
-                RenderNode(
-                    node_type=RenderNodeType.TEXT,
-                    text=i18n.text(card.subtitle_key),
-                ),
-            ]
-
-            if value_nodes:
-                card_children.append(
-                    RenderNode(
-                        node_type=RenderNodeType.METRIC_LIST,
-                        props={"class": "mc-v2-values"},
-                        children=tuple(value_nodes),
-                    )
-                )
-
-            card_nodes.append(
-                RenderNode(
-                    node_type=RenderNodeType.CARD,
-                    props={
-                        "class": "mc-v2-card",
-                        "style": card_style,
-                        "data-card": card.card_type.value,
-                        "data-status": card.status_code.value,
-                    },
-                    children=tuple(card_children),
-                )
+                column_name,
             )
+            table_columns.append(DataTableColumn(column_name, i18n.text(column_key)))
+
+        table_rows = []
+        for card in section.cards:
+            values = card.payload.get("values", {})
+            row = {"source": i18n.text(card.title_key)}
+            row.update(
+                {
+                    column_name: formatter.value(column_name, values[column_name])
+                    if column_name in values
+                    else "—"
+                    for column_name in ordered_columns
+                }
+            )
+            table_rows.append(row)
 
         section_nodes.append(
             RenderNode(
@@ -173,14 +95,7 @@ def render_portfolio_v2(
                         node_type=RenderNodeType.SUBTITLE,
                         text=i18n.text(section.subtitle_key),
                     ),
-                    RenderNode(
-                        node_type=RenderNodeType.GRID,
-                        props={
-                            "class": "mc-v2-grid",
-                            "style": grid_style,
-                        },
-                        children=tuple(card_nodes),
-                    ),
+                    data_table_node(tuple(table_columns), tuple(table_rows)),
                 ),
             )
         )

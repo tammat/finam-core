@@ -87,6 +87,36 @@ _NODE_RULES: dict[RenderNodeType, UiRuntimeNodeRuleV1] = {
         allowed_props=_COMMON_CONTAINER_PROPS,
         allows_children=True,
     ),
+    RenderNodeType.TABLE: UiRuntimeNodeRuleV1(
+        node_type=RenderNodeType.TABLE,
+        allowed_props=_COMMON_CONTAINER_PROPS,
+        allows_children=True,
+    ),
+    RenderNodeType.TABLE_HEAD: UiRuntimeNodeRuleV1(
+        node_type=RenderNodeType.TABLE_HEAD,
+        allowed_props=_COMMON_CONTAINER_PROPS,
+        allows_children=True,
+    ),
+    RenderNodeType.TABLE_BODY: UiRuntimeNodeRuleV1(
+        node_type=RenderNodeType.TABLE_BODY,
+        allowed_props=_COMMON_CONTAINER_PROPS,
+        allows_children=True,
+    ),
+    RenderNodeType.TABLE_ROW: UiRuntimeNodeRuleV1(
+        node_type=RenderNodeType.TABLE_ROW,
+        allowed_props=_COMMON_CONTAINER_PROPS,
+        allows_children=True,
+    ),
+    RenderNodeType.TABLE_HEADER_CELL: UiRuntimeNodeRuleV1(
+        node_type=RenderNodeType.TABLE_HEADER_CELL,
+        allowed_props=_TEXT_PROPS,
+        allows_text=True,
+    ),
+    RenderNodeType.TABLE_CELL: UiRuntimeNodeRuleV1(
+        node_type=RenderNodeType.TABLE_CELL,
+        allowed_props=_TEXT_PROPS,
+        allows_text=True,
+    ),
     RenderNodeType.TITLE: UiRuntimeNodeRuleV1(
         node_type=RenderNodeType.TITLE,
         allowed_props=_TEXT_PROPS | frozenset({"level"}),

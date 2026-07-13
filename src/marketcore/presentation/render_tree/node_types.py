@@ -14,6 +14,13 @@ class RenderNodeType(str, Enum):
     GRID = "grid"
     CARD = "card"
 
+    TABLE = "table"
+    TABLE_HEAD = "table_head"
+    TABLE_BODY = "table_body"
+    TABLE_ROW = "table_row"
+    TABLE_HEADER_CELL = "table_header_cell"
+    TABLE_CELL = "table_cell"
+
     TITLE = "title"
     SUBTITLE = "subtitle"
     TEXT = "text"

@@ -166,6 +166,22 @@ def _format_datetime_ru(value: object, timezone: str = "Europe/Moscow") -> str:
     return html.escape(str(parsed))
 
 
+def _format_age_ru(value: object) -> str:
+    total_minutes = max(0, round(float(value or 0) * 60))
+    hours, minutes = divmod(total_minutes, 60)
+    if hours:
+        return f"{hours} ч {minutes} мин"
+    return f"{minutes} мин"
+
+
+def _quality_status_text(i18n: UiI18nResolverV1, value: object) -> str:
+    return i18n.text(f"status.{str(value or '').strip().lower()}")
+
+
+def _quality_reason_text(i18n: UiI18nResolverV1, value: object) -> str:
+    return i18n.text(f"error.data_quality.{str(value or '').strip().lower()}")
+
+
 def _strategy_name_ru(family: object, code: object = "") -> str:
     family_key = str(family or "").upper()
     return STRATEGY_NAMES_RU.get(family_key, str(code or family).replace("_", " ").title())
@@ -928,11 +944,11 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     quality_table_rows = "".join(
         f"""<tr data-quality-row data-market="{row['market_data_status']}" data-factory="{row['factory_status']}">
         <td><strong>{html.escape(row['symbol'])}</strong></td><td>{row['timeframe']}</td><td>{row['bars']}</td><td>{row['trading_days']}</td>
-        <td>{_format_datetime_ru(row['last_ts'])}</td><td>{float(row['latest_age_hours'] or 0):.1f} ч</td>
+        <td>{_format_datetime_ru(row['last_ts'])}</td><td>{_format_age_ru(row['latest_age_hours'])}</td>
         <td>{row['duplicate_rows']}</td><td>{row['invalid_ohlc_rows']}</td><td>{float(row['regime_coverage_ratio']) * 100:.0f}%</td>
-        <td><span class="mc-oos-badge {'pass' if row['market_data_status'] == 'READY' else 'fail'}">{row['market_data_status']}</span></td>
-        <td><span class="mc-oos-badge {'pass' if row['factory_status'] == 'READY' else 'fail'}">{row['factory_status']}</span></td>
-        <td>{html.escape(', '.join(row['reason_codes']) if isinstance(row['reason_codes'], list) else str(row['reason_codes'])) or '—'}</td></tr>"""
+        <td><span class="mc-oos-badge {'pass' if row['market_data_status'] == 'READY' else 'fail'}">{html.escape(_quality_status_text(i18n, row['market_data_status']))}</span></td>
+        <td><span class="mc-oos-badge {'pass' if row['factory_status'] == 'READY' else 'fail'}">{html.escape(_quality_status_text(i18n, row['factory_status']))}</span></td>
+        <td>{html.escape(', '.join(_quality_reason_text(i18n, code) for code in row['reason_codes']) if isinstance(row['reason_codes'], list) else _quality_reason_text(i18n, row['reason_codes'])) or '—'}</td></tr>"""
         for row in quality_rows
     )
     commodity_cards = "".join(

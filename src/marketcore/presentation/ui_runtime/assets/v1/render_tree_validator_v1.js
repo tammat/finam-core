@@ -95,6 +95,42 @@
             allowsText: false,
             allowsChildren: true
         },
+        table: {
+            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field"],
+            requiredProps: [],
+            allowsText: false,
+            allowsChildren: true
+        },
+        table_head: {
+            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field"],
+            requiredProps: [],
+            allowsText: false,
+            allowsChildren: true
+        },
+        table_body: {
+            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field"],
+            requiredProps: [],
+            allowsText: false,
+            allowsChildren: true
+        },
+        table_row: {
+            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field"],
+            requiredProps: [],
+            allowsText: false,
+            allowsChildren: true
+        },
+        table_header_cell: {
+            allowedProps: ["class", "style", "role", "aria_label", "data-field"],
+            requiredProps: [],
+            allowsText: true,
+            allowsChildren: false
+        },
+        table_cell: {
+            allowedProps: ["class", "style", "role", "aria_label", "data-field"],
+            requiredProps: [],
+            allowsText: true,
+            allowsChildren: false
+        },
         title: {
             allowedProps: [
                 "class",
