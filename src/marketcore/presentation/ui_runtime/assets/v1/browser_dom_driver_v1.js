@@ -38,7 +38,9 @@
         "data-card": "data-card",
         "data-status": "data-status",
         "data-availability": "data-availability",
-        "data-field": "data-field"
+        "data-field": "data-field",
+        activation_target: "data-activation-target",
+        tab_index: "tabindex"
     });
 
     class BrowserDomDriverErrorV1 extends Error {
@@ -235,6 +237,18 @@
             const element = this.documentObject.createElement(tag);
 
             applyProps(element, node.props || {});
+
+            if (node.type === "table_row" && node.props?.activation_target) {
+                const activationTarget = String(node.props.activation_target);
+                const navigate = () => globalObject.location.assign(activationTarget);
+                element.addEventListener("dblclick", navigate);
+                element.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        navigate();
+                    }
+                });
+            }
 
             if (node.text) {
                 element.textContent = node.text;

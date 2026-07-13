@@ -39,6 +39,16 @@ def neighbor(a: dict, b: dict) -> bool:
     return sum(a.get(key) != b.get(key) for key in keys) == 1
 
 
+def gross_attribution_status(row: dict | None) -> str:
+    if not row:
+        return "UNAVAILABLE"
+    if row.get("gross_profit_factor") is not None:
+        return "AVAILABLE"
+    if row.get("estimated_gross_expectancy") is not None:
+        return "PARTIAL_EXPECTANCY_AVAILABLE"
+    return "UNAVAILABLE"
+
+
 def main() -> None:
     diagnostics_run_id = str(uuid.uuid4())
     with psycopg2.connect(DB) as conn:
@@ -53,6 +63,19 @@ def main() -> None:
                 JOIN analytics.canonical_hypothesis_registry_v1 h USING(candidate_hash)
                 WHERE r.execution_run_id=%s ORDER BY r.strategy_family,r.candidate_hash""", (execution_run_id,))
             rows = [dict(row) for row in cur.fetchall()]
+            cur.execute("""SELECT attribution_run_id
+                FROM analytics.trial_gross_net_attribution_v1
+                WHERE execution_run_id=%s
+                ORDER BY created_at DESC LIMIT 1""", (execution_run_id,))
+            latest_attribution = cur.fetchone()
+            attribution_by_hypothesis: dict[object, dict] = {}
+            if latest_attribution:
+                cur.execute("""SELECT hypothesis_id,estimated_gross_expectancy,gross_profit_factor
+                    FROM analytics.trial_gross_net_attribution_v1
+                    WHERE attribution_run_id=%s""", (latest_attribution["attribution_run_id"],))
+                attribution_by_hypothesis = {
+                    item["hypothesis_id"]: dict(item) for item in cur.fetchall()
+                }
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS analytics.hypothesis_failure_diagnostic_v2 (
                     diagnostics_run_id uuid NOT NULL, execution_run_id uuid NOT NULL,
@@ -69,6 +92,11 @@ def main() -> None:
                     ON analytics.hypothesis_failure_diagnostic_v2(created_at DESC,strategy_family,primary_failure_code);
             """)
             by_family: dict[str, list[dict]] = {}
+            attribution_counts = {
+                "AVAILABLE": 0,
+                "PARTIAL_EXPECTANCY_AVAILABLE": 0,
+                "UNAVAILABLE": 0,
+            }
             for row in rows:
                 by_family.setdefault(row["strategy_family"], []).append(row)
             for row in rows:
@@ -79,18 +107,25 @@ def main() -> None:
                               and float(other["oos_expectancy"] or 0) > 0]
                 codes = blockers(row)
                 stability = "SUPPORTED" if len(supportive) >= 2 else "NOT_SUPPORTED"
+                attribution_status = gross_attribution_status(
+                    attribution_by_hypothesis.get(row["hypothesis_id"])
+                )
+                attribution_counts[attribution_status] += 1
                 cur.execute("""INSERT INTO analytics.hypothesis_failure_diagnostic_v2
                     (diagnostics_run_id,execution_run_id,hypothesis_id,candidate_hash,strategy_family,
                      primary_failure_code,blocker_codes,neighbor_count,supportive_neighbors,stability_status,
                      gross_cost_attribution_status,recommended_action,source_version)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNAVAILABLE_NO_GROSS_METRIC',%s,%s)""",
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (diagnostics_run_id,execution_run_id,row["hypothesis_id"],row["candidate_hash"],row["strategy_family"],
                      codes[0],psycopg2.extras.Json(codes),len(adjacent),len(supportive),stability,
-                     RECOMMENDATIONS[row["strategy_family"]],SOURCE_VERSION))
+                     attribution_status,RECOMMENDATIONS[row["strategy_family"]],SOURCE_VERSION))
 
     print(f"diagnostics_run_id={diagnostics_run_id}")
     print(f"execution_run_id={execution_run_id}")
     print(f"diagnosed={len(rows)}")
+    print(f"gross_available={attribution_counts['AVAILABLE']}")
+    print(f"gross_expectancy_only={attribution_counts['PARTIAL_EXPECTANCY_AVAILABLE']}")
+    print(f"gross_unavailable={attribution_counts['UNAVAILABLE']}")
     print("verdicts_changed=0")
     print("paper_created=0")
     print("live_allowed=0")

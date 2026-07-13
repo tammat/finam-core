@@ -78,6 +78,11 @@ def render_control_center_v2(
         f"{_theme_px(theme, 'CONTROL_KPI_MIN_WIDTH')},1fr));"
         f"gap:{_theme_px(theme, 'CONTROL_GRID_GAP')};"
     )
+    shadow_grid_style = (
+        "grid-template-columns:repeat("
+        f"{int(theme.get('CONTROL_SHADOW_COLUMNS'))},minmax(0,1fr));"
+        f"gap:{_theme_px(theme, 'CONTROL_GRID_GAP')};"
+    )
     compact_card_style = (
         "grid-column:auto;"
         f"min-height:{_theme_px(theme, 'CONTROL_CARD_MIN_HEIGHT')};"
@@ -87,6 +92,12 @@ def render_control_center_v2(
     compact_kpi_style = (
         f"font-size:{_theme_px(theme, 'CONTROL_KPI_FONT_SIZE')};"
         f"font-weight:{int(theme.get('CONTROL_KPI_FONT_WEIGHT'))};"
+    )
+    navigation_card_style = (
+        "grid-column:auto;"
+        f"min-height:{_theme_px(theme, 'CONTROL_NAV_CARD_MIN_HEIGHT')};"
+        f"padding:{_theme_px(theme, 'CONTROL_NAV_CARD_PADDING')};"
+        f"border-radius:{_theme_px(theme, 'CONTROL_CARD_RADIUS')};"
     )
     navigation = RenderNode(
         RenderNodeType.SECTION,
@@ -98,8 +109,8 @@ def render_control_center_v2(
                 RenderNodeType.GRID,
                 props={"class": "mc-v2-grid", "style": "grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"},
                 children=(
-                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": "grid-column:auto;min-height:72px", "href": "/", "aria_label": "Главная", "data-card": "ACTION", "data-status": "OK"}, children=(_title("⌂ Главная", 3),)),
-                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": "grid-column:auto;min-height:72px", "href": "/workspace-v2/portfolio", "aria_label": "Портфель", "data-card": "ACTION", "data-status": "OK"}, children=(_title("▦ Портфель", 3),)),
+                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": navigation_card_style, "href": "/", "aria_label": "Главная", "data-card": "ACTION", "data-status": "OK"}, children=(_title("⌂ Главная", 3),)),
+                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": navigation_card_style, "href": "/workspace-v2/portfolio", "aria_label": "Портфель", "data-card": "ACTION", "data-status": "OK"}, children=(_title("▦ Портфель", 3),)),
                 ),
             ),
         ),
@@ -117,8 +128,8 @@ def render_control_center_v2(
                 children=tuple(
                     RenderNode(
                         RenderNodeType.CARD,
-                        props={"class": "mc-v2-card", "style": "grid-column:auto;min-height:118px", "href": light.target, "aria_label": light.label, "data-card": "ACTION", "data-status": light.status},
-                        children=(_title(light.label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value"}, text=light.detail)),
+                        props={"class": "mc-v2-card", "style": compact_card_style, "href": light.target, "aria_label": light.label, "data-card": "ACTION", "data-status": light.status},
+                        children=(_title(light.label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value", "style": compact_kpi_style}, text=light.detail)),
                     )
                     for light in vm.traffic_lights
                 ),
@@ -135,7 +146,7 @@ def render_control_center_v2(
             RenderNode(RenderNodeType.SUBTITLE, text="Без брокерских заявок · только новые forward-наблюдения"),
             RenderNode(
                 RenderNodeType.GRID,
-                props={"class": "mc-v2-grid", "style": compact_grid_style},
+                props={"class": "mc-v2-grid", "style": shadow_grid_style},
                 children=tuple(
                     RenderNode(
                         RenderNodeType.CARD,
@@ -206,6 +217,8 @@ def render_control_center_v2(
                         "count": reason.count,
                         "action": reason.action,
                         "status": i18n.text(f"status.{_resource_code(reason.status)}"),
+                        "_activation_target": reason.action_target,
+                        "_aria_label": i18n.text("research.recommendation.execute_aria").format(reason=reason.label),
                     }
                     for reason in vm.loss_reasons
                 ),

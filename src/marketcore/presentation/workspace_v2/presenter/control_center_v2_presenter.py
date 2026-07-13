@@ -137,8 +137,10 @@ class ControlCenterV2Presenter:
         code = str(row.get("reason_group") or "OTHER").upper()
         count = int(row.get("rows_total") or 0)
         return SignalLossReasonV2(
+            code=code,
             label=REASON_LABELS.get(code, "Прочее"),
             count=count,
             action=REASON_ACTIONS.get(code, REASON_ACTIONS["OTHER"]),
             status="WARNING" if count else "OK",
+            action_target=str(row["action_target"]),
         )

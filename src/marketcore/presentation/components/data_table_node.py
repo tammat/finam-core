@@ -35,6 +35,11 @@ def data_table_node(
         children=tuple(
             RenderNode(
                 RenderNodeType.TABLE_ROW,
+                props={
+                    **({"activation_target": str(row["_activation_target"])} if row.get("_activation_target") else {}),
+                    **({"aria_label": str(row["_aria_label"])} if row.get("_aria_label") else {}),
+                    **({"role": "link", "tab_index": 0} if row.get("_activation_target") else {}),
+                },
                 children=tuple(
                     RenderNode(RenderNodeType.TABLE_CELL, text=str(row.get(column.key, "")))
                     for column in columns

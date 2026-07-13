@@ -38,10 +38,12 @@ class SignalFunnelStageV2:
 
 @dataclass(frozen=True, slots=True)
 class SignalLossReasonV2:
+    code: str
     label: str
     count: int
     action: str
     status: str
+    action_target: str
 
 
 @dataclass(frozen=True, slots=True)

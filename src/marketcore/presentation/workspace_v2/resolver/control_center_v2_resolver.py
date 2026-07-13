@@ -136,10 +136,13 @@ class ControlCenterV2Resolver:
         reasons: list[dict[str, Any]] = []
         if reason_latest:
             cur.execute("""
-                SELECT reason_group,sum(rows_total) AS rows_total,count(*) AS reason_values
-                FROM analytics.signal_funnel_reason_v1
-                WHERE signal_funnel_reason_snapshot_id=%s
-                GROUP BY reason_group
+                SELECT r.reason_group,sum(r.rows_total) AS rows_total,count(*) AS reason_values,
+                       p.action_target
+                FROM analytics.signal_funnel_reason_v1 r
+                JOIN presentation.control_center_recommendation_route_v1 p
+                  ON p.reason_group=r.reason_group AND p.enabled
+                WHERE r.signal_funnel_reason_snapshot_id=%s
+                GROUP BY r.reason_group,p.action_target
                 ORDER BY sum(rows_total) DESC
                 LIMIT 8
             """, (reason_latest["signal_funnel_reason_snapshot_id"],))

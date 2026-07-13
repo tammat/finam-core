@@ -182,6 +182,10 @@ def _quality_reason_text(i18n: UiI18nResolverV1, value: object) -> str:
     return i18n.text(f"error.data_quality.{str(value or '').strip().lower()}")
 
 
+def _gross_attribution_text(i18n: UiI18nResolverV1, value: object) -> str:
+    return i18n.text(f"research.gross_attribution.{str(value or '').strip().lower()}")
+
+
 def _strategy_name_ru(family: object, code: object = "") -> str:
     family_key = str(family or "").upper()
     return STRATEGY_NAMES_RU.get(family_key, str(code or family).replace("_", " ").title())
@@ -998,7 +1002,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         f"""<tr><td><strong>{html.escape(_strategy_name_ru(row['strategy_family'], row['strategy_family']))}</strong></td>
         <td>{int(row['candidates'])}</td><td>{html.escape(row['primary_failure_code'].replace('_', ' '))}</td>
         <td>{'Есть' if row['stability_status'] == 'SUPPORTED' else 'Нет'}</td>
-        <td>{'Недоступно: gross-метрика не сохранена' if row['gross_cost_attribution_status'] != 'AVAILABLE' else 'Доступно'}</td>
+        <td>{html.escape(_gross_attribution_text(i18n, row['gross_cost_attribution_status']))}</td>
         <td>{html.escape(row['recommended_action'])}</td></tr>"""
         for row in failure_rows
     )

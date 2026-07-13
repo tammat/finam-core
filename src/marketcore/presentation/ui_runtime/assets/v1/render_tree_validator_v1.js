@@ -114,7 +114,7 @@
             allowsChildren: true
         },
         table_row: {
-            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field"],
+            allowedProps: ["class", "style", "role", "aria_label", "data-section", "data-card", "data-status", "data-field", "activation_target", "tab_index"],
             requiredProps: [],
             allowsText: false,
             allowsChildren: true

@@ -18,7 +18,6 @@ from marketcore.presentation.workspace_v2.portfolio_page_v2 import (
 )
 from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     action_status_v1,
-    render_edge_oos_control_center_v1,
     run_hypothesis_action_v1,
     run_hypothesis_pipeline_action_v1,
     run_lead_lag_action_v1,
@@ -63,6 +62,11 @@ EDGE_OOS_SECTION_ROUTES = {
 
 
 PageHandler = Callable[[], str]
+
+
+def _control_center_runtime_response() -> tuple[int, bytes]:
+    response = load_ui_runtime_asset_v1("/workspace-v2/control-center/edge-oos")
+    return response.status_code, response.body
 
 
 class ReadOnlyRouter:
@@ -151,17 +155,13 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
         ).encode("utf-8")
 
     if path in ("/workspace-v2/control-center/edge-oos", "/workspace-v2/control-center/edge-oos/"):
-        response = load_ui_runtime_asset_v1("/workspace-v2/control-center/edge-oos")
-        return response.status_code, response.body
+        return _control_center_runtime_response()
 
     if path in ("/workspace-v2/control-center/edge-oos/legacy", "/workspace-v2/control-center/edge-oos/legacy/"):
-        response = load_ui_runtime_asset_v1("/workspace-v2/control-center/edge-oos")
-        return response.status_code, response.body
+        return _control_center_runtime_response()
 
     if path in EDGE_OOS_SECTION_ROUTES:
-        return 200, render_edge_oos_control_center_v1(
-            active_section=EDGE_OOS_SECTION_ROUTES[path],
-        ).encode("utf-8")
+        return _control_center_runtime_response()
 
 
     if path in ("/workspace-v2/portfolio/phone",):
@@ -184,69 +184,33 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
 
 def route_post(path: str) -> tuple[int, bytes]:
-    if path == "/workspace-v2/control-center/edge-oos/forward-incubator":
-        return 200, render_edge_oos_control_center_v1(run_forward_incubator_action_v1(), "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/swing-timeframes":
-        return 200, render_edge_oos_control_center_v1(run_swing_timeframes_action_v1(), "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/swing-data-quality":
-        return 200, render_edge_oos_control_center_v1(run_swing_data_quality_action_v1(), "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/swing-factory":
-        return 200, render_edge_oos_control_center_v1(run_swing_factory_action_v1(), "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/targeted-trade-replay":
-        notice = run_targeted_trade_replay_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/gross-net-attribution":
-        notice = run_gross_net_attribution_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/failure-diagnostics":
-        notice = run_failure_diagnostics_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/intermarket-lead-lag-run":
-        notice = run_intermarket_lead_lag_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/relative-strength-run":
-        notice = run_relative_strength_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/hypothesis-lineage":
-        notice = run_hypothesis_lineage_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/strategy-hypothesis-run":
-        notice = run_strategy_hypothesis_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/strategy-generator":
-        notice = run_strategy_generator_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice, "strategy-generator").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/hypothesis-pipeline":
-        notice = run_hypothesis_pipeline_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice, "hypothesis-discovery").encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/finam-instruments":
-        notice = run_finam_instrument_discovery_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/data-quality":
-        notice = run_data_quality_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/session-execution":
-        notice = run_session_execution_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/edge-search-pipeline":
-        notice = run_edge_search_pipeline_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/run":
-        notice = run_oos_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/discover":
-        notice = run_hypothesis_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/lead-lag":
-        notice = run_lead_lag_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/relationship-factory":
-        notice = run_relationship_factory_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/relationship-pipeline":
-        notice = run_relationship_pipeline_action_v2()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    if path == "/workspace-v2/control-center/edge-oos/signal-funnel":
-        notice = run_signal_funnel_action_v1()
-        return 200, render_edge_oos_control_center_v1(notice).encode("utf-8")
-    return 404, b"Not found"
+    actions: dict[str, Callable[[], str]] = {
+        "/workspace-v2/control-center/edge-oos/forward-incubator": run_forward_incubator_action_v1,
+        "/workspace-v2/control-center/edge-oos/swing-timeframes": run_swing_timeframes_action_v1,
+        "/workspace-v2/control-center/edge-oos/swing-data-quality": run_swing_data_quality_action_v1,
+        "/workspace-v2/control-center/edge-oos/swing-factory": run_swing_factory_action_v1,
+        "/workspace-v2/control-center/edge-oos/targeted-trade-replay": run_targeted_trade_replay_action_v1,
+        "/workspace-v2/control-center/edge-oos/gross-net-attribution": run_gross_net_attribution_action_v1,
+        "/workspace-v2/control-center/edge-oos/failure-diagnostics": run_failure_diagnostics_action_v2,
+        "/workspace-v2/control-center/edge-oos/intermarket-lead-lag-run": run_intermarket_lead_lag_action_v2,
+        "/workspace-v2/control-center/edge-oos/relative-strength-run": run_relative_strength_action_v2,
+        "/workspace-v2/control-center/edge-oos/hypothesis-lineage": run_hypothesis_lineage_action_v2,
+        "/workspace-v2/control-center/edge-oos/strategy-hypothesis-run": run_strategy_hypothesis_action_v2,
+        "/workspace-v2/control-center/edge-oos/strategy-generator": run_strategy_generator_action_v2,
+        "/workspace-v2/control-center/edge-oos/hypothesis-pipeline": run_hypothesis_pipeline_action_v1,
+        "/workspace-v2/control-center/edge-oos/finam-instruments": run_finam_instrument_discovery_action_v1,
+        "/workspace-v2/control-center/edge-oos/data-quality": run_data_quality_action_v1,
+        "/workspace-v2/control-center/edge-oos/session-execution": run_session_execution_action_v1,
+        "/workspace-v2/control-center/edge-oos/edge-search-pipeline": run_edge_search_pipeline_action_v1,
+        "/workspace-v2/control-center/edge-oos/run": run_oos_action_v1,
+        "/workspace-v2/control-center/edge-oos/discover": run_hypothesis_action_v1,
+        "/workspace-v2/control-center/edge-oos/lead-lag": run_lead_lag_action_v1,
+        "/workspace-v2/control-center/edge-oos/relationship-factory": run_relationship_factory_action_v2,
+        "/workspace-v2/control-center/edge-oos/relationship-pipeline": run_relationship_pipeline_action_v2,
+        "/workspace-v2/control-center/edge-oos/signal-funnel": run_signal_funnel_action_v1,
+    }
+    action = actions.get(path)
+    if action is None:
+        return 404, b"Not found"
+    action()
+    return _control_center_runtime_response()
