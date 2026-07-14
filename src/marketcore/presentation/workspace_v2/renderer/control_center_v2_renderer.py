@@ -172,8 +172,8 @@ def render_control_center_v2(
             RenderNode(
                 RenderNodeType.SUBTITLE,
                 text=(
-                    "Без брокерских заявок · eligible = семейства с положительным net по "
-                    "уникальным forward-paths · promotion требует отдельного quality gate"
+                    "Без брокерских заявок · eligible требует положительный net, regime/session "
+                    "и подтверждённые издержки · promotion требует отдельного quality gate"
                 ),
             ),
             RenderNode(
@@ -195,6 +195,9 @@ def render_control_center_v2(
                         ("Eligible семейства", str(int(shadow.get("eligible_families") or 0)), "OK" if int(shadow.get("eligible_families") or 0) > 0 else "WARNING"),
                         ("Eligible family-paths", str(int(shadow.get("eligible_closed") or 0)), "OK"),
                         ("Eligible результат", f"{float(shadow.get('eligible_net_pnl') or 0):.2f}", "OK" if float(shadow.get("eligible_net_pnl") or 0) > 0 else "WARNING"),
+                        ("Quality pending", str(int(shadow.get("quality_pending_families") or 0)), "WARNING"),
+                        ("Pending family-paths", str(int(shadow.get("quality_pending_closed") or 0)), "WARNING"),
+                        ("Pending результат", f"{float(shadow.get('quality_pending_net_pnl') or 0):.2f}", "WARNING"),
                         ("Exploratory семейства", str(int(shadow.get("exploratory_families") or 0)), "WARNING"),
                         ("Exploratory family-paths", str(int(shadow.get("exploratory_closed") or 0)), "WARNING"),
                         ("Exploratory результат", f"{float(shadow.get('exploratory_net_pnl') or 0):.2f}", "BLOCKED" if float(shadow.get("exploratory_net_pnl") or 0) < 0 else "WARNING"),
