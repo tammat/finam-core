@@ -1,0 +1,20 @@
+{
+  "contract_version": "MICROSTRUCTURE_HEALTH_POLICY_V1",
+  "symbols": [
+    "SBER@MISX",
+    "LKOH@MISX",
+    "GAZP@MISX",
+    "PLZL@MISX",
+    "USDRUBF@RTSX",
+    "BRQ6@RTSX",
+    "NGQ6@RTSX"
+  ],
+  "window_minutes": 15,
+  "maximum_observed_age_seconds": 120,
+  "maximum_exchange_age_seconds": 180,
+  "maximum_gap_seconds": 120,
+  "minimum_snapshots_in_window": 3,
+  "session_timezone": "Europe/Moscow",
+  "session_start": "06:50",
+  "session_end": "23:50"
+}

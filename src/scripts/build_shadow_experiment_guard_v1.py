@@ -17,6 +17,7 @@ NAMESPACE = uuid.UUID("67b5ebf6-87d4-4f88-8a27-07d7a3698dbe")
 ROOT = Path("/opt/finam-core")
 WORKER_LOG = ROOT / "data/logs/forward_edge_observation_worker_v1.log"
 WS_LOG = ROOT / "data/logs/finam_microstructure_ws_v1.log"
+HEALTH_POLICY_PATH = ROOT / "config/runtime/microstructure_health_policy_v1.json"
 
 CRITERIA = {
     "minimum_closed_shadow_trades": 100,
@@ -77,6 +78,8 @@ CREATE TABLE IF NOT EXISTS analytics.shadow_experiment_guard_check_v1 (
 );
 CREATE INDEX IF NOT EXISTS idx_shadow_experiment_guard_check_v1_time
 ON analytics.shadow_experiment_guard_check_v1(experiment_id,created_at DESC);
+ALTER TABLE analytics.shadow_experiment_guard_check_v1
+ADD COLUMN IF NOT EXISTS microstructure_data_ready boolean NOT NULL DEFAULT false;
 """
 
 
@@ -99,6 +102,7 @@ def memory_available_mb() -> float:
 
 
 def main() -> int:
+    expected_microstructure_symbols = len(json.loads(HEALTH_POLICY_PATH.read_text(encoding="utf-8"))["symbols"])
     cron_ready = command_ok(["crontab", "-l"], "run-forward-edge-observation-worker-v1.sh")
     worker_log_ready = log_contains(WORKER_LOG, "VERDICT=FORWARD_EDGE_SHADOW_TRAILING_V1_OK")
     websocket_connected = command_ok(["pgrep", "-f", "run_finam_microstructure_ws_v1.py"]) and log_contains(WS_LOG, "status=CONNECTED")
@@ -136,6 +140,20 @@ def main() -> int:
             cur.execute("SELECT count(*) total,count(*) FILTER(WHERE broker_order_sent OR runtime_allowed OR execution_enabled) unsafe FROM analytics.forward_edge_shadow_exit_variant_v1 WHERE cohort_id=%s AND policy_code=%s", (cohort_id,POLICY_CODE))
             trailing = dict(cur.fetchone() or {})
             unsafe = int(base.get("unsafe") or 0) + int(trailing.get("unsafe") or 0)
+            cur.execute("""
+                SELECT
+                    count(*) AS symbols,
+                    count(*) FILTER (WHERE signal_allowed) AS ready,
+                    max(EXTRACT(EPOCH FROM (now()-refreshed_at))) AS projection_age_seconds
+                FROM analytics.microstructure_health_v1
+                WHERE policy_version='MICROSTRUCTURE_HEALTH_POLICY_V1'
+            """)
+            health = dict(cur.fetchone() or {})
+            microstructure_data_ready = (
+                int(health.get("symbols") or 0) == expected_microstructure_symbols
+                and int(health.get("ready") or 0) == expected_microstructure_symbols
+                and float(health.get("projection_age_seconds") or 1e12) <= 120
+            )
 
             reasons = []
             if candidates == 0: reasons.append("NO_CANDIDATES")
@@ -143,6 +161,7 @@ def main() -> int:
             if not cron_ready: reasons.append("CRON_NOT_READY")
             if not worker_log_ready: reasons.append("WORKER_LOG_NOT_READY")
             if not websocket_connected: reasons.append("WEBSOCKET_NOT_CONNECTED")
+            if not microstructure_data_ready: reasons.append("MICROSTRUCTURE_DATA_NOT_READY")
             if disk_used_pct >= 85: reasons.append("DISK_CRITICAL")
             if memory_mb <= 2048: reasons.append("MEMORY_CRITICAL")
             status = "READY_FOR_SHADOW_OPEN" if not reasons else "BLOCKED"
@@ -157,10 +176,10 @@ def main() -> int:
                 INSERT INTO analytics.shadow_experiment_guard_check_v1 (
                     experiment_id,check_status,candidates,observations,shadow_total,trailing_total,unsafe_rows,
                     cron_ready,worker_log_ready,websocket_connected,disk_used_pct,memory_available_mb,
-                    reasons_json,evidence_json,source_version
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s)
+                    reasons_json,evidence_json,source_version,microstructure_data_ready
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)
             """, (str(experiment_id),status,candidates,observations,int(base.get("total") or 0),int(trailing.get("total") or 0),unsafe,
-                  cron_ready,worker_log_ready,websocket_connected,disk_used_pct,memory_mb,json.dumps(reasons),json.dumps(evidence),SOURCE_VERSION))
+                  cron_ready,worker_log_ready,websocket_connected,disk_used_pct,memory_mb,json.dumps(reasons),json.dumps(evidence),SOURCE_VERSION,microstructure_data_ready))
 
     print(f"experiment_id={experiment_id}")
     print(f"cohort_id={cohort_id}")
@@ -173,6 +192,7 @@ def main() -> int:
     print(f"cron_ready={int(cron_ready)}")
     print(f"worker_log_ready={int(worker_log_ready)}")
     print(f"websocket_connected={int(websocket_connected)}")
+    print(f"microstructure_data_ready={int(microstructure_data_ready)}")
     print(f"disk_used_pct={disk_used_pct:.1f}")
     print(f"memory_available_mb={memory_mb:.0f}")
     print(f"reasons={','.join(reasons) if reasons else 'NONE'}")

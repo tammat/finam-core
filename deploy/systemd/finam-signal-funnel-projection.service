@@ -1,0 +1,13 @@
+[Unit]
+Description=MarketCore Signal Funnel Projection
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=alex
+Group=alex
+WorkingDirectory=/opt/finam-core
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/signal_funnel_analytics_v1.py

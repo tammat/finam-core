@@ -63,6 +63,11 @@ def atr(bars: list[dict]) -> float | None:
     return sum(values) / len(values)
 
 
+def build_variant_id(observation_id: object) -> str:
+    """Return a deterministic PostgreSQL-adaptable UUID value."""
+    return str(uuid.uuid5(NAMESPACE, f"{observation_id}:{POLICY_CODE}"))
+
+
 def simulate(side: str, entry_price: float, atr_value: float, bars: list[dict], baseline_exit_ts) -> dict:
     direction = 1 if side == "LONG" else -1
     stop = entry_price - ATR_MULTIPLIER * atr_value if direction == 1 else entry_price + ATR_MULTIPLIER * atr_value
@@ -127,7 +132,7 @@ def main() -> int:
                 commission = float(row["entry_price"]) * COMMISSION_BPS / 10000
                 net = None if gross is None else gross - commission
                 status = "CLOSED" if exit_price is not None else "OPEN"
-                variant_id = uuid.uuid5(NAMESPACE, f"{row['observation_id']}:{POLICY_CODE}")
+                variant_id = build_variant_id(row["observation_id"])
                 cur.execute("""
                     INSERT INTO analytics.forward_edge_shadow_exit_variant_v1 (
                         variant_id,observation_id,cohort_id,incubator_candidate_id,hypothesis_id,policy_code,

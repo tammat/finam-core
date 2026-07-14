@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh MarketCore Microstructure Health
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/build_microstructure_health_v1.py

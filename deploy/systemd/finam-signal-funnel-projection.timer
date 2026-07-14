@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh MarketCore Signal Funnel Projection
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=finam-signal-funnel-projection.service
+
+[Install]
+WantedBy=timers.target

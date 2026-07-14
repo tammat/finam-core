@@ -25,6 +25,15 @@ SYMBOLS = tuple(
     ).split(",") if item.strip()
 )
 SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
+DATA_STALE_AFTER_SEC = float(os.getenv("MARKETCORE_MICROSTRUCTURE_DATA_STALE_AFTER_SEC", "90"))
+
+
+class StaleDataError(RuntimeError):
+    pass
+
+
+def data_is_stale(last_persisted_at: float, now: float, threshold_seconds: float) -> bool:
+    return now-last_persisted_at >= threshold_seconds
 
 
 def number(value: Any) -> Decimal | None:
@@ -73,6 +82,7 @@ class Collector:
         self.stop = asyncio.Event()
         self.books: dict[str, dict[str, dict[Decimal, Decimal]]] = {}
         self.last_saved: dict[str, float] = {}
+        self.last_persisted_at = time.monotonic()
         self.conn = psycopg2.connect(DB)
         self.conn.autocommit = True
 
@@ -120,6 +130,7 @@ class Collector:
                  spread,spread_bps,bid_depth,ask_depth,imbalance,bid_levels,ask_levels,
                  latency_ms,SOURCE,psycopg2.extras.Json(envelope)),
             )
+        self.last_persisted_at = time.monotonic()
 
     def save_quote(self, quote: dict[str, Any], envelope: dict[str, Any]) -> None:
         symbol = str(quote.get("symbol") or "")
@@ -172,6 +183,7 @@ class Collector:
         symbol = str(payload.get("symbol") or "")
         if not symbol:
             return
+        inserted = 0
         with self.conn.cursor() as cur:
             for trade in list_value(payload.get("trades")):
                 trade_id = str(trade.get("trade_id") or "")
@@ -189,6 +201,9 @@ class Collector:
                     (symbol,trade_id,ts,price,size,str(trade.get("side") or "UNKNOWN"),
                      str(trade.get("mpid") or ""),SOURCE,psycopg2.extras.Json(envelope)),
                 )
+                inserted += max(cur.rowcount, 0)
+        if inserted:
+            self.last_persisted_at = time.monotonic()
 
     def process(self, envelope: dict[str, Any]) -> None:
         if envelope.get("type") != "DATA":
@@ -218,11 +233,16 @@ class Collector:
                     await self.subscribe(ws,token)
                     print(f"status=CONNECTED symbols={len(SYMBOLS)}",flush=True)
                     connected_at = time.monotonic()
+                    self.last_persisted_at = connected_at
                     backoff = 2
                     while not self.stop.is_set() and time.monotonic()-connected_at < 540:
                         message = await asyncio.wait_for(ws.recv(),timeout=60)
                         envelope = json.loads(message)
                         self.process(object_value(envelope))
+                        now = time.monotonic()
+                        if data_is_stale(self.last_persisted_at, now, DATA_STALE_AFTER_SEC):
+                            stale_for = now-self.last_persisted_at
+                            raise StaleDataError(f"no_persisted_market_data_for={stale_for:.1f}s")
             except asyncio.TimeoutError:
                 print("status=RECONNECT reason=IDLE_TIMEOUT",flush=True)
             except Exception as exc:

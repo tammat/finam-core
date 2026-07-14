@@ -1,0 +1,16 @@
+{
+  "contract_version": "FORWARD_EDGE_PROMOTION_POLICY_V1",
+  "minimum_closed_observations": 30,
+  "minimum_calendar_days": 90,
+  "minimum_attribution_coverage": 0.95,
+  "minimum_closed_per_regime": 10,
+  "minimum_tested_regimes": 2,
+  "minimum_positive_regime_share": 0.6,
+  "minimum_total_net_pnl": 0.0,
+  "require_positive_regime_net_pnl": true,
+  "require_nonnegative_regime_delta": true,
+  "decision_on_pass": "READY_FOR_PAPER_REVIEW",
+  "decision_on_fail": "HOLD_RESEARCH",
+  "automatic_promotion_allowed": false,
+  "live_allowed": false
+}

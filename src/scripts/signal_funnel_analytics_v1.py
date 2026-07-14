@@ -8,7 +8,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
 
-SOURCE_VERSION = "SIGNAL_FUNNEL_ANALYTICS_V2_LINKED_COHORT"
+SOURCE_VERSION = "SIGNAL_FUNNEL_ANALYTICS_V3_PAPER_AWARE_COHORT"
 
 
 def dec(v: Any) -> Decimal:
@@ -103,19 +103,30 @@ def linked_stage_counts(cur) -> list[tuple[str, str, Decimal, dict[str, Any]]]:
             SELECT DISTINCT t.fill_id
             FROM public.trades t
             JOIN linked_fills f ON f.fill_id = t.fill_id
+        ),
+        paper_fills AS (
+            SELECT DISTINCT signal_id AS signal_key,
+                   COALESCE(NULLIF(fill_id, ''), id::text) AS fill_key
+            FROM public.signal_fills
+            WHERE NULLIF(signal_id, '') IS NOT NULL
+        ),
+        all_signals AS (
+            SELECT signal_key FROM signal_cohort
+            UNION
+            SELECT signal_key FROM paper_fills
         )
         SELECT
-            (SELECT count(*) FROM signal_cohort) AS signals,
-            (SELECT count(DISTINCT signal_key) FROM linked_orders) AS ordered_signals,
-            (SELECT count(DISTINCT o.signal_key) FROM linked_orders o JOIN linked_acks a USING(order_id)) AS acknowledged_signals,
-            (SELECT count(DISTINCT o.signal_key) FROM linked_orders o JOIN linked_fills f USING(order_id)) AS filled_signals,
-            (SELECT count(DISTINCT o.signal_key) FROM linked_orders o JOIN linked_fills f USING(order_id) JOIN linked_trades t USING(fill_id)) AS traded_signals
+            (SELECT count(*) FROM all_signals) AS signals,
+            (SELECT count(*) FROM (SELECT signal_key FROM linked_orders UNION SELECT signal_key FROM paper_fills) q) AS ordered_signals,
+            (SELECT count(*) FROM (SELECT o.signal_key FROM linked_orders o JOIN linked_acks a USING(order_id) UNION SELECT signal_key FROM paper_fills) q) AS acknowledged_signals,
+            (SELECT count(*) FROM (SELECT o.signal_key FROM linked_orders o JOIN linked_fills f USING(order_id) UNION SELECT signal_key FROM paper_fills) q) AS filled_signals,
+            (SELECT count(*) FROM (SELECT o.signal_key FROM linked_orders o JOIN linked_fills f USING(order_id) JOIN linked_trades t USING(fill_id) UNION SELECT signal_key FROM paper_fills) q) AS traded_signals
     """)
     row = cur.fetchone()
     evidence = {
-        "cohort": "linked_signal_order_execution_v2",
+        "cohort": "linked_signal_order_execution_v3_paper_aware",
         "comparable": True,
-        "join_chain": "signals.signal_id -> orders.signal_event_id -> order_acks/fills.order_id -> trades.fill_id",
+        "join_chain": "broker: signals->orders->acks/fills->trades; paper: signal_fills.signal_id/fill_id",
         "count_unit": "distinct_origin_signal",
     }
     order_evidence = dict(evidence)
@@ -146,6 +157,33 @@ def status(current: Decimal, previous: Decimal | None) -> str:
     if rate is not None and rate < Decimal("10"):
         return "BOTTLENECK"
     return "OK"
+
+
+def stage_signature(stages: list[tuple[str, str, Decimal, dict[str, Any]]]) -> list[tuple[str, Decimal]]:
+    return [(code, count) for code, _, count, _ in stages]
+
+
+def latest_snapshot_if_unchanged(cur, stages: list[tuple[str, str, Decimal, dict[str, Any]]]) -> int | None:
+    cur.execute("""
+        SELECT signal_funnel_snapshot_id
+        FROM analytics.signal_funnel_snapshot_v1
+        WHERE source_version=%s
+        ORDER BY signal_funnel_snapshot_id DESC
+        LIMIT 1
+    """, (SOURCE_VERSION,))
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    snapshot_id = int(row["signal_funnel_snapshot_id"])
+    cur.execute("""
+        SELECT stage_code,stage_count
+        FROM analytics.signal_funnel_stage_v1
+        WHERE signal_funnel_snapshot_id=%s
+        ORDER BY stage_order
+    """, (snapshot_id,))
+    previous = [(stage["stage_code"], dec(stage["stage_count"])) for stage in cur.fetchall()]
+    return snapshot_id if previous == stage_signature(stages) else None
 
 
 def insert_stage(cur, snapshot_id: int, order: int, code: str, name: str, count: Decimal, previous: Decimal | None, evidence: dict[str, Any]) -> None:
@@ -182,26 +220,29 @@ def insert_stage(cur, snapshot_id: int, order: int, code: str, name: str, count:
 def main() -> None:
     with psycopg2.connect("postgresql:///finam_core") as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                INSERT INTO analytics.signal_funnel_snapshot_v1
-                (source_version, evidence_json)
-                VALUES (%s,%s::jsonb)
-                RETURNING signal_funnel_snapshot_id
-            """, (
-                SOURCE_VERSION,
-                json.dumps({"mode": "read_only", "purpose": "signal_to_trade_funnel"}, ensure_ascii=False),
-            ))
-            snapshot_id = int(cur.fetchone()["signal_funnel_snapshot_id"])
-
             stages = linked_stage_counts(cur)
+            snapshot_id = latest_snapshot_if_unchanged(cur, stages)
+            snapshot_changed = snapshot_id is None
+            if snapshot_changed:
+                cur.execute("""
+                    INSERT INTO analytics.signal_funnel_snapshot_v1
+                    (source_version, evidence_json)
+                    VALUES (%s,%s::jsonb)
+                    RETURNING signal_funnel_snapshot_id
+                """, (
+                    SOURCE_VERSION,
+                    json.dumps({"mode": "read_only", "purpose": "signal_to_trade_funnel"}, ensure_ascii=False),
+                ))
+                snapshot_id = int(cur.fetchone()["signal_funnel_snapshot_id"])
 
-            previous: Decimal | None = None
-            for idx, (code, name, count, evidence) in enumerate(stages, start=1):
-                insert_stage(cur, snapshot_id, idx, code, name, count, previous, evidence)
-                previous = count
+                previous: Decimal | None = None
+                for idx, (code, name, count, evidence) in enumerate(stages, start=1):
+                    insert_stage(cur, snapshot_id, idx, code, name, count, previous, evidence)
+                    previous = count
 
     print("=== SIGNAL_FUNNEL_ANALYTICS_V1 ===")
     print(f"signal_funnel_snapshot_id={snapshot_id}")
+    print(f"snapshot_changed={int(snapshot_changed)}")
     for code, _, count, _ in stages:
         print(f"{code}={count}")
     print("runtime_changed=0")
