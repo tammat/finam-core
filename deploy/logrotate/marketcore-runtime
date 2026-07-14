@@ -1,0 +1,15 @@
+/opt/finam-core/logs/*.log /opt/finam-core/logs/*.err /opt/finam-core/data/logs/*.log {
+    daily
+    maxsize 100M
+    rotate 14
+    missingok
+    notifempty
+    dateext
+    dateformat -%Y%m%d-%H%M%S
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -6
+    copytruncate
+    create 0640 alex alex
+}

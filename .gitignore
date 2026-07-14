@@ -80,6 +80,7 @@ _wip/
 
 # Runtime snapshots
 data/snapshot.json
+data/logrotate/*.status
 
 # ==================================================
 # MarketCore local runtime / temporary files

@@ -1,0 +1,19 @@
+{
+  "catalog_version": "MARKET_DATA_RETENTION_POLICY_V1",
+  "timezone": "Europe/Moscow",
+  "apply_deletes": true,
+  "maximum_source_rows_per_run": 500000,
+  "statement_timeout_seconds": 900,
+  "sources": {
+    "market_ticks": {
+      "raw_retention_days": 14,
+      "aggregate_retention_days": 730,
+      "intervals": ["1 minute", "5 minutes"]
+    },
+    "market_microstructure": {
+      "raw_retention_days": 45,
+      "aggregate_retention_days": 730,
+      "intervals": ["1 minute", "5 minutes"]
+    }
+  }
+}
