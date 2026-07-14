@@ -184,7 +184,9 @@ class ControlCenterV2Resolver:
             LEFT JOIN LATERAL (
                 SELECT snapshot_id
                 FROM analytics.market_microstructure_snapshot_v1 s
-                WHERE s.symbol=t.symbol
+                WHERE (s.symbol=t.symbol OR (
+                    position('@' IN t.symbol)=0 AND s.symbol=t.symbol||'@MISX'
+                ))
                   AND t.entry_ts IS NOT NULL
                   AND s.best_bid > 0 AND s.best_ask > s.best_bid
                   AND s.bid_levels > 0 AND s.ask_levels > 0

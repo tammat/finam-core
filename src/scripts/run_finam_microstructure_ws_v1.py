@@ -26,6 +26,7 @@ SYMBOLS = tuple(
 )
 SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
 DATA_STALE_AFTER_SEC = float(os.getenv("MARKETCORE_MICROSTRUCTURE_DATA_STALE_AFTER_SEC", "90"))
+MAX_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_SYMBOLS", "64"))
 
 
 class StaleDataError(RuntimeError):
@@ -34,6 +35,23 @@ class StaleDataError(RuntimeError):
 
 def data_is_stale(last_persisted_at: float, now: float, threshold_seconds: float) -> bool:
     return now-last_persisted_at >= threshold_seconds
+
+
+def finam_symbol(symbol: str) -> str:
+    symbol = symbol.strip().upper()
+    if symbol in {"IMOEX", "IMOEX2", "RTSI"}:
+        return f"{symbol}@MISX"
+    return symbol
+
+
+def merge_symbols(*groups: list[str] | tuple[str, ...], limit: int = MAX_SYMBOLS) -> tuple[str, ...]:
+    symbols: list[str] = []
+    for group in groups:
+        for raw_symbol in group:
+            symbol = finam_symbol(raw_symbol)
+            if symbol and symbol not in symbols:
+                symbols.append(symbol)
+    return tuple(symbols[:limit])
 
 
 def number(value: Any) -> Decimal | None:
@@ -86,16 +104,39 @@ class Collector:
         self.conn = psycopg2.connect(DB)
         self.conn.autocommit = True
 
+    def subscription_symbols(self) -> tuple[str, ...]:
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT symbol FROM public.market_data_watch_universe
+                WHERE is_enabled ORDER BY symbol
+            """)
+            watched = [str(row[0]) for row in cur.fetchall()]
+            cur.execute("""
+                SELECT DISTINCT symbol
+                FROM analytics.forward_edge_shadow_trade_v1
+                WHERE cohort_id=(
+                    SELECT cohort_id FROM analytics.forward_edge_shadow_trade_v1
+                    ORDER BY created_at DESC LIMIT 1
+                )
+            """)
+            shadow = [str(row[0]) for row in cur.fetchall()]
+            cur.execute("""
+                SELECT DISTINCT symbol FROM public.signal_fills
+                WHERE created_at >= current_date-1
+            """)
+            recent_fills = [str(row[0]) for row in cur.fetchall()]
+        return merge_symbols(SYMBOLS, watched, shadow, recent_fills)
+
     def close(self) -> None:
         self.token_manager.close()
         self.conn.close()
 
-    async def subscribe(self, ws: Any, token: str) -> None:
+    async def subscribe(self, ws: Any, token: str, symbols: tuple[str, ...]) -> None:
         await ws.send(json.dumps({
             "action": "SUBSCRIBE", "type": "QUOTES",
-            "data": {"symbols": list(SYMBOLS)}, "token": token,
+            "data": {"symbols": list(symbols)}, "token": token,
         }))
-        for symbol in SYMBOLS:
+        for symbol in symbols:
             for subscription_type in ("ORDER_BOOK", "INSTRUMENT_TRADES"):
                 await ws.send(json.dumps({
                     "action": "SUBSCRIBE", "type": subscription_type,
@@ -230,8 +271,12 @@ class Collector:
                     WS_URL, additional_headers={"Authorization": token},
                     ping_interval=20, ping_timeout=20, max_size=8_000_000,
                 ) as ws:
-                    await self.subscribe(ws,token)
-                    print(f"status=CONNECTED symbols={len(SYMBOLS)}",flush=True)
+                    symbols = self.subscription_symbols()
+                    await self.subscribe(ws,token,symbols)
+                    print(
+                        f"status=CONNECTED symbols={len(symbols)} universe={','.join(symbols)}",
+                        flush=True,
+                    )
                     connected_at = time.monotonic()
                     self.last_persisted_at = connected_at
                     backoff = 2
