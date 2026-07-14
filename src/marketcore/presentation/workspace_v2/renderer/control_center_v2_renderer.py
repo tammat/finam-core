@@ -172,8 +172,10 @@ def render_control_center_v2(
             RenderNode(
                 RenderNodeType.SUBTITLE,
                 text=(
-                    "Без брокерских заявок · eligible требует положительный net, regime/session "
-                    "и подтверждённые издержки · promotion требует отдельного quality gate"
+                    ("Активный cohort накапливает данные · показан последний архивный baseline · "
+                     if shadow.get("reporting_is_archived") else "Активный cohort · ")
+                    + "без брокерских заявок · eligible требует положительный net, regime/session "
+                    "и подтверждённые издержки"
                 ),
             ),
             RenderNode(
@@ -186,6 +188,9 @@ def render_control_center_v2(
                         children=(_title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value", "style": compact_kpi_style}, text=value)),
                     )
                     for label, value, status in (
+                        ("Активный cohort", "Накопление" if int(shadow.get("active_observations") or 0) == 0 else "Наблюдение", "WARNING"),
+                        ("Новых наблюдений", str(int(shadow.get("active_observations") or 0)), "WARNING"),
+                        ("Источник метрик", "Архивный baseline" if shadow.get("reporting_is_archived") else "Активный cohort", "WARNING" if shadow.get("reporting_is_archived") else "OK"),
                         ("Готовность", "Готово к открытию" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "Заблокировано", "OK" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "BLOCKED"),
                         ("Всего", str(int(shadow.get("total") or 0)), "WARNING"),
                         ("Ожидают вход", str(int(shadow.get("pending") or 0)), "WARNING"),

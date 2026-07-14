@@ -397,6 +397,25 @@ class ControlCenterV2Resolver:
         latest = cur.fetchone()
         if not latest:
             return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}
+        active_cohort_id = latest["cohort_id"]
+        cur.execute("""
+            SELECT count(*) AS observations
+            FROM analytics.forward_edge_observation_v1
+            WHERE cohort_id=%s
+        """, (active_cohort_id,))
+        active_observations = int((cur.fetchone() or {}).get("observations") or 0)
+        cur.execute("""
+            SELECT i.cohort_id
+            FROM analytics.forward_edge_incubator_v1 i
+            WHERE EXISTS (
+                SELECT 1 FROM analytics.forward_edge_shadow_trade_v1 t
+                WHERE t.cohort_id=i.cohort_id
+            )
+            ORDER BY i.created_at DESC
+            LIMIT 1
+        """)
+        reporting = cur.fetchone() or latest
+        reporting_cohort_id = reporting["cohort_id"]
         cur.execute("""
             WITH ranked AS (
                 SELECT t.*,row_number() OVER (
@@ -412,8 +431,14 @@ class ControlCenterV2Resolver:
                    coalesce(sum(net_pnl) FILTER (WHERE shadow_status='CLOSED'),0) net_pnl,
                    count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) unsafe
             FROM ranked WHERE execution_path_rank=1
-        """, (latest["cohort_id"],))
+        """, (reporting_cohort_id,))
         result = dict(cur.fetchone() or {})
+        result.update({
+            "active_cohort_id": str(active_cohort_id),
+            "active_observations": active_observations,
+            "reporting_cohort_id": str(reporting_cohort_id),
+            "reporting_is_archived": reporting_cohort_id != active_cohort_id,
+        })
         cur.execute("""
             WITH ranked AS (
                 SELECT i.strategy_family,t.*,o.regime_code,o.session_code,o.data_quality_status,
@@ -473,7 +498,7 @@ class ControlCenterV2Resolver:
                 string_agg(strategy_family,', ' ORDER BY strategy_family)
                     FILTER (WHERE closed_paths>0 AND net_pnl<=0) AS exploratory_family_names
             FROM family_summary
-        """, (latest["cohort_id"],))
+        """, (reporting_cohort_id,))
         result.update(dict(cur.fetchone() or {}))
         cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_exit_variant_v1') AS table_name")
         if cur.fetchone()["table_name"]:
@@ -494,7 +519,7 @@ class ControlCenterV2Resolver:
                        coalesce(sum(net_pnl) FILTER (WHERE variant_status='CLOSED'),0) trailing_net_pnl,
                        count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) trailing_unsafe
                 FROM ranked WHERE execution_path_rank=1
-            """, (latest["cohort_id"],))
+            """, (reporting_cohort_id,))
             result.update(dict(cur.fetchone() or {}))
         cur.execute("SELECT to_regclass('analytics.shadow_experiment_guard_check_v1') AS table_name")
         if cur.fetchone()["table_name"]:
