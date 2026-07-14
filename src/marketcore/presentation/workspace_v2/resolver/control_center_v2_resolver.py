@@ -414,6 +414,38 @@ class ControlCenterV2Resolver:
             FROM ranked WHERE execution_path_rank=1
         """, (latest["cohort_id"],))
         result = dict(cur.fetchone() or {})
+        cur.execute("""
+            WITH ranked AS (
+                SELECT i.strategy_family,t.*,row_number() OVER (
+                    PARTITION BY i.strategy_family,t.symbol,t.signal_ts,t.entry_ts,t.exit_ts,
+                                 t.side,t.entry_price,t.exit_price,t.shadow_status
+                    ORDER BY t.created_at,t.shadow_trade_id
+                ) AS family_path_rank
+                FROM analytics.forward_edge_shadow_trade_v1 t
+                JOIN analytics.forward_edge_incubator_v1 i
+                  USING (cohort_id,incubator_candidate_id)
+                WHERE t.cohort_id=%s
+            ), family_summary AS (
+                SELECT strategy_family,
+                       count(*) FILTER (WHERE shadow_status='CLOSED') AS closed_paths,
+                       coalesce(sum(net_pnl) FILTER (WHERE shadow_status='CLOSED'),0) AS net_pnl
+                FROM ranked WHERE family_path_rank=1
+                GROUP BY strategy_family
+            )
+            SELECT
+                count(*) FILTER (WHERE closed_paths>0 AND net_pnl>0) AS eligible_families,
+                coalesce(sum(closed_paths) FILTER (WHERE closed_paths>0 AND net_pnl>0),0) AS eligible_closed,
+                coalesce(sum(net_pnl) FILTER (WHERE closed_paths>0 AND net_pnl>0),0) AS eligible_net_pnl,
+                count(*) FILTER (WHERE closed_paths>0 AND net_pnl<=0) AS exploratory_families,
+                coalesce(sum(closed_paths) FILTER (WHERE closed_paths>0 AND net_pnl<=0),0) AS exploratory_closed,
+                coalesce(sum(net_pnl) FILTER (WHERE closed_paths>0 AND net_pnl<=0),0) AS exploratory_net_pnl,
+                string_agg(strategy_family,', ' ORDER BY strategy_family)
+                    FILTER (WHERE closed_paths>0 AND net_pnl>0) AS eligible_family_names,
+                string_agg(strategy_family,', ' ORDER BY strategy_family)
+                    FILTER (WHERE closed_paths>0 AND net_pnl<=0) AS exploratory_family_names
+            FROM family_summary
+        """, (latest["cohort_id"],))
+        result.update(dict(cur.fetchone() or {}))
         cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_exit_variant_v1') AS table_name")
         if cur.fetchone()["table_name"]:
             cur.execute("""

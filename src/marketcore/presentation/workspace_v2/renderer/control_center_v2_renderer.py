@@ -169,7 +169,13 @@ def render_control_center_v2(
         props={"class": "mc-v2-section", "data-section": "SHADOW"},
         children=(
             _title("Shadow-сделки", 2),
-            RenderNode(RenderNodeType.SUBTITLE, text="Без брокерских заявок · только новые forward-наблюдения"),
+            RenderNode(
+                RenderNodeType.SUBTITLE,
+                text=(
+                    "Без брокерских заявок · eligible = семейства с положительным net по "
+                    "уникальным forward-paths · promotion требует отдельного quality gate"
+                ),
+            ),
             RenderNode(
                 RenderNodeType.GRID,
                 props={"class": "mc-v2-grid", "style": shadow_grid_style},
@@ -185,7 +191,13 @@ def render_control_center_v2(
                         ("Ожидают вход", str(int(shadow.get("pending") or 0)), "WARNING"),
                         ("Открыты", str(int(shadow.get("open") or 0)), "WARNING"),
                         ("Закрыты", str(int(shadow.get("closed") or 0)), "OK"),
-                        ("Результат", f"{float(shadow.get('net_pnl') or 0):.2f}", "OK" if float(shadow.get("net_pnl") or 0) >= 0 else "BLOCKED"),
+                        ("Все уникальные paths", f"{float(shadow.get('net_pnl') or 0):.2f}", "WARNING"),
+                        ("Eligible семейства", str(int(shadow.get("eligible_families") or 0)), "OK" if int(shadow.get("eligible_families") or 0) > 0 else "WARNING"),
+                        ("Eligible family-paths", str(int(shadow.get("eligible_closed") or 0)), "OK"),
+                        ("Eligible результат", f"{float(shadow.get('eligible_net_pnl') or 0):.2f}", "OK" if float(shadow.get("eligible_net_pnl") or 0) > 0 else "WARNING"),
+                        ("Exploratory семейства", str(int(shadow.get("exploratory_families") or 0)), "WARNING"),
+                        ("Exploratory family-paths", str(int(shadow.get("exploratory_closed") or 0)), "WARNING"),
+                        ("Exploratory результат", f"{float(shadow.get('exploratory_net_pnl') or 0):.2f}", "BLOCKED" if float(shadow.get("exploratory_net_pnl") or 0) < 0 else "WARNING"),
                         ("ATR-трейлинг", str(int(shadow.get("trailing_total") or 0)), "WARNING"),
                         ("Трейлинг сработал", str(int(shadow.get("trailing_exits") or 0)), "OK"),
                         ("Результат трейлинга", f"{float(shadow.get('trailing_net_pnl') or 0):.2f}", "OK" if float(shadow.get("trailing_net_pnl") or 0) >= 0 else "BLOCKED"),
