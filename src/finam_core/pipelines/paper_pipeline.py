@@ -509,10 +509,7 @@ class PaperTradingPipeline:
         self._quote_log_every = float(os.getenv("QUOTE_LOG_EVERY", "0"))  # 0 = выключено
         self.trailing_exit = TrailingExitEngine()
         # Русский комментарий: dry-run менеджер trailing stop-заявок. В dry-run заявки брокеру не отправляются.
-        self.trailing_order_manager = TrailingOrderManager(
-            trail_abs=float(os.getenv("TRAILING_ORDER_TRAIL_ABS", "0.40")),
-            min_replace_step=float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")),
-        )
+        self.trailing_order_manager = TrailingOrderManager.from_versioned_policy()
         # Русский комментарий:
         # Реальный lifecycle защитных stop-заявок выключен по умолчанию hard-gate env.
         # Русский комментарий:
@@ -5673,6 +5670,7 @@ class PaperTradingPipeline:
             symbol = str(getattr(fill, "symbol", "") or "")
             side = str(getattr(fill, "side", "") or "").upper()
             qty = float(getattr(fill, "qty", 0.0) or 0.0)
+            price = float(getattr(fill, "price", 0.0) or 0.0)
 
             if not symbol or qty <= 0 or side not in ("BUY", "SELL"):
                 return
@@ -5708,34 +5706,52 @@ class PaperTradingPipeline:
                             "previous_remaining_qty": old_qty,
                         })
 
-                        conn.execute(
-                            """
-                            UPDATE position_lifecycle_state
-                            SET remaining_qty = %s,
-                                initial_qty = COALESCE(initial_qty, %s),
-                                raw = %s,
-                                updated_at = now()
-                            WHERE id = %s
-                            """,
-                            (new_qty, new_qty, Jsonb(raw), row["id"]),
-                        )
+                        if new_qty <= 0:
+                            conn.execute("DELETE FROM position_lifecycle_state WHERE id = %s", (row["id"],))
+                            self._trailing_order_stop_by_symbol.pop(symbol, None)
+                        elif old_qty <= 0 < new_qty:
+                            conn.execute(
+                                """
+                                UPDATE position_lifecycle_state
+                                SET entry_price=%s, initial_qty=%s, remaining_qty=%s,
+                                    tp1_done=false, tp2_done=false, profit_lock_done=false,
+                                    trailing_active=false, current_stop=NULL,
+                                    current_take_profit=NULL, raw=%s, updated_at=now()
+                                WHERE id=%s
+                                """,
+                                (price, new_qty, new_qty, Jsonb(raw), row["id"]),
+                            )
+                            self._trailing_order_stop_by_symbol.pop(symbol, None)
+                        else:
+                            conn.execute(
+                                """
+                                UPDATE position_lifecycle_state
+                                SET remaining_qty=%s, initial_qty=COALESCE(initial_qty,%s),
+                                    raw=%s, updated_at=now()
+                                WHERE id=%s
+                                """,
+                                (new_qty, new_qty, Jsonb(raw), row["id"]),
+                            )
                     else:
                         new_qty = delta
-                        conn.execute(
-                            """
-                            INSERT INTO position_lifecycle_state
-                                (symbol, strategy, remaining_qty, initial_qty, raw, created_at, updated_at)
-                            VALUES
-                                (%s, %s, %s, %s, %s, now(), now())
-                            """,
-                            (
-                                symbol,
-                                "default",
-                                new_qty,
-                                new_qty,
-                                Jsonb({"source": "paper_pipeline_lifecycle_on_fill_v1"}),
-                            ),
-                        )
+                        if new_qty > 0:
+                            conn.execute(
+                                """
+                                INSERT INTO position_lifecycle_state
+                                    (symbol, strategy, entry_price, remaining_qty, initial_qty,
+                                     trailing_active, raw, created_at, updated_at)
+                                VALUES
+                                    (%s, %s, %s, %s, %s, false, %s, now(), now())
+                                """,
+                                (
+                                    symbol,
+                                    "default",
+                                    price,
+                                    new_qty,
+                                    new_qty,
+                                    Jsonb({"source": "paper_pipeline_lifecycle_on_fill_v1"}),
+                                ),
+                            )
 
             if symbol.startswith("NG"):
                 print(

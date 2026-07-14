@@ -46,6 +46,9 @@ def load_contracts(roots: list[str], max_contracts: int) -> list[str]:
 def migrate_market_bars() -> None:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.market_bars')")
+            if cur.fetchone()[0] is not None:
+                return
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS market_bars (
                     id BIGSERIAL PRIMARY KEY,
