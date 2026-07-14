@@ -78,7 +78,8 @@ def main():
           cohort_id uuid NOT NULL,incubator_candidate_id uuid NOT NULL,last_evaluated_ts timestamptz,
           worker_status text NOT NULL,last_error text,source_version text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now(),
           PRIMARY KEY(cohort_id,incubator_candidate_id));""")
-      cur.execute("SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1"); cohort=cur.fetchone()["cohort_id"]
+      cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id"); cohort=cur.fetchone()["cohort_id"]
+      if cohort is None: raise RuntimeError("forward edge baseline is not frozen")
       cur.execute("SELECT * FROM analytics.forward_edge_incubator_v1 WHERE cohort_id=%s ORDER BY incubator_candidate_id",(cohort,)); candidates=cur.fetchall()
       created=entered=closed=routed=0
       for c in candidates:

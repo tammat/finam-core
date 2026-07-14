@@ -39,7 +39,8 @@ def main():
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
       cur.execute("""ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS planned_entry_ts timestamptz;
         ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS signal_context jsonb;""")
-      cur.execute("SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1"); cohort=cur.fetchone()["cohort_id"]
+      cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id"); cohort=cur.fetchone()["cohort_id"]
+      if cohort is None: raise RuntimeError("forward edge baseline is not frozen")
       cur.execute("SELECT * FROM analytics.forward_edge_incubator_v1 WHERE cohort_id=%s AND incubator_status='ROUTER_REQUIRED' ORDER BY strategy_family",(cohort,)); candidates=cur.fetchall()
       created=entered=closed=0
       for c in candidates:
