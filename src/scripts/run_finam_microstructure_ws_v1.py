@@ -26,7 +26,7 @@ SYMBOLS = tuple(
 )
 SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
 DATA_STALE_AFTER_SEC = float(os.getenv("MARKETCORE_MICROSTRUCTURE_DATA_STALE_AFTER_SEC", "90"))
-MAX_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_SYMBOLS", "64"))
+MAX_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_SYMBOLS", "10"))
 
 
 class StaleDataError(RuntimeError):
@@ -133,7 +133,7 @@ class Collector:
             SELECT DISTINCT symbol FROM public.signal_fills
             WHERE created_at >= current_date-1
         """)
-        return merge_symbols(SYMBOLS, watched, shadow, recent_fills)
+        return merge_symbols(recent_fills, shadow, SYMBOLS, watched)
 
     def close(self) -> None:
         self.token_manager.close()
