@@ -135,10 +135,13 @@ class ControlCenterV2Resolver:
         cur.execute("""
             SELECT 'PAPER' AS mode,
                    count(*) AS fills,
-                   count(*) AS linked_fills,
+                   count(f.fill_id) AS linked_fills,
                    coalesce(sum(f.commission),0) AS commission,
-                   CASE WHEN count(*) > 0 THEN 100.0 ELSE 0 END AS linkage_pct,
-                   false AS quotes_verified,
+                   CASE WHEN count(*) > 0
+                        THEN 100.0 * count(f.fill_id) / count(*) ELSE 0 END AS linkage_pct,
+                   count(*) > 0 AND count(*) FILTER (
+                       WHERE ms.snapshot_id IS NOT NULL
+                   ) = count(*) AS quotes_verified,
                    count(*) FILTER (WHERE sf.side='BUY') AS positions_opened,
                    (SELECT count(*) FROM public.trailing_order_events
                     WHERE ts >= date_trunc('day',now()) AND action='PLACE_STOP') AS stops_placed,
@@ -153,17 +156,50 @@ class ControlCenterV2Resolver:
                    count(*) FILTER (WHERE sf.side='SELL') AS positions_closed
             FROM public.signal_fills sf
             LEFT JOIN public.fills f ON f.fill_id=sf.fill_id
+            LEFT JOIN LATERAL (
+                SELECT snapshot_id
+                FROM analytics.market_microstructure_snapshot_v1 s
+                WHERE s.symbol=sf.symbol
+                  AND s.best_bid > 0 AND s.best_ask > s.best_bid
+                  AND s.bid_levels > 0 AND s.ask_levels > 0
+                  AND abs(extract(epoch FROM (
+                      coalesce(s.exchange_ts,s.observed_at)-coalesce(f.ts,sf.created_at)
+                  ))) <= 5
+                ORDER BY abs(extract(epoch FROM (
+                    coalesce(s.exchange_ts,s.observed_at)-coalesce(f.ts,sf.created_at)
+                ))), s.snapshot_id DESC
+                LIMIT 1
+            ) ms ON true
             WHERE sf.created_at >= date_trunc('day', now())
             UNION ALL
-            SELECT 'SHADOW', count(*), count(*), coalesce(sum(commission),0),
+            SELECT 'SHADOW', count(*), count(*),
+                   coalesce(sum(t.commission),0),
                    CASE WHEN count(*) > 0 THEN 100.0 ELSE 0 END,
                    count(*) > 0 AND count(*) FILTER (
-                       WHERE spread_cost IS NOT NULL AND slippage IS NOT NULL
+                       WHERE ms.snapshot_id IS NOT NULL
                    ) = count(*),
-                   count(*) FILTER (WHERE side='BUY'),0,0,0,0,0,
-                   count(*) FILTER (WHERE shadow_status='CLOSED')
-            FROM analytics.forward_edge_shadow_trade_v1
-            WHERE created_at >= date_trunc('day', now())
+                   count(*) FILTER (WHERE t.side IN ('BUY','LONG')),0,0,0,0,0,
+                   count(*) FILTER (WHERE t.shadow_status='CLOSED')
+            FROM analytics.forward_edge_shadow_trade_v1 t
+            LEFT JOIN LATERAL (
+                SELECT snapshot_id
+                FROM analytics.market_microstructure_snapshot_v1 s
+                WHERE s.symbol=t.symbol
+                  AND t.entry_ts IS NOT NULL
+                  AND s.best_bid > 0 AND s.best_ask > s.best_bid
+                  AND s.bid_levels > 0 AND s.ask_levels > 0
+                  AND abs(extract(epoch FROM (
+                      coalesce(s.exchange_ts,s.observed_at)-t.entry_ts
+                  ))) <= 5
+                ORDER BY abs(extract(epoch FROM (
+                    coalesce(s.exchange_ts,s.observed_at)-t.entry_ts
+                ))), s.snapshot_id DESC
+                LIMIT 1
+            ) ms ON true
+            WHERE t.cohort_id=(
+                SELECT cohort_id FROM analytics.forward_edge_shadow_trade_v1
+                ORDER BY created_at DESC LIMIT 1
+            ) AND t.entry_ts IS NOT NULL
         """)
         return [dict(row) for row in cur.fetchall()]
 
