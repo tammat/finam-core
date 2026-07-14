@@ -58,7 +58,7 @@ def replace_symbols(execstart: str, br: str, ng: str) -> str:
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--br", default="BRN6@RTSX")
+    p.add_argument("--br", default="BRQ6@RTSX")
     p.add_argument("--ng", default="NGN6@RTSX")
     args = p.parse_args()
 
