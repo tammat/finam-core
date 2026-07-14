@@ -158,7 +158,14 @@
     }
 
     function showInlineProgress(documentObject, sourceElement) {
-        const status = sourceElement.lastElementChild;
+        let status = sourceElement.lastElementChild;
+        if (sourceElement.tagName !== "TR") {
+            status = sourceElement.querySelector("[data-runtime-row-progress]");
+            if (!status) {
+                status = documentObject.createElement("div");
+                sourceElement.appendChild(status);
+            }
+        }
         status.replaceChildren();
         status.setAttribute("data-runtime-row-progress", "true");
         status.setAttribute("aria-live", "polite");
@@ -185,7 +192,16 @@
         }, 300);
     }
 
-    function showConfirmationDialog(documentObject, sourceElement) {
+    function navigateToTarget(documentObject, target) {
+        const destination = new URL(target, globalObject.location.href);
+        globalObject.history.pushState({}, "", `${destination.pathname}${destination.search}${destination.hash}`);
+        if (destination.hash) {
+            const targetElement = documentObject.getElementById(destination.hash.slice(1));
+            if (targetElement) targetElement.scrollIntoView({behavior: "smooth", block: "start"});
+        }
+    }
+
+    function showConfirmationDialog(documentObject, sourceElement, target) {
         let options = [];
         try { options = JSON.parse(sourceElement.dataset.confirmationOptions || "[]"); } catch (_) { options = []; }
         if (!options.length) return;
@@ -206,6 +222,9 @@
         confirm.textContent = sourceElement.dataset.confirmationLabel || "Подтвердить";
         confirm.addEventListener("click", () => {
             sourceElement.dataset.confirmedOption = select.value;
+            if (select.value !== "observe" && !select.value.startsWith("observe-")) {
+                navigateToTarget(documentObject, target);
+            }
             dialog.close();
             dialog.remove();
         });
@@ -220,16 +239,8 @@
 
     function activateTableRow(documentObject, sourceElement, target, label, completeLabel) {
         showInlineProgress(documentObject, sourceElement);
-        const destination = new URL(target, globalObject.location.href);
         globalObject.setTimeout(() => {
-            globalObject.history.pushState({}, "", `${destination.pathname}${destination.search}${destination.hash}`);
-            if (destination.hash) {
-                const targetElement = documentObject.getElementById(destination.hash.slice(1));
-                if (targetElement) {
-                    targetElement.scrollIntoView({behavior: "smooth", block: "start"});
-                }
-            }
-            showConfirmationDialog(documentObject, sourceElement);
+            showConfirmationDialog(documentObject, sourceElement, target);
         }, 320);
     }
 
@@ -320,7 +331,7 @@
 
             applyProps(element, node.props || {});
 
-            if (node.type === "table_row" && node.props?.activation_target) {
+            if ((node.type === "table_row" || node.type === "card") && node.props?.activation_target) {
                 const activationTarget = String(node.props.activation_target);
                 const progressLabel = String(node.props.progress_label || "");
                 const progressCompleteLabel = String(node.props.progress_complete_label || progressLabel);

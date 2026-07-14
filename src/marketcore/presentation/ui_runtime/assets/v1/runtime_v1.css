@@ -139,6 +139,7 @@ body {
     font-size: .82rem;
     letter-spacing: .02em;
     text-transform: none;
+    overflow-wrap: anywhere;
 }
 
 .mc-v2-section[data-section="ACTIONS"] .mc-v2-card > p,
@@ -162,16 +163,19 @@ body {
 }
 
 .mc-v2-section[data-section="ACTIONS"] .mc-v2-kpi-value {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    margin: 0;
+    position: static;
+    display: inline-flex;
+    width: max-content;
+    max-width: 100%;
+    margin: 7px 0 0;
     padding: 4px 8px;
     border-radius: 999px;
     color: #6ee7cf;
     background: rgba(49, 205, 178, .1);
-    font-size: .76rem;
+    font-size: .65rem;
+    font-weight: 700;
     letter-spacing: 0;
+    overflow-wrap: anywhere;
 }
 
 .mc-v2-availability {
@@ -279,8 +283,8 @@ body {
 
 .mc-v2-card {
     grid-column: span 3;
-    min-height: 150px;
-    padding: 20px;
+    min-height: 118px;
+    padding: 16px;
     border: 1px solid rgba(142, 170, 188, .13);
     border-radius: 16px;
     background: linear-gradient(145deg, rgba(18, 34, 47, .94), rgba(12, 25, 35, .96));
@@ -319,17 +323,17 @@ body {
 }
 
 .mc-v2-kpi-value {
-    margin-top: 20px;
+    margin-top: 14px;
     color: #f5fbff;
-    font-size: clamp(1.55rem, 2.4vw, 2.25rem);
-    font-weight: 720;
-    line-height: 1.06;
-    letter-spacing: -.045em;
+    font-size: clamp(.9rem, 1.15vw, 1.05rem);
+    font-weight: 620;
+    line-height: 1.25;
+    letter-spacing: -.015em;
 }
 
 [data-card="DECISION"] .mc-v2-kpi-value {
     max-width: 28rem;
-    font-size: clamp(1.25rem, 1.8vw, 1.65rem);
+    font-size: clamp(.95rem, 1.25vw, 1.1rem);
     line-height: 1.25;
     letter-spacing: -.025em;
 }
@@ -393,7 +397,7 @@ body {
 
 /* Runtime platform mobile profile: large iPhone Pro Max class (up to 500 CSS px). */
 @media (max-width: 500px) {
-    .mc-v2-page { padding: 14px 12px 56px !important; }
+    .mc-v2-page { padding: 88px 12px 56px !important; }
     .mc-v2-page > h1 { font-size: 1.35rem; line-height: 1.2; }
     .mc-v2-section { margin-top: 22px; }
     .mc-v2-section > h2 { font-size: 1rem; }
@@ -412,6 +416,42 @@ body {
     .mc-runtime-confirmation select,
     .mc-runtime-confirmation button { min-height: 44px; font-size: 1rem; }
 }
+
+.mc-runtime-confirmation {
+    width: min(560px, calc(100vw - 32px));
+    max-height: min(520px, 72vh);
+    padding: 18px;
+    border: 1px solid #214351;
+    border-radius: 12px;
+    background: #0b1b25;
+    color: #dce9f0;
+    overflow: auto;
+}
+.mc-runtime-confirmation::backdrop { background: rgba(2, 9, 14, .72); }
+.mc-runtime-confirmation h3 { margin: 0 0 14px; font-size: 1rem; }
+.mc-runtime-confirmation select {
+    display: block;
+    width: 100%;
+    min-height: 42px;
+    margin-bottom: 14px;
+    padding: 8px 10px;
+    border: 1px solid #214351;
+    border-radius: 8px;
+    background: #0d222d;
+    color: #dce9f0;
+    font-size: .86rem;
+}
+.mc-runtime-confirmation button {
+    min-height: 38px;
+    margin-right: 8px;
+    padding: 8px 13px;
+    border: 1px solid #2c6b62;
+    border-radius: 8px;
+    background: #1d9f8d;
+    color: #04100f;
+    font-weight: 700;
+}
+.mc-runtime-confirmation button:last-child { background: transparent; color: #a9bbc7; }
 
 /* Operator traffic lights: each colour has a fixed meaning across every Edge branch. */
 .mc-traffic-overview{margin:24px 0 28px;padding:16px 18px;border:1px solid #1b4250;border-radius:16px;background:linear-gradient(145deg,#0c202a,#091821)}

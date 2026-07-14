@@ -138,7 +138,19 @@ class ControlCenterV2Resolver:
                    count(*) AS linked_fills,
                    coalesce(sum(f.commission),0) AS commission,
                    CASE WHEN count(*) > 0 THEN 100.0 ELSE 0 END AS linkage_pct,
-                   false AS quotes_verified
+                   false AS quotes_verified,
+                   count(*) FILTER (WHERE sf.side='BUY') AS positions_opened,
+                   (SELECT count(*) FROM public.trailing_order_events
+                    WHERE ts >= date_trunc('day',now()) AND action='PLACE_STOP') AS stops_placed,
+                   (SELECT count(*) FROM public.position_lifecycle_state
+                    WHERE trailing_active AND remaining_qty > 0) AS trailing_active,
+                   (SELECT count(*) FROM public.trailing_order_events
+                    WHERE ts >= date_trunc('day',now()) AND action='REPLACE_STOP') AS stops_improved,
+                   (SELECT count(*) FROM public.profit_lock_events
+                    WHERE ts >= date_trunc('day',now()) AND action <> 'HOLD') AS profit_locks,
+                   (SELECT count(*) FROM public.take_profit_events
+                    WHERE ts >= date_trunc('day',now()) AND action <> 'HOLD') AS take_profits,
+                   count(*) FILTER (WHERE sf.side='SELL') AS positions_closed
             FROM public.signal_fills sf
             LEFT JOIN public.fills f ON f.fill_id=sf.fill_id
             WHERE sf.created_at >= date_trunc('day', now())
@@ -147,7 +159,9 @@ class ControlCenterV2Resolver:
                    CASE WHEN count(*) > 0 THEN 100.0 ELSE 0 END,
                    count(*) > 0 AND count(*) FILTER (
                        WHERE spread_cost IS NOT NULL AND slippage IS NOT NULL
-                   ) = count(*)
+                   ) = count(*),
+                   count(*) FILTER (WHERE side='BUY'),0,0,0,0,0,
+                   count(*) FILTER (WHERE shadow_status='CLOSED')
             FROM analytics.forward_edge_shadow_trade_v1
             WHERE created_at >= date_trunc('day', now())
         """)

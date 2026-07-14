@@ -93,7 +93,14 @@
                 "data-card",
                 "data-status",
                 "data-availability",
-                "data-field"
+                "data-field",
+                "activation_target",
+                "tab_index",
+                "progress_label",
+                "progress_complete_label",
+                "confirmation_options",
+                "confirmation_title",
+                "confirmation_label"
             ],
             requiredProps: [],
             allowsText: false,

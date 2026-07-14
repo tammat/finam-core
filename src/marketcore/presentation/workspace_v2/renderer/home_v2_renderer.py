@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
+from marketcore.presentation.framework.theme_resolver import ThemeResolverV1
 from marketcore.presentation.services.datetime_service import DateTimeService
 from marketcore.presentation.render_tree.node_types import RenderNodeType
 from marketcore.presentation.render_tree.render_document import RenderDocument
@@ -13,8 +16,10 @@ from marketcore.presentation.workspace_v2.viewmodel.home_v2_viewmodel import (
 def render_home_v2(
     vm: HomeV2ViewModel,
     locale_code: str = "ru",
+    theme_code: str = "DEFAULT",
 ) -> RenderDocument:
     i18n = UiI18nResolverV1(locale_code=locale_code)
+    theme = ThemeResolverV1().resolve(theme_code)
     datetime_service = DateTimeService()
     layout = vm.layout
 
@@ -125,7 +130,31 @@ def render_home_v2(
                 "data-status": card.status_code.value,
                 "data-availability": str(availability or ""),
             }
-            if target:
+            if target and section.section_type.value == "OBSERVATION":
+                card_props["activation_target"] = target
+                card_props["tab_index"] = 0
+                card_props["role"] = "button"
+                card_props["aria_label"] = i18n.text(card.title_key)
+                card_props["progress_label"] = i18n.text("home.decision.progress")
+                card_props["progress_complete_label"] = i18n.text("home.decision.progress_complete")
+                card_props["confirmation_title"] = i18n.text("home.decision.title")
+                card_props["confirmation_label"] = i18n.text("home.decision.confirm")
+                card_props["confirmation_options"] = json.dumps([
+                    {"value": "open", "label": i18n.text("home.decision.open_section"), "enabled": True},
+                    {"value": "observe", "label": i18n.text("home.decision.keep_observing"), "enabled": True},
+                ], ensure_ascii=False)
+                card_props["style"] = (
+                    f"min-height:{int(theme.get('HOME_STATUS_CARD_MIN_HEIGHT'))}px;"
+                    f"padding:{int(theme.get('HOME_STATUS_CARD_PADDING'))}px;"
+                )
+                for child in card_children:
+                    if child.props.get("data-field") == "primary_value":
+                        child.props["style"] = (
+                            f"font-size:{int(theme.get('HOME_STATUS_KPI_FONT_SIZE'))}px;"
+                            f"font-weight:{int(theme.get('HOME_STATUS_KPI_FONT_WEIGHT'))};"
+                            "line-height:1.25;letter-spacing:0;"
+                        )
+            elif target:
                 card_props["href"] = target
                 card_props["aria_label"] = i18n.text(card.title_key)
 

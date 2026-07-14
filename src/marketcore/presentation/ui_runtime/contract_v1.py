@@ -85,7 +85,10 @@ _NODE_RULES: dict[RenderNodeType, UiRuntimeNodeRuleV1] = {
     ),
     RenderNodeType.CARD: UiRuntimeNodeRuleV1(
         node_type=RenderNodeType.CARD,
-        allowed_props=_COMMON_CONTAINER_PROPS,
+        allowed_props=_COMMON_CONTAINER_PROPS | frozenset({
+            "activation_target", "tab_index", "progress_label", "progress_complete_label",
+            "confirmation_options", "confirmation_title", "confirmation_label"
+        }),
         allows_children=True,
     ),
     RenderNodeType.TABLE: UiRuntimeNodeRuleV1(
