@@ -398,24 +398,41 @@ class ControlCenterV2Resolver:
         if not latest:
             return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}
         cur.execute("""
+            WITH ranked AS (
+                SELECT t.*,row_number() OVER (
+                    PARTITION BY symbol,signal_ts,entry_ts,exit_ts,side,
+                                 entry_price,exit_price,shadow_status
+                    ORDER BY created_at,shadow_trade_id
+                ) AS execution_path_rank
+                FROM analytics.forward_edge_shadow_trade_v1 t
+                WHERE cohort_id=%s
+            )
             SELECT count(*) total,count(*) FILTER (WHERE shadow_status='PENDING_ENTRY') pending,
                    count(*) FILTER (WHERE shadow_status='OPEN') open,count(*) FILTER (WHERE shadow_status='CLOSED') closed,
                    coalesce(sum(net_pnl) FILTER (WHERE shadow_status='CLOSED'),0) net_pnl,
                    count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) unsafe
-            FROM analytics.forward_edge_shadow_trade_v1 WHERE cohort_id=%s
+            FROM ranked WHERE execution_path_rank=1
         """, (latest["cohort_id"],))
         result = dict(cur.fetchone() or {})
         cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_exit_variant_v1') AS table_name")
         if cur.fetchone()["table_name"]:
             cur.execute("""
+                WITH ranked AS (
+                    SELECT v.*,row_number() OVER (
+                        PARTITION BY policy_code,symbol,entry_ts,exit_ts,side,
+                                     entry_price,exit_price,variant_status
+                        ORDER BY created_at,variant_id
+                    ) AS execution_path_rank
+                    FROM analytics.forward_edge_shadow_exit_variant_v1 v
+                    WHERE cohort_id=%s AND policy_code='ATR_TRAIL_14_2_5'
+                )
                 SELECT count(*) trailing_total,
                        count(*) FILTER (WHERE variant_status='OPEN') trailing_open,
                        count(*) FILTER (WHERE variant_status='CLOSED') trailing_closed,
                        count(*) FILTER (WHERE exit_reason='TRAILING_STOP') trailing_exits,
                        coalesce(sum(net_pnl) FILTER (WHERE variant_status='CLOSED'),0) trailing_net_pnl,
                        count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) trailing_unsafe
-                FROM analytics.forward_edge_shadow_exit_variant_v1
-                WHERE cohort_id=%s AND policy_code='ATR_TRAIL_14_2_5'
+                FROM ranked WHERE execution_path_rank=1
             """, (latest["cohort_id"],))
             result.update(dict(cur.fetchone() or {}))
         cur.execute("SELECT to_regclass('analytics.shadow_experiment_guard_check_v1') AS table_name")
