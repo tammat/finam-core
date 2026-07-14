@@ -21,7 +21,7 @@ WS_URL = os.getenv("FINAM_WS_URL", "wss://api.finam.ru/ws")
 SYMBOLS = tuple(
     item.strip() for item in os.getenv(
         "MARKETCORE_MICROSTRUCTURE_SYMBOLS",
-        "SBER@MISX,LKOH@MISX,GAZP@MISX,PLZL@MISX,USDRUBF@RTSX,BRQ6@RTSX,NGQ6@RTSX",
+        "SBER@MISX,LKOH@MISX,GAZP@MISX,PLZL@MISX,USDRUBF@RTSX,BRQ6@RTSX,NGQ6@RTSX,IMOEX@MISX",
     ).split(",") if item.strip()
 )
 SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
@@ -105,26 +105,34 @@ class Collector:
         self.conn.autocommit = True
 
     def subscription_symbols(self) -> tuple[str, ...]:
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                SELECT symbol FROM public.market_data_watch_universe
-                WHERE is_enabled ORDER BY symbol
-            """)
-            watched = [str(row[0]) for row in cur.fetchall()]
-            cur.execute("""
-                SELECT DISTINCT symbol
-                FROM analytics.forward_edge_shadow_trade_v1
-                WHERE cohort_id=(
-                    SELECT cohort_id FROM analytics.forward_edge_shadow_trade_v1
-                    ORDER BY created_at DESC LIMIT 1
+        def query(source: str, sql: str) -> list[str]:
+            try:
+                with self.conn.cursor() as cur:
+                    cur.execute(sql)
+                    return [str(row[0]) for row in cur.fetchall()]
+            except psycopg2.Error as exc:
+                print(
+                    f"universe_source={source} status=SKIPPED db_error={exc.pgcode or type(exc).__name__}",
+                    flush=True,
                 )
-            """)
-            shadow = [str(row[0]) for row in cur.fetchall()]
-            cur.execute("""
-                SELECT DISTINCT symbol FROM public.signal_fills
-                WHERE created_at >= current_date-1
-            """)
-            recent_fills = [str(row[0]) for row in cur.fetchall()]
+                return []
+
+        watched = query("MARKET_DATA_WATCH", """
+            SELECT symbol FROM public.market_data_watch_universe
+            WHERE is_enabled ORDER BY symbol
+        """)
+        shadow = query("SHADOW", """
+            SELECT DISTINCT symbol
+            FROM analytics.forward_edge_shadow_trade_v1
+            WHERE cohort_id=(
+                SELECT cohort_id FROM analytics.forward_edge_shadow_trade_v1
+                ORDER BY created_at DESC LIMIT 1
+            )
+        """)
+        recent_fills = query("PAPER_FILLS", """
+            SELECT DISTINCT symbol FROM public.signal_fills
+            WHERE created_at >= current_date-1
+        """)
         return merge_symbols(SYMBOLS, watched, shadow, recent_fills)
 
     def close(self) -> None:
