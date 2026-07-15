@@ -21,14 +21,17 @@ class ProfitFactoryControlCenterResolverV1:
 
         if eligible == 0:
             decision = "Нет подтверждённых данных — проверить цепочку доверия"
+            decision_code = "NO_VERIFIED_DATA"
             status = "WARNING"
             quality = "NO_VERIFIED_KPI"
         elif realized >= expected:
             decision = "Цель выполнена — оценить увеличение капитала"
+            decision_code = "TARGET_ACHIEVED"
             status = "OK"
             quality = "VERIFIED"
         else:
             decision = "Прибыль ниже ожидания — исследовать разрыв"
+            decision_code = "PROFIT_GAP"
             status = "WARNING"
             quality = "VERIFIED"
 
@@ -40,6 +43,7 @@ class ProfitFactoryControlCenterResolverV1:
             "profit_gap": gap,
             "realized_roi": realized_roi,
             "decision": decision,
+            "decision_code": decision_code,
             "status": status,
             "quality": quality,
         }

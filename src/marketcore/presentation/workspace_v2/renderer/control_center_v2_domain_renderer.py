@@ -58,6 +58,7 @@ def _content_node(
     node_id: str,
     *,
     message_key: str | None = None,
+    message_args: dict[str, Any] | None = None,
     value: Any = None,
     format_code: str | None = None,
     level_code: str | None = None,
@@ -68,6 +69,7 @@ def _content_node(
         node_id=node_id,
         content=RenderContentV2(
             message_key=message_key,
+            message_args=message_args,
             value=value,
             format_code=format_code,
             level_code=level_code,
@@ -191,8 +193,8 @@ def _traffic_section(view_model: ControlCenterV2ViewModel) -> RenderNodeV2:
                 _content_node(
                     RenderNodeTypeV2.METRIC_VALUE,
                     f"control.traffic.{light.code}.value",
-                    value=light.detail,
-                    format_code="PRESENTER_VALUE",
+                    message_key=light.detail_key,
+                    message_args=dict(light.detail_args),
                 ),
             ),
         )

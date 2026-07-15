@@ -48,6 +48,7 @@ def _content_node(
     node_id: str,
     *,
     message_key: str | None = None,
+    message_args: dict[str, Any] | None = None,
     value: Any = None,
     format_code: str | None = None,
     level_code: str | None = None,
@@ -57,6 +58,7 @@ def _content_node(
         node_id=node_id,
         content=RenderContentV2(
             message_key=message_key,
+            message_args=message_args,
             value=value,
             format_code=format_code,
             level_code=level_code,
@@ -111,14 +113,25 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
             )
         )
 
-    primary_value = card.payload.get("primary_value")
-    if primary_value is not None:
+    v2_message_key = card.payload.get("v2_message_key")
+    v2_value = card.payload.get("v2_value")
+    v2_format_code = card.payload.get("v2_format_code")
+    if v2_message_key:
         children.append(
             _content_node(
                 RenderNodeTypeV2.METRIC_VALUE,
                 f"{card.widget_id}.primary_value",
-                value=primary_value,
-                format_code="PRESENTER_VALUE",
+                message_key=str(v2_message_key),
+                message_args=dict(card.payload.get("v2_message_args") or {}),
+            )
+        )
+    elif v2_value is not None:
+        children.append(
+            _content_node(
+                RenderNodeTypeV2.METRIC_VALUE,
+                f"{card.widget_id}.primary_value",
+                value=v2_value,
+                format_code=str(v2_format_code),
             )
         )
 

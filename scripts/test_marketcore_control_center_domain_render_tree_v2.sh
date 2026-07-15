@@ -35,7 +35,7 @@ now = datetime(2026, 7, 15, 16, 0, tzinfo=timezone.utc)
 view_model = ControlCenterV2ViewModel(
     title="legacy title",
     subtitle="legacy subtitle",
-    traffic_lights=(ControlCenterTrafficLightV2("edge", "legacy label", "OOS PASS: 0", "BLOCKED", "/legacy/action"),),
+    traffic_lights=(ControlCenterTrafficLightV2("edge", "legacy label", "OOS PASS: 0", "BLOCKED", "/legacy/action", "research.control.traffic.edge.value", (("passed", 0),)),),
     relationship_summary={},
     relationships=(RelationshipCandidateV2("family", "A", "B", "ALL", "MAIN", 10, 1.2, 3.0, 80.0, "PASS", "OK"),),
     funnel_stages=(SignalFunnelStageV2("Candidate", 10, "50%", "OK"),),
@@ -63,6 +63,7 @@ assert "/legacy/action" not in payload
 assert "/legacy/refresh" not in payload
 assert "legacy title" not in payload
 assert "legacy subtitle" not in payload
+assert "OOS PASS: 0" not in payload
 assert '"class"' not in payload
 assert '"style"' not in payload
 assert '"href"' not in payload

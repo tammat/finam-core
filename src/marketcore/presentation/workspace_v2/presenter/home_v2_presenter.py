@@ -32,7 +32,7 @@ class HomeV2Presenter:
         self._operator_resolver = HomeOperatorDashboardResolverV1()
 
     def load(self) -> HomeV2ViewModel:
-        edge_metric = self._edge_metric()
+        edge_metric, edge_metric_args = self._edge_metric()
         operating = self._operating_status()
         profit = ProfitFactoryControlCenterResolverV1(
             scope=os.getenv("MARKETCORE_PROFIT_SCOPE", "REAL")
@@ -49,11 +49,11 @@ class HomeV2Presenter:
             status_code=profit_status,
             status_label_key=("ui.status.ok" if profit_status == UiStatusCode.OK else "ui.status.warning"),
             cards=(
-                self._profit_card("decision", "home.profit_factory.decision", profit["decision"], profit_status, 1, profit["quality"]),
-                self._profit_card("expected", "home.profit_factory.expected", self._money(profit["expected_profit"]), profit_status, 2),
-                self._profit_card("realized", "home.profit_factory.realized", self._money(profit["realized_profit"]), profit_status, 3),
-                self._profit_card("gap", "home.profit_factory.gap", self._money(profit["profit_gap"]), profit_status, 4),
-                self._profit_card("roi", "home.profit_factory.roi", self._percent(profit["realized_roi"]), profit_status, 5),
+                self._profit_card("decision", "home.profit_factory.decision", profit["decision"], profit_status, 1, profit["quality"], v2_message_key=f"home.profit_factory.decision.{str(profit['decision_code']).lower()}"),
+                self._profit_card("expected", "home.profit_factory.expected", self._money(profit["expected_profit"]), profit_status, 2, v2_value=profit["expected_profit"], v2_format_code="MONEY_RUB"),
+                self._profit_card("realized", "home.profit_factory.realized", self._money(profit["realized_profit"]), profit_status, 3, v2_value=profit["realized_profit"], v2_format_code="MONEY_RUB"),
+                self._profit_card("gap", "home.profit_factory.gap", self._money(profit["profit_gap"]), profit_status, 4, v2_value=profit["profit_gap"], v2_format_code="MONEY_RUB"),
+                self._profit_card("roi", "home.profit_factory.roi", self._percent(profit["realized_roi"]), profit_status, 5, v2_value=profit["realized_roi"], v2_format_code="PERCENT_RATIO"),
             ),
         )
         operating_section = BaseSection(
@@ -65,11 +65,11 @@ class HomeV2Presenter:
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
             cards=(
-                self._traffic_card("data", "home.card.status.research.title", "home.card.status.pending.subtitle", operating["data"], UiStatusCode.OK if operating["data_ready"] else UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/data-quality", 1),
-                self._traffic_card("edge", "home.card.edge.title", "home.card.status.blocked.subtitle", operating["edge"], UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos/relationship-factory", 2),
-                self._traffic_card("forward", "home.card.status.observation.title", "home.card.status.pending.subtitle", operating["forward"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/strategy-generator", 3),
-                self._traffic_card("execution", "home.card.status.runtime.title", "home.card.status.pending.subtitle", operating["execution"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/execution-edge", 4),
-                self._traffic_card("live", "home.card.control_center.title", "home.card.status.blocked.subtitle", "LIVE: продвижение заблокировано", UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos", 5),
+                self._traffic_card("data", "home.card.status.research.title", "home.card.status.pending.subtitle", operating["data"], UiStatusCode.OK if operating["data_ready"] else UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/data-quality", 1, "home.traffic.data.value", {"ready": operating["ready"], "total": operating["total"]}),
+                self._traffic_card("edge", "home.card.edge.title", "home.card.status.blocked.subtitle", operating["edge"], UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos/relationship-factory", 2, "home.traffic.edge.value", {"passed": operating["passed"]}),
+                self._traffic_card("forward", "home.card.status.observation.title", "home.card.status.pending.subtitle", operating["forward"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/strategy-generator", 3, "home.traffic.forward.value", {"candidates": operating["candidates"], "observations": operating["observations"]}),
+                self._traffic_card("execution", "home.card.status.runtime.title", "home.card.status.pending.subtitle", operating["execution"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/execution-edge", 4, "home.traffic.execution.unverified", {}),
+                self._traffic_card("live", "home.card.control_center.title", "home.card.status.blocked.subtitle", "LIVE: продвижение заблокировано", UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos", 5, "home.traffic.live.blocked", {}),
             ),
         )
         system_section = BaseSection(
@@ -133,13 +133,13 @@ class HomeV2Presenter:
             status_code=UiStatusCode.OK,
             status_label_key="ui.status.ok",
             cards=(
-                self._nav_card("home.card.profit", "home.card.profit.title", "/", 5, self._percent(profit["realized_roi"])),
+                self._nav_card("home.card.profit", "home.card.profit.title", "/", 5, self._percent(profit["realized_roi"]), v2_value=profit["realized_roi"], v2_format_code="PERCENT_RATIO"),
                 self._nav_card("home.card.portfolio", "home.card.portfolio.title", "/workspace-v2/portfolio", 10),
                 self._nav_card("home.card.portfolio.tablet", "home.card.portfolio.tablet.title", "/workspace-v2/portfolio/tablet", 14),
                 self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
                 self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20, available=False),
                 self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30, available=False),
-                self._nav_card("home.card.control_center", "home.card.control_center.title", "/workspace-v2/control-center/edge-oos", 35, edge_metric),
+                self._nav_card("home.card.control_center", "home.card.control_center.title", "/workspace-v2/control-center/edge-oos", 35, edge_metric, v2_message_key="home.control_center.edge_metric", v2_message_args=edge_metric_args),
             ),
         )
 
@@ -155,18 +155,18 @@ class HomeV2Presenter:
 
         return HomeV2ViewModel(layout=layout)
 
-    def _profit_card(self, code, title_key, value, status, priority, quality="VERIFIED") -> BaseCard:
+    def _profit_card(self, code, title_key, value, status, priority, quality="VERIFIED", *, v2_value=None, v2_format_code=None, v2_message_key=None) -> BaseCard:
         card_status = status if code == "decision" else (UiStatusCode.OK if quality == "VERIFIED" else status)
         return BaseCard(
             widget_id=f"home.profit_factory.{code}", widget_type=WidgetType.KPI,
             card_type=(CardType.DECISION if code == "decision" else CardType.KPI),
             title_key=title_key, subtitle_key="home.profit_factory.verified",
             status_code=card_status, status_label_key=("ui.status.ok" if card_status == UiStatusCode.OK else "ui.status.warning"),
-            priority=priority, payload={"primary_value": value, "quality": quality},
+            priority=priority, payload={"primary_value": value, "quality": quality, "v2_value": v2_value, "v2_format_code": v2_format_code, "v2_message_key": v2_message_key},
         )
 
     @staticmethod
-    def _traffic_card(code, title_key, subtitle_key, value, status, target, priority) -> BaseCard:
+    def _traffic_card(code, title_key, subtitle_key, value, status, target, priority, v2_message_key, v2_message_args) -> BaseCard:
         return BaseCard(
             widget_id=f"home.traffic.{code}", widget_type=WidgetType.STATUS,
             card_type=CardType.ACTION, title_key=title_key,
@@ -175,7 +175,7 @@ class HomeV2Presenter:
             status_label_key=("ui.status.ok" if status == UiStatusCode.OK else "ui.status.warning"),
             priority=priority,
             actions=({"action_code": ActionCode.OPEN.value, "target": target},),
-            payload={"primary_value": value},
+            payload={"primary_value": value, "v2_message_key": v2_message_key, "v2_message_args": v2_message_args},
         )
 
     @staticmethod
@@ -234,6 +234,10 @@ class HomeV2Presenter:
         priority: int,
         metric: str = "",
         available: bool = True,
+        v2_value=None,
+        v2_format_code=None,
+        v2_message_key=None,
+        v2_message_args=None,
     ) -> BaseCard:
         return BaseCard(
             widget_id=widget_id,
@@ -249,12 +253,16 @@ class HomeV2Presenter:
             ) if available else ()),
             payload={
                 **({"primary_value": metric} if metric else {}),
+                "v2_value": v2_value,
+                "v2_format_code": v2_format_code,
+                "v2_message_key": v2_message_key,
+                "v2_message_args": v2_message_args or {},
                 "availability": "AVAILABLE" if available else "UNAVAILABLE",
             },
         )
 
     @staticmethod
-    def _edge_metric() -> str:
+    def _edge_metric() -> tuple[str, dict[str, int]]:
         try:
             with psycopg2.connect("postgresql:///finam_core") as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -266,12 +274,14 @@ class HomeV2Presenter:
                         FROM analytics.relationship_data_quality_gate_v1 WHERE audit_run_id=(
                             SELECT audit_run_id FROM analytics.relationship_data_quality_gate_v1 ORDER BY created_at DESC LIMIT 1)""")
                     quality = dict(cur.fetchone() or {})
-            return f"PASS {passed} · DATA {int(quality.get('ready') or 0)}/{int(quality.get('symbols') or 0)}"
+            ready = int(quality.get("ready") or 0)
+            symbols = int(quality.get("symbols") or 0)
+            return f"PASS {passed} · DATA {ready}/{symbols}", {"passed": passed, "ready": ready, "total": symbols}
         except Exception:
-            return "EDGE STATUS"
+            return "EDGE STATUS", {"passed": 0, "ready": 0, "total": 0}
 
     @staticmethod
-    def _operating_status() -> dict[str, str]:
+    def _operating_status() -> dict[str, object]:
         """Only measured facts are exposed on the operator's first screen."""
         fallback = {
             "data": "Данные: статус уточняется",
@@ -279,6 +289,7 @@ class HomeV2Presenter:
             "edge": "OOS edge: статус уточняется",
             "forward": "Forward: статус уточняется",
             "execution": "Исполнение: статус уточняется",
+            "ready": 0, "total": 0, "passed": 0, "candidates": 0, "observations": 0,
         }
         try:
             with psycopg2.connect("postgresql:///finam_core") as conn:
@@ -307,6 +318,11 @@ class HomeV2Presenter:
                 "edge": f"OOS edge: подтверждено {int(edge.get('passed') or 0)}",
                 "forward": f"Forward: {int(forward.get('candidates') or 0)} кандидатов · {int(forward.get('observations') or 0)} наблюдений",
                 "execution": "Исполнение: bid/ask и стакан не подтверждены",
+                "ready": ready,
+                "total": symbols,
+                "passed": int(edge.get("passed") or 0),
+                "candidates": int(forward.get("candidates") or 0),
+                "observations": int(forward.get("observations") or 0),
             }
         except Exception:
             return fallback

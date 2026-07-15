@@ -78,11 +78,11 @@ class ControlCenterV2Presenter:
         quotes = int(execution.get("quote_verified") or 0)
 
         lights = (
-            ControlCenterTrafficLightV2("data", "Данные", f"Готово {ready} из {total}", "OK" if total and ready == total else "WARNING", "/workspace-v2/control-center/edge-oos/data-quality"),
-            ControlCenterTrafficLightV2("edge", "Edge", f"OOS PASS: {passed}", "OK" if passed else "BLOCKED", "/workspace-v2/control-center/edge-oos/relationship-factory"),
-            ControlCenterTrafficLightV2("watch", "Наблюдение", f"{candidates} кандидатов · {observations} сигналов", "OK" if observations > 0 else "WARNING", "/workspace-v2/control-center/edge-oos/strategy-generator"),
-            ControlCenterTrafficLightV2("quotes", "Котировки", f"Подтверждено: {quotes}", "OK" if quotes else "WARNING", "/workspace-v2/control-center/edge-oos/execution-edge"),
-            ControlCenterTrafficLightV2("live", "LIVE", "Продвижение запрещено", "BLOCKED", "/workspace-v2/control-center/edge-oos/legacy"),
+            ControlCenterTrafficLightV2("data", "Данные", f"Готово {ready} из {total}", "OK" if total and ready == total else "WARNING", "/workspace-v2/control-center/edge-oos/data-quality", "research.control.traffic.data.value", (("ready", ready), ("total", total))),
+            ControlCenterTrafficLightV2("edge", "Edge", f"OOS PASS: {passed}", "OK" if passed else "BLOCKED", "/workspace-v2/control-center/edge-oos/relationship-factory", "research.control.traffic.edge.value", (("passed", passed),)),
+            ControlCenterTrafficLightV2("watch", "Наблюдение", f"{candidates} кандидатов · {observations} сигналов", "OK" if observations > 0 else "WARNING", "/workspace-v2/control-center/edge-oos/strategy-generator", "research.control.traffic.watch.value", (("candidates", candidates), ("observations", observations))),
+            ControlCenterTrafficLightV2("quotes", "Котировки", f"Подтверждено: {quotes}", "OK" if quotes else "WARNING", "/workspace-v2/control-center/edge-oos/execution-edge", "research.control.traffic.quotes.value", (("verified", quotes),)),
+            ControlCenterTrafficLightV2("live", "LIVE", "Продвижение запрещено", "BLOCKED", "/workspace-v2/control-center/edge-oos/legacy", "research.control.traffic.live.blocked", ()),
         )
 
         relationships = tuple(self._candidate(row) for row in data["relationships"])

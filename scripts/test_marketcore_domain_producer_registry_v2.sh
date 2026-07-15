@@ -18,7 +18,9 @@ then
 fi
 
 PYTHONPATH=src .venv/bin/python - <<'PY'
-from marketcore.presentation.render_tree.v2 import render_document_v2_to_json
+import re
+
+from marketcore.presentation.render_tree.v2 import render_document_v2_to_dict, render_document_v2_to_json
 from marketcore.presentation.workspace_v2.domain_producer_registry_v2 import (
     DomainProducerCodeV2,
     DomainProducerRegistryErrorV2,
@@ -66,14 +68,28 @@ presenter_value_documents = sum(
     '"format_code":"PRESENTER_VALUE"' in render_document_v2_to_json(document)
     for document in documents.values()
 )
-assert presenter_value_documents > 0
+assert presenter_value_documents == 0
 
 print("registered_producers=3")
 print("valid_v2_documents=3")
 print("platform_semantics=0")
 print("settings_timezone=OK")
 print(f"presenter_value_documents={presenter_value_documents}")
-print("stage2_exit=BLOCKED_BY_PRESENTER_VALUES")
+print("stage2_presenter_value_gate=OK")
+
+control_payload = render_document_v2_to_dict(documents[DomainProducerCodeV2.CONTROL_CENTER])
+localized_values = []
+def collect_localized_values(node):
+    value = node.get("content", {}).get("value")
+    if isinstance(value, str) and re.search(r"[А-Яа-яЁё]", value):
+        localized_values.append(value)
+    for child in node.get("children", []):
+        collect_localized_values(child)
+
+collect_localized_values(control_payload["root"])
+assert localized_values
+print(f"control_center_localized_values={len(localized_values)}")
+print("stage2_exit=BLOCKED_BY_LOCALIZED_DOMAIN_VALUES")
 PY
 
 echo "runtime_switch=0"

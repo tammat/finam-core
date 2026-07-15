@@ -11,6 +11,8 @@ class ControlCenterTrafficLightV2:
     detail: str
     status: str
     target: str
+    detail_key: str = ""
+    detail_args: tuple[tuple[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

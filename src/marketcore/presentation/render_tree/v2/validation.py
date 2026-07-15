@@ -54,6 +54,7 @@ _FORMAT_CODES = frozenset(
         "INTEGER",
         "MONEY_RUB",
         "PERCENT",
+        "PERCENT_RATIO",
         "PRESENTER_VALUE",
     }
 )
