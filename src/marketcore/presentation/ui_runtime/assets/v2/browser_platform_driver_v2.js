@@ -20,6 +20,7 @@
             this.mountElement = options.mountElement;
             this.stack = [];
             this.nodesRendered = 0;
+            this.actionSink = typeof options.actionSink === "function" ? options.actionSink : null;
         }
 
         beginDocument() {
@@ -39,6 +40,33 @@
                 element.setAttribute("data-mc-action-id", node.action.action_id);
                 element.setAttribute("data-mc-action-kind", node.action.action_kind);
                 if (!node.action.enabled) element.setAttribute("disabled", "disabled");
+                if (node.action.enabled) {
+                    const emit = (interactionKind) => {
+                        const intent = Object.freeze({
+                            actionId: node.action.action_id,
+                            actionKind: node.action.action_kind,
+                            interactionKind,
+                            targetId: node.action.target_id || null,
+                            commandCode: node.action.command_code || null,
+                            policyClass: node.action.policy_class || null,
+                            requiresApproval: Boolean(node.action.requires_approval),
+                            reversible: Boolean(node.action.reversible),
+                            rollbackCode: node.action.rollback_code || null,
+                            idempotencyKey: node.action.idempotency_key || null
+                        });
+                        if (this.actionSink) this.actionSink(intent);
+                    };
+                    element.setAttribute("role", node.action.action_kind === "NAVIGATE" ? "link" : "button");
+                    element.setAttribute("tabindex", "0");
+                    element.addEventListener("click", () => emit("CLICK"));
+                    element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));
+                    element.addEventListener("keydown", (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            emit("CLICK");
+                        }
+                    });
+                }
             }
             if (context.displayValue !== null && context.displayValue !== undefined) {
                 element.textContent = String(context.displayValue);

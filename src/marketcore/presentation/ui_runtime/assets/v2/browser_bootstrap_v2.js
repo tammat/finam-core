@@ -45,7 +45,8 @@
         const payload = await response.json();
         const driver = new exportedDriver.Driver({
             documentObject: options.documentObject,
-            mountElement: options.mountElement
+            mountElement: options.mountElement,
+            actionSink: options.actionSink
         });
         return runtime.execute(payload, {
             validator,
