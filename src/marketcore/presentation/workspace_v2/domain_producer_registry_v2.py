@@ -26,12 +26,16 @@ from marketcore.presentation.workspace_v2.renderer.home_v2_domain_renderer impor
 from marketcore.presentation.workspace_v2.renderer.portfolio_v2_domain_renderer import (
     render_portfolio_domain_v2,
 )
+from marketcore.presentation.workspace_v2.renderer.settings_v2_domain_renderer import (
+    render_settings_domain_v2,
+)
 
 
 class DomainProducerCodeV2(str, Enum):
     HOME = "HOME"
     PORTFOLIO = "PORTFOLIO"
     CONTROL_CENTER = "CONTROL_CENTER"
+    SETTINGS = "SETTINGS"
 
 
 class DomainProducerRegistryErrorV2(ValueError):
@@ -68,6 +72,12 @@ def _build_control_center(timezone_code: str) -> RenderDocumentV2:
     )
 
 
+def _build_settings(timezone_code: str) -> RenderDocumentV2:
+    return render_settings_domain_v2(
+        OperatorSettingsV1.load(timezone=timezone_code),
+    )
+
+
 _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = MappingProxyType(
     {
         DomainProducerCodeV2.HOME: DomainProducerDefinitionV2(
@@ -87,6 +97,12 @@ _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = Mappin
             document_id="operator.control_center.v2",
             owner_code="EDGE_CONTROL",
             build=_build_control_center,
+        ),
+        DomainProducerCodeV2.SETTINGS: DomainProducerDefinitionV2(
+            producer_code=DomainProducerCodeV2.SETTINGS,
+            document_id="operator.settings.v2",
+            owner_code="SETTINGS",
+            build=_build_settings,
         ),
     }
 )
