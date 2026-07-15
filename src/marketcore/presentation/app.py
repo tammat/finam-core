@@ -3,6 +3,9 @@ from __future__ import annotations
 from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
     ui_runtime_asset_content_type_v1,
 )
+from marketcore.presentation.ui_runtime.asset_delivery_v2 import (
+    ui_runtime_asset_content_type_v2,
+)
 
 import os
 import traceback
@@ -71,6 +74,10 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
         asset_content_type = ui_runtime_asset_content_type_v1(
             self.path
         )
+        if asset_content_type is None:
+            asset_content_type = ui_runtime_asset_content_type_v2(
+                self.path
+            )
 
         if asset_content_type is not None:
             content_type = asset_content_type

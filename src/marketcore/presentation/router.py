@@ -6,6 +6,9 @@ from collections.abc import Callable
 from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
     load_ui_runtime_asset_v1,
 )
+from marketcore.presentation.ui_runtime.asset_delivery_v2 import (
+    load_ui_runtime_asset_v2,
+)
 
 from marketcore.presentation.workspace_v2.render_tree_http_v1 import (
     control_center_render_tree_http_v2,
@@ -127,6 +130,10 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
 
     if path.startswith("/assets/marketcore/ui-runtime/v1/"):
         response = load_ui_runtime_asset_v1(path)
+        return response.status_code, response.body
+
+    if path.startswith("/assets/marketcore/ui-runtime/v2/"):
+        response = load_ui_runtime_asset_v2(path)
         return response.status_code, response.body
 
     if path in (
