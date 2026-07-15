@@ -89,11 +89,13 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
         grant=grant,
         policy_context=ActionPolicyContextV2(autonomy_mode, datetime.now(timezone.utc)),
     )
+    request_accepted = result.status.value == "EXECUTED" and action_kind == "COMMAND"
     return _response(
         (202 if result.status.value == "EXECUTED" else 200) if result.successful else 403,
-        status=result.status.value,
-        reason_code=result.reason_code,
+        status="ACCEPTED" if request_accepted else result.status.value,
+        reason_code="COMMAND_REQUEST_ACCEPTED" if request_accepted else result.reason_code,
         action_id=result.action_id,
         target_id=result.target_id,
         result_reference=result.result_reference,
+        request_status="PENDING" if request_accepted else None,
     )

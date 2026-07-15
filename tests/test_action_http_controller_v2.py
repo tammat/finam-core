@@ -41,7 +41,8 @@ def test_registered_research_action_creates_pending_request() -> None:
         "interactionKind": "DOUBLE_CLICK", "requestId": request_id,
     }).encode())
     payload = json.loads(response.body)
-    assert response.status_code == 202 and payload["status"] == "EXECUTED"
+    assert response.status_code == 202 and payload["status"] == "ACCEPTED"
+    assert payload["request_status"] == "PENDING"
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT request_kind,status FROM marketcore_action.command_request_v2 WHERE request_id=%s", (request_id,))
