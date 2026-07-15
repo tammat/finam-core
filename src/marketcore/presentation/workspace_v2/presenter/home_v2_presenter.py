@@ -65,7 +65,7 @@ class HomeV2Presenter:
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
             cards=(
-                self._traffic_card("data", "home.card.status.research.title", "home.card.status.pending.subtitle", operating["data"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/data-quality", 1),
+                self._traffic_card("data", "home.card.status.research.title", "home.card.status.pending.subtitle", operating["data"], UiStatusCode.OK if operating["data_ready"] else UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/data-quality", 1),
                 self._traffic_card("edge", "home.card.edge.title", "home.card.status.blocked.subtitle", operating["edge"], UiStatusCode.BLOCKED, "/workspace-v2/control-center/edge-oos/relationship-factory", 2),
                 self._traffic_card("forward", "home.card.status.observation.title", "home.card.status.pending.subtitle", operating["forward"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/strategy-generator", 3),
                 self._traffic_card("execution", "home.card.status.runtime.title", "home.card.status.pending.subtitle", operating["execution"], UiStatusCode.WARNING, "/workspace-v2/control-center/edge-oos/execution-edge", 4),
@@ -156,11 +156,12 @@ class HomeV2Presenter:
         return HomeV2ViewModel(layout=layout)
 
     def _profit_card(self, code, title_key, value, status, priority, quality="VERIFIED") -> BaseCard:
+        card_status = status if code == "decision" else (UiStatusCode.OK if quality == "VERIFIED" else status)
         return BaseCard(
             widget_id=f"home.profit_factory.{code}", widget_type=WidgetType.KPI,
             card_type=(CardType.DECISION if code == "decision" else CardType.KPI),
             title_key=title_key, subtitle_key="home.profit_factory.verified",
-            status_code=status, status_label_key=("ui.status.ok" if status == UiStatusCode.OK else "ui.status.warning"),
+            status_code=card_status, status_label_key=("ui.status.ok" if card_status == UiStatusCode.OK else "ui.status.warning"),
             priority=priority, payload={"primary_value": value, "quality": quality},
         )
 
@@ -274,6 +275,7 @@ class HomeV2Presenter:
         """Only measured facts are exposed on the operator's first screen."""
         fallback = {
             "data": "Данные: статус уточняется",
+            "data_ready": False,
             "edge": "OOS edge: статус уточняется",
             "forward": "Forward: статус уточняется",
             "execution": "Исполнение: статус уточняется",
@@ -297,8 +299,11 @@ class HomeV2Presenter:
                         forward.update(dict(cur.fetchone() or {}))
                         cur.execute("""SELECT count(*) observations FROM analytics.forward_edge_observation_v1 WHERE cohort_id=%s""", (cohort["cohort_id"],))
                         forward.update(dict(cur.fetchone() or {}))
+            symbols = int(quality.get("symbols") or 0)
+            ready = int(quality.get("ready") or 0)
             return {
-                "data": f"Данные: {int(quality.get('ready') or 0)}/{int(quality.get('symbols') or 0)} источников готовы",
+                "data": f"Данные: {ready}/{symbols} источников готовы",
+                "data_ready": symbols > 0 and ready == symbols,
                 "edge": f"OOS edge: подтверждено {int(edge.get('passed') or 0)}",
                 "forward": f"Forward: {int(forward.get('candidates') or 0)} кандидатов · {int(forward.get('observations') or 0)} наблюдений",
                 "execution": "Исполнение: bid/ask и стакан не подтверждены",
