@@ -87,9 +87,10 @@ def collect_localized_values(node):
         collect_localized_values(child)
 
 collect_localized_values(control_payload["root"])
-assert localized_values
+assert localized_values == []
 print(f"control_center_localized_values={len(localized_values)}")
-print("stage2_exit=BLOCKED_BY_LOCALIZED_DOMAIN_VALUES")
+print("stage2_localized_value_gate=OK")
+print("stage2_exit=READY")
 PY
 
 echo "runtime_switch=0"

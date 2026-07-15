@@ -34,6 +34,8 @@ def _utc(value: Any) -> datetime | None:
 
 def _display_value(column_code: str, value: Any) -> tuple[Any, str]:
     normalized = column_code.lower()
+    if value == "стратегия_заблокирована_по_статистике":
+        return "STRATEGY_BLOCKED_BY_STATISTICS", "DOMAIN_CODE"
     if isinstance(value, datetime):
         return value, "DATETIME"
     if isinstance(value, bool):
@@ -218,16 +220,16 @@ def _traffic_section(view_model: ControlCenterV2ViewModel) -> RenderNodeV2:
 def _relationship_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
     return tuple(
         {
-            "family": item.family,
+            "family_code": item.family_code,
             "source": item.source,
             "target": item.target,
-            "regime": item.regime,
-            "session": item.session,
+            "regime_code": item.regime_code,
+            "session_code": item.session_code,
             "oos_trades": item.oos_trades,
             "profit_factor": item.profit_factor,
             "expectancy_bps": item.expectancy_bps,
             "coverage_pct": item.coverage_pct,
-            "verdict": item.verdict,
+            "verdict_code": item.verdict_code,
             "status": item.status,
         }
         for item in view_model.relationships
@@ -237,9 +239,9 @@ def _relationship_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, 
 def _funnel_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
     return tuple(
         {
-            "stage": item.label,
+            "stage_code": item.stage_code,
             "count": item.count,
-            "conversion": item.conversion,
+            "pass_rate_pct": item.pass_rate_pct,
             "status": item.status,
         }
         for item in view_model.funnel_stages
@@ -250,9 +252,7 @@ def _loss_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ..
     return tuple(
         {
             "reason_code": item.code,
-            "label": item.label,
             "count": item.count,
-            "recommended_action": item.action,
             "status": item.status,
         }
         for item in view_model.loss_reasons

@@ -59,6 +59,7 @@ payload = render_document_v2_to_json(document)
 
 assert '"timezone_code":"Europe/Moscow"' in payload
 assert '"format_code":"DURATION_HM","value":9000' in payload
+assert "стратегия_заблокирована_по_статистике" not in payload
 assert "/legacy/action" not in payload
 assert "/legacy/refresh" not in payload
 assert "legacy title" not in payload

@@ -111,11 +111,14 @@ class ControlCenterV2Presenter:
 
     @staticmethod
     def _candidate(row) -> RelationshipCandidateV2:
+        family_code = str(row.get("relationship_family") or "UNKNOWN")
+        regime_code = str(row.get("regime_group") or "ALL")
+        session_code = str(row.get("session_code") or "ALL")
         sources = row.get("source_symbols") or []
         source = " + ".join(sources) if isinstance(sources, list) else str(sources)
         verdict = str(row.get("verdict_code") or "UNVERIFIED")
         return RelationshipCandidateV2(
-            family=FAMILY_NAMES.get(str(row.get("relationship_family")), "Связь"),
+            family=FAMILY_NAMES.get(family_code, "Связь"),
             source=source,
             target=str(row.get("target_symbol") or "—"),
             regime=str(row.get("regime_group") or "Все").replace("_", " "),
@@ -126,6 +129,10 @@ class ControlCenterV2Presenter:
             coverage_pct=float(row.get("regime_coverage_ratio") or 0) * 100,
             verdict={"OOS_PASS": "PASS", "OOS_FAIL": "FAIL", "UNVERIFIED": "Нет подтверждения"}.get(verdict, verdict),
             status="OK" if verdict == "OOS_PASS" else ("BLOCKED" if verdict == "OOS_FAIL" else "WARNING"),
+            family_code=family_code,
+            regime_code=regime_code,
+            session_code=session_code,
+            verdict_code=verdict,
         )
 
     @staticmethod
@@ -139,6 +146,8 @@ class ControlCenterV2Presenter:
             count=count,
             conversion=(f"Конверсия {float(rate):.1f}%" if rate is not None else "Начальная стадия"),
             status=status,
+            stage_code=stage_code,
+            pass_rate_pct=(float(rate) if rate is not None else None),
         )
 
     @staticmethod

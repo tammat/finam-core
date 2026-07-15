@@ -28,6 +28,10 @@ class RelationshipCandidateV2:
     coverage_pct: float
     verdict: str
     status: str
+    family_code: str = "UNKNOWN"
+    regime_code: str = "ALL"
+    session_code: str = "ALL"
+    verdict_code: str = "UNVERIFIED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +40,8 @@ class SignalFunnelStageV2:
     count: int
     conversion: str
     status: str
+    stage_code: str = "UNKNOWN"
+    pass_rate_pct: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
