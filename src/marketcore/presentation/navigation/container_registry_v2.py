@@ -68,7 +68,7 @@ def _definition(
 _DEFINITIONS: Mapping[ContainerCodeV2, ContainerDefinitionV2] = MappingProxyType(
     {
         ContainerCodeV2.HOME: _definition(ContainerCodeV2.HOME, "OPERATOR_HOME", 10, DomainProducerCodeV2.HOME),
-        ContainerCodeV2.CAPITAL: _definition(ContainerCodeV2.CAPITAL, "CAPITAL", 20),
+        ContainerCodeV2.CAPITAL: _definition(ContainerCodeV2.CAPITAL, "CAPITAL", 20, DomainProducerCodeV2.CAPITAL),
         ContainerCodeV2.EDGE: _definition(ContainerCodeV2.EDGE, "EDGE_CONTROL", 30, DomainProducerCodeV2.CONTROL_CENTER),
         ContainerCodeV2.RESEARCH: _definition(ContainerCodeV2.RESEARCH, "RESEARCH", 40),
         ContainerCodeV2.INTRADAY: _definition(ContainerCodeV2.INTRADAY, "INTRADAY", 50),

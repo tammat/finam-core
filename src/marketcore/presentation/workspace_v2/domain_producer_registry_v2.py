@@ -29,6 +29,8 @@ from marketcore.presentation.workspace_v2.renderer.portfolio_v2_domain_renderer 
 from marketcore.presentation.workspace_v2.renderer.settings_v2_domain_renderer import (
     render_settings_domain_v2,
 )
+from marketcore.presentation.workspace_v2.renderer.capital_v2_domain_renderer import render_capital_domain_v2
+from marketcore.presentation.workspace_v2.resolver.portfolio_v2_resolver import PortfolioV2Resolver
 
 
 class DomainProducerCodeV2(str, Enum):
@@ -36,6 +38,7 @@ class DomainProducerCodeV2(str, Enum):
     PORTFOLIO = "PORTFOLIO"
     CONTROL_CENTER = "CONTROL_CENTER"
     SETTINGS = "SETTINGS"
+    CAPITAL = "CAPITAL"
 
 
 class DomainProducerRegistryErrorV2(ValueError):
@@ -78,6 +81,10 @@ def _build_settings(timezone_code: str) -> RenderDocumentV2:
     )
 
 
+def _build_capital(timezone_code: str) -> RenderDocumentV2:
+    return render_capital_domain_v2(PortfolioV2Resolver().resolve(), timezone_code=timezone_code)
+
+
 _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = MappingProxyType(
     {
         DomainProducerCodeV2.HOME: DomainProducerDefinitionV2(
@@ -103,6 +110,12 @@ _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = Mappin
             document_id="operator.settings.v2",
             owner_code="SETTINGS",
             build=_build_settings,
+        ),
+        DomainProducerCodeV2.CAPITAL: DomainProducerDefinitionV2(
+            producer_code=DomainProducerCodeV2.CAPITAL,
+            document_id="operator.capital.v2",
+            owner_code="CAPITAL",
+            build=_build_capital,
         ),
     }
 )
