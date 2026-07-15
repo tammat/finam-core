@@ -20,6 +20,15 @@ from marketcore.action.policy_v2 import (
     AutonomyModeV2,
     StaticActionPolicyEngineV2,
 )
+from marketcore.action.dispatcher_v2 import (
+    ActionAuditEventV2,
+    ActionDispatchResultV2,
+    ActionDispatchErrorV2,
+    DispatchStatusV2,
+    GovernedActionDispatcherV2,
+    RiskDecisionV2,
+    RiskVerdictV2,
+)
 
 __all__ = [
     "ActionActorKindV2",
@@ -38,4 +47,11 @@ __all__ = [
     "ActionPolicyVerdictV2",
     "AutonomyModeV2",
     "StaticActionPolicyEngineV2",
+    "ActionAuditEventV2",
+    "ActionDispatchResultV2",
+    "ActionDispatchErrorV2",
+    "DispatchStatusV2",
+    "GovernedActionDispatcherV2",
+    "RiskDecisionV2",
+    "RiskVerdictV2",
 ]
