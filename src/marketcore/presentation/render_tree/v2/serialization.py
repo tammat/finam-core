@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Mapping
 
@@ -20,6 +21,8 @@ def _value(value: Any) -> Any:
         return value.value
     if isinstance(value, datetime):
         return value.isoformat().replace("+00:00", "Z")
+    if isinstance(value, Decimal):
+        return format(value, "f")
     if isinstance(value, Mapping):
         return {str(key): _value(item) for key, item in sorted(value.items())}
     if isinstance(value, tuple):
