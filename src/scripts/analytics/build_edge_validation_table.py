@@ -34,6 +34,10 @@ def migrate(conn: psycopg.Connection) -> None:
             calculated_at timestamptz NOT NULL DEFAULT now(),
             UNIQUE (trade_date, symbol, strategy, timeframe)
         );
+
+        -- Superseded by the composite uniqueness contract above. Keeping the
+        -- legacy symbol-only index rejects valid strategy/timeframe profiles.
+        DROP INDEX IF EXISTS analytics_edge_validation_v1_symbol_uq;
         """)
 
         cur.execute("""

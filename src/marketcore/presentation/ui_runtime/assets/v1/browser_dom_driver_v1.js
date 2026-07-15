@@ -194,11 +194,15 @@
 
     function navigateToTarget(documentObject, target) {
         const destination = new URL(target, globalObject.location.href);
-        globalObject.history.pushState({}, "", `${destination.pathname}${destination.search}${destination.hash}`);
-        if (destination.hash) {
+        const samePage = destination.pathname === globalObject.location.pathname
+            && destination.search === globalObject.location.search;
+        if (samePage && destination.hash) {
+            globalObject.history.pushState({}, "", destination.hash);
             const targetElement = documentObject.getElementById(destination.hash.slice(1));
             if (targetElement) targetElement.scrollIntoView({behavior: "smooth", block: "start"});
+            return;
         }
+        globalObject.location.assign(`${destination.pathname}${destination.search}${destination.hash}`);
     }
 
     function showConfirmationDialog(documentObject, sourceElement, target) {

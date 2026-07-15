@@ -29,6 +29,14 @@ def session_code(ts: datetime) -> str:
     return "OVERNIGHT"
 
 
+def evaluation_watermark(last: datetime | None, latest_bar: datetime | None) -> datetime | None:
+    if last is None:
+        return latest_bar
+    if latest_bar is None:
+        return last
+    return max(last, latest_bar)
+
+
 def regime_at(cur, symbol: str, timeframe: str, ts: datetime) -> str | None:
     cur.execute("""
         SELECT regime FROM analytics_regime_snapshots_v2
@@ -123,7 +131,7 @@ def main():
                regime_code,session_code,observation_status,data_quality_status,source_version)
               VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SIGNAL_PENDING_ENTRY',%s,%s)""",
               (str(uuid.uuid4()),cohort,c["incubator_candidate_id"],c["hypothesis_id"],latest["ts"],c["symbol"],c["timeframe"],side,int(params.get("holding_bars",params.get("hold",5))),regime,session,quality,SOURCE_VERSION));created+=1
-        latest_ts=bars[-1]["ts"] if bars else last
+        latest_ts=evaluation_watermark(last, bars[-1]["ts"] if bars else None)
         cur.execute("""INSERT INTO analytics.forward_edge_worker_state_v1 VALUES(%s,%s,%s,'OK',NULL,%s,now())
           ON CONFLICT(cohort_id,incubator_candidate_id) DO UPDATE SET last_evaluated_ts=excluded.last_evaluated_ts,worker_status='OK',last_error=NULL,source_version=excluded.source_version,updated_at=now()""",(cohort,c["incubator_candidate_id"],latest_ts,SOURCE_VERSION))
   print(f"cohort_id={cohort}");print(f"candidates={len(candidates)}");print(f"router_required={routed}");print(f"signals_created={created}");print(f"entries_created={entered}");print(f"observations_closed={closed}")

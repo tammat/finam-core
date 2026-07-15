@@ -140,7 +140,7 @@ def render_home_v2(
                 card_props["confirmation_title"] = i18n.text("home.decision.title")
                 card_props["confirmation_label"] = i18n.text("home.decision.confirm")
                 card_props["confirmation_options"] = json.dumps([
-                    {"value": "open", "label": i18n.text("home.decision.open_section"), "enabled": True},
+                    {"value": "open", "label": i18n.text("home.decision.open_named").format(title=i18n.text(card.title_key)), "enabled": True},
                     {"value": "observe", "label": i18n.text("home.decision.keep_observing"), "enabled": True},
                 ], ensure_ascii=False)
                 card_props["style"] = (

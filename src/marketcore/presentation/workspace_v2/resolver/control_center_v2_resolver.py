@@ -103,7 +103,7 @@ class ControlCenterV2Resolver:
 
     @staticmethod
     def _forward(cur) -> dict[str, Any]:
-        cur.execute("SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1")
+        cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id")
         latest = cur.fetchone()
         if not latest:
             return {"candidates": 0, "observations": 0, "promoted": 0}
@@ -146,7 +146,12 @@ class ControlCenterV2Resolver:
                    (SELECT count(*) FROM public.trailing_order_events
                     WHERE ts >= date_trunc('day',now()) AND action='PLACE_STOP') AS stops_placed,
                    (SELECT count(*) FROM public.position_lifecycle_state
-                    WHERE trailing_active AND remaining_qty > 0) AS trailing_active,
+                    WHERE trailing_active AND remaining_qty > 0
+                      AND EXISTS (
+                          SELECT 1 FROM public.signal_fills current_fill
+                          WHERE current_fill.created_at >= date_trunc('day',now())
+                            AND current_fill.symbol=position_lifecycle_state.symbol
+                      )) AS trailing_active,
                    (SELECT count(*) FROM public.trailing_order_events
                     WHERE ts >= date_trunc('day',now()) AND action='REPLACE_STOP') AS stops_improved,
                    (SELECT count(*) FROM public.profit_lock_events
@@ -160,6 +165,8 @@ class ControlCenterV2Resolver:
                 SELECT snapshot_id
                 FROM analytics.market_microstructure_snapshot_v1 s
                 WHERE s.symbol=sf.symbol
+                  AND s.observed_at BETWEEN coalesce(f.ts,sf.created_at)-interval '30 seconds'
+                                        AND coalesce(f.ts,sf.created_at)+interval '30 seconds'
                   AND s.best_bid > 0 AND s.best_ask > s.best_bid
                   AND s.bid_levels > 0 AND s.ask_levels > 0
                   AND abs(extract(epoch FROM (
@@ -188,6 +195,8 @@ class ControlCenterV2Resolver:
                     position('@' IN t.symbol)=0 AND s.symbol=t.symbol||'@MISX'
                 ))
                   AND t.entry_ts IS NOT NULL
+                  AND s.observed_at BETWEEN t.entry_ts-interval '30 seconds'
+                                        AND t.entry_ts+interval '30 seconds'
                   AND s.best_bid > 0 AND s.best_ask > s.best_bid
                   AND s.bid_levels > 0 AND s.ask_levels > 0
                   AND abs(extract(epoch FROM (
@@ -304,7 +313,7 @@ class ControlCenterV2Resolver:
                    count(*) FILTER (WHERE exit_reason='TRAILING_STOP') AS trailing_exits,
                    count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) AS unsafe
             FROM analytics.forward_edge_shadow_exit_variant_v1
-            WHERE cohort_id=(SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1)
+            WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
             GROUP BY policy_code ORDER BY net_pnl DESC
         """)
         return [dict(row) for row in cur.fetchall()]
@@ -329,7 +338,7 @@ class ControlCenterV2Resolver:
                    count(*) FILTER (WHERE shadow_status='CLOSED') AS closed,
                    count(DISTINCT signal_ts::date) AS sessions
             FROM analytics.forward_edge_shadow_trade_v1
-            WHERE cohort_id=(SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1)
+            WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
             GROUP BY timeframe ORDER BY timeframe
         """)
         result = []
@@ -393,7 +402,7 @@ class ControlCenterV2Resolver:
         cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_trade_v1') AS table_name")
         if not cur.fetchone()["table_name"]:
             return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}
-        cur.execute("SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1")
+        cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id")
         latest = cur.fetchone()
         if not latest:
             return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}

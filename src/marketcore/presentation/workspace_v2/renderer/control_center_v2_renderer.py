@@ -37,6 +37,13 @@ def _resource_code(value: str) -> str:
     return value.strip().lower().replace(" ", "_")
 
 
+def _parameter_text(parameters: dict, i18n: UiI18nResolverV1) -> str:
+    return " · ".join(
+        f"{i18n.text(f'research.parameter.{_resource_code(str(key))}')} {value}"
+        for key, value in sorted(parameters.items())
+    )
+
+
 def _quality_reason_text(row: dict, i18n: UiI18nResolverV1) -> str:
     codes = row.get("reason_codes") or []
     return " · ".join(i18n.text(f"quality.reason.{_resource_code(str(code))}") for code in codes) or "—"
@@ -53,7 +60,7 @@ def _recommendation_options(vm: ControlCenterV2ViewModel, code: str, i18n: UiI18
     if code == "VOLATILITY":
         values = [{"value": str(row.get("regime_group") or "unknown"), "label": str(row.get("regime_group") or "unknown"), "enabled": int(row.get("passed") or 0) > 0} for row in vm.volatility_analysis]
     elif code == "SETUP":
-        values = [{"value": str(row.get("policy_code") or row.get("strategy_code") or "observe"), "label": " · ".join(f"{key} {value}" for key, value in sorted((row.get("parameter_json") or {}).items())), "enabled": bool(row.get("promotion_allowed"))} for row in vm.entry_analysis]
+        values = [{"value": str(row.get("policy_code") or row.get("strategy_code") or "observe"), "label": _parameter_text(row.get("parameter_json") or {}, i18n), "enabled": bool(row.get("promotion_allowed"))} for row in vm.entry_analysis]
     elif code == "EXECUTION":
         values = [{"value": str(row.get("mode") or "observe"), "label": f"{row.get('mode')}: {int(row.get('fills') or 0)}", "enabled": bool(row.get("quotes_verified"))} for row in vm.execution_quality]
     elif code == "RISK":
@@ -68,7 +75,7 @@ def _recommendation_options(vm: ControlCenterV2ViewModel, code: str, i18n: UiI18
     return json.dumps(values, ensure_ascii=False)
 
 
-def _relationship_card(item: RelationshipCandidateV2) -> RenderNode:
+def _relationship_card(item: RelationshipCandidateV2, i18n: UiI18nResolverV1) -> RenderNode:
     return RenderNode(
         RenderNodeType.CARD,
         props={"class": "mc-v2-card", "style": "grid-column:auto;min-height:0", "data-card": "KPI", "data-status": item.status},
@@ -79,12 +86,12 @@ def _relationship_card(item: RelationshipCandidateV2) -> RenderNode:
                 RenderNodeType.METRIC_LIST,
                 props={"class": "mc-v2-values"},
                 children=(
-                    _metric("OOS PF", f"{item.profit_factor:.2f}"),
-                    _metric("Ожидание", f"{item.expectancy_bps:.2f} б.п."),
-                    _metric("Сделки", str(item.oos_trades)),
-                    _metric("Покрытие", f"{item.coverage_pct:.0f}%"),
-                    _metric("Режим", item.regime),
-                    _metric("Сессия", item.session),
+                    _metric(i18n.text("column.oos_profit_factor"), f"{item.profit_factor:.2f}"),
+                    _metric(i18n.text("column.expectancy_bps"), f"{item.expectancy_bps:.2f} б.п."),
+                    _metric(i18n.text("column.oos_research_trades"), str(item.oos_trades)),
+                    _metric(i18n.text("column.coverage"), f"{item.coverage_pct:.0f}%"),
+                    _metric(i18n.text("column.market_regime"), i18n.text(f"market.regime.{_resource_code(item.regime)}")),
+                    _metric(i18n.text("column.market_session"), i18n.text(f"market.session.{_resource_code(item.session)}")),
                 ),
             ),
             RenderNode(RenderNodeType.BADGE, props={"class": "mc-v2-trust-badge"}, text=item.verdict),
@@ -129,14 +136,14 @@ def render_control_center_v2(
         RenderNodeType.SECTION,
         props={"class": "mc-v2-section", "data-section": "CONTROL"},
         children=(
-            _title("Рабочие разделы", 2),
-            RenderNode(RenderNodeType.SUBTITLE, text="Короткие переходы без запуска фоновых задач"),
+            _title(i18n.text("research.control.navigation.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.control.navigation.subtitle")),
             RenderNode(
                 RenderNodeType.GRID,
                 props={"class": "mc-v2-grid", "style": "grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"},
                 children=(
-                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": navigation_card_style, "href": "/", "aria_label": "Главная", "data-card": "ACTION", "data-status": "OK"}, children=(_title("⌂ Главная", 3),)),
-                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": navigation_card_style, "href": "/workspace-v2/portfolio", "aria_label": "Портфель", "data-card": "ACTION", "data-status": "OK"}, children=(_title("▦ Портфель", 3),)),
+                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": navigation_card_style, "href": "/", "aria_label": i18n.text("button.home"), "data-card": "ACTION", "data-status": "OK"}, children=(_title(i18n.text("research.control.navigation.home"), 3),)),
+                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": navigation_card_style, "href": "/workspace-v2/portfolio", "aria_label": i18n.text("portfolio.title"), "data-card": "ACTION", "data-status": "OK"}, children=(_title(i18n.text("research.control.navigation.portfolio"), 3),)),
                 ),
             ),
         ),
@@ -146,8 +153,8 @@ def render_control_center_v2(
         RenderNodeType.SECTION,
         props={"class": "mc-v2-section", "id": "state", "data-section": "OBSERVATION"},
         children=(
-            _title("Состояние", 2),
-            RenderNode(RenderNodeType.SUBTITLE, text="Зелёный — подтверждено · жёлтый — наблюдение · красный — запрет"),
+            _title(i18n.text("research.control.state.title"), 2),
+            RenderNode(RenderNodeType.SUBTITLE, text=i18n.text("research.control.state.subtitle")),
             RenderNode(
                 RenderNodeType.GRID,
                 props={"class": "mc-v2-grid", "style": "grid-template-columns:repeat(auto-fit,minmax(190px,1fr))"},
@@ -168,14 +175,11 @@ def render_control_center_v2(
         RenderNodeType.SECTION,
         props={"class": "mc-v2-section", "data-section": "SHADOW"},
         children=(
-            _title("Shadow-сделки", 2),
+            _title(i18n.text("research.shadow.title"), 2),
             RenderNode(
                 RenderNodeType.SUBTITLE,
                 text=(
-                    ("Активный cohort накапливает данные · показан последний архивный baseline · "
-                     if shadow.get("reporting_is_archived") else "Активный cohort · ")
-                    + "без брокерских заявок · eligible требует положительный net, regime/session "
-                    "и подтверждённые издержки"
+                    i18n.text("research.shadow.subtitle.archived" if shadow.get("reporting_is_archived") else "research.shadow.subtitle.active")
                 ),
             ),
             RenderNode(
@@ -188,28 +192,28 @@ def render_control_center_v2(
                         children=(_title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value", "style": compact_kpi_style}, text=value)),
                     )
                     for label, value, status in (
-                        ("Активный cohort", "Накопление" if int(shadow.get("active_observations") or 0) == 0 else "Наблюдение", "WARNING"),
-                        ("Новых наблюдений", str(int(shadow.get("active_observations") or 0)), "WARNING"),
-                        ("Источник метрик", "Архивный baseline" if shadow.get("reporting_is_archived") else "Активный cohort", "WARNING" if shadow.get("reporting_is_archived") else "OK"),
-                        ("Готовность", "Готово к открытию" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "Заблокировано", "OK" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "BLOCKED"),
-                        ("Всего", str(int(shadow.get("total") or 0)), "WARNING"),
-                        ("Ожидают вход", str(int(shadow.get("pending") or 0)), "WARNING"),
-                        ("Открыты", str(int(shadow.get("open") or 0)), "WARNING"),
-                        ("Закрыты", str(int(shadow.get("closed") or 0)), "OK"),
-                        ("Все уникальные paths", f"{float(shadow.get('net_pnl') or 0):.2f}", "WARNING"),
-                        ("Eligible семейства", str(int(shadow.get("eligible_families") or 0)), "OK" if int(shadow.get("eligible_families") or 0) > 0 else "WARNING"),
-                        ("Eligible family-paths", str(int(shadow.get("eligible_closed") or 0)), "OK"),
-                        ("Eligible результат", f"{float(shadow.get('eligible_net_pnl') or 0):.2f}", "OK" if float(shadow.get("eligible_net_pnl") or 0) > 0 else "WARNING"),
-                        ("Quality pending", str(int(shadow.get("quality_pending_families") or 0)), "WARNING"),
-                        ("Pending family-paths", str(int(shadow.get("quality_pending_closed") or 0)), "WARNING"),
-                        ("Pending результат", f"{float(shadow.get('quality_pending_net_pnl') or 0):.2f}", "WARNING"),
-                        ("Exploratory семейства", str(int(shadow.get("exploratory_families") or 0)), "WARNING"),
-                        ("Exploratory family-paths", str(int(shadow.get("exploratory_closed") or 0)), "WARNING"),
-                        ("Exploratory результат", f"{float(shadow.get('exploratory_net_pnl') or 0):.2f}", "BLOCKED" if float(shadow.get("exploratory_net_pnl") or 0) < 0 else "WARNING"),
-                        ("ATR-трейлинг", str(int(shadow.get("trailing_total") or 0)), "WARNING"),
-                        ("Трейлинг сработал", str(int(shadow.get("trailing_exits") or 0)), "OK"),
-                        ("Результат трейлинга", f"{float(shadow.get('trailing_net_pnl') or 0):.2f}", "OK" if float(shadow.get("trailing_net_pnl") or 0) >= 0 else "BLOCKED"),
-                        ("Нарушения", str(int(shadow.get("unsafe") or 0) + int(shadow.get("trailing_unsafe") or 0)), "OK" if int(shadow.get("unsafe") or 0) + int(shadow.get("trailing_unsafe") or 0) == 0 else "BLOCKED"),
+                        (i18n.text("research.shadow.active_cohort"), i18n.text("status.accumulating" if int(shadow.get("active_observations") or 0) == 0 else "status.observation"), "WARNING"),
+                        (i18n.text("research.shadow.new_observations"), str(int(shadow.get("active_observations") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.metric_source"), i18n.text("research.shadow.archived_baseline" if shadow.get("reporting_is_archived") else "research.shadow.active_baseline"), "WARNING" if shadow.get("reporting_is_archived") else "OK"),
+                        (i18n.text("research.shadow.readiness"), i18n.text("status.ready_to_open" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "status.blocked"), "OK" if shadow.get("guard_check_status") == "READY_FOR_SHADOW_OPEN" else "BLOCKED"),
+                        (i18n.text("research.shadow.total"), str(int(shadow.get("total") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.awaiting_entry"), str(int(shadow.get("pending") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.open"), str(int(shadow.get("open") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.closed"), str(int(shadow.get("closed") or 0)), "OK"),
+                        (i18n.text("research.shadow.all_unique_paths"), f"{float(shadow.get('net_pnl') or 0):.2f}", "WARNING"),
+                        (i18n.text("research.shadow.eligible_families"), str(int(shadow.get("eligible_families") or 0)), "OK" if int(shadow.get("eligible_families") or 0) > 0 else "WARNING"),
+                        (i18n.text("research.shadow.eligible_paths"), str(int(shadow.get("eligible_closed") or 0)), "OK"),
+                        (i18n.text("research.shadow.eligible_result"), f"{float(shadow.get('eligible_net_pnl') or 0):.2f}", "OK" if float(shadow.get("eligible_net_pnl") or 0) > 0 else "WARNING"),
+                        (i18n.text("research.shadow.quality_pending"), str(int(shadow.get("quality_pending_families") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.pending_paths"), str(int(shadow.get("quality_pending_closed") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.pending_result"), f"{float(shadow.get('quality_pending_net_pnl') or 0):.2f}", "WARNING"),
+                        (i18n.text("research.shadow.exploratory_families"), str(int(shadow.get("exploratory_families") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.exploratory_paths"), str(int(shadow.get("exploratory_closed") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.exploratory_result"), f"{float(shadow.get('exploratory_net_pnl') or 0):.2f}", "BLOCKED" if float(shadow.get("exploratory_net_pnl") or 0) < 0 else "WARNING"),
+                        (i18n.text("research.shadow.atr_trailing"), str(int(shadow.get("trailing_total") or 0)), "WARNING"),
+                        (i18n.text("research.shadow.trailing_triggered"), str(int(shadow.get("trailing_exits") or 0)), "OK"),
+                        (i18n.text("research.shadow.trailing_result"), f"{float(shadow.get('trailing_net_pnl') or 0):.2f}", "OK" if float(shadow.get("trailing_net_pnl") or 0) >= 0 else "BLOCKED"),
+                        (i18n.text("research.shadow.violations"), str(int(shadow.get("unsafe") or 0) + int(shadow.get("trailing_unsafe") or 0)), "OK" if int(shadow.get("unsafe") or 0) + int(shadow.get("trailing_unsafe") or 0) == 0 else "BLOCKED"),
                     )
                 ),
             ),
@@ -360,11 +364,11 @@ def render_control_center_v2(
                     DataTableColumn("solution", i18n.text("column.solution")),
                 ),
                 tuple({
-                    "strategy": row.get("strategy_code") or "—", "symbol": row.get("symbol") or "—",
-                    "parameters": " · ".join(f"{key} {value}" for key, value in sorted((row.get("parameter_json") or {}).items())),
+                    "strategy": i18n.text(f"strategy.{_resource_code(str(row.get('strategy_code') or 'unknown'))}"), "symbol": row.get("symbol") or "—",
+                    "parameters": _parameter_text(row.get("parameter_json") or {}, i18n),
                     "trades": int(row.get("oos_trades") or 0), "pf": f"{float(row.get('oos_profit_factor') or 0):.3f}",
                     "folds": f"{int(row.get('folds_passed') or 0)}/{int(row.get('folds_total') or 0)}",
-                    "verdict": row.get("verdict_code") or "—",
+                    "verdict": i18n.text(f"status.{_resource_code(str(row.get('verdict_code') or 'unknown'))}"),
                     "solution": i18n.text("research.solution.promote" if row.get("promotion_allowed") else "research.solution.collect_evidence"),
                 } for row in vm.entry_analysis),
             ),
@@ -390,7 +394,7 @@ def render_control_center_v2(
                     DataTableColumn("quotes", i18n.text("column.quotes_quality")),
                 ),
                 tuple({
-                    "mode": row.get("mode"), "opened": int(row.get("positions_opened") or 0),
+                    "mode": i18n.text(f"research.execution.mode.{_resource_code(str(row.get('mode') or 'unknown'))}"), "opened": int(row.get("positions_opened") or 0),
                     "stop": int(row.get("stops_placed") or 0), "active": int(row.get("trailing_active") or 0),
                     "improved": int(row.get("stops_improved") or 0), "lock": int(row.get("profit_locks") or 0),
                     "take": int(row.get("take_profits") or 0), "closed": int(row.get("positions_closed") or 0),

@@ -289,7 +289,7 @@ class HomeV2Presenter:
                         FROM analytics.relationship_factory_result_v2 WHERE discovery_run_id=(
                         SELECT discovery_run_id FROM analytics.relationship_factory_result_v2 ORDER BY created_at DESC LIMIT 1)""")
                     edge = dict(cur.fetchone() or {})
-                    cur.execute("""SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1""")
+                    cur.execute("""SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id""")
                     cohort = cur.fetchone()
                     forward = {"candidates": 0, "observations": 0}
                     if cohort:

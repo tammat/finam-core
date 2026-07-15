@@ -106,7 +106,8 @@ def microstructure_quality(cur: Any, symbol: str) -> str:
         (symbol,),
     )
     row = cur.fetchone()
-    return str(row["market_data_quality"]) if row else "COLLECTING"
+    quality = str(row["market_data_quality"]) if row else "COLLECTING"
+    return "QUOTE_VERIFIED" if quality == "QUOTE_VERIFIED" else "BAR_ONLY"
 
 
 def main() -> None:

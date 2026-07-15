@@ -30,9 +30,11 @@ CREATE OR REPLACE FUNCTION analytics.forward_edge_baseline_cohort_id_v1()
 RETURNS uuid
 LANGUAGE sql
 STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, analytics
 AS $$
     SELECT cohort_id
-    FROM analytics.forward_edge_baseline_v1
+    FROM forward_edge_baseline_v1
     WHERE baseline_key = 'EDGE_SEARCH'
 $$;
 
