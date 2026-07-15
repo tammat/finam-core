@@ -239,8 +239,15 @@ A stage is complete only when:
 
 ## 15. Current Position
 
-Current active stage: Stage 0 - Lock The Baseline.
+Completed stages:
 
-No later stage may be marked active until Stage 0 is committed and its exit gate passes from the tracked repository state.
+- Stage 0 - Lock The Baseline;
+- Stage 1 - Presentation Inventory;
+- Stage 2 - Domain RenderTree Contract;
+- Stage 3 - Runtime And Platform Driver Boundary.
 
-`VERDICT=MARKETCORE_TARGET_TRANSITION_PLAN_V1_LOCKED`
+Current active stage: Stage 4 - Canonical Navigation Containers.
+
+The mandatory Stage 6 i18n technical debt gate remains open and blocks live Runtime V2 cutover.
+
+`VERDICT=MARKETCORE_STAGE3_RUNTIME_PLATFORM_COMPLETE`
