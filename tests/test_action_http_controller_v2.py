@@ -25,13 +25,27 @@ def test_navigation_reaches_governed_dispatcher_and_audit() -> None:
 
 def test_state_changing_browser_action_is_not_registered() -> None:
     response = dispatch_browser_action_http_v2(json.dumps({
-        "actionId": "research.refresh",
+        "actionId": "research.unknown",
         "actionKind": "COMMAND",
         "interactionKind": "DOUBLE_CLICK",
         "commandCode": "RESEARCH.REFRESH",
     }).encode())
     assert response.status_code == 403
     assert json.loads(response.body)["reason_code"] == "STATE_CHANGING_ACTION_NOT_REGISTERED"
+
+
+def test_registered_research_action_creates_pending_request() -> None:
+    request_id = str(uuid4())
+    response = dispatch_browser_action_http_v2(json.dumps({
+        "actionId": "research.request.refresh", "actionKind": "COMMAND",
+        "interactionKind": "DOUBLE_CLICK", "requestId": request_id,
+    }).encode())
+    payload = json.loads(response.body)
+    assert response.status_code == 202 and payload["status"] == "EXECUTED"
+    with psycopg2.connect("postgresql:///finam_core") as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT request_kind,status FROM marketcore_action.command_request_v2 WHERE request_id=%s", (request_id,))
+            assert cursor.fetchone() == ("RESEARCH_REFRESH", "PENDING")
 
 
 def test_unknown_navigation_target_is_denied() -> None:

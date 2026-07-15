@@ -8,12 +8,13 @@
         const endpoint = options.endpoint || "/api/v2/actions/dispatch";
         const onNavigation = typeof options.onNavigation === "function" ? options.onNavigation : () => {};
         return async function actionSink(intent) {
+            const requestId = intent.requestId || globalObject.crypto.randomUUID();
             const response = await globalObject.fetch(endpoint, {
                 method: "POST",
                 headers: {"Content-Type": "application/json", "Accept": "application/json"},
                 credentials: "same-origin",
                 cache: "no-store",
-                body: JSON.stringify(intent)
+                body: JSON.stringify({...intent, requestId})
             });
             const result = await response.json();
             if (!response.ok) throw new Error(`ACTION_DISPATCH_FAILED:${result.reason_code || response.status}`);
