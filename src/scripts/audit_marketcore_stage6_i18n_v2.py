@@ -22,6 +22,18 @@ STATE_PREFIX = {
     "availability_code": "availability",
     "freshness_code": "freshness",
 }
+FORBIDDEN_OPERATOR_TERMS = {
+    "edge": re.compile(r"(?i)(?<![A-Za-z])edge(?![A-Za-z])"),
+    "oos": re.compile(r"(?i)(?<![A-Za-z])oos(?![A-Za-z])"),
+    "pnl": re.compile(r"(?i)(?<![A-Za-z])p\s*&?\s*l(?![A-Za-z])"),
+    "roi": re.compile(r"(?i)(?<![A-Za-z])roi(?![A-Za-z])"),
+    "paper": re.compile(r"(?i)(?<![A-Za-z])paper(?![A-Za-z])"),
+    "shadow": re.compile(r"(?i)(?<![A-Za-z])shadow(?![A-Za-z])"),
+    "forward": re.compile(r"(?i)(?<![A-Za-z])forward(?![A-Za-z])"),
+    "live": re.compile(r"(?i)(?<![A-Za-z])live(?![A-Za-z])"),
+    "bid/ask": re.compile(r"(?i)(?<![A-Za-z])bid\s*/\s*ask(?![A-Za-z])"),
+    "atr": re.compile(r"(?i)(?<![A-Za-z])atr(?![A-Za-z])"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +95,12 @@ def audit() -> dict[str, object]:
     missing_states = sorted(state_keys - catalog.keys())
     blank = sorted(key for key in emitted_keys & catalog.keys() if not catalog[key].strip())
     technical_echo = sorted(key for key in emitted_keys & catalog.keys() if catalog[key].strip() == key)
+    terminology_errors = sorted(
+        f"{key}:{term}:{catalog[key]}"
+        for key in emitted_keys & catalog.keys()
+        for term, pattern in FORBIDDEN_OPERATOR_TERMS.items()
+        if pattern.search(catalog[key])
+    )
     argument_errors: list[str] = []
     for item in messages:
         caption = catalog.get(item.message_key)
@@ -107,6 +125,7 @@ def audit() -> dict[str, object]:
         "missing_states": missing_states,
         "blank_captions": blank,
         "technical_echo": technical_echo,
+        "terminology_errors": terminology_errors,
         "argument_errors": sorted(set(argument_errors)),
         "semantic_hardcodes": hardcodes,
         "domain_text_values": domain_text,
@@ -120,7 +139,7 @@ def _print_report(result: dict[str, object]) -> None:
     print(f"message_occurrences={result['message_occurrences']}")
     print(f"unique_message_keys={result['unique_message_keys']}")
     print(f"catalog_entries_ru={result['catalog_entries_ru']}")
-    for name in ("missing_messages", "missing_states", "blank_captions", "technical_echo", "argument_errors", "semantic_hardcodes"):
+    for name in ("missing_messages", "missing_states", "blank_captions", "technical_echo", "terminology_errors", "argument_errors", "semantic_hardcodes"):
         print(f"{name}={len(result[name])}")
     print(f"domain_text_values={len(result['domain_text_values'])}")
     print()
@@ -131,6 +150,7 @@ def _print_report(result: dict[str, object]) -> None:
     for heading, field in (
         ("Missing Russian Message Keys", "missing_messages"),
         ("Missing State Translations", "missing_states"),
+        ("Forbidden Operator Terminology", "terminology_errors"),
         ("Message Argument Errors", "argument_errors"),
         ("Forbidden Semantic Hardcodes", "semantic_hardcodes"),
     ):
@@ -150,7 +170,7 @@ def _print_report(result: dict[str, object]) -> None:
         for producer, node_id, value in result["domain_text_values"]:
             print(f"- {producer}:{node_id}:{value}")
     incomplete = any(result[field] for field in (
-        "missing_messages", "missing_states", "blank_captions", "technical_echo",
+        "missing_messages", "missing_states", "blank_captions", "technical_echo", "terminology_errors",
         "argument_errors", "semantic_hardcodes",
     ))
     print()
@@ -164,7 +184,7 @@ def main() -> int:
     result = audit()
     _print_report(result)
     incomplete = any(result[field] for field in (
-        "missing_messages", "missing_states", "blank_captions", "technical_echo",
+        "missing_messages", "missing_states", "blank_captions", "technical_echo", "terminology_errors",
         "argument_errors", "semantic_hardcodes",
     ))
     return 2 if args.enforce and incomplete else 0

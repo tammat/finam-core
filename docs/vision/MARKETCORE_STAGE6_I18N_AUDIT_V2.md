@@ -7,6 +7,7 @@ missing_messages=208
 missing_states=16
 blank_captions=0
 technical_echo=0
+terminology_errors=6
 argument_errors=0
 semantic_hardcodes=0
 domain_text_values=8
@@ -249,6 +250,14 @@ domain_text_values=8
 - status.elevated
 - status.normal
 - status.ok
+
+## Forbidden Operator Terminology
+- home.card.edge.title:edge:Edge · OOS
+- home.card.edge.title:oos:Edge · OOS
+- home.profit_factory.roi:roi:Фактический ROI
+- portfolio.column.p&l %:pnl:P&L %
+- portfolio.column.p&l за день:pnl:P&L за день
+- portfolio.column.p&l общий:pnl:P&L общий
 
 ## Message Argument Errors
 - NONE
