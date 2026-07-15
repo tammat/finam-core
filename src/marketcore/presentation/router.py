@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
+from marketcore.presentation.i18n.catalog_http_v2 import (
+    i18n_catalog_http_v2,
+)
+
 from marketcore.presentation.ui_runtime.asset_delivery_v1 import (
     load_ui_runtime_asset_v1,
 )
@@ -95,6 +99,11 @@ class ReadOnlyRouter:
 
 def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, bytes]:
     query = query or {}
+    if path.rstrip("/") == "/api/v2/i18n/catalog":
+        response = i18n_catalog_http_v2(
+            (query.get("locale") or ["ru-RU"])[0]
+        )
+        return response.status_code, response.body
     domain_render_tree_routes = {
         "/api/v2/domain-render-tree/home": "HOME",
         "/api/v2/domain-render-tree/portfolio": "PORTFOLIO",

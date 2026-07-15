@@ -85,6 +85,10 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
             content_type = (
                 "application/vnd.marketcore.render-tree+json; charset=utf-8"
             )
+        elif self.path.startswith("/api/v2/i18n/catalog"):
+            content_type = (
+                "application/vnd.marketcore.i18n-catalog+json; charset=utf-8"
+            )
         elif self.path.startswith("/api/v1/"):
             content_type = "application/json; charset=utf-8"
         else:

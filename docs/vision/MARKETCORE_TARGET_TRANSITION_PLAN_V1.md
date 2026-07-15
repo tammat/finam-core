@@ -135,6 +135,13 @@ Exit gate: action contract, policy, authorization, duplicate-action and rollback
 
 ## 9. Stage 6 - Complete I18n
 
+Mandatory technical debt gate before live Runtime V2 cutover:
+
+- audit every `content.message_key` emitted by every live RenderTree V2 producer;
+- require a Russian translation for every emitted key and forbid rendering the technical key to the operator;
+- verify every `message_args` substitution and Russian parameter label in every container;
+- rerun this coverage gate after adding any producer, container, or action.
+
 Goal: remove user-facing hardcode from the full presentation path.
 
 Message dictionaries must cover menu items, headings, parameters, strategy names, statuses, verdicts, errors, actions, units and empty states.
