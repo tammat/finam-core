@@ -37,6 +37,8 @@ from marketcore.presentation.workspace_v2.resolver.research_v2_resolver import R
 from marketcore.presentation.workspace_v2.renderer.research_v2_domain_renderer import render_research_domain_v2
 from marketcore.presentation.workspace_v2.resolver.intraday_v2_resolver import IntradayV2Resolver
 from marketcore.presentation.workspace_v2.renderer.intraday_v2_domain_renderer import render_intraday_domain_v2
+from marketcore.presentation.workspace_v2.resolver.program_v2_resolver import ProgramV2Resolver
+from marketcore.presentation.workspace_v2.renderer.program_v2_domain_renderer import render_program_domain_v2
 
 
 class DomainProducerCodeV2(str, Enum):
@@ -48,6 +50,7 @@ class DomainProducerCodeV2(str, Enum):
     RISK = "RISK"
     RESEARCH = "RESEARCH"
     INTRADAY = "INTRADAY"
+    PROGRAM = "PROGRAM"
 
 
 class DomainProducerRegistryErrorV2(ValueError):
@@ -103,6 +106,9 @@ def _build_research(timezone_code: str) -> RenderDocumentV2:
 def _build_intraday(timezone_code: str) -> RenderDocumentV2:
     return render_intraday_domain_v2(IntradayV2Resolver().resolve(timezone_code=timezone_code), timezone_code=timezone_code)
 
+def _build_program(timezone_code: str) -> RenderDocumentV2:
+    return render_program_domain_v2(ProgramV2Resolver().resolve(),timezone_code=timezone_code)
+
 
 _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = MappingProxyType(
     {
@@ -146,6 +152,7 @@ _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = Mappin
             producer_code=DomainProducerCodeV2.RESEARCH, document_id="operator.research.v2", owner_code="RESEARCH", build=_build_research,
         ),
         DomainProducerCodeV2.INTRADAY: DomainProducerDefinitionV2(producer_code=DomainProducerCodeV2.INTRADAY,document_id="operator.intraday.v2",owner_code="INTRADAY",build=_build_intraday),
+        DomainProducerCodeV2.PROGRAM: DomainProducerDefinitionV2(producer_code=DomainProducerCodeV2.PROGRAM,document_id="operator.program.v2",owner_code="PROGRAM",build=_build_program),
     }
 )
 

@@ -74,7 +74,7 @@ _DEFINITIONS: Mapping[ContainerCodeV2, ContainerDefinitionV2] = MappingProxyType
         ContainerCodeV2.INTRADAY: _definition(ContainerCodeV2.INTRADAY, "INTRADAY", 50, DomainProducerCodeV2.INTRADAY),
         ContainerCodeV2.PORTFOLIO: _definition(ContainerCodeV2.PORTFOLIO, "PORTFOLIO", 60, DomainProducerCodeV2.PORTFOLIO),
         ContainerCodeV2.RISK: _definition(ContainerCodeV2.RISK, "RISK", 70, DomainProducerCodeV2.RISK),
-        ContainerCodeV2.PROGRAM: _definition(ContainerCodeV2.PROGRAM, "PROGRAM", 80),
+        ContainerCodeV2.PROGRAM: _definition(ContainerCodeV2.PROGRAM, "PROGRAM", 80, DomainProducerCodeV2.PROGRAM),
         ContainerCodeV2.SETTINGS: _definition(ContainerCodeV2.SETTINGS, "SETTINGS", 90, DomainProducerCodeV2.SETTINGS),
     }
 )

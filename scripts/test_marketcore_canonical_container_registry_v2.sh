@@ -18,7 +18,7 @@ assert all(item.label_message_key == f"navigation.container.{item.container_code
 assert all(item.supported_states == tuple(ContainerViewStateV2) for item in definitions)
 
 ready = ready_container_definitions_v2()
-assert {item.container_code.value for item in ready} == {"HOME", "CAPITAL", "EDGE", "RESEARCH", "INTRADAY", "PORTFOLIO", "RISK", "SETTINGS"}
+assert {item.container_code.value for item in ready} == {item.value for item in ContainerCodeV2}
 for item in ready:
     document = build_domain_document_v2(item.producer_code)
     assert document.root.node_id
@@ -32,8 +32,8 @@ for target in current_targets:
 
 assert not any("diagnostic" in item.container_id or "engineering" in item.container_id for item in definitions)
 print("canonical_containers=9")
-print("real_targets_ready=8")
-print("targets_pending=1")
+print("real_targets_ready=9")
+print("targets_pending=0")
 print("current_navigation_targets_valid=6")
 print("VERDICT=MARKETCORE_CANONICAL_CONTAINER_REGISTRY_V2_READY")
 PY
