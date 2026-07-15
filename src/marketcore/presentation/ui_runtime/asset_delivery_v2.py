@@ -31,6 +31,7 @@ UI_RUNTIME_ASSETS_V2: tuple[UiRuntimeAssetDefinitionV2, ...] = (
     UiRuntimeAssetDefinitionV2("browser_platform_driver", "/assets/marketcore/ui-runtime/v2/browser-platform-driver.js", "browser_platform_driver_v2.js"),
     UiRuntimeAssetDefinitionV2("browser_bootstrap", "/assets/marketcore/ui-runtime/v2/browser-bootstrap.js", "browser_bootstrap_v2.js"),
     UiRuntimeAssetDefinitionV2("browser_presentation_services", "/assets/marketcore/ui-runtime/v2/browser-presentation-services.js", "browser_presentation_services_v2.js"),
+    UiRuntimeAssetDefinitionV2("browser_action_controller", "/assets/marketcore/ui-runtime/v2/browser-action-controller.js", "browser_action_controller_v2.js"),
 )
 
 _ASSET_BY_ROUTE = {asset.route: asset for asset in UI_RUNTIME_ASSETS_V2}

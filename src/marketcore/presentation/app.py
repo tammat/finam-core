@@ -51,6 +51,15 @@ def _error_page(exc: BaseException) -> bytes:
 
 
 class MarketCoreUiHandler(BaseHTTPRequestHandler):
+    def _is_same_origin_action_request(self) -> bool:
+        host = (self.headers.get("Host") or "").strip().lower()
+        origin_value = self.headers.get("Origin") or ""
+        origin = urlparse(origin_value).netloc.strip().lower()
+        fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
+        if self.client_address[0] in {"127.0.0.1", "::1"} and not origin:
+            return True
+        return bool(host and origin and host == origin and fetch_site == "same-origin")
+
     def _is_local_control_request(self) -> bool:
         if self.client_address[0] in {"127.0.0.1", "::1"}:
             return True
@@ -89,6 +98,8 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
             content_type = (
                 "application/vnd.marketcore.i18n-catalog+json; charset=utf-8"
             )
+        elif self.path.startswith("/api/v2/actions/"):
+            content_type = "application/json; charset=utf-8"
         elif self.path.startswith("/api/v1/"):
             content_type = "application/json; charset=utf-8"
         else:
@@ -111,11 +122,23 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            if not self._is_local_control_request():
+            parsed = urlparse(self.path)
+            is_v2_action = parsed.path.rstrip("/") == "/api/v2/actions/dispatch"
+            if is_v2_action and not self._is_same_origin_action_request():
+                self._send_html(403, b'{"status":"DENIED","reason_code":"SAME_ORIGIN_REQUIRED"}')
+                return
+            if not is_v2_action and not self._is_local_control_request():
                 self._send_html(403, b"Local control only")
                 return
-            parsed = urlparse(self.path)
-            code, payload = route_post(parsed.path)
+            length = int(self.headers.get("Content-Length") or "0")
+            if length < 0 or length > 32768:
+                self._send_html(413, b'{"status":"DENIED","reason_code":"ACTION_BODY_TOO_LARGE"}')
+                return
+            if is_v2_action and not (self.headers.get("Content-Type") or "").lower().startswith("application/json"):
+                self._send_html(415, b'{"status":"DENIED","reason_code":"ACTION_CONTENT_TYPE_INVALID"}')
+                return
+            body = self.rfile.read(length) if length else b""
+            code, payload = route_post(parsed.path, body)
             self._send_html(code, _to_bytes(payload))
         except Exception as exc:
             traceback.print_exc()

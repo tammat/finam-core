@@ -26,6 +26,7 @@ from marketcore.presentation.workspace_v2.render_tree_http_v2 import (
 from marketcore.presentation.workspace_v2.portfolio_page_v2 import (
     render_workspace_v2_portfolio_page_v2,
 )
+from marketcore.presentation.action_http_controller_v2 import dispatch_browser_action_http_v2
 from marketcore.presentation.workspace_v2.edge_oos_control_center_v1 import (
     action_status_v1,
     run_hypothesis_action_v1,
@@ -220,7 +221,10 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
     return 404, b"Not found"
 
 
-def route_post(path: str) -> tuple[int, bytes]:
+def route_post(path: str, body: bytes = b"") -> tuple[int, bytes]:
+    if path.rstrip("/") == "/api/v2/actions/dispatch":
+        response = dispatch_browser_action_http_v2(body)
+        return response.status_code, response.body
     actions: dict[str, Callable[[], str]] = {
         "/workspace-v2/control-center/edge-oos/forward-incubator": run_forward_incubator_action_v1,
         "/workspace-v2/control-center/edge-oos/swing-timeframes": run_swing_timeframes_action_v1,
