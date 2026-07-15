@@ -35,6 +35,8 @@ from marketcore.presentation.workspace_v2.resolver.risk_v2_resolver import RiskV
 from marketcore.presentation.workspace_v2.renderer.risk_v2_domain_renderer import render_risk_domain_v2
 from marketcore.presentation.workspace_v2.resolver.research_v2_resolver import ResearchV2Resolver
 from marketcore.presentation.workspace_v2.renderer.research_v2_domain_renderer import render_research_domain_v2
+from marketcore.presentation.workspace_v2.resolver.intraday_v2_resolver import IntradayV2Resolver
+from marketcore.presentation.workspace_v2.renderer.intraday_v2_domain_renderer import render_intraday_domain_v2
 
 
 class DomainProducerCodeV2(str, Enum):
@@ -45,6 +47,7 @@ class DomainProducerCodeV2(str, Enum):
     CAPITAL = "CAPITAL"
     RISK = "RISK"
     RESEARCH = "RESEARCH"
+    INTRADAY = "INTRADAY"
 
 
 class DomainProducerRegistryErrorV2(ValueError):
@@ -97,6 +100,9 @@ def _build_risk(timezone_code: str) -> RenderDocumentV2:
 def _build_research(timezone_code: str) -> RenderDocumentV2:
     return render_research_domain_v2(ResearchV2Resolver().resolve(), timezone_code=timezone_code)
 
+def _build_intraday(timezone_code: str) -> RenderDocumentV2:
+    return render_intraday_domain_v2(IntradayV2Resolver().resolve(timezone_code=timezone_code), timezone_code=timezone_code)
+
 
 _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = MappingProxyType(
     {
@@ -139,6 +145,7 @@ _DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = Mappin
         DomainProducerCodeV2.RESEARCH: DomainProducerDefinitionV2(
             producer_code=DomainProducerCodeV2.RESEARCH, document_id="operator.research.v2", owner_code="RESEARCH", build=_build_research,
         ),
+        DomainProducerCodeV2.INTRADAY: DomainProducerDefinitionV2(producer_code=DomainProducerCodeV2.INTRADAY,document_id="operator.intraday.v2",owner_code="INTRADAY",build=_build_intraday),
     }
 )
 

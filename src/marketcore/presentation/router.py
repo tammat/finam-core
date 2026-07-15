@@ -112,6 +112,7 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
         "/api/v2/domain-render-tree/capital": "CAPITAL",
         "/api/v2/domain-render-tree/risk": "RISK",
         "/api/v2/domain-render-tree/research": "RESEARCH",
+        "/api/v2/domain-render-tree/intraday": "INTRADAY",
     }
     producer_code = domain_render_tree_routes.get(path.rstrip("/"))
     if producer_code is not None:
