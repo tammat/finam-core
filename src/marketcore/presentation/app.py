@@ -74,6 +74,10 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
 
         if asset_content_type is not None:
             content_type = asset_content_type
+        elif self.path.startswith("/api/v2/domain-render-tree/"):
+            content_type = (
+                "application/vnd.marketcore.render-tree+json; charset=utf-8"
+            )
         elif self.path.startswith("/api/v1/"):
             content_type = "application/json; charset=utf-8"
         else:

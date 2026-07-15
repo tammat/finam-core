@@ -12,6 +12,9 @@ from marketcore.presentation.workspace_v2.render_tree_http_v1 import (
     home_render_tree_http_v1,
     portfolio_render_tree_http_v1,
 )
+from marketcore.presentation.workspace_v2.render_tree_http_v2 import (
+    domain_render_tree_http_v2,
+)
 
 from marketcore.presentation.workspace_v2.portfolio_page_v2 import (
     render_workspace_v2_portfolio_page_v2,
@@ -89,6 +92,18 @@ class ReadOnlyRouter:
 
 def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, bytes]:
     query = query or {}
+    domain_render_tree_routes = {
+        "/api/v2/domain-render-tree/home": "HOME",
+        "/api/v2/domain-render-tree/portfolio": "PORTFOLIO",
+        "/api/v2/domain-render-tree/control-center": "CONTROL_CENTER",
+    }
+    producer_code = domain_render_tree_routes.get(path.rstrip("/"))
+    if producer_code is not None:
+        response = domain_render_tree_http_v2(
+            producer_code,
+            timezone_code=(query.get("timezone") or [None])[0],
+        )
+        return response.status_code, response.body
     if path == "/api/v1/control-center/action-status":
         action_code = (query.get("action") or [""])[0]
         return 200, json.dumps(action_status_v1(action_code), ensure_ascii=False).encode("utf-8")
