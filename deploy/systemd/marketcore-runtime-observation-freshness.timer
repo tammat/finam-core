@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh MarketCore Runtime observations every minute
+
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=1min
+Unit=marketcore-runtime-observation-freshness.service
+
+[Install]
+WantedBy=timers.target
