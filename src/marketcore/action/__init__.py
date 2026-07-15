@@ -37,6 +37,11 @@ from marketcore.action.rollback_v2 import (
     GovernedRollbackCoordinatorV2,
     RollbackRequestV2,
 )
+from marketcore.action.postgres_risk_boundary_v2 import (
+    PostgresRiskBoundaryV2,
+    RiskPermissionStateV2,
+    evaluate_risk_permission_v2,
+)
 
 __all__ = [
     "ActionActorKindV2",
@@ -66,4 +71,7 @@ __all__ = [
     "PostgresDuplicateActionGuardV2",
     "GovernedRollbackCoordinatorV2",
     "RollbackRequestV2",
+    "PostgresRiskBoundaryV2",
+    "RiskPermissionStateV2",
+    "evaluate_risk_permission_v2",
 ]
