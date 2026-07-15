@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll governed Paper requests every minute
+
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=1min
+Unit=marketcore-governed-paper-worker.service
+
+[Install]
+WantedBy=timers.target

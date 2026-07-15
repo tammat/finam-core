@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll governed Research requests every minute
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=1min
+Unit=marketcore-governed-research-worker.service
+
+[Install]
+WantedBy=timers.target

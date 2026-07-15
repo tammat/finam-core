@@ -1,0 +1,20 @@
+[Unit]
+Description=MarketCore Governed Paper Command Worker V2
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=finam
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=-/opt/finam-core/.env
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=RUNTIME_ALLOW_TRADING=0
+Environment=EXECUTION_ENABLED=0
+Environment=REAL_TRADING_ENABLED=0
+ExecStart=/opt/finam-core/.venv/bin/python src/scripts/run_marketcore_governed_command_worker_v2.py --request-kind PAPER_OBSERVATION --limit 20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
