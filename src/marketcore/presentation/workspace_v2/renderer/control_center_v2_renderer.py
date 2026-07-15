@@ -111,11 +111,6 @@ def render_control_center_v2(
         f"{_theme_px(theme, 'CONTROL_KPI_MIN_WIDTH')},1fr));"
         f"gap:{_theme_px(theme, 'CONTROL_GRID_GAP')};"
     )
-    shadow_grid_style = (
-        "grid-template-columns:repeat("
-        f"{int(theme.get('CONTROL_SHADOW_COLUMNS'))},minmax(0,1fr));"
-        f"gap:{_theme_px(theme, 'CONTROL_GRID_GAP')};"
-    )
     compact_card_style = (
         "grid-column:auto;"
         f"min-height:{_theme_px(theme, 'CONTROL_CARD_MIN_HEIGHT')};"
@@ -184,12 +179,12 @@ def render_control_center_v2(
             ),
             RenderNode(
                 RenderNodeType.GRID,
-                props={"class": "mc-v2-grid", "style": shadow_grid_style},
+                props={"class": "mc-v2-grid"},
                 children=tuple(
                     RenderNode(
                         RenderNodeType.CARD,
-                        props={"class": "mc-v2-card", "style": compact_card_style, "data-card": "KPI", "data-status": status},
-                        children=(_title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value", "style": compact_kpi_style}, text=value)),
+                        props={"class": "mc-v2-card", "data-card": "KPI", "data-status": status},
+                        children=(_title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value"}, text=value)),
                     )
                     for label, value, status in (
                         (i18n.text("research.shadow.active_cohort"), i18n.text("status.accumulating" if int(shadow.get("active_observations") or 0) == 0 else "status.observation"), "WARNING"),

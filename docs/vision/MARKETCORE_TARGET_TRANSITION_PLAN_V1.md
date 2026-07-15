@@ -245,9 +245,12 @@ Completed stages:
 - Stage 1 - Presentation Inventory;
 - Stage 2 - Domain RenderTree Contract;
 - Stage 3 - Runtime And Platform Driver Boundary.
+- Stage 4 - Canonical Navigation Containers.
 
-Current active stage: Stage 4 - Canonical Navigation Containers.
+Current active stage: Stage 5 - Policy-Governed Actions.
 
 The mandatory Stage 6 i18n technical debt gate remains open and blocks live Runtime V2 cutover.
 
 `VERDICT=MARKETCORE_STAGE3_RUNTIME_PLATFORM_COMPLETE`
+
+`VERDICT=MARKETCORE_STAGE4_CANONICAL_NAVIGATION_COMPLETE`

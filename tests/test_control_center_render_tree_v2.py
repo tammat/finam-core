@@ -21,12 +21,26 @@ class ControlCenterRenderTreeV2Test(unittest.TestCase):
         self.assertIn("Фабрика связей", encoded)
         self.assertIn("Воронка сигналов", encoded)
         self.assertIn("Причины и действия", encoded)
-        self.assertIn("Shadow-сделки", encoded)
+        self.assertIn("Теневые сделки", encoded)
         self.assertIn("Нарушения", encoded)
         self.assertIn("Готовность", encoded)
         self.assertIn("OOS PASS", encoded)
         self.assertNotIn("<table", encoded)
         self.assertNotIn("<style", encoded)
+
+        shadow_section = next(
+            node
+            for page in payload["root"]["children"]
+            for node in page["children"]
+            if node["props"].get("data-section") == "SHADOW"
+        )
+
+        def assert_no_presentation_style(node: dict) -> None:
+            self.assertNotIn("style", node["props"])
+            for child in node["children"]:
+                assert_no_presentation_style(child)
+
+        assert_no_presentation_style(shadow_section)
 
 
 if __name__ == "__main__":

@@ -332,6 +332,16 @@
 
             const tag = resolveTag(node);
             const element = this.documentObject.createElement(tag);
+            let platformElement = element;
+
+            if (node.type === "table") {
+                platformElement = this.documentObject.createElement("div");
+                platformElement.className = "mc-oos-table-wrap";
+                platformElement.setAttribute("role", "region");
+                platformElement.setAttribute("tabindex", "0");
+                element.setAttribute("role", "table");
+                platformElement.appendChild(element);
+            }
 
             applyProps(element, node.props || {});
 
@@ -366,7 +376,7 @@
                     fail("BROWSER_DOM_MULTIPLE_ROOTS");
                 }
 
-                this.mountElement.appendChild(element);
+                this.mountElement.appendChild(platformElement);
                 this.rootElement = element;
             } else {
                 const parentElement = this.elementStack[depth - 1];
@@ -378,7 +388,7 @@
                     );
                 }
 
-                parentElement.appendChild(element);
+                parentElement.appendChild(platformElement);
             }
 
             this.elementStack[depth] = element;

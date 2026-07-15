@@ -18,3 +18,13 @@ def test_dom_driver_performs_real_navigation_without_posting() -> None:
     assert "globalObject.location.assign" in source
     assert "globalObject.fetch" not in source
     assert "runtime.css" not in source
+
+
+def test_dom_driver_contains_wide_tables_in_platform_scroll_regions() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src/marketcore/presentation/ui_runtime/assets/v1/browser_dom_driver_v1.js"
+    ).read_text()
+    assert 'node.type === "table"' in source
+    assert 'platformElement.className = "mc-oos-table-wrap"' in source
+    assert 'platformElement.setAttribute("role", "region")' in source
