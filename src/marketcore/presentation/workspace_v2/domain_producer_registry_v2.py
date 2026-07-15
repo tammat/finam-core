@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from types import MappingProxyType
+from typing import Callable, Mapping
+
+from marketcore.presentation.render_tree.v2 import (
+    RenderDocumentV2,
+    validate_render_document_v2,
+)
+from marketcore.presentation.services.operator_settings_v1 import OperatorSettingsV1
+from marketcore.presentation.workspace_v2.presenter.control_center_v2_presenter import (
+    ControlCenterV2Presenter,
+)
+from marketcore.presentation.workspace_v2.presenter.home_v2_presenter import HomeV2Presenter
+from marketcore.presentation.workspace_v2.presenter.portfolio_v2_presenter import (
+    PortfolioV2Presenter,
+)
+from marketcore.presentation.workspace_v2.renderer.control_center_v2_domain_renderer import (
+    render_control_center_domain_v2,
+)
+from marketcore.presentation.workspace_v2.renderer.home_v2_domain_renderer import (
+    render_home_domain_v2,
+)
+from marketcore.presentation.workspace_v2.renderer.portfolio_v2_domain_renderer import (
+    render_portfolio_domain_v2,
+)
+
+
+class DomainProducerCodeV2(str, Enum):
+    HOME = "HOME"
+    PORTFOLIO = "PORTFOLIO"
+    CONTROL_CENTER = "CONTROL_CENTER"
+
+
+class DomainProducerRegistryErrorV2(ValueError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class DomainProducerDefinitionV2:
+    producer_code: DomainProducerCodeV2
+    document_id: str
+    owner_code: str
+    build: Callable[[str], RenderDocumentV2]
+
+
+def _build_home(timezone_code: str) -> RenderDocumentV2:
+    return render_home_domain_v2(
+        HomeV2Presenter().load(),
+        timezone_code=timezone_code,
+    )
+
+
+def _build_portfolio(timezone_code: str) -> RenderDocumentV2:
+    settings = OperatorSettingsV1.load(timezone=timezone_code)
+    return render_portfolio_domain_v2(
+        PortfolioV2Presenter(settings=settings).load(limit=200),
+        timezone_code=settings.timezone,
+    )
+
+
+def _build_control_center(timezone_code: str) -> RenderDocumentV2:
+    return render_control_center_domain_v2(
+        ControlCenterV2Presenter().load(),
+        timezone_code=timezone_code,
+    )
+
+
+_DEFINITIONS: Mapping[DomainProducerCodeV2, DomainProducerDefinitionV2] = MappingProxyType(
+    {
+        DomainProducerCodeV2.HOME: DomainProducerDefinitionV2(
+            producer_code=DomainProducerCodeV2.HOME,
+            document_id="operator.home.v2",
+            owner_code="OPERATOR_HOME",
+            build=_build_home,
+        ),
+        DomainProducerCodeV2.PORTFOLIO: DomainProducerDefinitionV2(
+            producer_code=DomainProducerCodeV2.PORTFOLIO,
+            document_id="operator.portfolio.v2",
+            owner_code="PORTFOLIO",
+            build=_build_portfolio,
+        ),
+        DomainProducerCodeV2.CONTROL_CENTER: DomainProducerDefinitionV2(
+            producer_code=DomainProducerCodeV2.CONTROL_CENTER,
+            document_id="operator.control_center.v2",
+            owner_code="EDGE_CONTROL",
+            build=_build_control_center,
+        ),
+    }
+)
+
+
+def domain_producer_definitions_v2() -> tuple[DomainProducerDefinitionV2, ...]:
+    return tuple(_DEFINITIONS[code] for code in DomainProducerCodeV2)
+
+
+def build_domain_document_v2(
+    producer_code: DomainProducerCodeV2 | str,
+    *,
+    timezone_code: str | None = None,
+) -> RenderDocumentV2:
+    try:
+        normalized_code = (
+            producer_code
+            if isinstance(producer_code, DomainProducerCodeV2)
+            else DomainProducerCodeV2(str(producer_code).strip().upper())
+        )
+    except ValueError as exc:
+        raise DomainProducerRegistryErrorV2(
+            f"DOMAIN_PRODUCER_V2_UNKNOWN:{producer_code}"
+        ) from exc
+
+    definition = _DEFINITIONS[normalized_code]
+    settings = OperatorSettingsV1.load(timezone=timezone_code)
+    document = definition.build(settings.timezone)
+    validate_render_document_v2(document)
+
+    if document.document_id != definition.document_id:
+        raise DomainProducerRegistryErrorV2(
+            "DOMAIN_PRODUCER_V2_DOCUMENT_ID_MISMATCH:"
+            f"{normalized_code.value}:{document.document_id}"
+        )
+    return document
