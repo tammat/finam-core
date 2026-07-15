@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import AbstractSet
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marketcore.presentation.render_tree.v2.model import (
     ActionKindV2,
@@ -42,6 +43,21 @@ _ACTION_NODE_TYPES = frozenset(
     }
 )
 
+_FORMAT_CODES = frozenset(
+    {
+        "BOOLEAN",
+        "DATETIME",
+        "DECIMAL",
+        "DOMAIN_CODE",
+        "DOMAIN_VALUE",
+        "DURATION_HM",
+        "INTEGER",
+        "MONEY_RUB",
+        "PERCENT",
+        "PRESENTER_VALUE",
+    }
+)
+
 
 def _fail(code: str, detail: str | None = None) -> None:
     raise RenderTreeValidationErrorV2(code if detail is None else f"{code}:{detail}")
@@ -58,6 +74,14 @@ def _validate_utc(value: datetime, code: str) -> None:
         _fail(code)
     if value.utcoffset() != timezone.utc.utcoffset(value):
         _fail(code)
+
+
+def _validate_timezone_code(value: object) -> None:
+    timezone_code = _require_code(value, "RENDER_TREE_V2_TIMEZONE_INVALID")
+    try:
+        ZoneInfo(timezone_code)
+    except ZoneInfoNotFoundError:
+        _fail("RENDER_TREE_V2_TIMEZONE_UNSUPPORTED", timezone_code)
 
 
 def _validate_content(
@@ -81,7 +105,9 @@ def _validate_content(
         _fail("RENDER_TREE_V2_MESSAGE_ARGS_WITHOUT_KEY")
 
     if content.format_code is not None:
-        _require_code(content.format_code, "RENDER_TREE_V2_FORMAT_CODE_INVALID")
+        format_code = _require_code(content.format_code, "RENDER_TREE_V2_FORMAT_CODE_INVALID")
+        if format_code not in _FORMAT_CODES:
+            _fail("RENDER_TREE_V2_FORMAT_CODE_UNSUPPORTED", format_code)
 
     if content.level_code is not None:
         _require_code(content.level_code, "RENDER_TREE_V2_LEVEL_CODE_INVALID")
@@ -154,6 +180,7 @@ def validate_render_document_v2(
     _require_code(document.document_id, "RENDER_TREE_V2_DOCUMENT_ID_INVALID")
     _require_code(document.locale_code, "RENDER_TREE_V2_LOCALE_INVALID")
     _require_code(document.fallback_locale_code, "RENDER_TREE_V2_FALLBACK_LOCALE_INVALID")
+    _validate_timezone_code(document.timezone_code)
     _require_code(document.quality_code, "RENDER_TREE_V2_QUALITY_CODE_INVALID")
     _validate_utc(document.generated_at, "RENDER_TREE_V2_GENERATED_AT_NOT_UTC")
     _validate_utc(document.source_as_of, "RENDER_TREE_V2_SOURCE_AS_OF_NOT_UTC")

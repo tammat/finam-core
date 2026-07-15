@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 
 SCHEMA_VERSION_V2 = "marketcore.render_tree.v2"
+DEFAULT_TIMEZONE_CODE_V2 = "Europe/Moscow"
 
 
 class RenderNodeTypeV2(str, Enum):
@@ -101,6 +102,7 @@ class RenderDocumentV2:
     document_id: str
     locale_code: str
     fallback_locale_code: str
+    timezone_code: str
     generated_at: datetime
     source_as_of: datetime
     quality_code: str

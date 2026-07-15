@@ -22,6 +22,11 @@ required_terms=(
   "Action Contract"
   "Forbidden Semantics"
   "Compatibility Boundary"
+  'timezone_code`: governed IANA timezone selected in operator settings'
+  'the default `timezone_code` is `Europe/Moscow`'
+  'the operator may select another timezone from governed Settings'
+  'duration values remain numeric and use only `DURATION_HM`'
+  'decimal-hour display such as `2.5 ч` is forbidden'
   "Definition Of Done"
   "VERDICT=MARKETCORE_DOMAIN_RENDER_TREE_CONTRACT_V2_LOCKED"
 )

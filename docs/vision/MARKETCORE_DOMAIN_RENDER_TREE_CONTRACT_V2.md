@@ -27,6 +27,7 @@ Required fields:
 - `document_id`: stable non-empty identifier;
 - `locale_code`: requested locale code;
 - `fallback_locale_code`: required fallback locale;
+- `timezone_code`: governed IANA timezone selected in operator settings;
 - `generated_at`: UTC timestamp;
 - `source_as_of`: UTC timestamp of the least-fresh source represented;
 - `quality_code`: domain data-quality verdict;
@@ -93,6 +94,13 @@ Rules:
 - domain codes are not translated in storage;
 - message arguments are data, not markup;
 - HTML entities and markup fragments are forbidden.
+- `DATETIME` values are stored and transported in UTC, then displayed in the document `timezone_code`.
+- the default `timezone_code` is `Europe/Moscow`;
+- the operator may select another timezone from governed Settings;
+- one document must use one timezone consistently for every displayed date and time;
+- duration values remain numeric and use only `DURATION_HM`.
+- `DURATION_HM` displays whole hours and minutes, for example `2 ч 30 мин`.
+- decimal-hour display such as `2.5 ч` is forbidden.
 
 ## 7. State Contract
 
@@ -179,6 +187,7 @@ Serialization is deterministic:
 - no executable object is serialized;
 - no platform-specific default is injected;
 - timestamps use UTC ISO 8601.
+- serialization never converts UTC timestamps into local time; the Platform Driver applies the document `timezone_code` for display.
 
 ## 12. Compatibility Boundary
 

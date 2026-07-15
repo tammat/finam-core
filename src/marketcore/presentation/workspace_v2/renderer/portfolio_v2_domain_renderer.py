@@ -215,6 +215,7 @@ def render_portfolio_domain_v2(
     *,
     locale_code: str = "ru-RU",
     fallback_locale_code: str = "ru-RU",
+    timezone_code: str = "Europe/Moscow",
     generated_at: datetime | None = None,
 ) -> RenderDocumentV2:
     now = _utc(generated_at) or datetime.now(timezone.utc)
@@ -254,6 +255,7 @@ def render_portfolio_domain_v2(
         document_id="operator.portfolio.v2",
         locale_code=locale_code,
         fallback_locale_code=fallback_locale_code,
+        timezone_code=timezone_code,
         generated_at=now,
         source_as_of=source_as_of,
         quality_code=quality_code,

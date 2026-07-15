@@ -98,6 +98,7 @@ def render_document_v2_to_dict(document: RenderDocumentV2) -> dict[str, Any]:
         "document_id": document.document_id,
         "locale_code": document.locale_code,
         "fallback_locale_code": document.fallback_locale_code,
+        "timezone_code": document.timezone_code,
         "generated_at": _value(document.generated_at),
         "source_as_of": _value(document.source_as_of),
         "quality_code": document.quality_code,

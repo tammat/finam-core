@@ -20,7 +20,7 @@ then
 fi
 
 PYTHONPATH=src python3 - <<'PY'
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 
 from marketcore.presentation.render_tree.v2 import (
@@ -43,6 +43,7 @@ document = RenderDocumentV2(
     document_id="operator.home.v2",
     locale_code="ru-RU",
     fallback_locale_code="ru-RU",
+    timezone_code="Europe/Moscow",
     generated_at=now,
     source_as_of=now - timedelta(minutes=5),
     quality_code="VERIFIED",
@@ -79,6 +80,11 @@ document = RenderDocumentV2(
                                 node_id="metric.edge.count",
                                 content=RenderContentV2(value=0, format_code="INTEGER"),
                             ),
+                            RenderNodeV2(
+                                node_type=RenderNodeTypeV2.METRIC_VALUE,
+                                node_id="metric.edge.duration",
+                                content=RenderContentV2(value=9000, format_code="DURATION_HM"),
+                            ),
                         ),
                     ),
                 ),
@@ -99,6 +105,8 @@ assert "class" not in encoded_one
 assert "style" not in encoded_one
 assert "href" not in encoded_one
 assert "home.title" in encoded_one
+assert '"timezone_code":"Europe/Moscow"' in encoded_one
+assert '"format_code":"DURATION_HM"' in encoded_one
 
 try:
     document.document_id = "changed"  # type: ignore[misc]
@@ -115,10 +123,17 @@ def expect_error(expected_code, candidate, **kwargs):
     else:
         raise AssertionError(f"EXPECTED_ERROR_NOT_RAISED:{expected_code}")
 
+validate_render_document_v2(replace(document, timezone_code="UTC"))
+expect_error(
+    "RENDER_TREE_V2_TIMEZONE_UNSUPPORTED",
+    replace(document, timezone_code="Invalid/Timezone"),
+)
+
 duplicate = RenderDocumentV2(
     document_id="duplicate",
     locale_code="ru-RU",
     fallback_locale_code="ru-RU",
+    timezone_code="Europe/Moscow",
     generated_at=now,
     source_as_of=now,
     quality_code="VERIFIED",
@@ -134,6 +149,7 @@ missing_key = RenderDocumentV2(
     document_id="missing-key",
     locale_code="ru-RU",
     fallback_locale_code="ru-RU",
+    timezone_code="Europe/Moscow",
     generated_at=now,
     source_as_of=now,
     quality_code="VERIFIED",
@@ -155,6 +171,7 @@ unsafe_command = RenderDocumentV2(
     document_id="unsafe-command",
     locale_code="ru-RU",
     fallback_locale_code="ru-RU",
+    timezone_code="Europe/Moscow",
     generated_at=now,
     source_as_of=now,
     quality_code="VERIFIED",
@@ -181,6 +198,7 @@ command_without_idempotency = RenderDocumentV2(
     document_id="command-without-idempotency",
     locale_code="ru-RU",
     fallback_locale_code="ru-RU",
+    timezone_code="Europe/Moscow",
     generated_at=now,
     source_as_of=now,
     quality_code="VERIFIED",
@@ -209,6 +227,7 @@ invalid_source_state = RenderDocumentV2(
     document_id="invalid-source-state",
     locale_code="ru-RU",
     fallback_locale_code="ru-RU",
+    timezone_code="Europe/Moscow",
     generated_at=now,
     source_as_of=now,
     quality_code="VERIFIED",
@@ -226,6 +245,8 @@ print("message_key_validation=OK")
 print("policy_metadata_validation=OK")
 print("idempotency_validation=OK")
 print("source_lineage_validation=OK")
+print("governed_timezone_validation=OK")
+print("duration_hm_validation=OK")
 print("deterministic_serialization=OK")
 PY
 

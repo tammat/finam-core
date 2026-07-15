@@ -83,6 +83,7 @@ payload = render_document_v2_to_json(document)
 assert '"format_code":"MONEY_RUB"' in payload
 assert '"format_code":"PERCENT"' in payload
 assert '"format_code":"DATETIME"' in payload
+assert '"timezone_code":"Europe/Moscow"' in payload
 assert '"source_identity":"portfolio.summary_v1"' in payload
 assert '100 000' not in payload
 assert "₽" not in payload

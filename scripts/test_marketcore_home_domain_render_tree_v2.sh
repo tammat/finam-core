@@ -99,6 +99,7 @@ validate_render_document_v2(
 payload = render_document_v2_to_json(document)
 
 assert '"schema_version":"marketcore.render_tree.v2"' in payload
+assert '"timezone_code":"Europe/Moscow"' in payload
 assert '"target_id":"container.edge"' in payload
 assert "/legacy-engineering-route" not in payload
 assert '"availability_code":"UNAVAILABLE"' in payload
