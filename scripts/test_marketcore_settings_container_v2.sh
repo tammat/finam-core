@@ -22,10 +22,10 @@ for forbidden in ('"class"', '"style"', '"href"', '<'):
 status, body = route("/api/v2/domain-render-tree/settings", {"timezone": ["Europe/Moscow"]})
 payload = json.loads(body)
 assert status == 200 and payload["timezone_code"] == "Europe/Moscow"
-assert {item.container_code.value for item in ready_container_definitions_v2()} == {"HOME", "CAPITAL", "EDGE", "PORTFOLIO", "SETTINGS"}
+assert {item.container_code.value for item in ready_container_definitions_v2()} == {"HOME", "CAPITAL", "EDGE", "PORTFOLIO", "RISK", "SETTINGS"}
 print("settings_source=OperatorSettingsV1")
-print("real_targets_ready=5")
-print("targets_pending=4")
+print("real_targets_ready=6")
+print("targets_pending=3")
 print("VERDICT=MARKETCORE_SETTINGS_CONTAINER_V2_READY")
 PY
 curl -fsS 'http://127.0.0.1:8080/api/v2/domain-render-tree/settings?timezone=Europe%2FMoscow' >/tmp/marketcore-settings-v2.json
