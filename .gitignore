@@ -52,6 +52,8 @@ __pycache__/
 logs.txt
 *.txt
 !docs/vision/MARKETCORE_PROFIT_FACTORY_BLUEPRINT_V1.txt
+!docs/vision/MARKETCORE_FINAL_ARCHITECTURE_V1.txt
+!docs/vision/MARKETCORE_MUST_HAVE_V1.txt
 logs*
 .env
 .env.paper_safe

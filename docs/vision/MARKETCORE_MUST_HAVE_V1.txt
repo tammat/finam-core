@@ -1,0 +1,707 @@
+==========================================================
+
+MARKETCORE_MUST_HAVE_V1
+
+STATUS = LOCKED
+
+==========================================================
+
+MUST HAVE 01
+
+MISSION
+
+Максимизация устойчивой прибыли
+при контролируемом уровне риска.
+
+North Star KPI = PROFIT
+
+==========================================================
+
+MUST HAVE 02
+
+EVENT-DRIVEN ARCHITECTURE
+
+Все основные процессы
+строятся через события.
+
+Strategy не вызывает Execution напрямую.
+
+==========================================================
+
+MUST HAVE 03
+
+POSTGRESQL ONLY
+
+SQLite запрещен.
+
+Все постоянные данные,
+telemetry, research, decisions,
+policies и audit trail
+хранятся в PostgreSQL.
+
+==========================================================
+
+MUST HAVE 04
+
+CENTRALIZED RISK ENGINE
+
+Обязательно:
+
+- max_risk_per_trade;
+- daily_loss_limit;
+- exposure_limit;
+- correlation_filter;
+- kill_switch;
+- stale-data guard;
+- duplicate-action guard;
+- conflicting-action guard.
+
+==========================================================
+
+MUST HAVE 05
+
+PORTFOLIO AGGREGATION
+
+Portfolio является
+единой точкой учета:
+
+- позиций;
+- PnL;
+- equity;
+- exposure;
+- realized/unrealized result;
+- drawdown;
+- portfolio risk.
+
+==========================================================
+
+MUST HAVE 06
+
+FULL AUDIT TRAIL
+
+Логировать:
+
+- signals;
+- rejected signals;
+- decisions;
+- hypotheses;
+- confidence;
+- policy verdicts;
+- risk verdicts;
+- actions;
+- orders;
+- fills;
+- trades;
+- results;
+- rollback;
+- operator overrides.
+
+==========================================================
+
+MUST HAVE 07
+
+CLOSED-LOOP CONTROL
+
+GOAL
+    ↓
+MEASURE
+    ↓
+ANALYZE
+    ↓
+DECIDE
+    ↓
+POLICY
+    ↓
+EXECUTE
+    ↓
+EVALUATE
+    ↓
+LEARN
+    ↓
+IMPROVE
+
+==========================================================
+
+MUST HAVE 08
+
+THREE AUTONOMY MODES
+
+MONITOR
+
+RECOMMEND
+
+AUTONOMOUS
+
+Переход между режимами
+не отменяет Policy Engine
+и Risk Engine.
+
+==========================================================
+
+MUST HAVE 09
+
+POLICY ENGINE
+
+Любое автоматическое действие
+обязано пройти Policy Engine.
+
+Policy Engine определяет:
+
+- допустимость;
+- scope;
+- режим;
+- approval;
+- expiration;
+- rollback;
+- ограничения действия.
+
+==========================================================
+
+MUST HAVE 10
+
+CONFIDENCE ENGINE
+
+Каждое решение имеет confidence.
+
+Confidence основан на:
+
+- данных;
+- выборке;
+- устойчивости;
+- воспроизводимости;
+- режиме рынка;
+- истории решений;
+- фактическом результате.
+
+Confidence не отменяет Policy.
+
+==========================================================
+
+MUST HAVE 11
+
+HYPOTHESIS ENGINE
+
+Система умеет:
+
+- находить bottleneck;
+- формировать гипотезы;
+- оценивать Profit Impact;
+- оценивать Risk Impact;
+- оценивать стоимость проверки;
+- ранжировать гипотезы.
+
+==========================================================
+
+MUST HAVE 12
+
+EXPERIMENT ENGINE
+
+Неопределенные решения
+проверяются через контролируемый эксперимент.
+
+Обязательны:
+
+- scope;
+- контроль;
+- критерии успеха;
+- stop conditions;
+- risk limits;
+- rollback.
+
+==========================================================
+
+MUST HAVE 13
+
+IMPROVEMENT ENGINE
+
+Система ежедневно отвечает:
+
+Что изменить,
+чтобы увеличить устойчивую прибыль?
+
+==========================================================
+
+MUST HAVE 14
+
+STRATEGY MEMORY
+
+Хранится история:
+
+- решений;
+- причин;
+- ожидаемого эффекта;
+- фактического эффекта;
+- ошибок;
+- подтвержденных гипотез;
+- отклоненных гипотез;
+- rollback.
+
+==========================================================
+
+MUST HAVE 15
+
+PROFIT FUNNEL
+
+Research
+    ↓
+Candidate
+    ↓
+Validated Edge
+    ↓
+Paper
+    ↓
+Runtime
+    ↓
+Live
+    ↓
+Profit
+
+Для каждого перехода:
+
+- count;
+- conversion;
+- latency;
+- rejection reasons;
+- Profit Loss;
+- Risk Impact;
+- improvement opportunity.
+
+==========================================================
+
+MUST HAVE 16
+
+BOTTLENECK ENGINE
+
+Автоматически определяет:
+
+- самое слабое звено;
+- основную причину;
+- стоимость потерь;
+- confidence вывода;
+- ожидаемый эффект устранения.
+
+==========================================================
+
+MUST HAVE 17
+
+DECISION ENGINE
+
+Каждое решение содержит:
+
+- decision_id;
+- objective;
+- evidence;
+- expected_profit_impact;
+- expected_risk_impact;
+- confidence;
+- policy_class;
+- autonomy_mode;
+- expiration;
+- rollback_plan.
+
+==========================================================
+
+MUST HAVE 18
+
+TOP ACTIONS
+
+Operator Workspace показывает
+приоритетные действия,
+отсортированные по:
+
+1. ожидаемому Profit Impact;
+2. Risk Impact;
+3. confidence;
+4. стоимости выполнения;
+5. обратимости.
+
+==========================================================
+
+MUST HAVE 19
+
+PROFIT KPI
+
+Минимальный набор:
+
+- Expected Profit;
+- Realized Profit;
+- Net Profit;
+- Risk-adjusted Profit;
+- Drawdown;
+- Factory ROI;
+- Profit Trend;
+- Profit Attribution.
+
+==========================================================
+
+MUST HAVE 20
+
+RESEARCH KPI
+
+Минимальный набор:
+
+- Queue;
+- Running;
+- Done;
+- Failed;
+- Retry;
+- Throughput;
+- Research Conversion;
+- Last Error;
+- Data Freshness.
+
+==========================================================
+
+MUST HAVE 21
+
+EDGE KPI
+
+Минимальный набор:
+
+- Candidates;
+- Validated Candidates;
+- Edge Score;
+- Edge Conversion;
+- Robustness;
+- Out-of-sample result;
+- Sample sufficiency;
+- Rejection reasons.
+
+==========================================================
+
+MUST HAVE 22
+
+PAPER KPI
+
+Минимальный набор:
+
+- Paper Candidates;
+- Active Paper;
+- Passed;
+- Failed;
+- Net PnL;
+- Profit Factor;
+- Expectancy;
+- Drawdown;
+- execution costs;
+- slippage;
+- commission.
+
+==========================================================
+
+MUST HAVE 23
+
+RUNTIME KPI
+
+Минимальный набор:
+
+- Runtime Candidates;
+- Runtime Allowed;
+- Runtime Blocked;
+- active strategies;
+- telemetry freshness;
+- runtime errors;
+- governance blocks;
+- kill switch state.
+
+==========================================================
+
+MUST HAVE 24
+
+PORTFOLIO KPI
+
+Минимальный набор:
+
+- Equity;
+- Realized PnL;
+- Unrealized PnL;
+- Exposure;
+- Concentration;
+- Correlation;
+- Drawdown;
+- Risk Budget;
+- Available Capital.
+
+==========================================================
+
+MUST HAVE 25
+
+RENDER TREE
+
+UI строится через доменный RenderTree.
+
+RenderTree не содержит:
+
+- HTML;
+- DOM;
+- CSS semantics;
+- browser-specific node types;
+- SQL;
+- trading logic.
+
+==========================================================
+
+MUST HAVE 26
+
+NO SERVER HTML GENERATION
+
+Сервер не преобразует RenderTree
+в готовую страницу интерфейса.
+
+Разрешен только минимальный
+bootstrap shell для загрузки Runtime.
+
+==========================================================
+
+MUST HAVE 27
+
+I18N
+
+Все пользовательские тексты
+используют message keys.
+
+Минимальная локаль:
+
+ru-RU
+
+Обязательны:
+
+- fallback locale;
+- missing-key validation;
+- разделение доменных кодов
+  и пользовательского текста.
+
+==========================================================
+
+MUST HAVE 28
+
+NO HARDCODE
+
+Управляемые значения
+не хардкодятся.
+
+В конфигурацию выносятся:
+
+- thresholds;
+- weights;
+- limits;
+- mode permissions;
+- confidence boundaries;
+- retry limits;
+- experiment constraints;
+- display text;
+- environment-specific values.
+
+==========================================================
+
+MUST HAVE 29
+
+CONFIGURATION GOVERNANCE
+
+Каждая конфигурация имеет:
+
+- version;
+- source;
+- owner;
+- effective_from;
+- validation;
+- audit trail;
+- rollback.
+
+==========================================================
+
+MUST HAVE 30
+
+AI EXECUTION BOUNDARY
+
+AI:
+
+- анализирует;
+- формирует гипотезы;
+- предлагает решения;
+- оценивает результат.
+
+AI не отправляет заявки напрямую.
+
+==========================================================
+
+MUST HAVE 31
+
+ROLLBACK
+
+Для автоматического действия
+обязателен rollback,
+если действие обратимо.
+
+Для необратимого действия
+требуется отдельное подтверждение.
+
+==========================================================
+
+MUST HAVE 32
+
+KILL SWITCH
+
+Kill switch имеет приоритет
+над автономностью,
+AI, Strategy и Execution.
+
+==========================================================
+
+MUST HAVE 33
+
+DATA QUALITY
+
+Перед решением проверяются:
+
+- freshness;
+- completeness;
+- consistency;
+- duplicate data;
+- timestamp order;
+- source identity;
+- market session;
+- scale and units.
+
+==========================================================
+
+MUST HAVE 34
+
+COST MODEL
+
+Любая оценка прибыли учитывает:
+
+- commission;
+- exchange fees;
+- slippage;
+- spread;
+- funding;
+- taxes, если применимо;
+- market impact;
+- rejected execution;
+- partial fills.
+
+==========================================================
+
+MUST HAVE 35
+
+PROFIT ATTRIBUTION
+
+Прибыль раскладывается по:
+
+- strategy;
+- symbol;
+- timeframe;
+- market regime;
+- research cohort;
+- decision;
+- risk policy;
+- execution quality;
+- autonomous action.
+
+==========================================================
+
+MUST HAVE 36
+
+BASH TESTS ONLY
+
+Каждый этап имеет Bash-тест.
+
+Тест обязан:
+
+- завершаться правильным exit code;
+- использовать set -euo pipefail;
+- проверять architecture boundaries;
+- запрещать опасные зависимости;
+- выводить VERDICT.
+
+==========================================================
+
+MUST HAVE 37
+
+SAFE DELIVERY
+
+Каждый этап выполняется:
+
+Inventory
+    ↓
+Analysis
+    ↓
+Contract
+    ↓
+Implementation
+    ↓
+Bash Test
+    ↓
+Review
+    ↓
+Commit
+    ↓
+Tag
+    ↓
+Push
+
+==========================================================
+
+MUST HAVE 38
+
+NO AUTOMATIC GIT OPERATIONS
+
+Codex не выполняет:
+
+- commit;
+- tag;
+- push;
+- migration;
+- service restart;
+- destructive SQL
+
+без явного разрешения оператора.
+
+==========================================================
+
+MUST HAVE 39
+
+SOURCE OF TRUTH
+
+GitHub:
+
+код и документация.
+
+PostgreSQL:
+
+операционные и аналитические данные.
+
+Blueprint:
+
+миссия и архитектурные ограничения.
+
+AGENTS.md:
+
+инструкции для Codex.
+
+==========================================================
+
+MUST HAVE 40
+
+DEFINITION OF DONE
+
+Epic завершен только если:
+
+- цель связана с Profit или Risk;
+- определено управленческое решение;
+- определены KPI;
+- подтверждены источники данных;
+- отсутствует hardcode;
+- поддерживается i18n;
+- архитектурные границы сохранены;
+- Bash-тест успешен;
+- real trading не включен;
+- rollback определен;
+- результат измерим.
+
+==========================================================
+
+VERDICT=MARKETCORE_MUST_HAVE_V1_LOCKED
+
+==========================================================
