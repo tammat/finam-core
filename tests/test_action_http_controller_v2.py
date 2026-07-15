@@ -47,6 +47,11 @@ def test_registered_research_action_creates_pending_request() -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT request_kind,status FROM marketcore_action.command_request_v2 WHERE request_id=%s", (request_id,))
             assert cursor.fetchone() == ("RESEARCH_REFRESH", "PENDING")
+            cursor.execute(
+                "UPDATE marketcore_action.command_request_v2 SET status='CANCELLED',finished_at=clock_timestamp(),result_reference='test-cleanup' WHERE request_id=%s AND status='PENDING'",
+                (request_id,),
+            )
+            assert cursor.rowcount == 1
 
 
 def test_unknown_navigation_target_is_denied() -> None:

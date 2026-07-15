@@ -246,11 +246,14 @@ Completed stages:
 - Stage 2 - Domain RenderTree Contract;
 - Stage 3 - Runtime And Platform Driver Boundary.
 - Stage 4 - Canonical Navigation Containers.
+- Stage 5 - Policy-Governed Actions.
 
-Current active stage: Stage 5 - Policy-Governed Actions.
+Current active stage: Stage 6 - Complete I18n.
 
 The mandatory Stage 6 i18n technical debt gate remains open and blocks live Runtime V2 cutover.
 
 `VERDICT=MARKETCORE_STAGE3_RUNTIME_PLATFORM_COMPLETE`
 
 `VERDICT=MARKETCORE_STAGE4_CANONICAL_NAVIGATION_COMPLETE`
+
+`VERDICT=MARKETCORE_STAGE5_POLICY_GOVERNED_ACTIONS_COMPLETE`
