@@ -29,6 +29,10 @@ from marketcore.action.dispatcher_v2 import (
     RiskDecisionV2,
     RiskVerdictV2,
 )
+from marketcore.action.postgres_adapters_v2 import (
+    PostgresActionAuditTrailV2,
+    PostgresDuplicateActionGuardV2,
+)
 
 __all__ = [
     "ActionActorKindV2",
@@ -54,4 +58,6 @@ __all__ = [
     "GovernedActionDispatcherV2",
     "RiskDecisionV2",
     "RiskVerdictV2",
+    "PostgresActionAuditTrailV2",
+    "PostgresDuplicateActionGuardV2",
 ]
