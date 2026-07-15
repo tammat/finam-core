@@ -30,6 +30,8 @@ class ActionPolicyRuleV2:
     deny_on_stale_data: bool = True
     valid_until: datetime | None = None
     enabled: bool = True
+    rollback_allowed: bool = False
+    rollback_requires_approval: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +48,8 @@ class ActionPolicyDecisionV2:
     reason_code: str
     policy_class: str | None
     risk_guard_code: str | None = None
+    rollback_allowed: bool = False
+    rollback_requires_approval: bool = True
 
     @property
     def allowed(self) -> bool:
@@ -77,5 +81,5 @@ class StaticActionPolicyEngineV2:
         if context.stale_data and rule.deny_on_stale_data:
             return ActionPolicyDecisionV2(ActionPolicyVerdictV2.DENY, "POLICY_STALE_DATA", policy_class)
         if intent.requires_approval and not context.approval_granted:
-            return ActionPolicyDecisionV2(ActionPolicyVerdictV2.REQUIRE_APPROVAL, "OPERATOR_APPROVAL_REQUIRED", policy_class, rule.risk_guard_code)
-        return ActionPolicyDecisionV2(ActionPolicyVerdictV2.ALLOW, "POLICY_ALLOWED", policy_class, rule.risk_guard_code)
+            return ActionPolicyDecisionV2(ActionPolicyVerdictV2.REQUIRE_APPROVAL, "OPERATOR_APPROVAL_REQUIRED", policy_class, rule.risk_guard_code, rule.rollback_allowed, rule.rollback_requires_approval)
+        return ActionPolicyDecisionV2(ActionPolicyVerdictV2.ALLOW, "POLICY_ALLOWED", policy_class, rule.risk_guard_code, rule.rollback_allowed, rule.rollback_requires_approval)

@@ -33,6 +33,10 @@ from marketcore.action.postgres_adapters_v2 import (
     PostgresActionAuditTrailV2,
     PostgresDuplicateActionGuardV2,
 )
+from marketcore.action.rollback_v2 import (
+    GovernedRollbackCoordinatorV2,
+    RollbackRequestV2,
+)
 
 __all__ = [
     "ActionActorKindV2",
@@ -60,4 +64,6 @@ __all__ = [
     "RiskVerdictV2",
     "PostgresActionAuditTrailV2",
     "PostgresDuplicateActionGuardV2",
+    "GovernedRollbackCoordinatorV2",
+    "RollbackRequestV2",
 ]
