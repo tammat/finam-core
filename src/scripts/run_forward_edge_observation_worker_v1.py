@@ -78,22 +78,15 @@ def signal(family,params,closes):
 def main():
   with psycopg2.connect(DB) as conn:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-      cur.execute("""ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS side text;
-        ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS holding_bars integer;
-        ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS entry_price numeric;
-        ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS exit_price numeric;
-        CREATE TABLE IF NOT EXISTS analytics.forward_edge_worker_state_v1(
-          cohort_id uuid NOT NULL,incubator_candidate_id uuid NOT NULL,last_evaluated_ts timestamptz,
-          worker_status text NOT NULL,last_error text,source_version text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now(),
-          PRIMARY KEY(cohort_id,incubator_candidate_id));""")
       cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id"); cohort=cur.fetchone()["cohort_id"]
       if cohort is None: raise RuntimeError("forward edge baseline is not frozen")
       cur.execute("SELECT * FROM analytics.forward_edge_incubator_v1 WHERE cohort_id=%s ORDER BY incubator_candidate_id",(cohort,)); candidates=cur.fetchall()
+      conn.commit()
       created=entered=closed=routed=0
       for c in candidates:
         if c["source_kind"]=="SWING_STABILITY_WATCH":continue
         if c["strategy_family"] not in ROUTED_FAMILIES or c["symbol"] in {"MULTI_ASSET@MISX","INTERMARKET_BASKET"}:
-          cur.execute("UPDATE analytics.forward_edge_incubator_v1 SET incubator_status='ROUTER_REQUIRED' WHERE cohort_id=%s AND incubator_candidate_id=%s",(cohort,c["incubator_candidate_id"]));routed+=1;continue
+          cur.execute("UPDATE analytics.forward_edge_incubator_v1 SET incubator_status='ROUTER_REQUIRED' WHERE cohort_id=%s AND incubator_candidate_id=%s",(cohort,c["incubator_candidate_id"]));routed+=1;conn.commit();continue
         cur.execute("SELECT * FROM analytics.forward_edge_observation_v1 WHERE cohort_id=%s AND incubator_candidate_id=%s AND observation_status IN ('SIGNAL_PENDING_ENTRY','OPEN') ORDER BY signal_ts LIMIT 1",(cohort,c["incubator_candidate_id"])); obs=cur.fetchone()
         cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s ORDER BY ts",(c["symbol"],c["timeframe"])); bars=cur.fetchall()
         if obs and obs["observation_status"]=="SIGNAL_PENDING_ENTRY":
@@ -134,6 +127,7 @@ def main():
         latest_ts=evaluation_watermark(last, bars[-1]["ts"] if bars else None)
         cur.execute("""INSERT INTO analytics.forward_edge_worker_state_v1 VALUES(%s,%s,%s,'OK',NULL,%s,now())
           ON CONFLICT(cohort_id,incubator_candidate_id) DO UPDATE SET last_evaluated_ts=excluded.last_evaluated_ts,worker_status='OK',last_error=NULL,source_version=excluded.source_version,updated_at=now()""",(cohort,c["incubator_candidate_id"],latest_ts,SOURCE_VERSION))
+        conn.commit()
   print(f"cohort_id={cohort}");print(f"candidates={len(candidates)}");print(f"router_required={routed}");print(f"signals_created={created}");print(f"entries_created={entered}");print(f"observations_closed={closed}")
   print("orders_created=0");print("paper_created=0");print("live_allowed=0");print("VERDICT=FORWARD_EDGE_OBSERVATION_WORKER_V1_OK")
 if __name__=="__main__":main()

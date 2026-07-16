@@ -37,17 +37,18 @@ def common(data, symbols):
 def main():
   with psycopg2.connect(DB) as conn:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-      cur.execute("""ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS planned_entry_ts timestamptz;
-        ALTER TABLE analytics.forward_edge_observation_v1 ADD COLUMN IF NOT EXISTS signal_context jsonb;""")
       cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id"); cohort=cur.fetchone()["cohort_id"]
       if cohort is None: raise RuntimeError("forward edge baseline is not frozen")
       cur.execute("SELECT * FROM analytics.forward_edge_incubator_v1 WHERE cohort_id=%s AND incubator_status='ROUTER_REQUIRED' ORDER BY strategy_family",(cohort,)); candidates=cur.fetchall()
+      conn.commit()
       created=entered=closed=0
       for c in candidates:
         params=c["frozen_parameter_json"]; family=c["strategy_family"]
         symbols=(TARGETS+(params["benchmark"],)) if family=="RELATIVE_STRENGTH" else tuple(sorted({x for r in RELATIONS for x in r[:2]}))
         data=bars(cur,symbols); timestamps=common(data,symbols)
-        if not timestamps: continue
+        if not timestamps:
+          conn.commit()
+          continue
         cur.execute("SELECT * FROM analytics.forward_edge_observation_v1 WHERE cohort_id=%s AND incubator_candidate_id=%s AND observation_status IN ('SIGNAL_PENDING_ENTRY','OPEN') ORDER BY signal_ts LIMIT 1",(cohort,c["incubator_candidate_id"])); obs=cur.fetchone()
         if obs and obs["observation_status"]=='SIGNAL_PENDING_ENTRY':
           entry_ts=next((ts for ts in timestamps if ts>=obs["planned_entry_ts"]),None)
@@ -86,5 +87,6 @@ def main():
               VALUES(%s,%s,%s,%s,%s,%s,%s,'M5','BASKET',%s,%s::jsonb,'SIGNAL_PENDING_ENTRY','VERIFIED',%s)""",(str(uuid.uuid4()),cohort,c["incubator_candidate_id"],c["hypothesis_id"],latest,planned,c["symbol"],int(params["holding_bars"]),json.dumps({"legs":legs}),SOURCE_VERSION));created+=1
         cur.execute("""INSERT INTO analytics.forward_edge_worker_state_v1 VALUES(%s,%s,%s,'OK',NULL,%s,now()) ON CONFLICT(cohort_id,incubator_candidate_id) DO UPDATE SET last_evaluated_ts=excluded.last_evaluated_ts,worker_status='OK',last_error=NULL,source_version=excluded.source_version,updated_at=now()""",(cohort,c["incubator_candidate_id"],latest,SOURCE_VERSION))
         cur.execute("UPDATE analytics.forward_edge_incubator_v1 SET incubator_status='ACCUMULATING' WHERE cohort_id=%s AND incubator_candidate_id=%s",(cohort,c["incubator_candidate_id"]))
+        conn.commit()
   print(f"cohort_id={cohort}");print(f"routed_candidates={len(candidates)}");print(f"signals_created={created}");print(f"entries_created={entered}");print(f"observations_closed={closed}");print("orders_created=0");print("paper_created=0");print("live_allowed=0");print("VERDICT=FORWARD_EDGE_RELATION_ROUTER_V1_OK")
 if __name__=='__main__':main()
