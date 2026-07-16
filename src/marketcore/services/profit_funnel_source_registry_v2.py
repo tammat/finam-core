@@ -43,8 +43,8 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
         "SELECT count(*),max(updated_at),NULL::numeric,NULL::numeric,max(discovery_batch_id),count(DISTINCT discovery_batch_id) FROM analytics.edge_candidate_v1",
     ),
     ProfitFunnelStageV2.VALIDATED_EDGE: ProfitFunnelSourceDefinitionV2(
-        ProfitFunnelStageV2.VALIDATED_EDGE, "analytics.edge_candidate_v1.validation_score",
-        "SELECT count(*) FILTER (WHERE validation_score IS NOT NULL),max(updated_at) FILTER (WHERE validation_score IS NOT NULL),NULL::numeric,NULL::numeric,max(discovery_batch_id) FILTER (WHERE validation_score IS NOT NULL),count(DISTINCT discovery_batch_id) FILTER (WHERE validation_score IS NOT NULL) FROM analytics.edge_candidate_v1",
+        ProfitFunnelStageV2.VALIDATED_EDGE, "analytics.profit_funnel_validated_edge_v2",
+        "SELECT count(*),max(validated_at),NULL::numeric,NULL::numeric,max(discovery_batch_id),count(DISTINCT discovery_batch_id) FROM analytics.profit_funnel_validated_edge_v2",
     ),
     ProfitFunnelStageV2.OOS: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.OOS, "analytics.edge_oos_result_v1",

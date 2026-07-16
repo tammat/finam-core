@@ -59,9 +59,27 @@ def main() -> None:
             )
 
             cursor.execute("""
-                SELECT max(c.discovery_batch_id),count(*)::bigint,count(o.id)::bigint
+                SELECT max(c.discovery_batch_id),count(*)::bigint,count(v.validation_id)::bigint
                 FROM analytics.edge_candidate_v1 c
-                LEFT JOIN analytics.edge_oos_result_v1 o ON o.observation_uuid=c.observation_uuid
+                LEFT JOIN analytics.profit_funnel_validated_edge_v2 v ON v.candidate_uuid=c.candidate_uuid
+            """)
+            cohort_id, candidate_count, validated_count = cursor.fetchone()
+            candidate_validated = transitions[1]
+            proven = candidate_count == validated_count and candidate_count > 0
+            candidate_validated.update(
+                canonical_cohort_id=cohort_id if proven else None,
+                source_cohort_from=cohort_id,source_cohort_to=cohort_id,
+                from_count=candidate_count,to_count=validated_count,linked_count=validated_count,
+                lineage_status="PROVEN" if proven else "BROKEN",
+                reason_code="CANDIDATE_UUID_FULL_MATCH" if proven else "CANDIDATE_UUID_LINK_GAP",
+                evidence={**candidate_validated["evidence"], "join_key": "candidate_uuid"},
+            )
+
+            cursor.execute("""
+                SELECT max(c.discovery_batch_id),count(*)::bigint,count(o.id)::bigint
+                FROM analytics.profit_funnel_validated_edge_v2 v
+                JOIN analytics.edge_candidate_v1 c ON c.candidate_uuid=v.candidate_uuid
+                LEFT JOIN analytics.edge_oos_result_v1 o ON o.observation_uuid=v.observation_uuid
             """)
             cohort_id, candidate_count, linked_count = cursor.fetchone()
             candidate_oos = transitions[2]
