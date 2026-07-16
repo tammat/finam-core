@@ -35,8 +35,8 @@ class ProfitFunnelSourceObservationV2:
 
 _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = MappingProxyType({
     ProfitFunnelStageV2.RESEARCH: ProfitFunnelSourceDefinitionV2(
-        ProfitFunnelStageV2.RESEARCH, "marketcore_ui.paper_edge_research_candidates_v1",
-        "SELECT count(*),max(refreshed_at),NULL::numeric,NULL::numeric,max(build_id),count(DISTINCT build_id) FROM marketcore_ui.paper_edge_research_candidates_v1",
+        ProfitFunnelStageV2.RESEARCH, "analytics.edge_discovery_run_v1.latest_done",
+        "SELECT observations_scanned,finished_at,NULL::numeric,NULL::numeric,discovery_batch_id,1 FROM analytics.edge_discovery_run_v1 WHERE status_code='DONE' ORDER BY id DESC LIMIT 1",
     ),
     ProfitFunnelStageV2.CANDIDATE: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.CANDIDATE, "analytics.edge_candidate_v1",

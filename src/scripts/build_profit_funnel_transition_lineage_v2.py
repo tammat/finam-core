@@ -34,6 +34,31 @@ def main() -> None:
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:
             cursor.execute("""
+                WITH latest AS (
+                    SELECT discovery_batch_id,observations_scanned,candidates_created
+                    FROM analytics.edge_discovery_run_v1
+                    WHERE status_code='DONE' ORDER BY id DESC LIMIT 1
+                )
+                SELECT l.discovery_batch_id,l.observations_scanned,l.candidates_created,
+                       count(c.candidate_uuid)::bigint,count(o.observation_uuid)::bigint
+                FROM latest l
+                LEFT JOIN analytics.edge_candidate_v1 c ON c.discovery_batch_id=l.discovery_batch_id
+                LEFT JOIN analytics.edge_observation_v1 o ON o.observation_uuid=c.observation_uuid
+                GROUP BY l.discovery_batch_id,l.observations_scanned,l.candidates_created
+            """)
+            discovery_batch_id, research_count, expected_candidates, candidate_count, linked_count = cursor.fetchone()
+            research_candidate = transitions[0]
+            proven = expected_candidates == candidate_count == linked_count and candidate_count > 0
+            research_candidate.update(
+                canonical_cohort_id=discovery_batch_id if proven else None,
+                source_cohort_from=discovery_batch_id,source_cohort_to=discovery_batch_id,
+                from_count=research_count,to_count=candidate_count,linked_count=linked_count,
+                lineage_status="PROVEN" if proven else "BROKEN",
+                reason_code="OBSERVATION_UUID_FULL_MATCH" if proven else "DISCOVERY_RUN_RECONCILIATION_GAP",
+                evidence={**research_candidate["evidence"], "join_key": "observation_uuid", "expected_candidates": expected_candidates},
+            )
+
+            cursor.execute("""
                 SELECT max(c.discovery_batch_id),count(*)::bigint,count(o.id)::bigint
                 FROM analytics.edge_candidate_v1 c
                 LEFT JOIN analytics.edge_oos_result_v1 o ON o.observation_uuid=c.observation_uuid
@@ -50,6 +75,22 @@ def main() -> None:
                 lineage_status="PROVEN" if proven else "BROKEN",
                 reason_code="OBSERVATION_UUID_FULL_MATCH" if proven else "OBSERVATION_UUID_LINK_GAP",
                 evidence={**candidate_oos["evidence"], "join_key": "observation_uuid"},
+            )
+
+            cursor.execute("""
+                SELECT count(*)::bigint,
+                       count(f.incubator_candidate_id) FILTER (WHERE f.incubator_candidate_id=c.candidate_uuid)::bigint
+                FROM analytics.edge_oos_result_v1 o
+                JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid
+                LEFT JOIN analytics.forward_edge_observation_v1 f ON f.incubator_candidate_id=c.candidate_uuid
+            """)
+            oos_candidate_count, exact_link_count = cursor.fetchone()
+            oos_forward = transitions[3]
+            oos_forward.update(
+                from_count=oos_candidate_count,linked_count=exact_link_count,
+                lineage_status="BROKEN",
+                reason_code="PIPELINE_IDENTITY_NAMESPACE_MISMATCH",
+                evidence={**oos_forward["evidence"], "attempted_join_key": "candidate_uuid=incubator_candidate_id"},
             )
 
             cursor.execute("""

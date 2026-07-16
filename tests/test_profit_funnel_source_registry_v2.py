@@ -18,3 +18,10 @@ def test_only_real_profit_fact_claims_explicit_scope() -> None:
     assert len(explicit)==1
     assert explicit[0].stage is ProfitFunnelStageV2.PROFIT
     assert "DATA_SCOPE='REAL'" in explicit[0].sql.upper()
+
+
+def test_research_stage_uses_the_actual_discovery_run() -> None:
+    research=profit_funnel_source_definitions_v2()[0]
+    assert research.stage is ProfitFunnelStageV2.RESEARCH
+    assert research.source_identity == "analytics.edge_discovery_run_v1.latest_done"
+    assert "OBSERVATIONS_SCANNED" in research.sql.upper()

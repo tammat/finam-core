@@ -1,0 +1,16 @@
+from pathlib import Path
+
+
+def test_lineage_uses_discovery_batch_and_observation_uuid() -> None:
+    source=Path("src/scripts/build_profit_funnel_transition_lineage_v2.py").read_text()
+    assert "observations_scanned" in source
+    assert "c.discovery_batch_id=l.discovery_batch_id" in source
+    assert "o.observation_uuid=c.observation_uuid" in source
+    assert 'reason_code="OBSERVATION_UUID_FULL_MATCH"' in source
+
+
+def test_oos_forward_gap_is_not_hidden_by_symbol_matching() -> None:
+    source=Path("src/scripts/build_profit_funnel_transition_lineage_v2.py").read_text()
+    assert "f.incubator_candidate_id=c.candidate_uuid" in source
+    assert 'reason_code="PIPELINE_IDENTITY_NAMESPACE_MISMATCH"' in source
+    assert "symbol=c.symbol" not in source
