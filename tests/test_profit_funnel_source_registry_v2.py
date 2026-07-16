@@ -27,3 +27,13 @@ def test_research_stage_uses_the_actual_discovery_run() -> None:
     assert research.stage is ProfitFunnelStageV2.RESEARCH
     assert research.source_identity == "analytics.edge_discovery_run_v1.latest_done"
     assert "OBSERVATIONS_SCANNED" in research.sql.upper()
+
+
+def test_runtime_stage_uses_canonical_admission_records() -> None:
+    runtime = next(
+        item for item in profit_funnel_source_definitions_v2()
+        if item.stage is ProfitFunnelStageV2.RUNTIME
+    )
+    assert runtime.source_identity == "analytics.profit_funnel_paper_runtime_admission_v2.admitted"
+    assert "ADMISSION_STATUS='ADMITTED'" in runtime.sql.upper()
+    assert "RUNTIME_ALLOWED" in runtime.sql.upper()

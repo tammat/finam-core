@@ -13,3 +13,9 @@ def test_runtime_admission_is_pending_and_cannot_execute() -> None:
     assert "AWAITING_RUNTIME_ADMISSION" in source
     assert "INSERT INTO public.runtime_observations" not in source
     assert "CHECK (NOT runtime_allowed AND NOT execution_enabled AND NOT live_allowed)" in migration
+
+
+def test_eligible_paper_candidates_are_freshness_stamped() -> None:
+    source = Path("src/scripts/build_profit_funnel_paper_runtime_admission_v2.py").read_text()
+    assert "UPDATE analytics.paper_runtime_candidate_v1" in source
+    assert "SET updated_at=clock_timestamp()" in source

@@ -30,6 +30,11 @@ def main() -> None:
             """)
             rows = cursor.fetchall()
             for paper_id, observation_uuid in rows:
+                cursor.execute("""
+                    UPDATE analytics.paper_runtime_candidate_v1
+                    SET updated_at=clock_timestamp()
+                    WHERE id=%s
+                """, (paper_id,))
                 admission_id = uuid.uuid5(NAMESPACE, "admission:" + str(observation_uuid))
                 runtime_id = uuid.uuid5(NAMESPACE, "runtime:" + str(observation_uuid))
                 cursor.execute("""

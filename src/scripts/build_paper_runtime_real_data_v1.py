@@ -6,6 +6,10 @@ from datetime import datetime, timezone
 
 import psycopg2
 
+from scripts.build_profit_funnel_paper_runtime_admission_v2 import (
+    main as refresh_paper_runtime_admissions,
+)
+
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "PAPER_RUNTIME_REAL_DATA_V1"
 
@@ -152,6 +156,7 @@ def main() -> None:
 
     print("PAPER_RUNTIME_REAL_DATA_V1_BUILT")
     print(f"build_id={build_id}")
+    refresh_paper_runtime_admissions()
 
 
 if __name__ == "__main__":

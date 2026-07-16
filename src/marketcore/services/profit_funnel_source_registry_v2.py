@@ -63,8 +63,8 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
         "SELECT count(*),max(p.updated_at),NULL::numeric,NULL::numeric,max(c.discovery_batch_id),count(DISTINCT c.discovery_batch_id) FROM analytics.paper_runtime_candidate_v1 p JOIN analytics.edge_candidate_v1 c USING(observation_uuid) WHERE p.paper_status='ACTIVE' AND c.candidate_status='OOS_PASS' AND c.paper_allowed",
     ),
     ProfitFunnelStageV2.RUNTIME: ProfitFunnelSourceDefinitionV2(
-        ProfitFunnelStageV2.RUNTIME, "public.runtime_observations.latest_state",
-        "SELECT count(*) FILTER (WHERE allow_runtime),max(observed_at) FILTER (WHERE allow_runtime),NULL::numeric,NULL::numeric,NULL::text,0 FROM (SELECT DISTINCT ON (symbol,strategy,timeframe) * FROM public.runtime_observations ORDER BY symbol,strategy,timeframe,observed_at DESC) latest",
+        ProfitFunnelStageV2.RUNTIME, "analytics.profit_funnel_paper_runtime_admission_v2.admitted",
+        "SELECT count(*) FILTER (WHERE admission_status='ADMITTED' AND runtime_allowed),max(updated_at),NULL::numeric,NULL::numeric,NULL::text,0 FROM analytics.profit_funnel_paper_runtime_admission_v2",
     ),
     ProfitFunnelStageV2.LIVE: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.LIVE, "public.orders.exchange_accepted",
