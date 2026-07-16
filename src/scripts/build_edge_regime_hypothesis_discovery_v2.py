@@ -22,7 +22,9 @@ MIN_COVERAGE = float(os.getenv("EDGE_REGIME_MIN_COVERAGE", "0.80"))
 
 ALLOWED_REGIMES = {
     "MOMENTUM": ("trend_up", "trend_down", "trend_up_expansion", "trend_down_expansion"),
-    "MEAN_REVERSION": ("range_normal", "range_compression", "compression"),
+    "VWAP": ("range_normal", "range_compression", "compression"),
+    "BOLLINGER": ("range_normal", "range_compression", "compression"),
+    "RSI": ("range_normal", "range_compression", "compression"),
     "BREAKOUT": ("compression", "trend_up_expansion", "trend_down_expansion"),
 }
 
@@ -60,8 +62,8 @@ def main() -> None:
             markets = cur.fetchall()
 
             for market in markets:
-                cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts", (market["symbol"], market["timeframe"]))
-                bars = [Bar(row["ts"], float(row["close"])) for row in cur.fetchall()]
+                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts", (market["symbol"], market["timeframe"]))
+                bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
                 cur.execute("""
                     SELECT DISTINCT ON (ts) ts,regime,confidence,source
                     FROM analytics_regime_snapshots_v2

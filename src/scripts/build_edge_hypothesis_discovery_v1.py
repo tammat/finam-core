@@ -23,9 +23,17 @@ GRIDS = {
         {"lookback": lookback, "hold": hold, "threshold": threshold}
         for lookback in (20, 40, 80) for hold in (5, 9) for threshold in (0.5, 1.0, 1.5)
     ]),
-    "MEAN_REVERSION": ("VWAP_REVERSION_V1", [
+    "VWAP": ("VWAP_REVERSION_V2", [
         {"lookback": lookback, "hold": hold, "threshold": threshold}
-        for lookback in (20, 40) for hold in (5, 9) for threshold in (1.0, 1.5, 2.0)
+        for lookback in (20, 40, 80) for hold in (5, 9) for threshold in (1.0, 1.5, 2.0)
+    ]),
+    "BOLLINGER": ("BOLLINGER_REVERSION_V1", [
+        {"lookback": lookback, "hold": hold, "threshold": threshold}
+        for lookback in (20, 40, 80) for hold in (5, 9) for threshold in (1.5, 2.0, 2.5)
+    ]),
+    "RSI": ("RSI_MEAN_REVERSION_V1", [
+        {"lookback": lookback, "hold": hold, "threshold": threshold}
+        for lookback in (14, 21) for hold in (5, 9) for threshold in (20.0, 25.0, 30.0)
     ]),
     "BREAKOUT": ("VOLATILITY_BREAKOUT_V2", [
         {"lookback": lookback, "hold": hold, "threshold": 0.0}
@@ -89,8 +97,8 @@ def main() -> None:
             markets = cur.fetchall()
 
             for market in markets:
-                cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts", (market["symbol"], market["timeframe"]))
-                bars = [Bar(row["ts"], float(row["close"])) for row in cur.fetchall()]
+                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts", (market["symbol"], market["timeframe"]))
+                bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
                 train_end = int(len(bars) * 0.50)
                 validation_end = int(len(bars) * 0.75)
                 regimes = regime_map(bars, validation_end)

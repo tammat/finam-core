@@ -26,6 +26,7 @@ SCORE_FORMULA_VERSION = "EDGE_SCORE_ENGINE_PENDING"
 class Bar:
     ts: Any
     close: float
+    volume: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ def safe_float(v: Any) -> float:
     return float(v)
 
 
-def discover_bar_table(cur) -> tuple[str, str, str, str, str | None] | None:
+def discover_bar_table(cur) -> tuple[str, str, str, str, str | None, str | None] | None:
     candidates = [
         ("analytics", "market_bars"),
         ("public", "market_bars"),
@@ -79,7 +80,8 @@ def discover_bar_table(cur) -> tuple[str, str, str, str, str | None] | None:
         ts_col = next((x for x in ["bar_ts", "ts", "timestamp", "datetime", "time", "created_at"] if x in c), None)
         tf_col = next((x for x in ["timeframe", "tf", "interval"] if x in c), None)
         if symbol_col and close_col and ts_col:
-            return schema, table, ts_col, close_col, tf_col
+            volume_col = "volume" if "volume" in c else None
+            return schema, table, ts_col, close_col, tf_col, volume_col
     return None
 
 
@@ -88,7 +90,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
     if not found:
         return []
 
-    schema, table, ts_col, close_col, tf_col = found
+    schema, table, ts_col, close_col, tf_col, volume_col = found
 
     where = [sql.SQL("{} = %s").format(sql.Identifier("symbol"))]
     params: list[Any] = [run["symbol"]]
@@ -98,7 +100,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
         params.append(run["timeframe"])
 
     q = sql.SQL("""
-        SELECT {ts_col} AS ts, {close_col} AS close
+        SELECT {ts_col} AS ts, {close_col} AS close, {volume_col} AS volume
         FROM {schema}.{table}
         WHERE {where}
           AND {close_col} IS NOT NULL
@@ -107,6 +109,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
     """).format(
         ts_col=sql.Identifier(ts_col),
         close_col=sql.Identifier(close_col),
+        volume_col=sql.Identifier(volume_col) if volume_col else sql.SQL("0"),
         schema=sql.Identifier(schema),
         table=sql.Identifier(table),
         where=sql.SQL(" AND ").join(where),
@@ -115,7 +118,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
     params.append(MAX_BARS)
     cur.execute(q, params)
 
-    bars = [Bar(r["ts"], safe_float(r["close"])) for r in cur.fetchall()]
+    bars = [Bar(r["ts"], safe_float(r["close"]), safe_float(r["volume"])) for r in cur.fetchall()]
     return [b for b in bars if b.close > 0]
 
 
@@ -126,6 +129,41 @@ def strategy_family(code: str) -> str:
     if "MOMENTUM" in c or "IMPULSE" in c:
         return "MOMENTUM"
     return "BREAKOUT"
+
+
+def _rsi(closes: list[float]) -> float:
+    if len(closes) < 2:
+        return 50.0
+    changes = [current - previous for previous, current in zip(closes, closes[1:])]
+    average_gain = statistics.fmean(max(change, 0.0) for change in changes)
+    average_loss = statistics.fmean(max(-change, 0.0) for change in changes)
+    if average_loss == 0:
+        return 100.0 if average_gain > 0 else 50.0
+    return 100.0 - (100.0 / (1.0 + average_gain / average_loss))
+
+
+def _mean_reversion_side(code: str, bars: list[Bar], index: int, lookback: int, threshold: float) -> int:
+    window = bars[index - lookback:index]
+    closes = [bar.close for bar in window]
+    close = bars[index].close
+
+    if code == "RSI_MEAN_REVERSION_V1":
+        value = _rsi(closes + [close])
+        return 1 if value <= threshold else (-1 if value >= 100.0 - threshold else 0)
+
+    if code == "VWAP_REVERSION_V2":
+        total_volume = sum(max(bar.volume, 0.0) for bar in window)
+        if total_volume <= 0:
+            return 0
+        center = sum(bar.close * max(bar.volume, 0.0) for bar in window) / total_volume
+    else:  # BOLLINGER_REVERSION_V1 and the audited legacy mean-reversion formula.
+        center = statistics.fmean(closes)
+
+    stdev = statistics.pstdev(closes)
+    if stdev <= 0:
+        return 0
+    z_score = (close - center) / stdev
+    return 1 if z_score <= -threshold else (-1 if z_score >= threshold else 0)
 
 
 def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
@@ -139,7 +177,8 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     commission = float(params.get("commission", 0.0))
     slippage = float(params.get("slippage", 0.0))
 
-    family = strategy_family(run["strategy_code"])
+    strategy_code = str(run["strategy_code"]).upper()
+    family = strategy_family(strategy_code)
     trades: list[Trade] = []
     i = max(lookback, 20)
 
@@ -161,13 +200,7 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             elif momentum_pct <= -threshold:
                 side = -1
         else:
-            mean = statistics.fmean(window)
-            stdev = statistics.pstdev(window) or 1.0
-            z = (close - mean) / stdev
-            if z <= -threshold:
-                side = 1
-            elif z >= threshold:
-                side = -1
+            side = _mean_reversion_side(strategy_code, bars, i, lookback, threshold)
 
         if side == 0:
             i += 1

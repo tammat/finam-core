@@ -33,10 +33,10 @@ def main() -> None:
             markets = cursor.fetchall()
             for market in markets:
                 cursor.execute("""
-                    SELECT ts,close FROM public.market_bars
+                    SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars
                     WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts
                 """, (market["symbol"], market["timeframe"]))
-                bars = [Bar(row["ts"], float(row["close"])) for row in cursor.fetchall()]
+                bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cursor.fetchall()]
                 evaluation_start = int(len(bars) * 0.40)
                 fold_span = max(1, (len(bars)-evaluation_start)//FOLDS)
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
