@@ -80,27 +80,28 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
 
     def _send_html(self, code: int, body: bytes) -> None:
         self.send_response(code)
+        request_path = urlparse(self.path).path
         asset_content_type = ui_runtime_asset_content_type_v1(
-            self.path
+            request_path
         )
         if asset_content_type is None:
             asset_content_type = ui_runtime_asset_content_type_v2(
-                self.path
+                request_path
             )
 
         if asset_content_type is not None:
             content_type = asset_content_type
-        elif self.path.startswith("/api/v2/domain-render-tree/"):
+        elif request_path.startswith("/api/v2/domain-render-tree/"):
             content_type = (
                 "application/vnd.marketcore.render-tree+json; charset=utf-8"
             )
-        elif self.path.startswith("/api/v2/i18n/catalog"):
+        elif request_path.startswith("/api/v2/i18n/catalog"):
             content_type = (
                 "application/vnd.marketcore.i18n-catalog+json; charset=utf-8"
             )
-        elif self.path.startswith("/api/v2/actions/"):
+        elif request_path.startswith("/api/v2/actions/"):
             content_type = "application/json; charset=utf-8"
-        elif self.path.startswith("/api/v1/"):
+        elif request_path.startswith("/api/v1/"):
             content_type = "application/json; charset=utf-8"
         else:
             content_type = "text/html; charset=utf-8"
