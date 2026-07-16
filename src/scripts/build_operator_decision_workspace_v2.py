@@ -75,6 +75,22 @@ def main() -> None:
                     row["policy_verdict"],row["autonomy_mode"],
                     now+timedelta(seconds=row["validity_seconds"]),row["rollback_plan_code"],
                 ))
+                cursor.execute("""
+                    INSERT INTO analytics.operator_decision_lineage_audit_v2 (
+                        decision_id,lineage_hash,transition_code,action_code,source_identity,
+                        source_as_of,evidence,policy_verdict,autonomy_mode,selection_status,
+                        feedback_status,actual_result
+                    )
+                    SELECT decision_id,
+                           md5(concat_ws('|',transition_code,action_code,source_identity,
+                               source_as_of::text,evidence::text,policy_verdict,autonomy_mode,
+                               selection_status,feedback_status,coalesce(actual_result::text,''))),
+                           transition_code,action_code,source_identity,source_as_of,evidence,
+                           policy_verdict,autonomy_mode,selection_status,feedback_status,actual_result
+                    FROM analytics.operator_decision_workspace_v2
+                    WHERE decision_id=%s::uuid
+                    ON CONFLICT (decision_id,lineage_hash) DO NOTHING
+                """, (str(decision_id),))
     print(f"operator_decisions={len(rows)}")
     print("allowed_recommendations=0")
     print("live_allowed=0")
