@@ -183,7 +183,10 @@ class HomeV2Presenter:
         command_code = "OPERATOR.ACKNOWLEDGE_DECISION" if acknowledgeable else ("OPERATOR.MEASURE_DECISION" if measurable else None)
         rollback_code = "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT" if acknowledgeable else ("OPERATOR.CANCEL_PENDING_MEASUREMENT" if measurable else None)
         return BaseCard(
-            widget_id=f"home.operator.action.{item['rank']}",
+            widget_id=(
+                f"home.operator.action.{item['rank']}."
+                f"{str(item['transition_code']).strip().lower()}"
+            ),
             widget_type=WidgetType.STATUS,
             card_type=CardType.DECISION,
             title_key="home.operator.action.title",

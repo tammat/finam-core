@@ -12,6 +12,7 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     document = build_domain_document_v2("HOME",timezone_code="Europe/Moscow")
     cards = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]
     assert len(cards) == 5
+    assert len({card.node_id for card in cards}) == len(cards)
     actions = [card.action for card in cards if card.action is not None]
     assert len(actions) == 3
     assert all(action.action_id == "operator.decision.acknowledge" for action in actions)
