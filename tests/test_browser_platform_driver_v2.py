@@ -7,8 +7,9 @@ from marketcore.presentation.app import MarketCoreUiHandler
 def test_rows_and_cards_do_not_dispatch_their_first_click() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert 'const requiresDoubleClick = node.type === "table_row" || node.type === "card";' in source
-    assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));' in source
-    assert 'emit(requiresDoubleClick ? "DOUBLE_CLICK" : "CLICK");' in source
+    assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
+    assert 'if (requiresDoubleClick) this.openRecommendedActions(element);' in source
+    assert 'else emit("CLICK");' in source
 
 
 def test_action_controller_can_create_uuid_on_insecure_http_origin() -> None:
