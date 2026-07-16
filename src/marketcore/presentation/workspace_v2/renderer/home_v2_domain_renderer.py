@@ -33,6 +33,11 @@ _HOME_TARGET_BY_WIDGET_ID = {
     "home.card.probe": "container.intraday",
     "home.card.research": "container.research",
     "home.card.control_center": "container.edge",
+    "home.operator.model_health": "container.program",
+    "home.operator.recommendations": "container.home",
+    "home.operator.signal_funnel": "container.edge",
+    "home.operator.risk": "container.risk",
+    "home.operator.events": "container.program",
 }
 
 

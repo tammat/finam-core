@@ -4,9 +4,9 @@ from types import SimpleNamespace
 from marketcore.presentation.app import MarketCoreUiHandler
 
 
-def test_rows_and_cards_do_not_dispatch_their_first_click() -> None:
+def test_only_command_rows_require_double_click() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
-    assert 'const requiresDoubleClick = node.type === "table_row" || node.type === "card";' in source
+    assert 'const requiresDoubleClick = node.type === "table_row";' in source
     assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
     assert 'if (requiresDoubleClick) this.openRecommendedActions(element);' in source
     assert 'else emit("CLICK");' in source

@@ -301,6 +301,7 @@ class HomeV2Presenter:
             status_code=item.status_code,
             status_label_key=item.status_label_key,
             priority=priority,
+            actions=({"action_code": "navigation.open", "target": item.item_code},),
             payload={
                 "rows_total": item.rows_total,
                 "updated_at": item.updated_at,

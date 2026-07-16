@@ -26,6 +26,10 @@
         openRecommendedActions(sourceElement) {
             const table = sourceElement.closest("table");
             if (!table) return;
+            if (sourceElement.dataset.mcActionKind === "NAVIGATE") {
+                this.openFunnelActions(sourceElement);
+                return;
+            }
             const requiresOperator = (row) => Array.from(row.cells)
                 .some((cell) => cell.textContent.trim() === "Требуется решение оператора");
             if (!requiresOperator(sourceElement)) return;
@@ -61,6 +65,7 @@
                 item.addEventListener("click", async () => {
                     if (!globalObject.confirm(`${commandLabel}: «${action}»?`)) return;
                     item.disabled = true;
+                    dialog.close();
                     try {
                         await this.actionSink({
                             actionId: row.dataset.mcActionId,
@@ -74,13 +79,70 @@
                             rollbackCode: row.dataset.mcRollbackCode || null,
                             idempotencyKey: row.dataset.mcIdempotencyKey || null
                         });
-                        dialog.close();
                     } finally {
                         item.disabled = false;
                     }
                 });
                 list.appendChild(item);
             });
+            const close = this.documentObject.createElement("button");
+            close.type = "button";
+            close.className = "mc-action-dialog-close";
+            close.textContent = "Отмена";
+            close.addEventListener("click", () => dialog.close());
+            dialog.addEventListener("close", () => dialog.remove());
+            dialog.append(title, hint, list, close);
+            this.documentObject.body.appendChild(dialog);
+            dialog.showModal();
+        }
+
+        openFunnelActions(row) {
+            const stage = row.cells[0]?.textContent?.trim() || "этап";
+            const status = row.cells[3]?.textContent?.trim() || "Статус не определён";
+            const recommendations = {
+                "Исследования": "Проверить свежесть данных и запустить следующий исследовательский цикл",
+                "Кандидаты": "Проверить параметры и воспроизводимость кандидатов",
+                "Подтверждённое преимущество": "Проверить критерии подтверждения преимущества",
+                "Вневыборочная проверка": "Провести cost-adjusted OOS и проверить фолды",
+                "Форвардное наблюдение": "Проверить чистую Forward-когорту и накопление наблюдений",
+                "Теневое наблюдение": "Проверить сделки, издержки и достаточность Shadow-выборки",
+                "Paper": "Проверить готовность к Paper без реальных заявок",
+                "Runtime": "Проверить свежесть Runtime и критерии допуска",
+                "Live": "Проверить риск-разрешение; торговлю не включать без PASS",
+                "Profit": "Проверить чистый PnL после всех издержек"
+            };
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "funnel");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = "Рекомендуемые действия";
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = `${stage} · ${status}`;
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const open = this.documentObject.createElement("button");
+            open.type = "button";
+            open.className = "mc-action-dialog-item";
+            const openTitle = this.documentObject.createElement("strong");
+            openTitle.textContent = `Открыть этап «${stage}»`;
+            const detail = this.documentObject.createElement("span");
+            detail.textContent = recommendations[stage] || "Открыть ответственный режим и проверить причину статуса";
+            open.append(openTitle, detail);
+            open.addEventListener("click", async () => {
+                open.disabled = true;
+                dialog.close();
+                try {
+                    await this.actionSink({
+                        actionId: row.dataset.mcActionId,
+                        actionKind: row.dataset.mcActionKind,
+                        interactionKind: "DOUBLE_CLICK",
+                        targetId: row.dataset.mcTargetId || null
+                    });
+                } finally {
+                    open.disabled = false;
+                }
+            });
+            list.appendChild(open);
             const close = this.documentObject.createElement("button");
             close.type = "button";
             close.className = "mc-action-dialog-close";
@@ -134,7 +196,7 @@
                     };
                     element.setAttribute("role", node.action.action_kind === "NAVIGATE" ? "link" : "button");
                     element.setAttribute("tabindex", "0");
-                    const requiresDoubleClick = node.type === "table_row" || node.type === "card";
+                    const requiresDoubleClick = node.type === "table_row";
                     if (requiresDoubleClick) {
                         element.addEventListener("dblclick", () => this.openRecommendedActions(element));
                     } else {
