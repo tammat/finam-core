@@ -47,6 +47,11 @@ def main() -> None:
                 if len(bars) <= IN_SAMPLE_BARS:
                     raise RuntimeError(f"OOS_BARS_NOT_AVAILABLE market={market}")
                 params = observation["parameter_json"] or {}
+                specification_complete = (
+                    "lookback" in params
+                    and ("hold" in params or "holding_bars" in params)
+                    and "threshold" in params
+                )
                 lookback = int(params.get("lookback", 20))
                 run = {"strategy_code": observation["strategy_code"], "parameter_json": params}
                 oos_start = bars[IN_SAMPLE_BARS].ts
@@ -76,7 +81,7 @@ def main() -> None:
                         and fold["expectancy"] > 0
                     )
 
-                passed = (
+                passed = specification_complete and (
                     oos["trades"] >= 30
                     and oos["profit_factor"] >= 1.10
                     and oos["expectancy"] > 0
@@ -84,9 +89,13 @@ def main() -> None:
                 )
                 verdict = "OOS_PASS" if passed else "OOS_FAIL"
                 reason = (
-                    "OOS metrics and temporal folds passed"
-                    if passed
-                    else "OOS PF/expectancy or temporal fold stability failed"
+                    "OOS_SPECIFICATION_INCOMPLETE: lookback, hold/holding_bars and threshold are required"
+                    if not specification_complete
+                    else (
+                        "OOS metrics and temporal folds passed"
+                        if passed
+                        else "OOS PF/expectancy or temporal fold stability failed"
+                    )
                 )
                 cur.execute(
                     """

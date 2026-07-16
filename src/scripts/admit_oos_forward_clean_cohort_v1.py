@@ -40,6 +40,31 @@ def main() -> None:
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute("""
+                SELECT h.handoff_id,h.forward_candidate_id
+                FROM analytics.profit_funnel_oos_forward_handoff_v2 h
+                JOIN analytics.edge_oos_result_v1 o ON o.id=h.oos_result_id
+                WHERE h.handoff_status='ADMITTED'
+                  AND (o.verdict_code<>'OOS_PASS' OR NOT o.promotion_allowed)
+                FOR UPDATE OF h
+            """)
+            revoked = cursor.fetchall()
+            for row in revoked:
+                cursor.execute("""
+                    UPDATE analytics.profit_funnel_oos_forward_handoff_v2
+                    SET handoff_status='REJECTED',reason_code='SOURCE_OOS_PASS_REVOKED',
+                        runtime_allowed=false,live_allowed=false,updated_at=clock_timestamp()
+                    WHERE handoff_id=%s
+                """, (row["handoff_id"],))
+                cursor.execute("""
+                    UPDATE analytics.forward_edge_incubator_v1
+                    SET incubator_status='REVOKED',trust_state='REVOKED',
+                        paper_state='NOT_ELIGIBLE',promotion_allowed=false,live_allowed=false
+                    WHERE incubator_candidate_id=%s
+                """, (row["forward_candidate_id"],))
+            if revoked:
+                print(f"revoked_invalid_oos_admissions={len(revoked)}")
+
+            cursor.execute("""
                 SELECT h.*,c.strategy_code,c.symbol,c.timeframe,c.parameter_hash,c.parameter_json,
                        o.oos_trades,o.oos_profit_factor,o.oos_expectancy,o.folds_passed,o.folds_total
                 FROM analytics.profit_funnel_oos_forward_handoff_v2 h

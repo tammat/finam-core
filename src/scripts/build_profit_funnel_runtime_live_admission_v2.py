@@ -13,6 +13,29 @@ def main() -> None:
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:
             cursor.execute("""
+                SELECT count(*)=4
+                FROM analytics.profit_funnel_transition_lineage_v2
+                WHERE transition_code IN (
+                    'OOS_TO_FORWARD','FORWARD_TO_SHADOW',
+                    'SHADOW_TO_PAPER','PAPER_TO_RUNTIME'
+                ) AND lineage_status='PROVEN'
+            """)
+            upstream_lineage_proven = bool(cursor.fetchone()[0])
+            if not upstream_lineage_proven:
+                cursor.execute("""
+                    UPDATE analytics.profit_funnel_runtime_live_admission_v2
+                    SET admission_status='CANCELLED',reason_code='UPSTREAM_LINEAGE_NOT_PROVEN',
+                        broker_order_allowed=false,execution_enabled=false,live_allowed=false,
+                        updated_at=clock_timestamp()
+                    WHERE admission_status='PENDING'
+                """)
+                print(f"live_admissions_cancelled={cursor.rowcount}")
+                print("broker_order_allowed=0")
+                print("execution_changed=0")
+                print("live_allowed=0")
+                print("VERDICT=MARKETCORE_RUNTIME_LIVE_UPSTREAM_LINEAGE_BLOCKED")
+                return
+            cursor.execute("""
                 SELECT admission_id,runtime_candidate_id
                 FROM analytics.profit_funnel_paper_runtime_admission_v2
                 WHERE admission_status='ADMITTED' AND runtime_allowed
