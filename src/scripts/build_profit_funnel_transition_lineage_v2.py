@@ -105,26 +105,34 @@ def main() -> None:
             cursor.execute("""
                 SELECT count(*)::bigint,
                        count(h.handoff_id)::bigint,
-                       count(f.incubator_candidate_id)::bigint
+                       count(d.decision_id)::bigint,
+                       count(d.decision_id) FILTER (WHERE d.decision_code='PASS')::bigint,
+                       max(d.target_cohort_id::text) FILTER (WHERE d.decision_code='PASS')
                 FROM analytics.edge_oos_result_v1 o
                 JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid
                 LEFT JOIN analytics.profit_funnel_oos_forward_handoff_v2 h ON h.candidate_uuid=c.candidate_uuid
-                LEFT JOIN analytics.forward_edge_observation_v1 f ON f.incubator_candidate_id=h.forward_candidate_id
+                LEFT JOIN analytics.profit_funnel_oos_forward_admission_decision_v1 d ON d.handoff_id=h.handoff_id
                 WHERE o.verdict_code='OOS_PASS' AND o.promotion_allowed=true
             """)
-            oos_candidate_count, handoff_count, exact_link_count = cursor.fetchone()
+            oos_candidate_count, handoff_count, decision_count, admitted_count, target_cohort_id = cursor.fetchone()
             oos_forward = transitions[3]
+            admission_complete = oos_candidate_count == handoff_count == decision_count and oos_candidate_count > 0
             oos_forward.update(
-                from_count=oos_candidate_count,linked_count=exact_link_count,
-                lineage_status="UNVERIFIED",
-                reason_code="HANDOFF_PENDING_FORWARD_ADMISSION",
-                evidence={**oos_forward["evidence"], "handoff_count": handoff_count, "join_key": "forward_candidate_id=incubator_candidate_id"},
+                canonical_cohort_id=target_cohort_id if admission_complete else None,
+                source_cohort_to=target_cohort_id,
+                from_count=oos_candidate_count,to_count=admitted_count,linked_count=admitted_count,
+                lineage_status="PROVEN" if admission_complete else "UNVERIFIED",
+                reason_code="FORWARD_ADMISSION_DECISIONS_COMPLETE" if admission_complete else "HANDOFF_PENDING_FORWARD_ADMISSION",
+                evidence={**oos_forward["evidence"], "handoff_count": handoff_count,
+                          "decision_count": decision_count,"admitted_count": admitted_count,
+                          "join_key": "candidate_uuid=handoff=admission_decision"},
             )
 
             cursor.execute("""
                 SELECT f.cohort_id::text,count(*)::bigint,count(s.shadow_trade_id)::bigint
                 FROM analytics.forward_edge_observation_v1 f
                 LEFT JOIN analytics.forward_edge_shadow_trade_v1 s ON s.observation_id=f.observation_id
+                WHERE f.cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
                 GROUP BY f.cohort_id
             """)
             rows = cursor.fetchall()

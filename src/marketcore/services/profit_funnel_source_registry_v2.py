@@ -52,11 +52,11 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
     ),
     ProfitFunnelStageV2.FORWARD: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.FORWARD, "analytics.forward_edge_observation_v1",
-        "SELECT count(*),max(coalesce(exit_ts,entry_ts,signal_ts,created_at)),sum(net_pnl),sum(coalesce(commission,0)+coalesce(spread_cost,0)+coalesce(slippage,0)),max(cohort_id::text),count(DISTINCT cohort_id) FROM analytics.forward_edge_observation_v1",
+        "SELECT count(*),max(coalesce(exit_ts,entry_ts,signal_ts,created_at)),sum(net_pnl),sum(coalesce(commission,0)+coalesce(spread_cost,0)+coalesce(slippage,0)),max(cohort_id::text),count(DISTINCT cohort_id) FROM analytics.forward_edge_observation_v1 WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()",
     ),
     ProfitFunnelStageV2.SHADOW: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.SHADOW, "analytics.forward_edge_shadow_trade_v1",
-        "SELECT count(*),max(coalesce(exit_ts,entry_ts,signal_ts,created_at)),sum(net_pnl),sum(coalesce(commission,0)+coalesce(spread_cost,0)+coalesce(slippage,0)),max(cohort_id::text),count(DISTINCT cohort_id) FROM analytics.forward_edge_shadow_trade_v1",
+        "SELECT count(*),max(coalesce(exit_ts,entry_ts,signal_ts,created_at)),sum(net_pnl),sum(coalesce(commission,0)+coalesce(spread_cost,0)+coalesce(slippage,0)),max(cohort_id::text),count(DISTINCT cohort_id) FROM analytics.forward_edge_shadow_trade_v1 WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()",
     ),
     ProfitFunnelStageV2.PAPER: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.PAPER, "analytics.paper_runtime_candidate_v1.active_oos_pass",

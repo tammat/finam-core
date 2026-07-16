@@ -46,3 +46,10 @@ def test_oos_stage_counts_only_promotable_passes() -> None:
     )
     assert "O.VERDICT_CODE='OOS_PASS'" in oos.sql.upper()
     assert "O.PROMOTION_ALLOWED=TRUE" in oos.sql.upper()
+
+
+def test_forward_and_shadow_are_scoped_to_the_active_clean_cohort() -> None:
+    definitions = profit_funnel_source_definitions_v2()
+    for stage in (ProfitFunnelStageV2.FORWARD, ProfitFunnelStageV2.SHADOW):
+        source = next(item for item in definitions if item.stage is stage)
+        assert "FORWARD_EDGE_BASELINE_COHORT_ID_V1()" in source.sql.upper()
