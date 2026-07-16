@@ -7,6 +7,8 @@ from numbers import Number
 from typing import Any, Iterable
 
 from marketcore.presentation.render_tree.v2 import (
+    ActionKindV2,
+    RenderActionV2,
     RenderContentV2,
     RenderDocumentV2,
     RenderNodeStateV2,
@@ -96,6 +98,34 @@ def _source_as_of(rows: Iterable[dict[str, Any]]) -> datetime | None:
     return max(candidates) if candidates else None
 
 
+_FUNNEL_STAGE_CONTAINER = {
+    "RESEARCH": "container.research",
+    "CANDIDATE": "container.research",
+    "VALIDATED_EDGE": "container.edge",
+    "OOS": "container.edge",
+    "FORWARD": "container.intraday",
+    "SHADOW": "container.intraday",
+    "PAPER": "container.intraday",
+    "RUNTIME": "container.intraday",
+    "LIVE": "container.intraday",
+    "PROFIT": "container.capital",
+}
+
+
+def _table_row_action(section_code: str, row: dict[str, Any]) -> RenderActionV2 | None:
+    if section_code != "funnel":
+        return None
+    stage_code = str(row.get("stage_code") or "").strip().upper()
+    target_id = _FUNNEL_STAGE_CONTAINER.get(stage_code)
+    if target_id is None:
+        return None
+    return RenderActionV2(
+        action_id=f"navigation.funnel.{_code(stage_code)}",
+        action_kind=ActionKindV2.NAVIGATE,
+        target_id=target_id,
+    )
+
+
 def _table_section(
     section_code: str,
     rows: tuple[dict[str, Any], ...],
@@ -178,6 +208,7 @@ def _table_section(
             RenderNodeV2(
                 RenderNodeTypeV2.TABLE_ROW,
                 f"{section_id}.row.{row_index}",
+                action=_table_row_action(section_code, row),
                 children=tuple(cells),
             )
         )

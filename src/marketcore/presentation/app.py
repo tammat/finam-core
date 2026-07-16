@@ -58,7 +58,7 @@ class MarketCoreUiHandler(BaseHTTPRequestHandler):
         fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower()
         if self.client_address[0] in {"127.0.0.1", "::1"} and not origin:
             return True
-        return bool(host and origin and host == origin and fetch_site == "same-origin")
+        return bool(host and origin and host == origin and fetch_site in {"", "same-origin"})
 
     def _is_local_control_request(self) -> bool:
         if self.client_address[0] in {"127.0.0.1", "::1"}:

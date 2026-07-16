@@ -58,12 +58,16 @@
                     };
                     element.setAttribute("role", node.action.action_kind === "NAVIGATE" ? "link" : "button");
                     element.setAttribute("tabindex", "0");
-                    element.addEventListener("click", () => emit("CLICK"));
-                    element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));
+                    const requiresDoubleClick = node.type === "table_row" || node.type === "card";
+                    if (requiresDoubleClick) {
+                        element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));
+                    } else {
+                        element.addEventListener("click", () => emit("CLICK"));
+                    }
                     element.addEventListener("keydown", (event) => {
-                        if (event.key === "Enter" || event.key === " ") {
+                        if (event.key === "Enter" || (!requiresDoubleClick && event.key === " ")) {
                             event.preventDefault();
-                            emit("CLICK");
+                            emit(requiresDoubleClick ? "DOUBLE_CLICK" : "CLICK");
                         }
                     });
                 }
