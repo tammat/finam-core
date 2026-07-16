@@ -12,7 +12,10 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     document = build_domain_document_v2("HOME",timezone_code="Europe/Moscow")
     cards = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]
     assert len(cards) == 5
-    assert all(card.action is None for card in cards)
+    actions = [card.action for card in cards if card.action is not None]
+    assert len(actions) == 3
+    assert all(action.action_id == "operator.decision.acknowledge" for action in actions)
+    assert all(action.reversible and action.target_id and action.idempotency_key for action in actions)
     assert all(card.state.status_code in {"WARNING","BLOCKED"} for card in cards)
     assert all(card.state.quality_code == "UNVERIFIED" for card in cards)
-    assert all(sum(child.node_type is RenderNodeTypeV2.METRIC_ROW for child in card.children) >= 11 for card in cards)
+    assert all(sum(child.node_type is RenderNodeTypeV2.METRIC_ROW for child in card.children) >= 12 for card in cards)

@@ -60,12 +60,16 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
         try:
             definition = resolve_state_changing_action_v2(action_id)
             request_id = str(UUID(str(payload.get("requestId"))))
+            command_target_id = str(payload.get("targetId") or "").strip() or None
+            if definition.request_kind == "OPERATOR_DECISION_ACKNOWLEDGE":
+                command_target_id = str(UUID(str(command_target_id)))
             if interaction is not InteractionKindV2.DOUBLE_CLICK:
                 raise ValueError("DOUBLE_CLICK_REQUIRED")
         except ValueError:
             return _response(403, status="DENIED", reason_code="STATE_CHANGING_ACTION_NOT_REGISTERED")
         intent = ActionIntentV2(
             action_id, ActionKindV2.COMMAND, interaction, ActionActorKindV2.OPERATOR, actor_id,
+            target_id=command_target_id,
             command_code=definition.command_code, policy_class=definition.policy_class,
             authorization_scope=definition.authorization_scope, reversible=True,
             rollback_code=definition.rollback_code, idempotency_key=request_id,

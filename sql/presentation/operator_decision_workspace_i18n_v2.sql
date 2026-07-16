@@ -15,7 +15,8 @@ VALUES
 ('home.operator.field.autonomy_mode','ru','Режим автономности','Автономность','Автон.','Разрешённый уровень автономности','', 'operator_decision_v2'),
 ('home.operator.field.expires_at','ru','Действительно до','Срок','Срок','Время окончания действия решения','', 'operator_decision_v2'),
 ('home.operator.field.rollback','ru','План отката','Откат','Откат','Действие при отмене решения','', 'operator_decision_v2'),
-('home.operator.field.feedback','ru','Обратная связь','Результат','Результ.','Состояние измерения фактического результата','', 'operator_decision_v2')
+('home.operator.field.feedback','ru','Обратная связь','Результат','Результ.','Состояние измерения фактического результата','', 'operator_decision_v2'),
+('home.operator.field.selection','ru','Выбор оператора','Выбор','Выбор','Состояние рассмотрения решения оператором','', 'operator_decision_v2')
 ON CONFLICT(resource_key,locale_code) DO UPDATE SET
 caption=EXCLUDED.caption,caption_short=EXCLUDED.caption_short,
 caption_mobile=EXCLUDED.caption_mobile,tooltip=EXCLUDED.tooltip,

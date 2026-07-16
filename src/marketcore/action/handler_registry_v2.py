@@ -28,6 +28,10 @@ _DEFINITIONS: Mapping[str, StateChangingActionDefinitionV2] = MappingProxyType({
         "paper.request.observation", "PAPER.REQUEST_OBSERVATION", "PAPER_OPERATIONS",
         "paper:write", "PAPER.CANCEL_PENDING_REQUEST", "PAPER_OBSERVATION",
     ),
+    "operator.decision.acknowledge": StateChangingActionDefinitionV2(
+        "operator.decision.acknowledge", "OPERATOR.ACKNOWLEDGE_DECISION", "OPERATOR_FEEDBACK",
+        "operator:write", "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT", "OPERATOR_DECISION_ACKNOWLEDGE",
+    ),
 })
 
 
@@ -53,12 +57,12 @@ class PostgresCommandRequestHandlerV2:
                 cursor.execute(
                     """
                     INSERT INTO marketcore_action.command_request_v2 (
-                        request_id,action_id,request_kind,command_code,actor_id,status,requested_at
-                    ) VALUES (%s,%s,%s,%s,%s,'PENDING',clock_timestamp())
+                        request_id,action_id,request_kind,command_code,actor_id,target_id,status,requested_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,'PENDING',clock_timestamp())
                     ON CONFLICT (request_id) DO NOTHING
                     RETURNING request_id
                     """,
-                    (request_id, intent.action_id, definition.request_kind, definition.command_code, intent.actor_id),
+                    (request_id, intent.action_id, definition.request_kind, definition.command_code, intent.actor_id, intent.target_id),
                 )
                 row = cursor.fetchone()
                 if row is None:

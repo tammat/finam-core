@@ -77,7 +77,7 @@ class GovernedCommandWorkerV2:
             with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute(
                     """
-                    SELECT request_id,action_id,request_kind,command_code,actor_id
+                    SELECT request_id,action_id,request_kind,command_code,actor_id,target_id
                     FROM marketcore_action.command_request_v2
                     WHERE status='PENDING'
                       AND (%s IS NULL OR request_id=%s)
@@ -91,6 +91,8 @@ class GovernedCommandWorkerV2:
                     return None
                 cursor.execute("UPDATE marketcore_action.command_request_v2 SET status='RUNNING',started_at=clock_timestamp() WHERE request_id=%s", (row["request_id"],))
         command = COMMANDS.get(str(row["request_kind"]))
+        if row["request_kind"] == "OPERATOR_DECISION_ACKNOWLEDGE":
+            return self._acknowledge_operator_decision(row)
         if command is None:
             return self._finish(row, False, None, "WORKER_REQUEST_KIND_FORBIDDEN")
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
@@ -100,6 +102,26 @@ class GovernedCommandWorkerV2:
             failure = str(exc).strip() or type(exc).__name__
             return self._finish(row, False, None, failure[:256])
         return self._finish(row, True, result, None)
+
+    def _acknowledge_operator_decision(self, row) -> str:
+        self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE analytics.operator_decision_workspace_v2
+                        SET selection_status='ACKNOWLEDGED',selected_at=clock_timestamp(),
+                            selected_by=%s,updated_at=clock_timestamp()
+                        WHERE decision_id=%s::uuid AND policy_verdict='REVIEW_REQUIRED'
+                          AND expires_at>clock_timestamp() AND selection_status='NOT_SELECTED'
+                        RETURNING decision_id
+                    """, (row["actor_id"],row["target_id"]))
+                    selected = cursor.fetchone()
+                    if selected is None:
+                        raise ValueError("OPERATOR_DECISION_NOT_ACKNOWLEDGEABLE")
+            return self._finish(row, True, f"acknowledged:{selected[0]}", None)
+        except Exception as exc:
+            return self._finish(row, False, None, str(exc)[:256])
 
     def _finish(self, row, success: bool, result: str | None, failure: str | None) -> str:
         status = "COMPLETED" if success else "FAILED"
@@ -128,7 +150,7 @@ class GovernedCommandWorkerV2:
 
 class PostgresPendingRequestRollbackHandlerV2:
     def rollback(self, intent: ActionIntentV2, rollback_code: str, result_reference: str) -> str:
-        expected = {"RESEARCH.CANCEL_PENDING_REQUEST", "PAPER.CANCEL_PENDING_REQUEST"}
+        expected = {"RESEARCH.CANCEL_PENDING_REQUEST", "PAPER.CANCEL_PENDING_REQUEST", "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT"}
         if rollback_code not in expected:
             raise ValueError("PENDING_REQUEST_ROLLBACK_FORBIDDEN")
         with psycopg2.connect("postgresql:///finam_core") as connection:

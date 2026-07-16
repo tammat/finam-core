@@ -170,6 +170,7 @@ class HomeV2Presenter:
     @staticmethod
     def _operator_action_card(item) -> BaseCard:
         blocked = str(item["policy_verdict"]) == "BLOCKED"
+        actionable = not blocked and str(item["selection_status"]) == "NOT_SELECTED"
         return BaseCard(
             widget_id=f"home.operator.action.{item['rank']}",
             widget_type=WidgetType.STATUS,
@@ -179,11 +180,15 @@ class HomeV2Presenter:
             status_code=UiStatusCode.BLOCKED if blocked else UiStatusCode.WARNING,
             status_label_key="ui.status.blocked" if blocked else "ui.status.warning",
             priority=int(item["rank"]),
+            actions=({"action_code": "OPERATOR_ACKNOWLEDGE", "target": str(item["decision_id"])},) if actionable else (),
             payload={
                 "quality": item["quality_code"],
                 "updated_at": item["source_as_of"],
                 "v2_value": item["action_code"],
                 "v2_format_code": "DOMAIN_CODE",
+                "operator_decision_id": str(item["decision_id"]),
+                "operator_action_expires_at": item["expires_at"],
+                "operator_action_enabled": actionable,
                 "operator_fields": (
                     ("home.operator.field.loss_source",item["loss_source_code"],"DOMAIN_CODE"),
                     ("home.operator.field.expected_profit_impact",item["expected_profit_impact"],"MONEY_RUB"),
@@ -196,6 +201,7 @@ class HomeV2Presenter:
                     ("home.operator.field.expires_at",item["expires_at"],"DATETIME"),
                     ("home.operator.field.rollback",item["rollback_plan_code"],"DOMAIN_CODE"),
                     ("home.operator.field.feedback",item["feedback_status"],"DOMAIN_CODE"),
+                    ("home.operator.field.selection",item["selection_status"],"DOMAIN_CODE"),
                 ),
             },
         )

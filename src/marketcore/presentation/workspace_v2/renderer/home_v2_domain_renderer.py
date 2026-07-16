@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import uuid
 from typing import Any
 
 from marketcore.presentation.framework.base_card import BaseCard
@@ -81,6 +82,20 @@ def _card_state(card: BaseCard) -> RenderNodeStateV2:
 
 
 def _card_action(card: BaseCard) -> RenderActionV2 | None:
+    decision_id = card.payload.get("operator_decision_id")
+    if decision_id and card.payload.get("operator_action_enabled"):
+        expiration = _utc(card.payload.get("operator_action_expires_at"))
+        return RenderActionV2(
+            action_id="operator.decision.acknowledge",
+            action_kind=ActionKindV2.COMMAND,
+            target_id=str(decision_id),
+            command_code="OPERATOR.ACKNOWLEDGE_DECISION",
+            policy_class="OPERATOR_FEEDBACK",
+            reversible=True,
+            rollback_code="OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT",
+            expiration=expiration,
+            idempotency_key=str(uuid.uuid5(uuid.NAMESPACE_URL,f"marketcore:operator-ack:{decision_id}:{expiration}")),
+        )
     if not card.actions:
         return None
     target_id = _HOME_TARGET_BY_WIDGET_ID.get(card.widget_id)
