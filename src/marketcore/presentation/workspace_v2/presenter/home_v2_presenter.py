@@ -20,6 +20,7 @@ from marketcore.presentation.workspace_v2.resolver.home_operator_dashboard_resol
 from marketcore.presentation.workspace_v2.resolver.profit_factory_control_center_resolver_v1 import (
     ProfitFactoryControlCenterResolverV1,
 )
+from marketcore.presentation.workspace_v2.resolver.operator_decision_v2_resolver import OperatorDecisionV2Resolver
 import os
 import psycopg2
 import psycopg2.extras
@@ -110,6 +111,17 @@ class HomeV2Presenter:
         )
 
         operator_items = self._operator_resolver.resolve()
+        operator_decisions = OperatorDecisionV2Resolver().resolve()
+        operator_actions_section = BaseSection(
+            section_id="home.operator.actions",
+            section_type=SectionType.ACTIONS,
+            title_key="home.operator.actions.section.title",
+            subtitle_key="home.operator.actions.section.subtitle",
+            order=17,
+            status_code=UiStatusCode.WARNING,
+            status_label_key="ui.status.warning",
+            cards=tuple(self._operator_action_card(item) for item in operator_decisions),
+        )
         operator_section = BaseSection(
             section_id="home.operator.section",
             section_type=SectionType.SUMMARY,
@@ -150,10 +162,43 @@ class HomeV2Presenter:
             subtitle_key="home.workspace.subtitle",
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
-            sections=(operating_section, profit_section, system_section, status_section, operator_section, navigation_section),
+            sections=(operating_section, profit_section, system_section, status_section, operator_actions_section, operator_section, navigation_section),
         )
 
         return HomeV2ViewModel(layout=layout)
+
+    @staticmethod
+    def _operator_action_card(item) -> BaseCard:
+        blocked = str(item["policy_verdict"]) == "BLOCKED"
+        return BaseCard(
+            widget_id=f"home.operator.action.{item['rank']}",
+            widget_type=WidgetType.STATUS,
+            card_type=CardType.DECISION,
+            title_key="home.operator.action.title",
+            subtitle_key="home.operator.action.subtitle",
+            status_code=UiStatusCode.BLOCKED if blocked else UiStatusCode.WARNING,
+            status_label_key="ui.status.blocked" if blocked else "ui.status.warning",
+            priority=int(item["rank"]),
+            payload={
+                "quality": item["quality_code"],
+                "updated_at": item["source_as_of"],
+                "v2_value": item["action_code"],
+                "v2_format_code": "DOMAIN_CODE",
+                "operator_fields": (
+                    ("home.operator.field.loss_source",item["loss_source_code"],"DOMAIN_CODE"),
+                    ("home.operator.field.expected_profit_impact",item["expected_profit_impact"],"MONEY_RUB"),
+                    ("home.operator.field.risk_impact",item["risk_impact_code"],"DOMAIN_CODE"),
+                    ("home.operator.field.confidence",item["confidence"],"PERCENT_RATIO"),
+                    ("home.operator.field.sample_size",item["sample_size"],"INTEGER"),
+                    ("home.operator.field.sample_sufficiency",item["sample_sufficiency_code"],"DOMAIN_CODE"),
+                    ("home.operator.field.policy_verdict",item["policy_verdict"],"DOMAIN_CODE"),
+                    ("home.operator.field.autonomy_mode",item["autonomy_mode"],"DOMAIN_CODE"),
+                    ("home.operator.field.expires_at",item["expires_at"],"DATETIME"),
+                    ("home.operator.field.rollback",item["rollback_plan_code"],"DOMAIN_CODE"),
+                    ("home.operator.field.feedback",item["feedback_status"],"DOMAIN_CODE"),
+                ),
+            },
+        )
 
     def _profit_card(self, code, title_key, value, status, priority, quality="VERIFIED", *, v2_value=None, v2_format_code=None, v2_message_key=None) -> BaseCard:
         card_status = status if code == "decision" else (UiStatusCode.OK if quality == "VERIFIED" else status)

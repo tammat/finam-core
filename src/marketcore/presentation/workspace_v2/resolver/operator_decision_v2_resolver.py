@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from typing import Any
+
+import psycopg2
+import psycopg2.extras
+
+
+class OperatorDecisionV2Resolver:
+    def resolve(self) -> tuple[dict[str, Any], ...]:
+        with psycopg2.connect("postgresql:///finam_core") as connection:
+            with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT rank,transition_code,bottleneck_stage,loss_source_code,action_code,
+                           source_identity,source_as_of,freshness_code,expected_profit_impact,
+                           risk_impact_code,confidence,sample_size,sample_sufficiency_code,
+                           policy_verdict,autonomy_mode,expires_at,rollback_plan_code,
+                           actual_result,feedback_status,quality_code,updated_at
+                    FROM analytics.operator_decision_workspace_v2
+                    WHERE expires_at > clock_timestamp()
+                    ORDER BY rank
+                """)
+                return tuple(dict(row) for row in cursor.fetchall())

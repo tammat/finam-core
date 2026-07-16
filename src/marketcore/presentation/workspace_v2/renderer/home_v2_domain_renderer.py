@@ -190,6 +190,18 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
             )
         )
 
+    for field_index, (label_key, field_value, format_code) in enumerate(card.payload.get("operator_fields") or (), start=1):
+        children.append(
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_ROW,
+                f"{card.widget_id}.operator_field.{field_index}",
+                children=(
+                    _content_node(RenderNodeTypeV2.METRIC_LABEL,f"{card.widget_id}.operator_field.{field_index}.label",message_key=label_key),
+                    _content_node(RenderNodeTypeV2.METRIC_VALUE,f"{card.widget_id}.operator_field.{field_index}.value",value=("NO_DATA" if field_value is None else field_value),format_code=format_code),
+                ),
+            )
+        )
+
     return RenderNodeV2(
         node_type=RenderNodeTypeV2.CARD,
         node_id=card.widget_id,
