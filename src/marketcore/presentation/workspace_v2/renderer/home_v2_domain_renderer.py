@@ -85,16 +85,17 @@ def _card_action(card: BaseCard) -> RenderActionV2 | None:
     decision_id = card.payload.get("operator_decision_id")
     if decision_id and card.payload.get("operator_action_enabled"):
         expiration = _utc(card.payload.get("operator_action_expires_at"))
+        action_id = str(card.payload["operator_action_id"])
         return RenderActionV2(
-            action_id="operator.decision.acknowledge",
+            action_id=action_id,
             action_kind=ActionKindV2.COMMAND,
             target_id=str(decision_id),
-            command_code="OPERATOR.ACKNOWLEDGE_DECISION",
+            command_code=str(card.payload["operator_command_code"]),
             policy_class="OPERATOR_FEEDBACK",
             reversible=True,
-            rollback_code="OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT",
+            rollback_code=str(card.payload["operator_rollback_code"]),
             expiration=expiration,
-            idempotency_key=str(uuid.uuid5(uuid.NAMESPACE_URL,f"marketcore:operator-ack:{decision_id}:{expiration}")),
+            idempotency_key=str(uuid.uuid5(uuid.NAMESPACE_URL,f"marketcore:{action_id}:{decision_id}:{expiration}")),
         )
     if not card.actions:
         return None

@@ -61,7 +61,7 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
             definition = resolve_state_changing_action_v2(action_id)
             request_id = str(UUID(str(payload.get("requestId"))))
             command_target_id = str(payload.get("targetId") or "").strip() or None
-            if definition.request_kind == "OPERATOR_DECISION_ACKNOWLEDGE":
+            if definition.request_kind in {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE"}:
                 command_target_id = str(UUID(str(command_target_id)))
             if interaction is not InteractionKindV2.DOUBLE_CLICK:
                 raise ValueError("DOUBLE_CLICK_REQUIRED")

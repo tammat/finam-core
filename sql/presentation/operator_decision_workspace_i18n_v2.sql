@@ -16,7 +16,10 @@ VALUES
 ('home.operator.field.expires_at','ru','Действительно до','Срок','Срок','Время окончания действия решения','', 'operator_decision_v2'),
 ('home.operator.field.rollback','ru','План отката','Откат','Откат','Действие при отмене решения','', 'operator_decision_v2'),
 ('home.operator.field.feedback','ru','Обратная связь','Результат','Результ.','Состояние измерения фактического результата','', 'operator_decision_v2'),
-('home.operator.field.selection','ru','Выбор оператора','Выбор','Выбор','Состояние рассмотрения решения оператором','', 'operator_decision_v2')
+('home.operator.field.selection','ru','Выбор оператора','Выбор','Выбор','Состояние рассмотрения решения оператором','', 'operator_decision_v2'),
+('home.operator.field.baseline','ru','Исходное значение','Исходное','Исх.','Значение показателя в момент выбора','', 'operator_decision_v2'),
+('home.operator.field.measurement_due','ru','Измерить после','Измерение','Измер.','Минимальное время наблюдения результата','', 'operator_decision_v2'),
+('home.operator.field.actual_result','ru','Фактический результат','Результат','Результ.','Изменение показателя относительно исходного значения','', 'operator_decision_v2')
 ON CONFLICT(resource_key,locale_code) DO UPDATE SET
 caption=EXCLUDED.caption,caption_short=EXCLUDED.caption_short,
 caption_mobile=EXCLUDED.caption_mobile,tooltip=EXCLUDED.tooltip,

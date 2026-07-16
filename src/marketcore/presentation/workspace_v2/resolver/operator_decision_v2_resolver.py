@@ -15,6 +15,7 @@ class OperatorDecisionV2Resolver:
                            source_identity,source_as_of,freshness_code,expected_profit_impact,
                            risk_impact_code,confidence,sample_size,sample_sufficiency_code,
                            policy_verdict,autonomy_mode,expires_at,rollback_plan_code,
+                           baseline_value,measurement_due_at,measured_at,measurement_source_identity,
                            actual_result,feedback_status,quality_code,selection_status,updated_at
                     FROM analytics.operator_decision_workspace_v2
                     WHERE expires_at > clock_timestamp()

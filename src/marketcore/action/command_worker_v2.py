@@ -93,6 +93,8 @@ class GovernedCommandWorkerV2:
         command = COMMANDS.get(str(row["request_kind"]))
         if row["request_kind"] == "OPERATOR_DECISION_ACKNOWLEDGE":
             return self._acknowledge_operator_decision(row)
+        if row["request_kind"] == "OPERATOR_DECISION_MEASURE":
+            return self._measure_operator_decision(row)
         if command is None:
             return self._finish(row, False, None, "WORKER_REQUEST_KIND_FORBIDDEN")
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
@@ -109,9 +111,16 @@ class GovernedCommandWorkerV2:
             with psycopg2.connect("postgresql:///finam_core") as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("""
-                        UPDATE analytics.operator_decision_workspace_v2
+                        UPDATE analytics.operator_decision_workspace_v2 d
                         SET selection_status='ACKNOWLEDGED',selected_at=clock_timestamp(),
-                            selected_by=%s,updated_at=clock_timestamp()
+                            selected_by=%s,
+                            baseline_value=CASE d.action_code
+                              WHEN 'REVIEW_SHADOW_LOSS' THEN (SELECT abs(coalesce(sum(net_pnl),0)) FROM analytics.profit_funnel_shadow_paper_admission_v2 WHERE admission_status='REJECTED' AND net_pnl<0)
+                              WHEN 'REVIEW_FORWARD_ADMISSION' THEN (SELECT count(*) FROM analytics.profit_funnel_oos_forward_handoff_v2 WHERE handoff_status='ADMITTED')
+                              WHEN 'RESTORE_RUNTIME_EVIDENCE' THEN (SELECT count(*) FROM analytics.profit_funnel_paper_runtime_admission_v2 WHERE admission_status='ADMITTED')
+                              ELSE 0 END,
+                            measurement_due_at=clock_timestamp()+interval '1 hour',
+                            expires_at=clock_timestamp()+interval '2 hours',updated_at=clock_timestamp()
                         WHERE decision_id=%s::uuid AND policy_verdict='REVIEW_REQUIRED'
                           AND expires_at>clock_timestamp() AND selection_status='NOT_SELECTED'
                         RETURNING decision_id
@@ -120,6 +129,45 @@ class GovernedCommandWorkerV2:
                     if selected is None:
                         raise ValueError("OPERATOR_DECISION_NOT_ACKNOWLEDGEABLE")
             return self._finish(row, True, f"acknowledged:{selected[0]}", None)
+        except Exception as exc:
+            return self._finish(row, False, None, str(exc)[:256])
+
+    def _measure_operator_decision(self, row) -> str:
+        self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as connection:
+                with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT decision_id,action_code,baseline_value
+                        FROM analytics.operator_decision_workspace_v2
+                        WHERE decision_id=%s::uuid AND selection_status='ACKNOWLEDGED'
+                          AND feedback_status='PENDING' AND measurement_due_at<=clock_timestamp()
+                        FOR UPDATE
+                    """, (row["target_id"],))
+                    decision = cursor.fetchone()
+                    if decision is None:
+                        raise ValueError("OPERATOR_DECISION_NOT_MEASURABLE")
+                    measurements = {
+                        "REVIEW_SHADOW_LOSS": ("SELECT abs(coalesce(sum(net_pnl),0)) AS current_value FROM analytics.profit_funnel_shadow_paper_admission_v2 WHERE admission_status='REJECTED' AND net_pnl<0", "analytics.profit_funnel_shadow_paper_admission_v2"),
+                        "REVIEW_FORWARD_ADMISSION": ("SELECT count(*) AS current_value FROM analytics.profit_funnel_oos_forward_handoff_v2 WHERE handoff_status='ADMITTED'", "analytics.profit_funnel_oos_forward_handoff_v2"),
+                        "RESTORE_RUNTIME_EVIDENCE": ("SELECT count(*) AS current_value FROM analytics.profit_funnel_paper_runtime_admission_v2 WHERE admission_status='ADMITTED'", "analytics.profit_funnel_paper_runtime_admission_v2"),
+                    }
+                    measurement = measurements.get(decision["action_code"])
+                    if measurement is None:
+                        raise ValueError("OPERATOR_DECISION_MEASUREMENT_SOURCE_FORBIDDEN")
+                    query, source_identity = measurement
+                    cursor.execute(query)
+                    current_value = cursor.fetchone()["current_value"]
+                    baseline = decision["baseline_value"]
+                    actual_result = baseline-current_value if decision["action_code"] == "REVIEW_SHADOW_LOSS" else current_value-baseline
+                    cursor.execute("""
+                        UPDATE analytics.operator_decision_workspace_v2
+                        SET actual_result=%s,feedback_status='MEASURED',measured_at=clock_timestamp(),
+                            measurement_source_identity=%s,updated_at=clock_timestamp()
+                        WHERE decision_id=%s RETURNING decision_id
+                    """, (actual_result,source_identity,decision["decision_id"]))
+                    measured = cursor.fetchone()["decision_id"]
+            return self._finish(row, True, f"measured:{measured}", None)
         except Exception as exc:
             return self._finish(row, False, None, str(exc)[:256])
 
@@ -150,7 +198,7 @@ class GovernedCommandWorkerV2:
 
 class PostgresPendingRequestRollbackHandlerV2:
     def rollback(self, intent: ActionIntentV2, rollback_code: str, result_reference: str) -> str:
-        expected = {"RESEARCH.CANCEL_PENDING_REQUEST", "PAPER.CANCEL_PENDING_REQUEST", "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT"}
+        expected = {"RESEARCH.CANCEL_PENDING_REQUEST", "PAPER.CANCEL_PENDING_REQUEST", "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT", "OPERATOR.CANCEL_PENDING_MEASUREMENT"}
         if rollback_code not in expected:
             raise ValueError("PENDING_REQUEST_ROLLBACK_FORBIDDEN")
         with psycopg2.connect("postgresql:///finam_core") as connection:

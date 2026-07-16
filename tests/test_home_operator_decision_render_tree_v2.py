@@ -18,4 +18,4 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     assert all(action.reversible and action.target_id and action.idempotency_key for action in actions)
     assert all(card.state.status_code in {"WARNING","BLOCKED"} for card in cards)
     assert all(card.state.quality_code == "UNVERIFIED" for card in cards)
-    assert all(sum(child.node_type is RenderNodeTypeV2.METRIC_ROW for child in card.children) >= 12 for card in cards)
+    assert all(sum(child.node_type is RenderNodeTypeV2.METRIC_ROW for child in card.children) >= 15 for card in cards)

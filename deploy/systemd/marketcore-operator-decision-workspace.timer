@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh MarketCore operator decisions every minute
+
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=1min
+Unit=marketcore-operator-decision-workspace.service
+
+[Install]
+WantedBy=timers.target
