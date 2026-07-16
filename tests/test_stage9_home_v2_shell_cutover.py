@@ -9,7 +9,8 @@ def test_root_uses_v2_shell_without_css_or_domain_markup() -> None:
     assert status == 200
     assert 'data-marketcore-ui-runtime="v2"' in text
     assert "/ui-runtime/v1/" not in text
-    assert ".css" not in text
+    assert '/assets/marketcore/ui-runtime/v2/workspace.css' in text
+    assert '/ui-runtime/v1/' not in text
     assert "data-mc-node" not in text
     assert "home.workspace.title" not in text
 

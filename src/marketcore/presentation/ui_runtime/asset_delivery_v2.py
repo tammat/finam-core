@@ -27,6 +27,7 @@ _ASSET_ROOT = Path(__file__).resolve().parent / "assets" / "v2"
 
 UI_RUNTIME_ASSETS_V2: tuple[UiRuntimeAssetDefinitionV2, ...] = (
     UiRuntimeAssetDefinitionV2("workspace_shell", "/workspace-v2", "workspace_shell_v2.html", "text/html; charset=utf-8"),
+    UiRuntimeAssetDefinitionV2("workspace_styles", "/assets/marketcore/ui-runtime/v2/workspace.css", "workspace_v2.css", "text/css; charset=utf-8"),
     UiRuntimeAssetDefinitionV2("render_tree_validator", "/assets/marketcore/ui-runtime/v2/render-tree-validator.js", "render_tree_validator_v2.js"),
     UiRuntimeAssetDefinitionV2("domain_render_tree_runtime", "/assets/marketcore/ui-runtime/v2/domain-render-tree-runtime.js", "domain_render_tree_runtime_v2.js"),
     UiRuntimeAssetDefinitionV2("browser_platform_driver", "/assets/marketcore/ui-runtime/v2/browser-platform-driver.js", "browser_platform_driver_v2.js"),
