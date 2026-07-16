@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh MarketCore Candidate and OOS cohort hourly
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+Unit=marketcore-candidate-oos-freshness.service
+
+[Install]
+WantedBy=timers.target
