@@ -52,6 +52,16 @@ def record_status(cycle_id: uuid.UUID, **values: object) -> None:
             )
 
 
+def market_data_watermark(cursor, freshness_minutes: int):
+    cursor.execute("""
+        SELECT max(ts)
+        FROM public.market_bars
+        WHERE timeframe='M5'
+          AND ts >= clock_timestamp()-(%s * interval '1 minute')
+    """, (freshness_minutes,))
+    return cursor.fetchone()[0]
+
+
 def main() -> int:
     cycle_id = uuid.uuid4()
     freshness_minutes = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", str(session_freshness_minutes())))
@@ -72,13 +82,44 @@ def main() -> int:
                 print("cycle_skipped=1")
                 print("reason=AUTONOMOUS_EDGE_SEARCH_ALREADY_RUNNING")
                 return 0
+            watermark = market_data_watermark(cursor, freshness_minutes)
+            cursor.execute("""
+                SELECT market_data_watermark
+                FROM analytics.edge_search_cycle_status_v1
+                WHERE status_code IN ('PASS_FOUND','NO_PASS','NO_CURRENT_MARKETS')
+                  AND freshness_minutes=%s
+                ORDER BY finished_at DESC NULLS LAST LIMIT 1
+            """, (freshness_minutes,))
+            previous = cursor.fetchone()
+            previous_watermark = previous[0] if previous else None
+            if (
+                os.getenv("EDGE_SEARCH_FORCE", "0") != "1"
+                and watermark is not None
+                and watermark == previous_watermark
+            ):
+                with psycopg2.connect("postgresql:///finam_core") as status_connection:
+                    with status_connection.cursor() as status_cursor:
+                        status_cursor.execute("""
+                            INSERT INTO analytics.edge_search_cycle_status_v1 (
+                                cycle_id,status_code,current_step,progress_pct,freshness_minutes,
+                                market_data_watermark,reason_code,finished_at
+                            ) VALUES (%s,'SKIPPED','COMPLETE',100,%s,%s,
+                                      'EDGE_SEARCH_DATA_UNCHANGED',clock_timestamp())
+                        """, (str(cycle_id),freshness_minutes,watermark))
+                print(f"cycle_id={cycle_id}")
+                print("cycle_status=SKIPPED")
+                print("reason=EDGE_SEARCH_DATA_UNCHANGED")
+                print("live_allowed=0")
+                print("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK")
+                return 0
         with psycopg2.connect("postgresql:///finam_core") as status_connection:
             with status_connection.cursor() as status_cursor:
                 status_cursor.execute("""
                     INSERT INTO analytics.edge_search_cycle_status_v1 (
-                        cycle_id,status_code,current_step,progress_pct,freshness_minutes,reason_code
-                    ) VALUES (%s,'RUNNING','STARTING',0,%s,'EDGE_SEARCH_STARTED')
-                """, (str(cycle_id),freshness_minutes))
+                        cycle_id,status_code,current_step,progress_pct,freshness_minutes,
+                        market_data_watermark,reason_code
+                    ) VALUES (%s,'RUNNING','STARTING',0,%s,%s,'EDGE_SEARCH_STARTED')
+                """, (str(cycle_id),freshness_minutes,watermark))
         markets_evaluated = combinations_evaluated = passes = 0
         for step_index, step in enumerate(STEPS, start=1):
             record_status(cycle_id,current_step=Path(step).stem.upper(),progress_pct=int((step_index-1)*100/len(STEPS)))

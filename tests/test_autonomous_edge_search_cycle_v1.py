@@ -39,3 +39,14 @@ def test_cycle_records_truthful_progress_and_outcome() -> None:
     assert "combinations_evaluated" in source
     assert "progress_pct" in source
     assert "NO_CURRENT_MARKETS" in migration
+
+
+def test_cycle_skips_unchanged_market_data_unless_operator_forces_it() -> None:
+    source = Path("src/scripts/run_autonomous_edge_search_cycle_v1.py").read_text()
+    migration = Path("sql/analytics/070_edge_search_data_watermark_v1.sql").read_text()
+    worker = Path("src/marketcore/action/command_worker_v2.py").read_text()
+    assert "market_data_watermark" in source
+    assert "EDGE_SEARCH_DATA_UNCHANGED" in source
+    assert 'os.getenv("EDGE_SEARCH_FORCE", "0")' in source
+    assert "'SKIPPED'" in migration
+    assert 'env["EDGE_SEARCH_FORCE"] = "1"' in worker
