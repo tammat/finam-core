@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from marketcore.action.authorization_v2 import AuthorizationGrantV2, ScopeAuthorizationEngineV2
+from marketcore.action.command_worker_v2 import GovernedCommandWorkerV2
 from marketcore.action.contract_v2 import ActionActorKindV2, ActionIntentV2, InteractionKindV2
 from marketcore.action.dispatcher_v2 import GovernedActionDispatcherV2
 from marketcore.action.policy_v2 import ActionPolicyContextV2, ActionPolicyRuleV2, AutonomyModeV2, StaticActionPolicyEngineV2
@@ -45,6 +46,8 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
         return _response(400, status="DENIED", reason_code="ACTION_INTERACTION_INVALID")
 
     actor_id = os.getenv("MARKETCORE_OPERATOR_ID", "operator.local")
+    operator_request_id: str | None = None
+    operator_request_kind: str | None = None
     if action_kind == "NAVIGATE":
         try:
             resolve_container_v2(str(target_id))
@@ -63,6 +66,8 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
             command_target_id = str(payload.get("targetId") or "").strip() or None
             if definition.request_kind in {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE"}:
                 command_target_id = str(UUID(str(command_target_id)))
+                operator_request_id = request_id
+                operator_request_kind = definition.request_kind
             if interaction is not InteractionKindV2.DOUBLE_CLICK:
                 raise ValueError("DOUBLE_CLICK_REQUIRED")
         except ValueError:
@@ -94,6 +99,9 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
         policy_context=ActionPolicyContextV2(autonomy_mode, datetime.now(timezone.utc)),
     )
     request_accepted = result.status.value == "EXECUTED" and action_kind == "COMMAND"
+    request_status = "PENDING" if request_accepted else None
+    if request_accepted and operator_request_id and operator_request_kind:
+        request_status = GovernedCommandWorkerV2().run_once(request_id=operator_request_id)
     return _response(
         (202 if result.status.value == "EXECUTED" else 200) if result.successful else 403,
         status="ACCEPTED" if request_accepted else result.status.value,
@@ -101,5 +109,5 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
         action_id=result.action_id,
         target_id=result.target_id,
         result_reference=result.result_reference,
-        request_status="PENDING" if request_accepted else None,
+        request_status=request_status,
     )

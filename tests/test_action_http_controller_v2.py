@@ -2,6 +2,7 @@ import json
 from uuid import uuid4
 
 import psycopg2
+from pathlib import Path
 
 from marketcore.presentation.action_http_controller_v2 import dispatch_browser_action_http_v2
 
@@ -63,3 +64,9 @@ def test_unknown_navigation_target_is_denied() -> None:
     }).encode())
     assert response.status_code == 400
     assert json.loads(response.body)["reason_code"] == "NAVIGATION_ACTION_INVALID"
+
+
+def test_operator_decision_is_processed_synchronously_for_immediate_verdict() -> None:
+    source = Path("src/marketcore/presentation/action_http_controller_v2.py").read_text()
+    assert "GovernedCommandWorkerV2().run_once(request_id=operator_request_id)" in source
+    assert "request_status=request_status" in source
