@@ -240,11 +240,11 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
                         f"{card.widget_id}.operator_field.{field_index}.value",
                         message_key=(
                             _operator_domain_message_key("NO_DATA" if field_value is None else field_value)
-                            if format_code == "DOMAIN_CODE"
+                            if field_value is None or format_code == "DOMAIN_CODE"
                             else None
                         ),
-                        value=None if format_code == "DOMAIN_CODE" else ("NO_DATA" if field_value is None else field_value),
-                        format_code=None if format_code == "DOMAIN_CODE" else format_code,
+                        value=None if field_value is None or format_code == "DOMAIN_CODE" else field_value,
+                        format_code=None if field_value is None or format_code == "DOMAIN_CODE" else format_code,
                     ),
                 ),
             )

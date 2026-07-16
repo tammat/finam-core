@@ -19,3 +19,8 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     assert all(card.state.status_code in {"WARNING","BLOCKED"} for card in cards)
     assert all(card.state.quality_code == "UNVERIFIED" for card in cards)
     assert all(sum(child.node_type is RenderNodeTypeV2.METRIC_ROW for child in card.children) >= 15 for card in cards)
+    for card in cards:
+        for row in (child for child in card.children if child.node_type is RenderNodeTypeV2.METRIC_ROW):
+            for value in (child for child in row.children if child.node_type is RenderNodeTypeV2.METRIC_VALUE):
+                assert value.content is not None
+                assert value.content.value != "NO_DATA"
