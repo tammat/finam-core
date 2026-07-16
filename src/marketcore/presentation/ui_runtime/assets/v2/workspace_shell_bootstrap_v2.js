@@ -24,9 +24,17 @@
     async function start() {
         const mountElement = globalObject.document.getElementById(ROOT_ID);
         if (!mountElement) throw new Error("WORKSPACE_SHELL_V2_MOUNT_REQUIRED");
+        const backButton = globalObject.document.getElementById("marketcore-workspace-back");
         const services = await globalObject.MarketCoreBrowserPresentationServicesV2.load({localeCode: "ru-RU"});
         let actionSink;
-        let currentEndpoint = ENDPOINT_BY_TARGET[initialTarget(globalObject.location && globalObject.location.pathname)];
+        const initialTargetId = initialTarget(globalObject.location && globalObject.location.pathname);
+        let currentTargetId = initialTargetId;
+        let currentEndpoint = ENDPOINT_BY_TARGET[currentTargetId];
+        const navigationStack = [];
+
+        const updateBackButton = () => {
+            if (backButton) backButton.hidden = navigationStack.length === 0;
+        };
 
         const render = async (endpoint) => {
             currentEndpoint = endpoint;
@@ -44,7 +52,11 @@
             onNavigation: async (targetId) => {
                 const endpoint = ENDPOINT_BY_TARGET[targetId];
                 if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
+                if (targetId === currentTargetId) return;
+                navigationStack.push(currentTargetId);
+                currentTargetId = targetId;
                 await render(endpoint);
+                updateBackButton();
             },
             onCommand: async () => {
                 await new Promise((resolve) => globalObject.setTimeout(resolve, 800));
@@ -53,7 +65,16 @@
             },
         });
 
+        if (backButton) backButton.addEventListener("click", async () => {
+            const previousTargetId = navigationStack.pop();
+            if (!previousTargetId) return updateBackButton();
+            currentTargetId = previousTargetId;
+            await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            updateBackButton();
+        });
+
         await render(currentEndpoint);
+        updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
     }
 
