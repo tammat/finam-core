@@ -121,11 +121,31 @@ def _table_section(
     for row_index, row in enumerate(rows, start=1):
         cells: list[RenderNodeV2] = []
         for column_index, column in enumerate(columns, start=1):
-            display_value, format_code = _display_value(column, row.get(column))
+            raw_value = row.get(column)
+            display_value, format_code = _display_value(column, raw_value)
+            normalized_column = column.lower()
+            is_localized_code = (
+                normalized_column == "status"
+                or normalized_column.endswith("_status")
+                or normalized_column in {
+                    "freshness_code", "quality_code", "verdict_code",
+                    "market_data_quality", "mode",
+                }
+            )
+            message_key = None
+            if raw_value is None:
+                message_key = "status.no_data"
+                display_value = None
+                format_code = None
+            elif is_localized_code:
+                message_key = f"status.{str(raw_value).strip().lower()}"
+                display_value = None
+                format_code = None
             cells.append(
                 _content_node(
                     RenderNodeTypeV2.TABLE_CELL,
                     f"{section_id}.row.{row_index}.cell.{column_index}",
+                    message_key=message_key,
                     value=display_value,
                     format_code=format_code,
                     column_code=column,
