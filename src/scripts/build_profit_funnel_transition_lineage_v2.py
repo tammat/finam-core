@@ -163,6 +163,24 @@ def main() -> None:
                           "eligible_candidates": eligible_candidates},
             )
 
+            cursor.execute("""
+                SELECT count(*)::bigint,count(a.admission_id)::bigint,
+                       count(a.admission_id) FILTER (WHERE a.admission_status='ADMITTED')::bigint
+                FROM analytics.paper_runtime_candidate_v1 p
+                JOIN analytics.edge_candidate_v1 c USING (observation_uuid)
+                LEFT JOIN analytics.profit_funnel_paper_runtime_admission_v2 a ON a.paper_candidate_id=p.id
+                WHERE p.paper_status='ACTIVE' AND c.candidate_status='OOS_PASS' AND c.paper_allowed
+            """)
+            paper_eligible, runtime_handoffs, runtime_admitted = cursor.fetchone()
+            paper_runtime = transitions[6]
+            paper_runtime.update(
+                from_count=paper_eligible,linked_count=runtime_admitted,
+                lineage_status="UNVERIFIED",
+                reason_code="RUNTIME_ADMISSION_PENDING" if runtime_handoffs == paper_eligible else "PAPER_RUNTIME_HANDOFF_GAP",
+                evidence={**paper_runtime["evidence"], "join_key": "paper_candidate_id",
+                          "handoff_count": runtime_handoffs, "admitted_count": runtime_admitted},
+            )
+
             for item in transitions:
                 cursor.execute("""
                     INSERT INTO analytics.profit_funnel_transition_lineage_v2 (

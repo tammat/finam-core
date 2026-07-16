@@ -59,12 +59,12 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
         "SELECT count(*),max(updated_at),sum(net_pnl),sum(coalesce(commission,0)+coalesce(spread_cost,0)+coalesce(slippage,0)),max(cohort_id::text),count(DISTINCT cohort_id) FROM analytics.forward_edge_shadow_trade_v1",
     ),
     ProfitFunnelStageV2.PAPER: ProfitFunnelSourceDefinitionV2(
-        ProfitFunnelStageV2.PAPER, "marketcore_ui.paper_runtime_summary_v1",
-        "SELECT coalesce(max(closed_trades_total),0),max(refreshed_at),max(pnl_total),NULL::numeric,max(build_id),count(DISTINCT build_id) FROM marketcore_ui.paper_runtime_summary_v1",
+        ProfitFunnelStageV2.PAPER, "analytics.paper_runtime_candidate_v1.active_oos_pass",
+        "SELECT count(*),max(p.updated_at),NULL::numeric,NULL::numeric,max(c.discovery_batch_id),count(DISTINCT c.discovery_batch_id) FROM analytics.paper_runtime_candidate_v1 p JOIN analytics.edge_candidate_v1 c USING(observation_uuid) WHERE p.paper_status='ACTIVE' AND c.candidate_status='OOS_PASS' AND c.paper_allowed",
     ),
     ProfitFunnelStageV2.RUNTIME: ProfitFunnelSourceDefinitionV2(
-        ProfitFunnelStageV2.RUNTIME, "public.runtime_observations",
-        "SELECT count(*) FILTER (WHERE allow_runtime),max(observed_at),NULL::numeric,NULL::numeric,NULL::text,0 FROM public.runtime_observations",
+        ProfitFunnelStageV2.RUNTIME, "public.runtime_observations.latest_state",
+        "SELECT count(*) FILTER (WHERE allow_runtime),max(observed_at) FILTER (WHERE allow_runtime),NULL::numeric,NULL::numeric,NULL::text,0 FROM (SELECT DISTINCT ON (symbol,strategy,timeframe) * FROM public.runtime_observations ORDER BY symbol,strategy,timeframe,observed_at DESC) latest",
     ),
     ProfitFunnelStageV2.LIVE: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.LIVE, "public.runtime_governance_live_accumulation_v1",
