@@ -37,3 +37,12 @@ def test_runtime_stage_uses_canonical_admission_records() -> None:
     assert runtime.source_identity == "analytics.profit_funnel_paper_runtime_admission_v2.admitted"
     assert "ADMISSION_STATUS='ADMITTED'" in runtime.sql.upper()
     assert "RUNTIME_ALLOWED" in runtime.sql.upper()
+
+
+def test_oos_stage_counts_only_promotable_passes() -> None:
+    oos = next(
+        item for item in profit_funnel_source_definitions_v2()
+        if item.stage is ProfitFunnelStageV2.OOS
+    )
+    assert "O.VERDICT_CODE='OOS_PASS'" in oos.sql.upper()
+    assert "O.PROMOTION_ALLOWED=TRUE" in oos.sql.upper()

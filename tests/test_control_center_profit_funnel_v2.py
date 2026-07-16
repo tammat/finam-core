@@ -19,6 +19,8 @@ def test_control_center_uses_canonical_ten_stage_profit_funnel() -> None:
         "RESEARCH","CANDIDATE","VALIDATED_EDGE","OOS","FORWARD",
         "SHADOW","PAPER","RUNTIME","LIVE","PROFIT",
     ]
+    assert values[3][1] == 4
+    assert values[3][2] == 40.0
     assert values[-2][1] == 0
     assert values[-1][1] == 0
 

@@ -76,23 +76,30 @@ def main() -> None:
             )
 
             cursor.execute("""
-                SELECT max(c.discovery_batch_id),count(*)::bigint,count(o.id)::bigint
+                SELECT max(c.discovery_batch_id),count(*)::bigint,
+                       count(o.id)::bigint,
+                       count(o.id) FILTER (
+                           WHERE o.verdict_code='OOS_PASS' AND o.promotion_allowed=true
+                       )::bigint
                 FROM analytics.profit_funnel_validated_edge_v2 v
                 JOIN analytics.edge_candidate_v1 c ON c.candidate_uuid=v.candidate_uuid
                 LEFT JOIN analytics.edge_oos_result_v1 o ON o.observation_uuid=v.observation_uuid
             """)
-            cohort_id, candidate_count, linked_count = cursor.fetchone()
+            cohort_id, candidate_count, evaluated_count, passed_count = cursor.fetchone()
             candidate_oos = transitions[2]
             oos_count = observations[ProfitFunnelStageV2.OOS].count
-            proven = candidate_count == linked_count == oos_count and candidate_count > 0
+            proven = candidate_count == evaluated_count and passed_count == oos_count and candidate_count > 0
             candidate_oos.update(
                 canonical_cohort_id=cohort_id if proven else None,
                 source_cohort_from=cohort_id,
                 source_cohort_to=cohort_id if proven else candidate_oos["source_cohort_to"],
-                from_count=candidate_count,to_count=oos_count,linked_count=linked_count,
+                from_count=candidate_count,to_count=oos_count,linked_count=passed_count,
                 lineage_status="PROVEN" if proven else "BROKEN",
                 reason_code="OBSERVATION_UUID_FULL_MATCH" if proven else "OBSERVATION_UUID_LINK_GAP",
-                evidence={**candidate_oos["evidence"], "join_key": "observation_uuid"},
+                evidence={
+                    **candidate_oos["evidence"], "join_key": "observation_uuid",
+                    "evaluated_count": evaluated_count, "passed_count": passed_count,
+                },
             )
 
             cursor.execute("""

@@ -48,7 +48,7 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
     ),
     ProfitFunnelStageV2.OOS: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.OOS, "analytics.edge_oos_result_v1",
-        "SELECT count(*),max(o.updated_at),NULL::numeric,NULL::numeric,max(c.discovery_batch_id),count(DISTINCT c.discovery_batch_id) FROM analytics.edge_oos_result_v1 o JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid",
+        "SELECT count(*),max(o.updated_at),NULL::numeric,NULL::numeric,max(c.discovery_batch_id),count(DISTINCT c.discovery_batch_id) FROM analytics.edge_oos_result_v1 o JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid WHERE o.verdict_code='OOS_PASS' AND o.promotion_allowed=true",
     ),
     ProfitFunnelStageV2.FORWARD: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.FORWARD, "analytics.forward_edge_observation_v1",
