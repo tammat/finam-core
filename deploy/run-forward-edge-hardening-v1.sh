@@ -25,7 +25,7 @@ psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f sql/analytics/049_forward_edge_loss
 
 .venv/bin/python src/scripts/project_forward_edge_shadow_trailing_v1.py
 .venv/bin/python src/scripts/signal_funnel_analytics_v1.py
-.venv/bin/python src/scripts/build_historical_regime_snapshots_v2.py --symbols IMOEX,IMOEX2 --timeframe M5
+.venv/bin/python src/scripts/build_historical_regime_snapshots_v2.py --symbols IMOEX,IMOEX2,MXU6@RTSX --timeframe M5
 .venv/bin/python src/scripts/build_forward_edge_regime_attribution_v1.py
 .venv/bin/python src/scripts/build_forward_edge_regime_promotion_gate_v1.py
 .venv/bin/python src/scripts/build_forward_edge_loss_decomposition_v1.py

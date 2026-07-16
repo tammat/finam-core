@@ -21,7 +21,7 @@ WS_URL = os.getenv("FINAM_WS_URL", "wss://api.finam.ru/ws")
 SYMBOLS = tuple(
     item.strip() for item in os.getenv(
         "MARKETCORE_MICROSTRUCTURE_SYMBOLS",
-        "SBER@MISX,LKOH@MISX,GAZP@MISX,PLZL@MISX,USDRUBF@RTSX,BRQ6@RTSX,NGQ6@RTSX,IMOEX@MISX",
+        "SBER@MISX,LKOH@MISX,GAZP@MISX,PLZL@MISX,USDRUBF@RTSX,BRQ6@RTSX,NGQ6@RTSX,MXU6@RTSX",
     ).split(",") if item.strip()
 )
 SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
