@@ -3,6 +3,14 @@ INSERT INTO presentation.ui_resource_v1 (
     tooltip, icon, resource_group
 ) VALUES
 ('status.microstructure_data_unverified','ru','Микроструктурные данные не подтверждены','Данные не подтверждены','Не подтверждено','','','status'),
+('status.research','ru','Исследования','Исследования','Исследования','','','status'),
+('status.candidate','ru','Кандидаты','Кандидаты','Кандидаты','','','status'),
+('status.validated_edge','ru','Подтверждённое преимущество','Подтверждённое преимущество','Преимущество','','','status'),
+('status.oos','ru','Вневыборочная проверка','Вневыборочная проверка','OOS','','','status'),
+('status.forward','ru','Форвардное наблюдение','Форвардное наблюдение','Форвард','','','status'),
+('status.runtime','ru','Допуск к исполнению','Допуск к исполнению','Исполнение','','','status'),
+('status.live','ru','Реальная торговля','Реальная торговля','Реальная','','','status'),
+('status.profit','ru','Прибыль','Прибыль','Прибыль','','','status'),
 ('status.momentum_continuation_v1','ru','Продолжение импульса','Продолжение импульса','Импульс','','','status'),
 ('status.vwap_reversion_v1','ru','Возврат к VWAP','Возврат к VWAP','VWAP','','','status'),
 ('status.volatility_breakout_v2','ru','Пробой волатильности','Пробой волатильности','Пробой','','','status'),

@@ -142,7 +142,7 @@ def _table_section(
                     for marker in (
                         "reason", "regime", "session", "strategy_code",
                         "policy_code", "recommendation_code", "decision_code",
-                        "family_code",
+                        "family_code", "stage_code",
                     )
                 )
             )
@@ -282,7 +282,7 @@ def _relationship_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, 
 def _funnel_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
     return tuple(
         {
-            "stage_code": item.label,
+            "stage_code": item.stage_code,
             "count": item.count,
             "pass_rate_pct": item.pass_rate_pct,
             "status": item.status,
