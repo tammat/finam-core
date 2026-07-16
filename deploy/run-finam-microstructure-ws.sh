@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 cd /opt/finam-core
+mkdir -p runtime/locks runtime/logs
+exec 9>runtime/locks/finam-microstructure-ws.lock
+if ! flock -n 9; then
+  exit 0
+fi
 set -a
 source .env
 set +a
