@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import time
 from datetime import datetime, timezone
@@ -27,6 +28,9 @@ SYMBOLS = tuple(
 SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
 DATA_STALE_AFTER_SEC = float(os.getenv("MARKETCORE_MICROSTRUCTURE_DATA_STALE_AFTER_SEC", "90"))
 MAX_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_SYMBOLS", "10"))
+MAX_DETAIL_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_DETAIL_SYMBOLS", "4"))
+FUTURES_MONTH = {code: month for month, code in enumerate("FGHJKMNQUVXZ", start=1)}
+FUTURES_RE = re.compile(r"^[A-Z]+([FGHJKMNQUVXZ])(\d)@RTSX$")
 
 
 class StaleDataError(RuntimeError):
@@ -44,12 +48,27 @@ def finam_symbol(symbol: str) -> str:
     return symbol
 
 
+def contract_is_current(symbol: str, now: datetime | None = None) -> bool:
+    """Reject expired RTS futures before asking Finam for a subscription."""
+    match = FUTURES_RE.fullmatch(symbol.strip().upper())
+    if not match:
+        return True
+    current = now or datetime.now(timezone.utc)
+    year_digit = int(match.group(2))
+    decade = current.year-current.year % 10
+    contract_year = decade+year_digit
+    if contract_year < current.year-5:
+        contract_year += 10
+    contract_month = FUTURES_MONTH[match.group(1)]
+    return (contract_year, contract_month) >= (current.year, current.month)
+
+
 def merge_symbols(*groups: list[str] | tuple[str, ...], limit: int = MAX_SYMBOLS) -> tuple[str, ...]:
     symbols: list[str] = []
     for group in groups:
         for raw_symbol in group:
             symbol = finam_symbol(raw_symbol)
-            if symbol and symbol not in symbols:
+            if symbol and contract_is_current(symbol) and symbol not in symbols:
                 symbols.append(symbol)
     return tuple(symbols[:limit])
 
@@ -144,12 +163,19 @@ class Collector:
             "action": "SUBSCRIBE", "type": "QUOTES",
             "data": {"symbols": list(symbols)}, "token": token,
         }))
-        for symbol in symbols:
+        detail_symbols = symbols[:MAX_DETAIL_SYMBOLS]
+        for symbol in detail_symbols:
             for subscription_type in ("ORDER_BOOK", "INSTRUMENT_TRADES"):
                 await ws.send(json.dumps({
                     "action": "SUBSCRIBE", "type": subscription_type,
                     "data": {"symbol": symbol}, "token": token,
                 }))
+                await asyncio.sleep(0.05)
+        print(
+            f"subscriptions=QUOTES:{len(symbols)},DETAIL:{len(detail_symbols)} "
+            f"requests={1+2*len(detail_symbols)}",
+            flush=True,
+        )
 
     def insert_snapshot(
         self, symbol: str, exchange_ts: datetime | None,
