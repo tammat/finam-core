@@ -4,11 +4,15 @@ from types import SimpleNamespace
 from marketcore.presentation.app import MarketCoreUiHandler
 
 
-def test_only_command_rows_require_double_click() -> None:
+def test_rows_and_clickable_containers_require_double_click() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
-    assert 'const requiresDoubleClick = node.type === "table_row";' in source
+    assert 'const isTableRow = node.type === "table_row";' in source
+    assert 'const isContainer = node.type === "card";' in source
+    assert "const requiresDoubleClick = isTableRow || isContainer;" in source
     assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
-    assert 'if (requiresDoubleClick) this.openRecommendedActions(element);' in source
+    assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));' in source
+    assert 'if (isTableRow) this.openRecommendedActions(element);' in source
+    assert 'else if (isContainer) emit("DOUBLE_CLICK");' in source
     assert 'else emit("CLICK");' in source
 
 
@@ -34,3 +38,10 @@ def test_action_origin_must_still_match_host() -> None:
         client_address=("192.0.2.10", 12345),
     )
     assert not MarketCoreUiHandler._is_same_origin_action_request(request)
+def test_clickable_cards_highlight_and_open_only_on_double_click() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    css = Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
+    assert 'const isContainer = node.type === "card"' in source
+    assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"))' in source
+    assert '[data-mc-node="card"][data-mc-action-id]:not([disabled]):hover' in css
+    assert 'cursor: pointer' in css

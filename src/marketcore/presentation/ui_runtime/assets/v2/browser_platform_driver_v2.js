@@ -196,16 +196,21 @@
                     };
                     element.setAttribute("role", node.action.action_kind === "NAVIGATE" ? "link" : "button");
                     element.setAttribute("tabindex", "0");
-                    const requiresDoubleClick = node.type === "table_row";
-                    if (requiresDoubleClick) {
+                    const isTableRow = node.type === "table_row";
+                    const isContainer = node.type === "card";
+                    const requiresDoubleClick = isTableRow || isContainer;
+                    if (isTableRow) {
                         element.addEventListener("dblclick", () => this.openRecommendedActions(element));
+                    } else if (isContainer) {
+                        element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));
                     } else {
                         element.addEventListener("click", () => emit("CLICK"));
                     }
                     element.addEventListener("keydown", (event) => {
                         if (event.key === "Enter" || (!requiresDoubleClick && event.key === " ")) {
                             event.preventDefault();
-                            if (requiresDoubleClick) this.openRecommendedActions(element);
+                            if (isTableRow) this.openRecommendedActions(element);
+                            else if (isContainer) emit("DOUBLE_CLICK");
                             else emit("CLICK");
                         }
                     });

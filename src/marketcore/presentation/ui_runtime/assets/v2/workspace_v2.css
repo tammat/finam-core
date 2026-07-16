@@ -106,6 +106,18 @@ h1[data-mc-node="title"] { font-size: clamp(1.55rem, 2.8vw, 2.25rem); letter-spa
 [data-mc-node="table_row"]:focus [data-mc-node="table_cell"]:first-child { box-shadow: inset 3px 0 #49d8bc; }
 [data-mc-node="table_row"][data-mc-operator-required="true"] { cursor: pointer; }
 [data-mc-node="table_row"]:focus { outline: none; }
+[data-mc-node="card"][data-mc-action-id]:not([disabled]) {
+    cursor: pointer;
+    transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+[data-mc-node="card"][data-mc-action-id]:not([disabled]):hover,
+[data-mc-node="card"][data-mc-action-id]:not([disabled]):focus {
+    border-color: #49d8bc;
+    background: rgba(47, 176, 151, .14);
+    box-shadow: 0 0 0 2px rgba(73, 216, 188, .18), 0 10px 24px rgba(0, 0, 0, .2);
+    transform: translateY(-2px);
+    outline: none;
+}
 
 [data-mc-node-id="home.operator.actions.table"] { width: 100%; min-width: 0; table-layout: fixed; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"],
