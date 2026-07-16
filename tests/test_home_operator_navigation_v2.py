@@ -17,7 +17,7 @@ def test_operator_dashboard_cards_navigate_to_registered_modes() -> None:
     }
     expected = {
         "home.operator.model_health": "container.program",
-        "home.operator.recommendations": "container.home",
+        "home.operator.recommendations": "container.research",
         "home.operator.signal_funnel": "container.edge",
         "home.operator.risk": "container.risk",
         "home.operator.events": "container.program",

@@ -151,8 +151,8 @@ class HomeV2Presenter:
                 self._nav_card("home.card.portfolio", "home.card.portfolio.title", "/workspace-v2/portfolio", 10),
                 self._nav_card("home.card.portfolio.tablet", "home.card.portfolio.tablet.title", "/workspace-v2/portfolio/tablet", 14),
                 self._nav_card("home.card.portfolio.phone", "home.card.portfolio.phone.title", "/workspace-v2/portfolio/phone", 15),
-                self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20, available=False),
-                self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30, available=False),
+                self._nav_card("home.card.probe", "home.card.probe.title", "/workspace-v2/probe", 20, available=True),
+                self._nav_card("home.card.research", "home.card.research.title", "/workspace-v2/research", 30, available=True),
                 self._nav_card("home.card.control_center", "home.card.control_center.title", "/workspace-v2/control-center/edge-oos", 35, edge_metric, v2_message_key="home.control_center.edge_metric", v2_message_args=edge_metric_args),
             ),
         )

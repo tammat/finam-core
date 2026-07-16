@@ -26,6 +26,18 @@ _HOME_TARGET_BY_WIDGET_ID = {
     "home.traffic.forward": "container.edge",
     "home.traffic.execution": "container.risk",
     "home.traffic.live": "container.risk",
+    "home.profit_factory.decision": "container.capital",
+    "home.profit_factory.expected": "container.capital",
+    "home.profit_factory.realized": "container.capital",
+    "home.profit_factory.gap": "container.capital",
+    "home.profit_factory.roi": "container.capital",
+    "home.card.system.status": "container.program",
+    "home.card.status.system": "container.program",
+    "home.card.status.portfolio": "container.portfolio",
+    "home.card.status.research": "container.research",
+    "home.card.status.probe": "container.intraday",
+    "home.card.status.observation": "container.intraday",
+    "home.card.status.runtime": "container.intraday",
     "home.card.profit": "container.capital",
     "home.card.portfolio": "container.portfolio",
     "home.card.portfolio.tablet": "container.portfolio",
@@ -34,7 +46,7 @@ _HOME_TARGET_BY_WIDGET_ID = {
     "home.card.research": "container.research",
     "home.card.control_center": "container.edge",
     "home.operator.model_health": "container.program",
-    "home.operator.recommendations": "container.home",
+    "home.operator.recommendations": "container.research",
     "home.operator.signal_funnel": "container.edge",
     "home.operator.risk": "container.risk",
     "home.operator.events": "container.program",
@@ -106,8 +118,6 @@ def _card_action(card: BaseCard) -> RenderActionV2 | None:
             expiration=expiration,
             idempotency_key=str(uuid.uuid5(uuid.NAMESPACE_URL,f"marketcore:{action_id}:{decision_id}:{expiration}")),
         )
-    if not card.actions:
-        return None
     target_id = _HOME_TARGET_BY_WIDGET_ID.get(card.widget_id)
     if target_id is None:
         return None
