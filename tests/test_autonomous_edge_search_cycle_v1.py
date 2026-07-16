@@ -1,4 +1,8 @@
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from scripts.run_autonomous_edge_search_cycle_v1 import session_freshness_minutes
 
 
 def test_autonomous_cycle_searches_and_promotes_only_to_forward() -> None:
@@ -18,3 +22,20 @@ def test_autonomous_cycle_has_auditable_log_wrapper() -> None:
     wrapper = Path("deploy/run-autonomous-edge-search-v1.sh").read_text()
     assert "set -euo pipefail" in wrapper
     assert "autonomous-edge-search-v1.log" in wrapper
+
+
+def test_search_freshness_respects_market_session() -> None:
+    msk = ZoneInfo("Europe/Moscow")
+    assert session_freshness_minutes(datetime(2026, 7, 17, 12, tzinfo=msk)) == 15
+    assert session_freshness_minutes(datetime(2026, 7, 17, 1, tzinfo=msk)) == 720
+    assert session_freshness_minutes(datetime(2026, 7, 20, 8, tzinfo=msk)) == 4320
+
+
+def test_cycle_records_truthful_progress_and_outcome() -> None:
+    source = Path("src/scripts/run_autonomous_edge_search_cycle_v1.py").read_text()
+    migration = Path("sql/analytics/069_edge_search_cycle_status_v1.sql").read_text()
+    assert 'outcome = "NO_CURRENT_MARKETS"' in source
+    assert '"PASS_FOUND" if passes else "NO_PASS"' in source
+    assert "combinations_evaluated" in source
+    assert "progress_pct" in source
+    assert "NO_CURRENT_MARKETS" in migration

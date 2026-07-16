@@ -16,6 +16,11 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         _metric("queue_total",s.queue_total),_metric("queue_pending",s.queue_pending),_metric("queue_failed",s.queue_failed),
         _metric("oos_total",s.oos_total),_metric("oos_pass",s.oos_pass_total),
         _metric("edge_search_status",s.edge_search_status,"DOMAIN_CODE"),
+        _metric("edge_search_step",s.edge_search_step,"DOMAIN_CODE"),
+        _metric("edge_search_progress",s.edge_search_progress_pct,"PERCENT"),
+        _metric("edge_search_markets",s.edge_search_markets),
+        _metric("edge_search_combinations",s.edge_search_combinations),
+        _metric("edge_search_pass",s.edge_search_pass),
     )
     refresh=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.refresh",content=RenderContentV2(message_key="research.action.request_refresh"),action=RenderActionV2("research.request.refresh",ActionKindV2.COMMAND,command_code="RESEARCH.REQUEST_REFRESH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
     edge_search=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.edge_search",content=RenderContentV2(message_key="research.action.run_edge_search"),action=RenderActionV2("research.edge_search.run",ActionKindV2.COMMAND,command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))

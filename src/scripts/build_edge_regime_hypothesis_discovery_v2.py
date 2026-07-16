@@ -16,6 +16,7 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V2"
 MIN_BARS = int(os.getenv("EDGE_HYPOTHESIS_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
+FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 MIN_CONFIDENCE = float(os.getenv("EDGE_REGIME_MIN_CONFIDENCE", "0.60"))
 MIN_COVERAGE = float(os.getenv("EDGE_REGIME_MIN_COVERAGE", "0.80"))
 
@@ -53,9 +54,9 @@ def main() -> None:
                 FROM public.market_bars WHERE timeframe='M5'
                 GROUP BY symbol,timeframe
                 HAVING count(*) >= %s
-                   AND max(ts) >= clock_timestamp()-interval '15 minutes'
+                   AND max(ts) >= clock_timestamp()-(%s * interval '1 minute')
                 ORDER BY count(*) DESC LIMIT %s
-            """, (MIN_BARS, MAX_MARKETS))
+            """, (MIN_BARS, FRESHNESS_MINUTES, MAX_MARKETS))
             markets = cur.fetchall()
 
             for market in markets:
@@ -125,6 +126,8 @@ def main() -> None:
                             unverified_count += int(trust_status == "UNVERIFIED")
 
     print(f"discovery_run_id={run_id}")
+    print(f"markets={len(markets)}")
+    print(f"freshness_minutes={FRESHNESS_MINUTES}")
     print(f"strategy_regime_pairs={result_count}")
     print(f"oos_pass={pass_count}")
     print(f"unverified={unverified_count}")

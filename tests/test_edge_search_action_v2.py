@@ -21,7 +21,7 @@ def test_research_page_exposes_edge_search_button() -> None:
     assert 'definition.request_kind == "EDGE_SEARCH_RUN"' in controller
     assert "_start_async_command_worker(request_id)" in controller
     resolver = Path("src/marketcore/presentation/workspace_v2/resolver/research_v2_resolver.py").read_text()
-    assert "request_kind='EDGE_SEARCH_RUN'" in resolver
+    assert "edge_search_cycle_status_v1" in resolver
     assert 'edge_search_status' in renderer
 
 
