@@ -138,6 +138,31 @@ def main() -> None:
                     evidence={**forward_shadow["evidence"], "join_key": "observation_id"},
                 )
 
+            cursor.execute("""
+                WITH shadow_candidates AS (
+                    SELECT DISTINCT cohort_id,incubator_candidate_id
+                    FROM analytics.forward_edge_shadow_trade_v1
+                )
+                SELECT count(*)::bigint,count(a.admission_id)::bigint,
+                       count(a.admission_id) FILTER (WHERE a.admission_status='ELIGIBLE')::bigint
+                FROM shadow_candidates s
+                LEFT JOIN analytics.profit_funnel_shadow_paper_admission_v2 a
+                  ON a.cohort_id=s.cohort_id AND a.incubator_candidate_id=s.incubator_candidate_id
+            """)
+            shadow_candidates, assessed_candidates, eligible_candidates = cursor.fetchone()
+            shadow_paper = transitions[5]
+            fully_assessed = shadow_candidates == assessed_candidates and shadow_candidates > 0
+            shadow_paper.update(
+                linked_count=0,
+                lineage_status="UNVERIFIED" if fully_assessed else "BROKEN",
+                reason_code=("NO_SHADOW_CANDIDATE_ELIGIBLE" if eligible_candidates == 0
+                             else "PAPER_ADMISSION_PENDING") if fully_assessed else "SHADOW_ASSESSMENT_GAP",
+                evidence={**shadow_paper["evidence"], "join_key": "incubator_candidate_id",
+                          "shadow_candidates": shadow_candidates,
+                          "assessed_candidates": assessed_candidates,
+                          "eligible_candidates": eligible_candidates},
+            )
+
             for item in transitions:
                 cursor.execute("""
                     INSERT INTO analytics.profit_funnel_transition_lineage_v2 (
