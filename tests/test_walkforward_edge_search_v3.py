@@ -5,6 +5,8 @@ def test_walkforward_search_is_cost_adjusted_and_fail_closed() -> None:
     source = Path("src/scripts/build_walkforward_edge_search_v3.py").read_text()
     assert "FOLDS = 5" in source
     assert "transaction_cost_bps" in source
+    assert 'EDGE_SEARCH_FRESHNESS_MINUTES' in source
+    assert '"transaction_cost_bps": cost_bps' in source
     assert "aggregate[\"trades\"]>=80" in source
     assert "aggregate[\"profit_factor\"]>=1.15" in source
     assert "folds_passed>=4 and final_holdout" in source

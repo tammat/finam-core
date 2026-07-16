@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import statistics
 import uuid
+import os
 
 import psycopg2
 import psycopg2.extras
@@ -13,6 +14,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metric
 SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V3"
 NAMESPACE = uuid.UUID("e304fdfc-03db-5863-b65c-fe3ac08a0b93")
 FOLDS = 5
+FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 
 
 def main() -> None:
@@ -25,9 +27,9 @@ def main() -> None:
                 FROM public.market_bars WHERE timeframe='M5'
                 GROUP BY symbol,timeframe
                 HAVING count(*)>=6000
-                   AND max(ts)>=clock_timestamp()-interval '15 minutes'
+                   AND max(ts)>=clock_timestamp()-(%s * interval '1 minute')
                 ORDER BY count(*) DESC LIMIT 12
-            """)
+            """, (FRESHNESS_MINUTES,))
             markets = cursor.fetchall()
             for market in markets:
                 cursor.execute("""
@@ -41,7 +43,10 @@ def main() -> None:
                 roundtrip_cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
                 for family, (strategy_code, grid) in GRIDS.items():
                     for base_params in grid:
-                        params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0}
+                        params = {
+                            **base_params, "transaction_cost_bps": cost_bps,
+                            "commission": roundtrip_cost, "slippage": 0.0,
+                        }
                         lookback = int(params["lookback"])
                         fold_rows = []
                         all_trades = []
@@ -72,7 +77,7 @@ def main() -> None:
                             and aggregate["expectancy"]>0 and folds_passed>=4 and final_holdout
                         )
                         reason = "WALKFORWARD_COST_ADJUSTED_PASS" if is_pass else "WALKFORWARD_STABILITY_GATE_FAILED"
-                        identity = f"{search_run_id}:{strategy_code}:{market['symbol']}:{market['timeframe']}:{base_params}"
+                        identity = f"{search_run_id}:{strategy_code}:{market['symbol']}:{market['timeframe']}:{params}"
                         cursor.execute("""
                             INSERT INTO analytics.walkforward_edge_search_v3 (
                                 result_id,search_run_id,strategy_family,strategy_code,symbol,timeframe,
@@ -82,7 +87,7 @@ def main() -> None:
                             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,%s,%s)
                         """, (
                             str(uuid.uuid5(NAMESPACE,identity)),str(search_run_id),family,strategy_code,
-                            market["symbol"],market["timeframe"],psycopg2.extras.Json(base_params),
+                            market["symbol"],market["timeframe"],psycopg2.extras.Json(params),
                             cost_bps,aggregate["trades"],aggregate["profit_factor"],aggregate["expectancy"],
                             aggregate["max_drawdown"],FOLDS,folds_passed,final_holdout,
                             psycopg2.extras.Json(fold_rows),"OOS_PASS" if is_pass else "OOS_FAIL",reason,SOURCE_VERSION,
@@ -90,6 +95,7 @@ def main() -> None:
                         total += 1
                         passed += int(is_pass)
     print(f"search_run_id={search_run_id}")
+    print(f"freshness_minutes={FRESHNESS_MINUTES}")
     print(f"candidates_evaluated={total}")
     print(f"oos_pass={passed}")
     print("promotion_allowed=0")
