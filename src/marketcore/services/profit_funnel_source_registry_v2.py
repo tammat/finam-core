@@ -44,7 +44,7 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
     ),
     ProfitFunnelStageV2.VALIDATED_EDGE: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.VALIDATED_EDGE, "analytics.profit_funnel_validated_edge_v2",
-        "SELECT count(*),max(validated_at),NULL::numeric,NULL::numeric,max(discovery_batch_id),count(DISTINCT discovery_batch_id) FROM analytics.profit_funnel_validated_edge_v2",
+        "SELECT count(*),max(validated_at),NULL::numeric,NULL::numeric,max(discovery_batch_id),count(DISTINCT discovery_batch_id) FROM analytics.profit_funnel_validated_edge_v2 WHERE validation_status='PASS'",
     ),
     ProfitFunnelStageV2.OOS: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.OOS, "analytics.edge_oos_result_v1",

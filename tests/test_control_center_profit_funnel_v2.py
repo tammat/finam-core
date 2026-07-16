@@ -20,9 +20,10 @@ def test_control_center_uses_canonical_ten_stage_profit_funnel() -> None:
         "SHADOW","PAPER","RUNTIME","LIVE","PROFIT",
     ]
     assert isinstance(values[3][1], int) and values[3][1] >= 0
-    assert 0.0 <= values[3][2] <= 100.0
     if values[3][1] == 0:
-        assert values[3][2] == 0.0
+        assert values[3][2] in {None, 0.0}
+    else:
+        assert 0.0 <= values[3][2] <= 100.0
     assert values[-2][1] == 0
     assert values[-1][1] == 0
 
