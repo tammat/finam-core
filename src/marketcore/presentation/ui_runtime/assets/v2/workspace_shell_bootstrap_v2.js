@@ -14,6 +14,13 @@
         "container.settings": "/api/v2/domain-render-tree/settings"
     });
 
+    function initialTarget(pathname) {
+        const path = String(pathname || "").toLowerCase();
+        if (path.includes("/portfolio")) return "container.portfolio";
+        if (path.includes("/control-center") || path.includes("/edge-oos")) return "container.edge";
+        return "container.home";
+    }
+
     async function start() {
         const mountElement = globalObject.document.getElementById(ROOT_ID);
         if (!mountElement) throw new Error("WORKSPACE_SHELL_V2_MOUNT_REQUIRED");
@@ -37,7 +44,7 @@
             }
         });
 
-        await render(ENDPOINT_BY_TARGET["container.home"]);
+        await render(ENDPOINT_BY_TARGET[initialTarget(globalObject.location && globalObject.location.pathname)]);
         mountElement.setAttribute("data-runtime-status", "READY");
     }
 

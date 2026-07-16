@@ -21,6 +21,19 @@ FAMILY_NAMES = {
     "PAIR_SPREAD": "Парный спред",
 }
 
+FUNNEL_STAGE_LABELS = {
+    "RESEARCH": "Исследования",
+    "CANDIDATE": "Кандидаты",
+    "VALIDATED_EDGE": "Подтверждённое преимущество",
+    "OOS": "Вневыборочная проверка",
+    "FORWARD": "Форвардное наблюдение",
+    "SHADOW": "Теневое наблюдение",
+    "PAPER": "Бумажная торговля",
+    "RUNTIME": "Допуск к исполнению",
+    "LIVE": "Реальная торговля",
+    "PROFIT": "Прибыль",
+}
+
 REASON_LABELS = {
     "DATA": "Данные",
     "VOLATILITY": "Волатильность",
@@ -141,10 +154,20 @@ class ControlCenterV2Presenter:
         rate = row.get("pass_rate_pct")
         stage_code = str(row.get("stage_code") or "")
         status = str(row.get("stage_status") or "WARNING")
+        reason_code = str(row.get("reason_code") or "")
+        if rate is not None:
+            conversion = f"Конверсия из предыдущей стадии: {float(rate):.1f}%"
+        elif reason_code == "INITIAL_STAGE":
+            conversion = "Первая стадия: конверсия не рассчитывается"
+        else:
+            conversion = "Конверсия не рассчитана: стадии пока несопоставимы"
         return SignalFunnelStageV2(
-            label=str(row.get("stage_name") or stage_code).replace("_", " "),
+            label=FUNNEL_STAGE_LABELS.get(
+                stage_code,
+                str(row.get("stage_name") or stage_code).replace("_", " "),
+            ),
             count=count,
-            conversion=(f"Конверсия {float(rate):.1f}%" if rate is not None else "Начальная стадия"),
+            conversion=conversion,
             status=status,
             stage_code=stage_code,
             pass_rate_pct=(float(rate) if rate is not None else None),
@@ -152,7 +175,7 @@ class ControlCenterV2Presenter:
             source_as_of=row.get("source_as_of"),
             freshness_code=str(row.get("freshness_code") or "UNAVAILABLE"),
             quality_code=str(row.get("quality_code") or "UNVERIFIED"),
-            reason_code=str(row.get("reason_code") or ""),
+            reason_code=reason_code,
             net_pnl=row.get("net_pnl"),
             cost_impact=row.get("cost_impact"),
         )

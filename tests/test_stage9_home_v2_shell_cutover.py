@@ -39,12 +39,17 @@ def test_all_legacy_presentation_entrypoints_are_retired() -> None:
         "/api/v1/render-tree/portfolio/phone",
         "/api/v2/render-tree/control-center/edge",
         "/assets/marketcore/ui-runtime/v1/runtime.js",
-        "/workspace-v2/portfolio",
-        "/workspace-v2/control-center/edge-oos",
     ):
         status, body = route(path)
         assert status == 410, path
         assert b"LEGACY_PRESENTATION_RETIRED" in body, path
+
+
+def test_old_workspace_bookmarks_open_the_v2_shell() -> None:
+    for path in ("/workspace-v2/portfolio", "/workspace-v2/control-center/edge-oos"):
+        status, body = route(path)
+        assert status == 200, path
+        assert b'data-marketcore-ui-runtime="v2"' in body, path
 
 
 def test_legacy_state_changing_routes_cannot_execute() -> None:

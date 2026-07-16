@@ -239,7 +239,7 @@ def _relationship_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, 
 def _funnel_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
     return tuple(
         {
-            "stage_code": item.stage_code,
+            "stage_code": item.label,
             "count": item.count,
             "pass_rate_pct": item.pass_rate_pct,
             "status": item.status,

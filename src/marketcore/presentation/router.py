@@ -65,7 +65,7 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
             timezone_code=(query.get("timezone") or [None])[0],
         )
         return response.status_code, response.body
-    if path == "/" or path.rstrip("/") == "/workspace-v2":
+    if path == "/" or path.rstrip("/") == "/workspace-v2" or path.startswith("/workspace-v2/"):
         response = load_ui_runtime_asset_v2(
             "/workspace-v2"
         )
@@ -82,9 +82,6 @@ def route(path: str, query: dict[str, list[str]] | None = None) -> tuple[int, by
         return 410, b'{"status":"RETIRED","reason_code":"LEGACY_PRESENTATION_RETIRED","replacement":"/api/v2/domain-render-tree/home"}'
     if path.startswith("/api/v1/") or path.startswith("/api/v2/render-tree/"):
         return 410, _RETIRED_RESPONSE
-    if path.startswith("/workspace-v2/"):
-        return 410, _RETIRED_RESPONSE
-
     return 404, b"Not found"
 
 

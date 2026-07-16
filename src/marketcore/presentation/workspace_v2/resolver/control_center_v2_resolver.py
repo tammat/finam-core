@@ -280,15 +280,31 @@ class ControlCenterV2Resolver:
     @staticmethod
     def _entry_analysis(cur) -> list[dict[str, Any]]:
         cur.execute("""
-            SELECT strategy_code, symbol, timeframe, parameter_json,
-                   regime_code, session_code, oos_trades, oos_profit_factor,
-                   oos_expectancy, folds_passed, folds_total,
-                   verdict_code, reason_code, promotion_allowed
-            FROM analytics.execution_edge_result_v1
-            WHERE discovery_run_id=(
-                SELECT discovery_run_id FROM analytics.execution_edge_result_v1
+            WITH latest AS (
+                SELECT discovery_run_id
+                FROM analytics.execution_edge_result_v1
                 ORDER BY created_at DESC LIMIT 1
+            ), visible_variants AS (
+                SELECT strategy_code, symbol, timeframe, parameter_json,
+                       regime_code, session_code, policy_code,
+                       oos_trades, oos_profit_factor, oos_expectancy,
+                       folds_passed, folds_total, verdict_code, reason_code,
+                       promotion_allowed, adjusted_p_value,
+                       row_number() OVER (
+                           PARTITION BY strategy_code, symbol, timeframe, parameter_json
+                           ORDER BY promotion_allowed DESC, adjusted_p_value,
+                                    folds_passed DESC, oos_expectancy DESC,
+                                    regime_code, session_code, policy_code
+                       ) AS visible_rank
+                FROM analytics.execution_edge_result_v1
+                WHERE discovery_run_id=(SELECT discovery_run_id FROM latest)
             )
+            SELECT strategy_code, symbol, timeframe, parameter_json,
+                   regime_code, session_code, policy_code, oos_trades,
+                   oos_profit_factor, oos_expectancy, folds_passed, folds_total,
+                   verdict_code, reason_code, promotion_allowed
+            FROM visible_variants
+            WHERE visible_rank=1
             ORDER BY promotion_allowed DESC, adjusted_p_value,
                      folds_passed DESC, oos_expectancy DESC
             LIMIT 12

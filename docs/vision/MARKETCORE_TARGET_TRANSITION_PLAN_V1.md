@@ -250,8 +250,9 @@ Completed stages:
 - Stage 6 - Complete I18n.
 - Stage 7 - Live Profit Funnel Data.
 - Stage 8 - Operator Workspace.
+- Stage 9 - Retire Legacy Presentation.
 
-Current active stage: Stage 9 - Retire Legacy Presentation.
+Current active stage: none. The target transition sequence is complete.
 
 The mandatory Stage 6 i18n technical debt gate is complete. Runtime V2 remains blocked from live trading until the later data, workspace, verification and cutover stages pass.
 
@@ -266,3 +267,5 @@ The mandatory Stage 6 i18n technical debt gate is complete. Runtime V2 remains b
 `VERDICT=MARKETCORE_STAGE7_LIVE_PROFIT_FUNNEL_EXIT_GATE_PASS`
 
 `VERDICT=MARKETCORE_STAGE8_OPERATOR_WORKSPACE_EXIT_GATE_PASS`
+
+`VERDICT=MARKETCORE_STAGE9_LEGACY_PRESENTATION_EXIT_GATE_PASS`
