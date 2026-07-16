@@ -24,6 +24,10 @@ _DEFINITIONS: Mapping[str, StateChangingActionDefinitionV2] = MappingProxyType({
         "research.request.refresh", "RESEARCH.REQUEST_REFRESH", "RESEARCH_MAINTENANCE",
         "research:write", "RESEARCH.CANCEL_PENDING_REQUEST", "RESEARCH_REFRESH",
     ),
+    "research.edge_search.run": StateChangingActionDefinitionV2(
+        "research.edge_search.run", "RESEARCH.RUN_EDGE_SEARCH", "RESEARCH_MAINTENANCE",
+        "research:write", "RESEARCH.CANCEL_PENDING_REQUEST", "EDGE_SEARCH_RUN",
+    ),
     "paper.request.observation": StateChangingActionDefinitionV2(
         "paper.request.observation", "PAPER.REQUEST_OBSERVATION", "PAPER_OPERATIONS",
         "paper:write", "PAPER.CANCEL_PENDING_REQUEST", "PAPER_OBSERVATION",

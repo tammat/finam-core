@@ -8,7 +8,7 @@ def test_rows_and_clickable_containers_require_double_click() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert 'const isTableRow = node.type === "table_row";' in source
     assert 'const isContainer = node.type === "card";' in source
-    assert "const requiresDoubleClick = isTableRow || isContainer;" in source
+    assert "const requiresDoubleClick = isTableRow || isContainer || isCommandButton;" in source
     assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
     assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));' in source
     assert 'if (isTableRow) this.openRecommendedActions(element);' in source
@@ -45,3 +45,11 @@ def test_clickable_cards_highlight_and_open_only_on_double_click() -> None:
     assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"))' in source
     assert '[data-mc-node="card"][data-mc-action-id]:not([disabled]):hover' in css
     assert 'cursor: pointer' in css
+
+
+def test_command_buttons_require_confirmed_double_click() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    assert 'const isCommandButton = node.type === "action"' in source
+    assert 'isTableRow || isContainer || isCommandButton' in source
+    assert 'globalObject.confirm("Подтвердить выполнение действия?")' in source
+    assert 'emit("DOUBLE_CLICK")' in source

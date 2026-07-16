@@ -27,6 +27,10 @@ class WorkerCommandV2:
 
 
 COMMANDS = {
+    "EDGE_SEARCH_RUN": WorkerCommandV2(
+        "EDGE_SEARCH_RUN", (str(ROOT / "venv/bin/python"), "src/scripts/run_autonomous_edge_search_cycle_v1.py"),
+        ("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK", "live_allowed=0"), 1800,
+    ),
     "RESEARCH_REFRESH": WorkerCommandV2(
         "RESEARCH_REFRESH", (str(ROOT / "venv/bin/python"), "src/scripts/run_market_universe_research_queue_cycle_v1.py"),
         ("VERDICT=MARKET_UNIVERSE_RESEARCH_QUEUE_CYCLE_V1_READY", "orders_changed=0", "fills_changed=0"), 1800,

@@ -198,11 +198,16 @@
                     element.setAttribute("tabindex", "0");
                     const isTableRow = node.type === "table_row";
                     const isContainer = node.type === "card";
-                    const requiresDoubleClick = isTableRow || isContainer;
+                    const isCommandButton = node.type === "action" && node.action.action_kind === "COMMAND";
+                    const requiresDoubleClick = isTableRow || isContainer || isCommandButton;
                     if (isTableRow) {
                         element.addEventListener("dblclick", () => this.openRecommendedActions(element));
                     } else if (isContainer) {
                         element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));
+                    } else if (isCommandButton) {
+                        element.addEventListener("dblclick", () => {
+                            if (globalObject.confirm("Подтвердить выполнение действия?")) emit("DOUBLE_CLICK");
+                        });
                     } else {
                         element.addEventListener("click", () => emit("CLICK"));
                     }
@@ -211,6 +216,7 @@
                             event.preventDefault();
                             if (isTableRow) this.openRecommendedActions(element);
                             else if (isContainer) emit("DOUBLE_CLICK");
+                            else if (isCommandButton && globalObject.confirm("Подтвердить выполнение действия?")) emit("DOUBLE_CLICK");
                             else emit("CLICK");
                         }
                     });

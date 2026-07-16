@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
@@ -16,6 +18,22 @@ from marketcore.action.postgres_adapters_v2 import PostgresActionAuditTrailV2, P
 from marketcore.action.postgres_risk_boundary_v2 import PostgresRiskBoundaryV2
 from marketcore.presentation.navigation.container_registry_v2 import resolve_container_v2
 from marketcore.presentation.render_tree.v2 import ActionKindV2
+
+
+ROOT = Path("/opt/finam-core")
+
+
+def _start_async_command_worker(request_id: str) -> None:
+    log_path = ROOT / "runtime/logs/governed-command-worker-v2.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update({"PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"})
+    with log_path.open("ab") as log:
+        subprocess.Popen(
+            (str(ROOT / "venv/bin/python"), "src/scripts/run_governed_command_request_v2.py", "--request-id", request_id),
+            cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +118,8 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
     )
     request_accepted = result.status.value == "EXECUTED" and action_kind == "COMMAND"
     request_status = "PENDING" if request_accepted else None
+    if request_accepted and action_kind == "COMMAND" and definition.request_kind == "EDGE_SEARCH_RUN":
+        _start_async_command_worker(request_id)
     if request_accepted and operator_request_id and operator_request_kind:
         request_status = GovernedCommandWorkerV2().run_once(request_id=operator_request_id)
     return _response(

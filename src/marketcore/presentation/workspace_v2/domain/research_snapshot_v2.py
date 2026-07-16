@@ -19,4 +19,6 @@ class ResearchSnapshotV2:
     oos_total: int
     oos_pass_total: int
     oos_updated_at: datetime | None
+    edge_search_status: str
+    edge_search_finished_at: datetime | None
     generated_at: datetime
