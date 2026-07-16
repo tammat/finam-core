@@ -21,3 +21,9 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     assert all(row.state.status_code in {"WARNING","BLOCKED"} for row in rows)
     assert all(row.state.quality_code == "UNVERIFIED" for row in rows)
     assert not [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]
+    header = next(node for node in _walk(document.root) if node.node_id == "home.operator.actions.table.header")
+    assert [cell.content.message_key for cell in header.children] == [
+        "column.operator.number", "column.operator.action", "column.operator.reason",
+        "column.operator.effect", "column.operator.confidence",
+        "column.operator.verdict", "column.operator.deadline",
+    ]

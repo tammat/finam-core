@@ -261,13 +261,13 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
 
 def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
     columns = (
-        ("priority", "column.operator.priority"),
-        ("action", "home.operator.action.title"),
-        ("reason", "home.operator.field.loss_source"),
-        ("effect", "home.operator.field.expected_profit_impact"),
-        ("confidence", "home.operator.field.confidence"),
-        ("status", "home.operator.field.policy_verdict"),
-        ("expires", "home.operator.field.expires_at"),
+        ("priority", "column.operator.number"),
+        ("action", "column.operator.action"),
+        ("reason", "column.operator.reason"),
+        ("effect", "column.operator.effect"),
+        ("confidence", "column.operator.confidence"),
+        ("status", "column.operator.verdict"),
+        ("expires", "column.operator.deadline"),
     )
     header = RenderNodeV2(
         RenderNodeTypeV2.TABLE_ROW,
