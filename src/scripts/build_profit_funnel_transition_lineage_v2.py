@@ -79,18 +79,21 @@ def main() -> None:
 
             cursor.execute("""
                 SELECT count(*)::bigint,
-                       count(f.incubator_candidate_id) FILTER (WHERE f.incubator_candidate_id=c.candidate_uuid)::bigint
+                       count(h.handoff_id)::bigint,
+                       count(f.incubator_candidate_id)::bigint
                 FROM analytics.edge_oos_result_v1 o
                 JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid
-                LEFT JOIN analytics.forward_edge_observation_v1 f ON f.incubator_candidate_id=c.candidate_uuid
+                LEFT JOIN analytics.profit_funnel_oos_forward_handoff_v2 h ON h.candidate_uuid=c.candidate_uuid
+                LEFT JOIN analytics.forward_edge_observation_v1 f ON f.incubator_candidate_id=h.forward_candidate_id
+                WHERE o.verdict_code='OOS_PASS' AND o.promotion_allowed=true
             """)
-            oos_candidate_count, exact_link_count = cursor.fetchone()
+            oos_candidate_count, handoff_count, exact_link_count = cursor.fetchone()
             oos_forward = transitions[3]
             oos_forward.update(
                 from_count=oos_candidate_count,linked_count=exact_link_count,
-                lineage_status="BROKEN",
-                reason_code="PIPELINE_IDENTITY_NAMESPACE_MISMATCH",
-                evidence={**oos_forward["evidence"], "attempted_join_key": "candidate_uuid=incubator_candidate_id"},
+                lineage_status="UNVERIFIED",
+                reason_code="HANDOFF_PENDING_FORWARD_ADMISSION",
+                evidence={**oos_forward["evidence"], "handoff_count": handoff_count, "join_key": "forward_candidate_id=incubator_candidate_id"},
             )
 
             cursor.execute("""

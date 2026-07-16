@@ -9,8 +9,9 @@ def test_lineage_uses_discovery_batch_and_observation_uuid() -> None:
     assert 'reason_code="OBSERVATION_UUID_FULL_MATCH"' in source
 
 
-def test_oos_forward_gap_is_not_hidden_by_symbol_matching() -> None:
+def test_oos_forward_gap_uses_explicit_handoff_not_symbol_matching() -> None:
     source=Path("src/scripts/build_profit_funnel_transition_lineage_v2.py").read_text()
-    assert "f.incubator_candidate_id=c.candidate_uuid" in source
-    assert 'reason_code="PIPELINE_IDENTITY_NAMESPACE_MISMATCH"' in source
+    assert "h.candidate_uuid=c.candidate_uuid" in source
+    assert "f.incubator_candidate_id=h.forward_candidate_id" in source
+    assert 'reason_code="HANDOFF_PENDING_FORWARD_ADMISSION"' in source
     assert "symbol=c.symbol" not in source
