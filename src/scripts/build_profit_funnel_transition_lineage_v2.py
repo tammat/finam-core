@@ -31,15 +31,27 @@ def main() -> None:
             "evidence": {"from_source": left.source_identity, "to_source": right.source_identity},
         })
 
-    candidate_oos = transitions[2]
-    candidate_oos.update(
-        lineage_status="BROKEN",
-        reason_code="SOURCE_COHORT_ID_MISMATCH",
-        evidence={**candidate_oos["evidence"], "candidate_cohort_count": observations[ProfitFunnelStageV2.CANDIDATE].cohort_count},
-    )
-
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT max(c.discovery_batch_id),count(*)::bigint,count(o.id)::bigint
+                FROM analytics.edge_candidate_v1 c
+                LEFT JOIN analytics.edge_oos_result_v1 o ON o.observation_uuid=c.observation_uuid
+            """)
+            cohort_id, candidate_count, linked_count = cursor.fetchone()
+            candidate_oos = transitions[2]
+            oos_count = observations[ProfitFunnelStageV2.OOS].count
+            proven = candidate_count == linked_count == oos_count and candidate_count > 0
+            candidate_oos.update(
+                canonical_cohort_id=cohort_id if proven else None,
+                source_cohort_from=cohort_id,
+                source_cohort_to=cohort_id if proven else candidate_oos["source_cohort_to"],
+                from_count=candidate_count,to_count=oos_count,linked_count=linked_count,
+                lineage_status="PROVEN" if proven else "BROKEN",
+                reason_code="OBSERVATION_UUID_FULL_MATCH" if proven else "OBSERVATION_UUID_LINK_GAP",
+                evidence={**candidate_oos["evidence"], "join_key": "observation_uuid"},
+            )
+
             cursor.execute("""
                 SELECT f.cohort_id::text,count(*)::bigint,count(s.shadow_trade_id)::bigint
                 FROM analytics.forward_edge_observation_v1 f

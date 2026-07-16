@@ -9,7 +9,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metric
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-BATCH_ID = os.getenv("RESEARCH_BATCH_ID", "20260712_MOMENTUM_THRESHOLD_RECALC_V2")
+BATCH_ID = os.getenv("RESEARCH_BATCH_ID")
 IN_SAMPLE_BARS = int(os.getenv("EDGE_OOS_IN_SAMPLE_BARS", "5000"))
 FOLDS = int(os.getenv("EDGE_OOS_FOLDS", "3"))
 VALIDATION_VERSION = "MOMENTUM_CHRONOLOGICAL_OOS_V1"
@@ -20,12 +20,18 @@ def main() -> None:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT * FROM analytics.edge_observation_v1 WHERE research_batch_id=%s ORDER BY (parameter_json->>'threshold')::numeric",
-                (BATCH_ID,),
+                """
+                SELECT o.*
+                FROM analytics.edge_observation_v1 o
+                JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid
+                WHERE (%s IS NULL OR o.research_batch_id=%s)
+                ORDER BY o.research_batch_id,(o.parameter_json->>'threshold')::numeric NULLS LAST,o.observation_uuid
+                """,
+                (BATCH_ID, BATCH_ID),
             )
             observations = cur.fetchall()
             if not observations:
-                raise RuntimeError(f"OOS_BATCH_EMPTY batch_id={BATCH_ID}")
+                raise RuntimeError(f"OOS_CANDIDATES_EMPTY batch_id={BATCH_ID or 'ALL'}")
 
             bars_by_market = {}
             for observation in observations:
@@ -99,13 +105,26 @@ def main() -> None:
                         promotion_allowed=EXCLUDED.promotion_allowed,reason=EXCLUDED.reason,updated_at=now()
                     """,
                     (
-                        observation["observation_uuid"], BATCH_ID, observation["strategy_code"],
+                        observation["observation_uuid"], observation["research_batch_id"], observation["strategy_code"],
                         observation["symbol"], observation["timeframe"], observation["parameter_hash"],
                         psycopg2.extras.Json(params), VALIDATION_VERSION, IN_SAMPLE_BARS,
                         len(bars) - IN_SAMPLE_BARS, oos_start, bars[-1].ts, oos["trades"],
                         oos["profit_factor"], oos["expectancy"], oos["max_drawdown"], FOLDS,
                         folds_passed, verdict, passed, reason,
                     ),
+                )
+                cur.execute(
+                    """
+                    UPDATE analytics.edge_candidate_v1
+                    SET candidate_status=%s,
+                        validation_stage='OOS_COMPLETE',
+                        paper_allowed=%s,
+                        validation_reason=%s,
+                        validation_formula_version=%s,
+                        updated_at=now()
+                    WHERE observation_uuid=%s
+                    """,
+                    (verdict, passed, reason, VALIDATION_VERSION, observation["observation_uuid"]),
                 )
                 results.append((params.get("threshold"), oos, folds_passed, verdict))
 
