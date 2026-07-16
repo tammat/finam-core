@@ -114,9 +114,16 @@ def main():
         newbars=[b for b in bars if b["ts"]>last]
         if not obs and newbars:
           latest=newbars[-1];idx=next(i for i,b in enumerate(bars) if b["ts"]==latest["ts"]);params=c["frozen_parameter_json"];lookback=int(params.get("lookback",20))
+          required_regime=params.get("regime_code")
+          current_regime=regime_at(cur,c["symbol"],c["timeframe"],latest["ts"])
+          if required_regime and current_regime != required_regime:
+            latest_ts=evaluation_watermark(last,latest["ts"])
+            cur.execute("""INSERT INTO analytics.forward_edge_worker_state_v1 VALUES(%s,%s,%s,'OK',NULL,%s,now())
+              ON CONFLICT(cohort_id,incubator_candidate_id) DO UPDATE SET last_evaluated_ts=excluded.last_evaluated_ts,worker_status='OK',last_error=NULL,source_version=excluded.source_version,updated_at=now()""",(cohort,c["incubator_candidate_id"],latest_ts,SOURCE_VERSION))
+            conn.commit();continue
           side=signal(c["strategy_family"],params,[float(b["close"]) for b in bars[max(0,idx-lookback):idx+1]])
           if side:
-            regime=regime_at(cur,c["symbol"],c["timeframe"],latest["ts"])
+            regime=current_regime
             session=session_code(latest["ts"])
             quality="REGIME_ATTRIBUTED_COST_PENDING" if regime else "REGIME_MISSING_COST_PENDING"
             cur.execute("""INSERT INTO analytics.forward_edge_observation_v1

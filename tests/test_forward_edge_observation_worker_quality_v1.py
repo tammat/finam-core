@@ -23,3 +23,10 @@ def test_evaluation_watermark_never_moves_before_activation() -> None:
 
     assert MODULE.evaluation_watermark(activated, older_bar) == activated
     assert MODULE.evaluation_watermark(activated, newer_bar) == newer_bar
+
+
+def test_forward_worker_enforces_frozen_oos_regime() -> None:
+    source = SCRIPT.read_text()
+    assert 'required_regime=params.get("regime_code")' in source
+    assert "current_regime != required_regime" in source
+    assert "conn.commit();continue" in source

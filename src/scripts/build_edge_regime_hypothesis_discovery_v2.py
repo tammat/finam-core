@@ -51,7 +51,9 @@ def main() -> None:
             cur.execute("""
                 SELECT symbol,timeframe,count(*) AS bars
                 FROM public.market_bars WHERE timeframe='M5'
-                GROUP BY symbol,timeframe HAVING count(*) >= %s
+                GROUP BY symbol,timeframe
+                HAVING count(*) >= %s
+                   AND max(ts) >= clock_timestamp()-interval '15 minutes'
                 ORDER BY count(*) DESC LIMIT %s
             """, (MIN_BARS, MAX_MARKETS))
             markets = cur.fetchall()

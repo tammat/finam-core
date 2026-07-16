@@ -1,0 +1,8 @@
+from pathlib import Path
+
+
+def test_regime_discovery_only_uses_current_markets() -> None:
+    source = Path("src/scripts/build_edge_regime_hypothesis_discovery_v2.py").read_text()
+    assert "max(ts) >= clock_timestamp()-interval '15 minutes'" in source
+    assert "transaction_cost_bps" in source
+    assert "promotion_allowed" in source
