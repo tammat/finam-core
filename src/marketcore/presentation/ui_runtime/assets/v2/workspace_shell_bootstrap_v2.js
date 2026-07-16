@@ -26,25 +26,34 @@
         if (!mountElement) throw new Error("WORKSPACE_SHELL_V2_MOUNT_REQUIRED");
         const services = await globalObject.MarketCoreBrowserPresentationServicesV2.load({localeCode: "ru-RU"});
         let actionSink;
+        let currentEndpoint = ENDPOINT_BY_TARGET[initialTarget(globalObject.location && globalObject.location.pathname)];
 
-        const render = async (endpoint) => globalObject.MarketCoreBrowserBootstrapV2.start({
-            endpoint,
+        const render = async (endpoint) => {
+            currentEndpoint = endpoint;
+            return globalObject.MarketCoreBrowserBootstrapV2.start({
+            endpoint: currentEndpoint,
             documentObject: globalObject.document,
             mountElement,
             translate: services.translate,
             format: services.format,
             actionSink
-        });
+            });
+        };
 
         actionSink = globalObject.MarketCoreBrowserActionControllerV2.create({
             onNavigation: async (targetId) => {
                 const endpoint = ENDPOINT_BY_TARGET[targetId];
                 if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
                 await render(endpoint);
-            }
+            },
+            onCommand: async () => {
+                await new Promise((resolve) => globalObject.setTimeout(resolve, 800));
+                await render(currentEndpoint);
+                globalObject.setTimeout(() => render(currentEndpoint), 2200);
+            },
         });
 
-        await render(ENDPOINT_BY_TARGET[initialTarget(globalObject.location && globalObject.location.pathname)]);
+        await render(currentEndpoint);
         mountElement.setAttribute("data-runtime-status", "READY");
     }
 

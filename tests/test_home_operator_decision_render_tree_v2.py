@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from marketcore.presentation.render_tree.v2 import RenderNodeTypeV2
 from marketcore.presentation.workspace_v2.domain_producer_registry_v2 import build_domain_document_v2
 
@@ -11,7 +13,7 @@ def _walk(node):
 def test_home_exposes_ranked_non_green_operator_actions() -> None:
     document = build_domain_document_v2("HOME",timezone_code="Europe/Moscow")
     rows = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.TABLE_ROW and node.node_id.startswith("home.operator.action.")]
-    assert 1 <= len(rows) <= 5
+    assert len(rows) == 5
     assert len({row.node_id for row in rows}) == len(rows)
     assert all(len(row.children) == 7 for row in rows)
     actions = [row.action for row in rows if row.action is not None]
@@ -27,3 +29,12 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
         "column.operator.effect", "column.operator.confidence",
         "column.operator.verdict", "column.operator.deadline",
     ]
+
+
+def test_expired_operator_decisions_remain_visible_but_disabled() -> None:
+    resolver_source = Path("src/marketcore/presentation/workspace_v2/resolver/operator_decision_v2_resolver.py").read_text()
+    presenter_source = Path("src/marketcore/presentation/workspace_v2/presenter/home_v2_presenter.py").read_text()
+    assert "WHERE expires_at > clock_timestamp()" not in resolver_source
+    assert '"EXPIRED" if expired else (' in presenter_source
+    assert '"ACKNOWLEDGED" if str(item["selection_status"]) == "ACKNOWLEDGED"' in presenter_source
+    assert "acknowledgeable = not expired" in presenter_source

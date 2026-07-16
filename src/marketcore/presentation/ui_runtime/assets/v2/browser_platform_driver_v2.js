@@ -50,13 +50,16 @@
                 const priority = row.cells[0]?.textContent?.trim() || "—";
                 const action = row.cells[1]?.textContent?.trim() || "Действие";
                 const reason = row.cells[2]?.textContent?.trim() || "";
+                const commandLabel = row.dataset.mcActionId === "operator.decision.measure"
+                    ? "Проверить результат"
+                    : "Принять рекомендацию";
                 const itemTitle = this.documentObject.createElement("strong");
-                itemTitle.textContent = `${priority}. ${action}`;
+                itemTitle.textContent = `${priority}. ${commandLabel}`;
                 const itemReason = this.documentObject.createElement("span");
-                itemReason.textContent = reason;
+                itemReason.textContent = `${action}: ${reason}`;
                 item.append(itemTitle, itemReason);
                 item.addEventListener("click", async () => {
-                    if (!globalObject.confirm(`Выполнить действие «${action}»?`)) return;
+                    if (!globalObject.confirm(`${commandLabel}: «${action}»?`)) return;
                     item.disabled = true;
                     try {
                         await this.actionSink({
@@ -149,15 +152,22 @@
             if (context.displayValue !== null && context.displayValue !== undefined) {
                 element.textContent = String(context.displayValue);
             }
-            if (node.type === "table_cell" && node.node_id.endsWith(".confidence")) {
-                const ratio = Math.max(0, Math.min(1, Number(context.displayValue) || 0));
+            if (node.type === "table_cell" && node.node_id.endsWith(".status")) {
+                const label = String(context.displayValue || "");
+                const progressByLabel = {
+                    "Требуется решение оператора": 10,
+                    "Принято к рассмотрению": 50,
+                    "Результат измерен": 100,
+                    "Заблокировано": 0,
+                    "Просрочено": 0
+                };
                 element.textContent = "";
                 const progress = this.documentObject.createElement("progress");
                 progress.max = 100;
-                progress.value = Math.round(ratio * 100);
-                progress.setAttribute("aria-label", `Уверенность ${progress.value} %`);
+                progress.value = progressByLabel[label] ?? 0;
+                progress.setAttribute("aria-label", `${label}: ${progress.value} %`);
                 const value = this.documentObject.createElement("span");
-                value.textContent = `${progress.value} %`;
+                value.textContent = label;
                 element.append(progress, value);
             }
             while (this.stack.length > context.depth) this.stack.pop();
@@ -175,9 +185,6 @@
                     row.setAttribute("data-mc-operator-required", "true");
                     return;
                 }
-                const confidence = row.querySelector('td[data-mc-node-id$=".confidence"]');
-                const label = confidence?.querySelector("progress + span")?.textContent;
-                if (confidence && label) confidence.textContent = label;
             });
             return Object.freeze({driverVersion: DRIVER_VERSION, nodesRendered: this.nodesRendered});
         }

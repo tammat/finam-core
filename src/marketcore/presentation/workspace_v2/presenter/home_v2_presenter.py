@@ -171,10 +171,11 @@ class HomeV2Presenter:
 
     @staticmethod
     def _operator_action_card(item) -> BaseCard:
+        expired = item["expires_at"].astimezone(timezone.utc) <= datetime.now(timezone.utc)
         blocked = str(item["policy_verdict"]) == "BLOCKED"
-        acknowledgeable = not blocked and str(item["selection_status"]) == "NOT_SELECTED"
+        acknowledgeable = not expired and not blocked and str(item["selection_status"]) == "NOT_SELECTED"
         measurable = (
-            not blocked and str(item["selection_status"]) == "ACKNOWLEDGED"
+            not expired and not blocked and str(item["selection_status"]) == "ACKNOWLEDGED"
             and str(item["feedback_status"]) == "PENDING"
             and item["measurement_due_at"] is not None
             and item["measurement_due_at"].astimezone(timezone.utc) <= datetime.now(timezone.utc)
@@ -191,8 +192,8 @@ class HomeV2Presenter:
             card_type=CardType.DECISION,
             title_key="home.operator.action.title",
             subtitle_key="home.operator.action.subtitle",
-            status_code=UiStatusCode.BLOCKED if blocked else UiStatusCode.WARNING,
-            status_label_key="ui.status.blocked" if blocked else "ui.status.warning",
+            status_code=UiStatusCode.BLOCKED if blocked or expired else UiStatusCode.WARNING,
+            status_label_key="ui.status.blocked" if blocked or expired else "ui.status.warning",
             priority=int(item["rank"]),
             actions=({"action_code": action_id, "target": str(item["decision_id"])},) if action_id else (),
             payload={
@@ -213,7 +214,16 @@ class HomeV2Presenter:
                     ("home.operator.field.confidence",item["confidence"],"PERCENT_RATIO"),
                     ("home.operator.field.sample_size",item["sample_size"],"INTEGER"),
                     ("home.operator.field.sample_sufficiency",item["sample_sufficiency_code"],"DOMAIN_CODE"),
-                    ("home.operator.field.policy_verdict",item["policy_verdict"],"DOMAIN_CODE"),
+                    (
+                        "home.operator.field.policy_verdict",
+                        "EXPIRED" if expired else (
+                            "MEASURED" if str(item["feedback_status"]) == "MEASURED" else (
+                                "ACKNOWLEDGED" if str(item["selection_status"]) == "ACKNOWLEDGED"
+                                else item["policy_verdict"]
+                            )
+                        ),
+                        "DOMAIN_CODE",
+                    ),
                     ("home.operator.field.autonomy_mode",item["autonomy_mode"],"DOMAIN_CODE"),
                     ("home.operator.field.expires_at",item["expires_at"],"DATETIME"),
                     ("home.operator.field.rollback",item["rollback_plan_code"],"DOMAIN_CODE"),

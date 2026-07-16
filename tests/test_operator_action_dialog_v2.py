@@ -9,17 +9,20 @@ def test_double_click_opens_prioritized_operator_action_dialog() -> None:
     assert ".sort((left, right) => Number(left.cells[0]?.textContent" in source
     assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
     assert "globalObject.confirm" in source
+    assert '"Принять рекомендацию"' in source
+    assert '"Проверить результат"' in source
 
 
-def test_confidence_progress_is_limited_to_operator_decisions() -> None:
+def test_verdict_progress_tracks_operator_decision_state() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
-    assert 'node.node_id.endsWith(".confidence")' in source
+    assert 'node.node_id.endsWith(".status")' in source
     assert 'this.documentObject.createElement("progress")' in source
+    assert '"Принято к рассмотрению": 50' in source
+    assert '"Результат измерен": 100' in source
     assert 'row.setAttribute("data-mc-operator-required", "true")' in source
-    assert "if (confidence && label) confidence.textContent = label" in source
 
 
 def test_operator_action_dialog_has_runtime_styles() -> None:
     css = Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
     assert 'dialog[data-mc-action-dialog]' in css
-    assert 'td[data-mc-node-id$=".confidence"] progress' in css
+    assert 'td[data-mc-node-id$=".status"] progress' in css

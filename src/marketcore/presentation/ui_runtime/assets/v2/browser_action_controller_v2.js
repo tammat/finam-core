@@ -21,6 +21,7 @@
         if (!options || typeof options !== "object") throw new Error("ACTION_CONTROLLER_OPTIONS_REQUIRED");
         const endpoint = options.endpoint || "/api/v2/actions/dispatch";
         const onNavigation = typeof options.onNavigation === "function" ? options.onNavigation : () => {};
+        const onCommand = typeof options.onCommand === "function" ? options.onCommand : () => {};
         return async function actionSink(intent) {
             const requestId = intent.requestId || createRequestId();
             const response = await globalObject.fetch(endpoint, {
@@ -33,6 +34,7 @@
             const result = await response.json();
             if (!response.ok) throw new Error(`ACTION_DISPATCH_FAILED:${result.reason_code || response.status}`);
             if (result.status === "NAVIGATED") await onNavigation(result.target_id, result);
+            else await onCommand(result, intent);
             return result;
         };
     }
