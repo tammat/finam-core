@@ -24,6 +24,12 @@ def _code(value: object) -> str:
     return normalized or "unknown"
 
 
+def _message_code(value: object) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ",".join(str(item).strip().lower() for item in value)
+    return str(value).strip().lower()
+
+
 def _utc(value: Any) -> datetime | None:
     if not isinstance(value, datetime):
         return None
@@ -131,6 +137,17 @@ def _table_section(
                     "freshness_code", "quality_code", "verdict_code",
                     "market_data_quality", "mode",
                 }
+                or any(
+                    marker in normalized_column
+                    for marker in (
+                        "reason", "regime", "session", "strategy_code",
+                        "policy_code", "recommendation_code", "decision_code",
+                        "family_code",
+                    )
+                )
+            )
+            is_localized_code = is_localized_code and isinstance(
+                raw_value, (str, list, tuple, set)
             )
             message_key = None
             if raw_value is None:
@@ -138,9 +155,15 @@ def _table_section(
                 display_value = None
                 format_code = None
             elif is_localized_code:
-                message_key = f"status.{str(raw_value).strip().lower()}"
-                display_value = None
-                format_code = None
+                message_key = (
+                    "status.no_data"
+                    if (
+                        isinstance(raw_value, str) and not raw_value.strip()
+                    ) or (
+                        isinstance(raw_value, (list, tuple, set)) and not raw_value
+                    )
+                    else f"status.{_message_code(display_value)}"
+                )
             cells.append(
                 _content_node(
                     RenderNodeTypeV2.TABLE_CELL,
