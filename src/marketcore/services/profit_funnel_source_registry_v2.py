@@ -67,8 +67,9 @@ _SOURCES: Mapping[ProfitFunnelStageV2, ProfitFunnelSourceDefinitionV2] = Mapping
         "SELECT count(*) FILTER (WHERE allow_runtime),max(observed_at) FILTER (WHERE allow_runtime),NULL::numeric,NULL::numeric,NULL::text,0 FROM (SELECT DISTINCT ON (symbol,strategy,timeframe) * FROM public.runtime_observations ORDER BY symbol,strategy,timeframe,observed_at DESC) latest",
     ),
     ProfitFunnelStageV2.LIVE: ProfitFunnelSourceDefinitionV2(
-        ProfitFunnelStageV2.LIVE, "public.runtime_governance_live_accumulation_v1",
-        "SELECT count(*) FILTER (WHERE allowed),max(created_at),NULL::numeric,NULL::numeric,NULL::text,0 FROM public.runtime_governance_live_accumulation_v1",
+        ProfitFunnelStageV2.LIVE, "public.orders.exchange_accepted",
+        "SELECT count(*) FILTER (WHERE exchange_order_id IS NOT NULL),max(created_ts) FILTER (WHERE exchange_order_id IS NOT NULL),NULL::numeric,NULL::numeric,NULL::text,0 FROM public.orders",
+        scope_explicit=True,
     ),
     ProfitFunnelStageV2.PROFIT: ProfitFunnelSourceDefinitionV2(
         ProfitFunnelStageV2.PROFIT, "analytics.profit_factory_profit_fact_v1[data_scope=REAL]",

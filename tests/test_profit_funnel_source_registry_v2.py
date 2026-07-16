@@ -13,11 +13,13 @@ def test_every_stage_has_one_fixed_read_only_source() -> None:
             assert forbidden not in sql
 
 
-def test_only_real_profit_fact_claims_explicit_scope() -> None:
+def test_only_real_execution_and_profit_claim_explicit_scope() -> None:
     explicit=[item for item in profit_funnel_source_definitions_v2() if item.scope_explicit]
-    assert len(explicit)==1
-    assert explicit[0].stage is ProfitFunnelStageV2.PROFIT
-    assert "DATA_SCOPE='REAL'" in explicit[0].sql.upper()
+    assert {item.stage for item in explicit} == {ProfitFunnelStageV2.LIVE, ProfitFunnelStageV2.PROFIT}
+    live = next(item for item in explicit if item.stage is ProfitFunnelStageV2.LIVE)
+    profit = next(item for item in explicit if item.stage is ProfitFunnelStageV2.PROFIT)
+    assert "EXCHANGE_ORDER_ID IS NOT NULL" in live.sql.upper()
+    assert "DATA_SCOPE='REAL'" in profit.sql.upper()
 
 
 def test_research_stage_uses_the_actual_discovery_run() -> None:

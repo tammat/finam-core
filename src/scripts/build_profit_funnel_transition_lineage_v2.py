@@ -181,6 +181,31 @@ def main() -> None:
                           "handoff_count": runtime_handoffs, "admitted_count": runtime_admitted},
             )
 
+            cursor.execute("""
+                SELECT count(*) FILTER (WHERE admission_status='ADMITTED' AND runtime_allowed)::bigint,
+                       (SELECT count(*) FROM analytics.profit_funnel_runtime_live_admission_v2)::bigint,
+                       (SELECT count(*) FROM analytics.profit_funnel_runtime_live_admission_v2
+                        WHERE admission_status='ADMITTED' AND live_allowed)::bigint
+                FROM analytics.profit_funnel_paper_runtime_admission_v2
+            """)
+            runtime_admitted, live_handoffs, live_admitted = cursor.fetchone()
+            runtime_live = transitions[7]
+            runtime_live.update(
+                from_count=runtime_admitted,linked_count=live_admitted,
+                lineage_status="UNVERIFIED",
+                reason_code="NO_RUNTIME_CANDIDATE_ADMITTED" if runtime_admitted == 0 else "LIVE_RISK_AUTHORIZATION_PENDING",
+                evidence={**runtime_live["evidence"], "join_key": "runtime_admission_id",
+                          "handoff_count": live_handoffs, "admitted_count": live_admitted},
+            )
+
+            live_profit = transitions[8]
+            if observations[ProfitFunnelStageV2.LIVE].count == 0:
+                live_profit.update(
+                    from_count=0,linked_count=0,lineage_status="UNVERIFIED",
+                    reason_code="NO_REAL_EXECUTION",
+                    evidence={**live_profit["evidence"], "join_key": "broker_execution_identity"},
+                )
+
             for item in transitions:
                 cursor.execute("""
                     INSERT INTO analytics.profit_funnel_transition_lineage_v2 (
