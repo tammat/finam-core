@@ -3,7 +3,7 @@ from marketcore.presentation.render_tree.v2 import ActionKindV2,RenderActionV2,R
 from marketcore.presentation.workspace_v2.domain.intraday_snapshot_v2 import IntradaySnapshotV2
 
 def _leaf(t,i,*,key=None,value=None,fmt=None,level=None):return RenderNodeV2(t,i,content=RenderContentV2(message_key=key,value=value,format_code=fmt,level_code=level))
-def _metric(prefix,code,value,fmt="INTEGER"):return RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,f"{prefix}.{code}",children=(_leaf(RenderNodeTypeV2.METRIC_LABEL,f"{prefix}.{code}.label",key=f"intraday.metric.{code}"),_leaf(RenderNodeTypeV2.METRIC_VALUE,f"{prefix}.{code}.value",value=value,fmt=fmt)))
+def _metric(prefix,code,value,fmt="INTEGER"):return RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,f"{prefix}.{code}",children=(_leaf(RenderNodeTypeV2.METRIC_LABEL,f"{prefix}.{code}.label",key=f"intraday.metric.{code}"),_leaf(RenderNodeTypeV2.METRIC_VALUE,f"{prefix}.{code}.value",key="intraday.value.unavailable" if value is None else None,value=value,fmt=None if value is None else fmt)))
 def _section(code,state,source_time,source_identity,metrics):return RenderNodeV2(RenderNodeTypeV2.SECTION,f"intraday.section.{code}",state=RenderNodeStateV2(status_code=state,freshness_code="AS_OF_REPORTED" if source_time else "UNAVAILABLE",source_as_of=source_time,source_identity=source_identity if source_time else None),children=(_leaf(RenderNodeTypeV2.TITLE,f"intraday.section.{code}.title",key=f"intraday.section.{code}.title",level="SECTION"),RenderNodeV2(RenderNodeTypeV2.METRIC_LIST,f"intraday.section.{code}.metrics",children=metrics)))
 
 def render_intraday_domain_v2(s:IntradaySnapshotV2,*,timezone_code="Europe/Moscow"):
