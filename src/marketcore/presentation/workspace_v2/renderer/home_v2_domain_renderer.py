@@ -44,6 +44,10 @@ def _utc(value: Any) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def _operator_domain_message_key(value: Any) -> str:
+    return f"home.operator.domain.{str(value).strip().lower()}"
+
+
 def _content_node(
     node_type: RenderNodeTypeV2,
     node_id: str,
@@ -146,8 +150,21 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
             _content_node(
                 RenderNodeTypeV2.METRIC_VALUE,
                 f"{card.widget_id}.primary_value",
-                value=v2_value,
-                format_code=str(v2_format_code),
+                message_key=(
+                    _operator_domain_message_key(v2_value)
+                    if card.widget_id.startswith("home.operator.") and v2_format_code == "DOMAIN_CODE"
+                    else None
+                ),
+                value=(
+                    None
+                    if card.widget_id.startswith("home.operator.") and v2_format_code == "DOMAIN_CODE"
+                    else v2_value
+                ),
+                format_code=(
+                    None
+                    if card.widget_id.startswith("home.operator.") and v2_format_code == "DOMAIN_CODE"
+                    else str(v2_format_code)
+                ),
             )
         )
 
@@ -201,8 +218,13 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
             _content_node(
                 RenderNodeTypeV2.BADGE,
                 f"{card.widget_id}.quality",
-                value=str(quality),
-                format_code="DOMAIN_CODE",
+                message_key=(
+                    _operator_domain_message_key(quality)
+                    if card.widget_id.startswith("home.operator.")
+                    else None
+                ),
+                value=None if card.widget_id.startswith("home.operator.") else str(quality),
+                format_code=None if card.widget_id.startswith("home.operator.") else "DOMAIN_CODE",
             )
         )
 
@@ -213,7 +235,17 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
                 f"{card.widget_id}.operator_field.{field_index}",
                 children=(
                     _content_node(RenderNodeTypeV2.METRIC_LABEL,f"{card.widget_id}.operator_field.{field_index}.label",message_key=label_key),
-                    _content_node(RenderNodeTypeV2.METRIC_VALUE,f"{card.widget_id}.operator_field.{field_index}.value",value=("NO_DATA" if field_value is None else field_value),format_code=format_code),
+                    _content_node(
+                        RenderNodeTypeV2.METRIC_VALUE,
+                        f"{card.widget_id}.operator_field.{field_index}.value",
+                        message_key=(
+                            _operator_domain_message_key("NO_DATA" if field_value is None else field_value)
+                            if format_code == "DOMAIN_CODE"
+                            else None
+                        ),
+                        value=None if format_code == "DOMAIN_CODE" else ("NO_DATA" if field_value is None else field_value),
+                        format_code=None if format_code == "DOMAIN_CODE" else format_code,
+                    ),
                 ),
             )
         )
