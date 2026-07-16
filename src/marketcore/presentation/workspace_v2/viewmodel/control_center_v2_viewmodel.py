@@ -42,6 +42,13 @@ class SignalFunnelStageV2:
     status: str
     stage_code: str = "UNKNOWN"
     pass_rate_pct: float | None = None
+    source_identity: str = ""
+    source_as_of: Any = None
+    freshness_code: str = "UNAVAILABLE"
+    quality_code: str = "UNVERIFIED"
+    reason_code: str = ""
+    net_pnl: Any = None
+    cost_impact: Any = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -140,7 +140,7 @@ class ControlCenterV2Presenter:
         count = int(row.get("stage_count") or 0)
         rate = row.get("pass_rate_pct")
         stage_code = str(row.get("stage_code") or "")
-        status = "BLOCKED" if stage_code == "ORDERS" and count == 0 else "OK"
+        status = str(row.get("stage_status") or "WARNING")
         return SignalFunnelStageV2(
             label=str(row.get("stage_name") or stage_code).replace("_", " "),
             count=count,
@@ -148,6 +148,13 @@ class ControlCenterV2Presenter:
             status=status,
             stage_code=stage_code,
             pass_rate_pct=(float(rate) if rate is not None else None),
+            source_identity=str(row.get("source_identity") or ""),
+            source_as_of=row.get("source_as_of"),
+            freshness_code=str(row.get("freshness_code") or "UNAVAILABLE"),
+            quality_code=str(row.get("quality_code") or "UNVERIFIED"),
+            reason_code=str(row.get("reason_code") or ""),
+            net_pnl=row.get("net_pnl"),
+            cost_impact=row.get("cost_impact"),
         )
 
     @staticmethod

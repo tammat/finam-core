@@ -248,8 +248,9 @@ Completed stages:
 - Stage 4 - Canonical Navigation Containers.
 - Stage 5 - Policy-Governed Actions.
 - Stage 6 - Complete I18n.
+- Stage 7 - Live Profit Funnel Data.
 
-Current active stage: Stage 7 - Live Profit Funnel Data.
+Current active stage: Stage 8 - Operator Workspace.
 
 The mandatory Stage 6 i18n technical debt gate is complete. Runtime V2 remains blocked from live trading until the later data, workspace, verification and cutover stages pass.
 
@@ -260,3 +261,5 @@ The mandatory Stage 6 i18n technical debt gate is complete. Runtime V2 remains b
 `VERDICT=MARKETCORE_STAGE5_POLICY_GOVERNED_ACTIONS_COMPLETE`
 
 `VERDICT=MARKETCORE_STAGE6_COMPLETE_I18N_EXIT_GATE_PASS`
+
+`VERDICT=MARKETCORE_STAGE7_LIVE_PROFIT_FUNNEL_EXIT_GATE_PASS`

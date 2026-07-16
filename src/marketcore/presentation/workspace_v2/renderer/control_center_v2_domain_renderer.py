@@ -243,6 +243,13 @@ def _funnel_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], 
             "count": item.count,
             "pass_rate_pct": item.pass_rate_pct,
             "status": item.status,
+            "source_identity": item.source_identity,
+            "source_as_of": item.source_as_of,
+            "freshness_code": item.freshness_code,
+            "quality_code": item.quality_code,
+            "reason_code": item.reason_code,
+            "net_pnl": item.net_pnl,
+            "cost_impact": item.cost_impact,
         }
         for item in view_model.funnel_stages
     )

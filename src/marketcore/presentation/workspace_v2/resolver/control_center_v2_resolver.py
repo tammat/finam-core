@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
+
+from marketcore.services.profit_funnel_source_registry_v2 import observe_profit_funnel_sources_v2
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -353,49 +356,57 @@ class ControlCenterV2Resolver:
 
     @staticmethod
     def _signal_funnel(cur) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
-        cur.execute("SELECT signal_funnel_snapshot_id FROM analytics.signal_funnel_snapshot_v1 ORDER BY created_at DESC LIMIT 1")
-        latest = cur.fetchone()
+        observations = observe_profit_funnel_sources_v2(DB)
+        cur.execute("""
+            SELECT transition_code,to_stage,from_count,to_count,lineage_status,reason_code
+            FROM analytics.profit_funnel_transition_lineage_v2
+        """)
+        transitions = {row["to_stage"]: dict(row) for row in cur.fetchall()}
+        now = datetime.now(timezone.utc)
         stages: list[dict[str, Any]] = []
-        if latest:
-            cur.execute("""
-                SELECT stage_order,stage_code,stage_name,stage_count,previous_stage_count,
-                       pass_rate_pct,stage_status,evidence_json
-                FROM analytics.signal_funnel_stage_v1
-                WHERE signal_funnel_snapshot_id=%s
-                ORDER BY stage_order
-            """, (latest["signal_funnel_snapshot_id"],))
-            stages = [dict(row) for row in cur.fetchall()]
-
-        comparable = all(
-            row.get("previous_stage_count") is None
-            or int(row.get("stage_count") or 0) <= int(row.get("previous_stage_count") or 0)
-            for row in stages
-        )
-
-        cur.execute("SELECT signal_funnel_reason_snapshot_id FROM analytics.signal_funnel_reason_snapshot_v1 ORDER BY created_at DESC LIMIT 1")
-        reason_latest = cur.fetchone()
-        reasons: list[dict[str, Any]] = []
-        if reason_latest:
-            cur.execute("""
-                SELECT r.reason_group,sum(r.rows_total) AS rows_total,count(*) AS reason_values,
-                       p.action_target
-                FROM analytics.signal_funnel_reason_v1 r
-                JOIN presentation.control_center_reason_policy_v1 filter
-                  ON filter.reason_group=r.reason_group
-                 AND filter.source_schema=r.source_schema
-                 AND filter.source_table=r.source_table
-                 AND filter.reason_column=r.reason_column
-                 AND r.reason_value ~ filter.reason_value_pattern
-                 AND filter.enabled
-                JOIN presentation.control_center_recommendation_route_v1 p
-                  ON p.reason_group=r.reason_group AND p.enabled
-                WHERE r.signal_funnel_reason_snapshot_id=%s
-                GROUP BY r.reason_group,p.action_target
-                ORDER BY sum(rows_total) DESC
-                LIMIT 8
-            """, (reason_latest["signal_funnel_reason_snapshot_id"],))
-            reasons = [dict(row) for row in cur.fetchall()]
-        return stages, reasons, comparable
+        for stage_order, observation in enumerate(observations, start=1):
+            incoming = transitions.get(observation.stage.value)
+            age_seconds = None if observation.source_as_of is None else max(
+                0, int((now - observation.source_as_of).total_seconds())
+            )
+            freshness = "UNAVAILABLE" if age_seconds is None else ("CURRENT" if age_seconds <= 7200 else "STALE")
+            pass_rate = None
+            reason_code = "INITIAL_STAGE"
+            lineage_status = "PROVEN"
+            if incoming:
+                reason_code = incoming["reason_code"]
+                lineage_status = incoming["lineage_status"]
+                if lineage_status == "PROVEN" and incoming["from_count"]:
+                    pass_rate = 100.0 * incoming["to_count"] / incoming["from_count"]
+            status = "OK"
+            if freshness == "UNAVAILABLE" or observation.stage.value in {"LIVE", "PROFIT"}:
+                status = "BLOCKED"
+            elif freshness != "CURRENT" or lineage_status != "PROVEN" or observation.quality_code != "VERIFIED":
+                status = "WARNING"
+            stages.append({
+                "stage_order": stage_order,
+                "stage_code": observation.stage.value,
+                "stage_name": observation.stage.value,
+                "stage_count": observation.count,
+                "previous_stage_count": incoming["from_count"] if incoming else None,
+                "pass_rate_pct": pass_rate,
+                "stage_status": status,
+                "source_identity": observation.source_identity,
+                "source_as_of": observation.source_as_of,
+                "freshness_code": freshness,
+                "quality_code": observation.quality_code,
+                "reason_code": reason_code,
+                "net_pnl": observation.net_pnl,
+                "cost_impact": observation.cost_impact,
+            })
+        unverified = [row for row in transitions.values() if row["lineage_status"] != "PROVEN"]
+        reasons = ([{
+            "reason_group": "LIFECYCLE",
+            "rows_total": len(unverified),
+            "reason_values": len({row["reason_code"] for row in unverified}),
+            "action_target": "/workspace-v2/control-center",
+        }] if unverified else [])
+        return stages, reasons, not unverified
 
     @staticmethod
     def _shadow(cur) -> dict[str, Any]:
