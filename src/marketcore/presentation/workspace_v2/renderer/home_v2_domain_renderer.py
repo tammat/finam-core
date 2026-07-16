@@ -259,6 +259,66 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
     )
 
 
+def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
+    columns = (
+        ("priority", "column.operator.priority"),
+        ("action", "home.operator.action.title"),
+        ("reason", "home.operator.field.loss_source"),
+        ("effect", "home.operator.field.expected_profit_impact"),
+        ("confidence", "home.operator.field.confidence"),
+        ("status", "home.operator.field.policy_verdict"),
+        ("expires", "home.operator.field.expires_at"),
+    )
+    header = RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW,
+        "home.operator.actions.table.header",
+        children=tuple(
+            _content_node(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                f"home.operator.actions.table.header.{code}",
+                message_key=message_key,
+            )
+            for code, message_key in columns
+        ),
+    )
+    rows = []
+    for card in cards:
+        fields = {
+            label_key: (value, format_code)
+            for label_key, value, format_code in card.payload.get("operator_fields") or ()
+        }
+        action_value = card.payload.get("v2_value")
+        loss_value, _ = fields.get("home.operator.field.loss_source", (None, "DOMAIN_CODE"))
+        effect_value, _ = fields.get("home.operator.field.expected_profit_impact", (None, "MONEY_RUB"))
+        confidence_value, _ = fields.get("home.operator.field.confidence", (None, "PERCENT_RATIO"))
+        verdict_value, _ = fields.get("home.operator.field.policy_verdict", (None, "DOMAIN_CODE"))
+        expires_value, _ = fields.get("home.operator.field.expires_at", (None, "DATETIME"))
+        values = (
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.priority",value=card.priority,format_code="INTEGER"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.action",message_key=_operator_domain_message_key(action_value)),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.reason",message_key=_operator_domain_message_key(loss_value)),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.effect",message_key=_operator_domain_message_key("NO_DATA" if effect_value is None else effect_value) if effect_value is None else None,value=effect_value,format_code=None if effect_value is None else "MONEY_RUB"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.confidence",value=confidence_value,format_code="PERCENT_RATIO"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.status",message_key=_operator_domain_message_key(verdict_value)),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.expires",value=expires_value,format_code="DATETIME"),
+        )
+        rows.append(RenderNodeV2(
+            RenderNodeTypeV2.TABLE_ROW,
+            card.widget_id,
+            state=_card_state(card),
+            action=_card_action(card),
+            children=values,
+        ))
+    return RenderNodeV2(
+        RenderNodeTypeV2.TABLE,
+        "home.operator.actions.table",
+        children=(
+            RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"home.operator.actions.table.head",children=(header,)),
+            RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"home.operator.actions.table.body",children=tuple(rows)),
+        ),
+    )
+
+
 def render_home_domain_v2(
     view_model: HomeV2ViewModel,
     *,
@@ -280,6 +340,7 @@ def render_home_domain_v2(
 
     section_nodes: list[RenderNodeV2] = []
     for section in layout.ordered_sections():
+        ordered_cards = section.ordered_cards()
         section_nodes.append(
             RenderNodeV2(
                 node_type=RenderNodeTypeV2.SECTION,
@@ -300,8 +361,8 @@ def render_home_domain_v2(
                     RenderNodeV2(
                         node_type=RenderNodeTypeV2.GRID,
                         node_id=f"{section.section_id}.grid",
-                        children=tuple(_card_node(card) for card in section.ordered_cards()),
-                    ),
+                        children=tuple(_card_node(card) for card in ordered_cards),
+                    ) if section.section_id != "home.operator.actions" else _operator_action_table(ordered_cards),
                 ),
             )
         )

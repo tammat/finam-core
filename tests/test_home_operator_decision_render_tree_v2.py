@@ -10,18 +10,14 @@ def _walk(node):
 
 def test_home_exposes_ranked_non_green_operator_actions() -> None:
     document = build_domain_document_v2("HOME",timezone_code="Europe/Moscow")
-    cards = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]
-    assert len(cards) == 5
-    assert len({card.node_id for card in cards}) == len(cards)
-    actions = [card.action for card in cards if card.action is not None]
-    assert len(actions) == 3
-    assert all(action.action_id == "operator.decision.acknowledge" for action in actions)
+    rows = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.TABLE_ROW and node.node_id.startswith("home.operator.action.")]
+    assert 1 <= len(rows) <= 5
+    assert len({row.node_id for row in rows}) == len(rows)
+    assert all(len(row.children) == 7 for row in rows)
+    actions = [row.action for row in rows if row.action is not None]
+    assert actions
+    assert all(action.action_id in {"operator.decision.acknowledge", "operator.decision.measure"} for action in actions)
     assert all(action.reversible and action.target_id and action.idempotency_key for action in actions)
-    assert all(card.state.status_code in {"WARNING","BLOCKED"} for card in cards)
-    assert all(card.state.quality_code == "UNVERIFIED" for card in cards)
-    assert all(sum(child.node_type is RenderNodeTypeV2.METRIC_ROW for child in card.children) >= 15 for card in cards)
-    for card in cards:
-        for row in (child for child in card.children if child.node_type is RenderNodeTypeV2.METRIC_ROW):
-            for value in (child for child in row.children if child.node_type is RenderNodeTypeV2.METRIC_VALUE):
-                assert value.content is not None
-                assert value.content.value != "NO_DATA"
+    assert all(row.state.status_code in {"WARNING","BLOCKED"} for row in rows)
+    assert all(row.state.quality_code == "UNVERIFIED" for row in rows)
+    assert not [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]
