@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
-from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import ResearchAlgorithmResultV2,ResearchSnapshotV2
+from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,ResearchAlgorithmResultV2,ResearchSnapshotV2
 
 def _utc(value):
     if value is None: return None
@@ -49,4 +49,25 @@ class ResearchV2Resolver:
                     ORDER BY CASE strategy_family WHEN 'RSI' THEN 1 WHEN 'VWAP' THEN 2 WHEN 'BOLLINGER' THEN 3 WHEN 'MOMENTUM' THEN 4 ELSE 5 END
                 """)
                 algorithms=tuple(ResearchAlgorithmResultV2(str(row["strategy_family"]),int(row["markets"]),int(row["variants"]),int(row["best_folds"]),int(row["folds_total"]),float(row["best_profit_factor"]),int(row["passes"]),"PASS" if int(row["passes"]) else "NO_PASS",str(row["fail_reason"] or "NO_DATA")) for row in cursor.fetchall())
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),algorithms,now)
+                cursor.execute("""
+                    SELECT r.run_id,r.status_code,r.started_at,r.finished_at,
+                           count(s.step_run_id) FILTER (WHERE s.status_code='SUCCEEDED') steps_completed,
+                           count(s.step_run_id) steps_total,
+                           coalesce(extract(epoch FROM (coalesce(r.finished_at,clock_timestamp())-r.started_at)),0)::int duration_seconds,
+                           coalesce(a.outcome_code,r.status_code) outcome_code,
+                           coalesce(a.primary_reason_code,'ANALYSIS_PENDING') reason_code,
+                           coalesce(a.recommendation_code,'WAIT_FOR_SYSTEM_ANALYSIS') recommendation_code,
+                           coalesce(a.explanation_ru,'Системный анализ ещё не завершён') explanation_ru
+                    FROM analytics.edge_search_scenario_run_v1 r
+                    LEFT JOIN analytics.edge_search_step_run_v1 s ON s.run_id=r.run_id
+                    LEFT JOIN analytics.edge_search_run_analysis_v1 a ON a.run_id=r.run_id
+                    GROUP BY r.run_id,a.outcome_code,a.primary_reason_code,a.recommendation_code,a.explanation_ru
+                    ORDER BY r.started_at DESC LIMIT 10
+                """)
+                runs=tuple(EdgeSearchRunAuditV1(
+                    str(row["run_id"]),str(row["status_code"]),int(row["steps_completed"] or 0),
+                    int(row["steps_total"] or 0),int(row["duration_seconds"] or 0),str(row["outcome_code"]),
+                    str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
+                    _utc(row["started_at"]),
+                ) for row in cursor.fetchall())
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),algorithms,runs,now)

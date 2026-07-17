@@ -54,9 +54,12 @@ def load_scenario(connection):
     return {"config_version": row[0], "schedule_policy": row[1], "result_policy": row[2], "steps": steps}
 
 
-def persist_analysis(run_id, outcome, reason, markets, combinations, passes):
+def persist_analysis(run_id, outcome, reason, markets, combinations, passes, *, technical_step=None):
     failed = outcome != "PASS_FOUND"
+    technical_failure = outcome == "FAILED"
     explanation = (
+        f"Технический сбой этапа {technical_step or 'UNKNOWN'}; торговый результат не оценивался. Система повторит сценарий после исправления."
+        if technical_failure else
         "Найдено подтверждённое преимущество; допускается только дальнейшая стадия по политике PASS."
         if not failed else
         "Подтверждённое преимущество не найдено. Ограничения не ослабляются; причины сохранены для следующего системного цикла."
@@ -76,7 +79,8 @@ def persist_analysis(run_id, outcome, reason, markets, combinations, passes):
                   explanation_ru=EXCLUDED.explanation_ru
             """, (str(run_id),outcome,reason,json.dumps(["OOS_PASS"] if passes else []),
                   json.dumps([reason] if failed else []),json.dumps(evidence),
-                  "PROMOTE_CONFIRMED_PASS" if passes else "KEEP_GATES_AND_EXPAND_EVIDENCE",explanation))
+                  "FIX_EXECUTOR_AND_RETRY_SYSTEM_SCHEDULE" if technical_failure else
+                  ("PROMOTE_CONFIRMED_PASS" if passes else "KEEP_GATES_AND_EXPAND_EVIDENCE"),explanation))
 
 
 def session_freshness_minutes(now: datetime | None = None) -> int:
@@ -232,7 +236,10 @@ def main() -> int:
                 with psycopg2.connect("postgresql:///finam_core") as connection:
                     with connection.cursor() as cursor:
                         cursor.execute("UPDATE analytics.edge_search_scenario_run_v1 SET status_code='FAILED',finished_at=clock_timestamp() WHERE run_id=%s",(str(run_id),))
-                persist_analysis(run_id,"FAILED","EDGE_SEARCH_STEP_FAILED",markets_evaluated,combinations_evaluated,passes)
+                persist_analysis(
+                    run_id,"FAILED",f"EDGE_SEARCH_EXECUTOR_FAILED:{executor_code}",
+                    markets_evaluated,combinations_evaluated,passes,technical_step=executor_code,
+                )
                 return 2
     outcome = "NO_CURRENT_MARKETS" if markets_evaluated == 0 else ("PASS_FOUND" if passes else "NO_PASS")
     reason = {

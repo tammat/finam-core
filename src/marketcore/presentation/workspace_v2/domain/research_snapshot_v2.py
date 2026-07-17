@@ -15,6 +15,19 @@ class ResearchAlgorithmResultV2:
     fail_reason: str
 
 @dataclass(frozen=True, slots=True)
+class EdgeSearchRunAuditV1:
+    run_id: str
+    status: str
+    steps_completed: int
+    steps_total: int
+    duration_seconds: int
+    outcome: str
+    reason: str
+    recommendation: str
+    explanation: str
+    started_at: datetime | None
+
+@dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:
     supervisor_status: str
     active_symbols: int
@@ -39,4 +52,5 @@ class ResearchSnapshotV2:
     edge_search_pass: int
     edge_search_finished_at: datetime | None
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
+    edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
     generated_at: datetime

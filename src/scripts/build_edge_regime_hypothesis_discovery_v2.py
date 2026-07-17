@@ -55,7 +55,7 @@ def main() -> None:
                 LEFT JOIN public.futures_contract_universe u ON u.contract_symbol=b.symbol
                 WHERE b.timeframe='M5'
                   AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
-                  AND (b.symbol NOT LIKE '%@RTSX' OR coalesce(c.expiration_date,u.expiration_date) IS NOT NULL)
+                  AND (b.symbol NOT LIKE '%%@RTSX' OR coalesce(c.expiration_date,u.expiration_date) IS NOT NULL)
                 GROUP BY b.symbol,b.timeframe,c.root_symbol,u.root_symbol,c.expiration_date,u.expiration_date
                 HAVING count(*) >= %s
                    AND max(ts) >= clock_timestamp()-(%s * interval '1 minute')
