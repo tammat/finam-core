@@ -37,6 +37,8 @@ class ControlCenterV2Resolver:
                 shadow_process = self._shadow_process(cur)
                 shadow_alerts = self._shadow_alerts(cur)
                 forward_blockers = self._forward_blockers(cur)
+                forward_pass_process = self._forward_pass_process(cur)
+                forward_readiness = self._forward_readiness(cur)
 
         return {
             "quality": quality,
@@ -60,6 +62,8 @@ class ControlCenterV2Resolver:
             "shadow_process": shadow_process,
             "shadow_alerts": shadow_alerts,
             "forward_blockers": forward_blockers,
+            "forward_pass_process": forward_pass_process,
+            "forward_readiness": forward_readiness,
         }
 
     @staticmethod
@@ -608,4 +612,18 @@ class ControlCenterV2Resolver:
             FROM analytics.forward_edge_regime_promotion_gate_v1 g
             CROSS JOIN LATERAL jsonb_array_elements_text(g.reason_codes) reason(value)
             WHERE g.decision_code='HOLD_RESEARCH' GROUP BY reason.value ORDER BY count(*) DESC,reason.value""")
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _forward_pass_process(cur) -> list[dict[str, Any]]:
+        cur.execute("""SELECT step_order,step_code,status_code,progress_pct,item_count,
+                       reason_code,source_as_of
+                FROM analytics.forward_pass_stage_status_v1 ORDER BY step_order""")
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _forward_readiness(cur) -> list[dict[str, Any]]:
+        cur.execute("""SELECT readiness_rank,policy_code,closed_observations,calendar_days,
+                       tested_regimes,overall_progress_pct,decision_code,reason_codes
+                FROM analytics.forward_pass_readiness_v1 ORDER BY readiness_rank LIMIT 10""")
         return [dict(row) for row in cur.fetchall()]

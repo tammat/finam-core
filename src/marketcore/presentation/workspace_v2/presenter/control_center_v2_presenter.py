@@ -123,6 +123,8 @@ class ControlCenterV2Presenter:
             shadow_process=tuple(data["shadow_process"]),
             shadow_alerts=tuple(data["shadow_alerts"]),
             forward_blockers=tuple(data["forward_blockers"]),
+            forward_pass_process=tuple(data["forward_pass_process"]),
+            forward_readiness=tuple(data["forward_readiness"]),
         )
 
     @staticmethod

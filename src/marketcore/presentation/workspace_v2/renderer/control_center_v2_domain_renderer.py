@@ -350,6 +350,8 @@ def render_control_center_domain_v2(
 ) -> RenderDocumentV2:
     now = _utc(generated_at) or datetime.now(timezone.utc)
     raw_sections: tuple[tuple[str, tuple[dict[str, Any], ...]], ...] = (
+        ("forward_pass_process", tuple(view_model.forward_pass_process)),
+        ("forward_readiness", tuple(view_model.forward_readiness)),
         ("shadow_process", tuple(view_model.shadow_process)),
         ("shadow_alerts", tuple(view_model.shadow_alerts)),
         ("forward_blockers", tuple(view_model.forward_blockers)),

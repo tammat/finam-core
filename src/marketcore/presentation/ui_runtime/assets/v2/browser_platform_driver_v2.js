@@ -293,6 +293,18 @@
                 value.textContent = label;
                 element.append(progress, value);
             }
+            if (node.type === "table_cell" && node.content && node.content.column_code === "progress_pct") {
+                const numeric = Math.max(0, Math.min(100, Number(node.content.value || 0)));
+                element.textContent = "";
+                element.classList.add("mc-progress-cell");
+                const progress = this.documentObject.createElement("progress");
+                progress.max = 100;
+                progress.value = numeric;
+                progress.setAttribute("aria-label", `${numeric} %`);
+                const value = this.documentObject.createElement("span");
+                value.textContent = `${numeric.toLocaleString(undefined, {maximumFractionDigits: 1})} %`;
+                element.append(progress, value);
+            }
             while (this.stack.length > context.depth) this.stack.pop();
             const parent = this.stack.length === 0 ? this.mountElement : this.stack[this.stack.length - 1];
             parent.appendChild(element);

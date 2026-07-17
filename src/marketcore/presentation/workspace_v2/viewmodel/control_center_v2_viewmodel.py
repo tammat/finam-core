@@ -84,3 +84,5 @@ class ControlCenterV2ViewModel:
     shadow_process: tuple[dict[str, Any], ...]
     shadow_alerts: tuple[dict[str, Any], ...]
     forward_blockers: tuple[dict[str, Any], ...]
+    forward_pass_process: tuple[dict[str, Any], ...]
+    forward_readiness: tuple[dict[str, Any], ...]

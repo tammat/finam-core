@@ -16,6 +16,9 @@ ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
+    "FORWARD_EVIDENCE_PIPELINE_V1": "src/scripts/run_forward_evidence_pipeline_v1.py",
+    "FORWARD_PASS_PROGRESS_V1": "src/scripts/build_forward_pass_progress_v1.py",
+    "FORWARD_REMEDIATION_SCENARIOS_V1": "src/scripts/generate_forward_remediation_scenarios_v1.py",
     "FORWARD_PASS_SHADOW_OBSERVER_V2": "src/scripts/run_forward_pass_shadow_observer_v2.py",
     "SHADOW_PIPELINE_MONITOR_V1": "src/scripts/monitor_shadow_pipeline_v1.py",
     "SHADOW_PASS_EVALUATOR_V1": "src/scripts/evaluate_shadow_pass_v1.py",
@@ -44,7 +47,7 @@ def main() -> int:
             for job in jobs:
                 if job["executor_code"] not in EXECUTORS:
                     raise RuntimeError("SYSTEM_JOB_EXECUTOR_NOT_ALLOWED:"+job["executor_code"])
-                cursor.execute("SELECT max(started_at) last_started FROM analytics.system_job_run_v1 WHERE job_code=%s", (job["job_code"],))
+                cursor.execute("SELECT max(started_at) last_started FROM analytics.system_job_run_v1 WHERE job_code=%s AND status_code='COMPLETE'", (job["job_code"],))
                 last_started = cursor.fetchone()["last_started"]
                 now = datetime.now(ZoneInfo("UTC"))
                 if not due(job, now, last_started):
