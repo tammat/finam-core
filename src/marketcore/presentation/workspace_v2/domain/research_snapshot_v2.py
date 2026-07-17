@@ -57,6 +57,7 @@ class ResearchSnapshotV2:
     edge_search_finished_at: datetime | None
     next_plan_items: int
     next_plan_variants: int
+    edge_auto_queue: int
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
     generated_at: datetime

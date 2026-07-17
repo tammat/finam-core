@@ -27,7 +27,15 @@ def main() -> int:
                 ORDER BY r.readiness_rank LIMIT 5""")
             candidates = cur.fetchall()
             if not candidates:
-                raise RuntimeError("FORWARD_REMEDIATION_NO_READINESS_DATA")
+                cur.execute("""UPDATE analytics.forward_pass_stage_status_v1 SET
+                    status_code='WAITING',progress_pct=0,item_count=0,
+                    reason_code='AWAITING_FORWARD_READINESS',
+                    evidence=%s,updated_at=clock_timestamp() WHERE step_order=5""",
+                    (json.dumps({"selection_uses_final_holdout":False,"scenarios":0}),))
+                print("scenarios=0")
+                print("reason=FORWARD_REMEDIATION_NO_READINESS_DATA")
+                print("VERDICT=FORWARD_REMEDIATION_SCENARIOS_V1_OK")
+                return 0
             for row in candidates:
                 reasons = list(row["reason_codes"] or [])
                 if "INSUFFICIENT_CLOSED_OBSERVATIONS" in reasons or "INSUFFICIENT_CALENDAR_DAYS" in reasons:

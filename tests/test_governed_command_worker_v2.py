@@ -1,10 +1,26 @@
 from uuid import uuid4
 
 import psycopg2
+import pytest
 
 from marketcore.action.command_worker_v2 import GovernedCommandWorkerV2, PostgresPendingRequestRollbackHandlerV2
 from marketcore.action.contract_v2 import ActionActorKindV2, ActionIntentV2, InteractionKindV2
 from marketcore.presentation.render_tree.v2 import ActionKindV2
+
+
+def _cleanup_test_worker() -> None:
+    with psycopg2.connect("postgresql:///finam_core") as c:
+        with c.cursor() as x:
+            x.execute("DELETE FROM marketcore_action.command_request_v2 WHERE actor_id='test.worker'")
+            x.execute("DELETE FROM marketcore_action.research_process_event_v1 WHERE process_id IN (SELECT process_id FROM marketcore_action.research_process_v1 WHERE actor_id='test.worker')")
+            x.execute("DELETE FROM marketcore_action.research_process_v1 WHERE actor_id='test.worker'")
+
+
+@pytest.fixture(autouse=True)
+def clean_test_worker_rows():
+    _cleanup_test_worker()
+    yield
+    _cleanup_test_worker()
 
 
 class Executor:

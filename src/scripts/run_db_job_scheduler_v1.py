@@ -16,6 +16,7 @@ ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
+    "EDGE_SEARCH_AUTO_ENQUEUE_V1": "src/scripts/enqueue_scheduled_edge_search_v1.py",
     "EDGE_SEARCH_QUEUE_MONITOR_V1": "src/scripts/monitor_edge_search_command_queue_v1.py",
     "EDGE_SEARCH_COMMAND_QUEUE_V1": "src/scripts/run_edge_search_command_queue_v1.py",
     "FORWARD_COHORT_RECONCILIATION_V1": "src/scripts/reconcile_forward_cohort_v1.py",
