@@ -28,6 +28,7 @@ EXECUTORS = {
     "PROJECT_SHADOW": "src/scripts/project_forward_edge_shadow_trades_v1.py",
     "ADMIT_PAPER": "src/scripts/build_profit_funnel_shadow_paper_admission_v2.py",
     "BUILD_LINEAGE": "src/scripts/build_profit_funnel_transition_lineage_v2.py",
+    "ANALYZE_RESULTS": "src/scripts/analyze_edge_search_results_v1.py",
 }
 
 
@@ -130,6 +131,7 @@ def main() -> int:
         "REAL_TRADING_ENABLED": "0",
         "PYTHONDONTWRITEBYTECODE": "1",
         "EDGE_SEARCH_FRESHNESS_MINUTES": str(freshness_minutes),
+        "EDGE_SEARCH_SCENARIO_RUN_ID": str(run_id),
     })
     with psycopg2.connect("postgresql:///finam_core") as lock_connection:
         with lock_connection.cursor() as cursor:
@@ -208,6 +210,9 @@ def main() -> int:
                     combinations_evaluated += output_metric(result.stdout,"strategy_regime_pairs")
                     passes += output_metric(result.stdout,"oos_pass")
                 elif step.endswith("build_walkforward_edge_search_v3.py"):
+                    match = re.findall(r"(?m)^search_run_id=([0-9a-f-]{36})$", result.stdout)
+                    if match:
+                        env["EDGE_SEARCH_WALKFORWARD_RUN_ID"] = match[-1]
                     combinations_evaluated += output_metric(result.stdout,"candidates_evaluated")
                     passes += output_metric(result.stdout,"oos_pass")
                 record_status(
