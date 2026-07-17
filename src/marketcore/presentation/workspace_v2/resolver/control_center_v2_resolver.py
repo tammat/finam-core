@@ -640,7 +640,10 @@ class ControlCenterV2Resolver:
         cur.execute("""SELECT p.step_order,p.title_ru step,
                    coalesce(r.status_code,'PENDING') status_code,
                    CASE coalesce(r.status_code,'PENDING') WHEN 'SUCCEEDED' THEN 100 WHEN 'RUNNING' THEN 50 ELSE 0 END progress_pct,
-                   r.duration_ms,coalesce(r.metrics,'{}'::jsonb) result
+                   r.duration_ms,
+                   coalesce((r.metrics->>'markets')::integer,0) markets_evaluated,
+                   coalesce((r.metrics->>'candidates_evaluated')::integer,0) combinations_evaluated,
+                   coalesce((r.metrics->>'oos_pass')::integer,0) oos_pass
             FROM analytics.edge_search_scenario_step_v1 p
             LEFT JOIN analytics.edge_search_step_run_v1 r ON r.run_id=%s AND r.step_order=p.step_order
             WHERE p.scenario_code='AUTONOMOUS_EDGE_SEARCH' AND p.enabled ORDER BY p.step_order""",(run_id,))

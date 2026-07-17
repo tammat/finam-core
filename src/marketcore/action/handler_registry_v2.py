@@ -67,12 +67,18 @@ class PostgresCommandRequestHandlerV2:
                     INSERT INTO marketcore_action.command_request_v2 (
                         request_id,action_id,request_kind,command_code,actor_id,target_id,status,requested_at
                     ) VALUES (%s,%s,%s,%s,%s,%s,'PENDING',clock_timestamp())
-                    ON CONFLICT (request_id) DO NOTHING
+                    ON CONFLICT DO NOTHING
                     RETURNING request_id
                     """,
                     (request_id, intent.action_id, definition.request_kind, definition.command_code, intent.actor_id, intent.target_id),
                 )
                 row = cursor.fetchone()
                 if row is None:
-                    raise ValueError("COMMAND_REQUEST_DUPLICATE")
+                    cursor.execute("""SELECT request_id FROM marketcore_action.command_request_v2
+                        WHERE request_kind=%s AND status IN ('PENDING','RUNNING')
+                        ORDER BY requested_at LIMIT 1""",(definition.request_kind,))
+                    active=cursor.fetchone()
+                    if active is None:
+                        raise ValueError("COMMAND_REQUEST_DUPLICATE")
+                    request_id=str(active[0])
         return request_id

@@ -32,6 +32,7 @@
         let currentTargetId = initialTargetId;
         let currentEndpoint = ENDPOINT_BY_TARGET[currentTargetId];
         const navigationStack = [];
+        let refreshInFlight = false;
 
         const updateBackButton = () => {
             if (!backButton) return;
@@ -45,7 +46,7 @@
 
         const render = async (endpoint) => {
             currentEndpoint = endpoint;
-            return globalObject.MarketCoreBrowserBootstrapV2.start({
+            const result = await globalObject.MarketCoreBrowserBootstrapV2.start({
             endpoint: currentEndpoint,
             documentObject: globalObject.document,
             mountElement,
@@ -53,6 +54,8 @@
             format: services.format,
             actionSink
             });
+            mountElement.setAttribute("data-runtime-status", "READY");
+            return result;
         };
 
         actionSink = globalObject.MarketCoreBrowserActionControllerV2.create({
@@ -90,6 +93,15 @@
         await render(currentEndpoint);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
+        globalObject.setInterval(async () => {
+            if (refreshInFlight || globalObject.document.visibilityState !== "visible") return;
+            if (!currentTargetId || !["container.edge", "container.research"].includes(currentTargetId)) return;
+            if (globalObject.document.querySelector("[role='dialog']")) return;
+            refreshInFlight = true;
+            try { await render(currentEndpoint); }
+            catch (error) { globalObject.console.error("MARKETCORE_AUTO_REFRESH_FAILED", error); }
+            finally { refreshInFlight = false; }
+        }, 5000);
     }
 
     const launch = () => start().catch((error) => {
