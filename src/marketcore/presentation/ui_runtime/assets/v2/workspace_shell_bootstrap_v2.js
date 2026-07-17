@@ -33,7 +33,12 @@
         const navigationStack = [];
 
         const updateBackButton = () => {
-            if (backButton) backButton.hidden = navigationStack.length === 0;
+            if (!backButton) return;
+            const atHome = currentTargetId === "container.home" && navigationStack.length === 0;
+            backButton.hidden = false;
+            backButton.disabled = atHome;
+            backButton.textContent = navigationStack.length > 0 ? "← Назад" : "← Главная";
+            backButton.setAttribute("aria-label", atHome ? "Вы на главной странице" : backButton.textContent);
         };
 
         const render = async (endpoint) => {
@@ -67,8 +72,8 @@
 
         if (backButton) backButton.addEventListener("click", async () => {
             const previousTargetId = navigationStack.pop();
-            if (!previousTargetId) return updateBackButton();
-            currentTargetId = previousTargetId;
+            if (!previousTargetId && currentTargetId === "container.home") return updateBackButton();
+            currentTargetId = previousTargetId || "container.home";
             await render(ENDPOINT_BY_TARGET[currentTargetId]);
             updateBackButton();
         });

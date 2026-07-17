@@ -90,6 +90,8 @@ body {
     pointer-events: auto;
 }
 #marketcore-workspace-back:hover { border-color: #55e0c5; background: #154049; }
+#marketcore-workspace-back:disabled { cursor: default; opacity: .45; border-color: #344b55; background: #10222b; }
+#marketcore-workspace-back:disabled:hover { border-color: #344b55; background: #10222b; }
 #marketcore-workspace-back[hidden] { display: none; }
 
 [data-marketcore-ui-runtime="v2"] { min-height: 100vh; overflow-x: hidden; }

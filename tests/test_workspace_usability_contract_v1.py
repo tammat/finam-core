@@ -23,4 +23,4 @@ def test_first_click_selects_and_double_click_activates_with_feedback() -> None:
 def test_asset_versions_force_safari_to_load_fixed_handlers() -> None:
     shell=Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_v2.html").read_text()
     assert "browser-platform-driver.js?v=20260717.2" in shell
-    assert "workspace.css?v=20260717.8" in shell
+    assert "workspace.css?v=20260717.9" in shell
