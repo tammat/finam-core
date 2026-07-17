@@ -24,7 +24,8 @@ def test_research_page_exposes_edge_search_button() -> None:
     assert "EDGE_SEARCH_COMMAND_QUEUE_V1" in scheduler
     resolver = Path("src/marketcore/presentation/workspace_v2/resolver/research_v2_resolver.py").read_text()
     assert "edge_search_cycle_status_v1" in resolver
-    assert 'edge_search_status' in renderer
+    assert 's.edge_search_progress_pct' in renderer
+    assert 'RenderNodeTypeV2.GRID,"research.tiles"' in renderer
 
 
 def test_command_request_schema_allows_edge_search() -> None:

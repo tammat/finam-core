@@ -3,6 +3,8 @@ INSERT INTO presentation.ui_resource_v1
 ('research.domain.ok','ru','Работает','Работает','ОК','','','research'),
 ('research.domain.succeeded','ru','Выполнено','Готово','Готово','','','research'),
 ('research.domain.failed','ru','Ошибка','Ошибка','Ошибка','','','research'),
+('research.domain.running','ru','Выполняется','Выполняется','В работе','','','research'),
+('research.domain.pending','ru','Ожидает','Ожидает','Очередь','','','research'),
 ('research.domain.no_pass','ru','Нет PASS','Нет PASS','Нет PASS','','','research'),
 ('research.domain.pass','ru','PASS','PASS','PASS','','','research'),
 ('research.domain.complete','ru','Завершён','Завершён','Готово','','','research'),
@@ -36,9 +38,27 @@ ON CONFLICT(resource_key,locale_code) DO UPDATE SET
 
 INSERT INTO presentation.ui_resource_v1
 (resource_key,locale_code,caption,caption_short,caption_mobile,tooltip,icon,resource_group) VALUES
+('research.tile.instruments','ru','Инструменты','Инструменты','Инстр.','','','research'),
+('research.tile.errors','ru','Ошибки','Ошибки','Ошибки','','','research'),
+('research.tile.candidates','ru','Кандидаты','Кандидаты','Кандид.','','','research'),
+('research.tile.oos_pass','ru','OOS PASS','OOS PASS','PASS','','','research'),
+('research.tile.paper_ready','ru','Мод. сделки','Мод. сделки','Мод.','','','research'),
+('research.tile.queue','ru','В очереди','В очереди','Очередь','','','research'),
+('research.tile.markets','ru','Рынки','Рынки','Рынки','','','research'),
+('research.tile.variants','ru','Варианты','Варианты','Вариант.','','','research'),
+('research.tile.pass','ru','Найдено PASS','PASS','PASS','','','research'),
+('research.tile.progress','ru','Прогресс, %','Прогресс, %','Прогр.','','','research')
+ON CONFLICT(resource_key,locale_code) DO UPDATE SET
+ caption=EXCLUDED.caption,caption_short=EXCLUDED.caption_short,caption_mobile=EXCLUDED.caption_mobile,
+ tooltip=EXCLUDED.tooltip,icon=EXCLUDED.icon,resource_group=EXCLUDED.resource_group;
+
+INSERT INTO presentation.ui_resource_v1
+(resource_key,locale_code,caption,caption_short,caption_mobile,tooltip,icon,resource_group) VALUES
 ('research.domain.ok.tooltip','ru','Управляющий процесс работает штатно','Управляющий процесс работает штатно','Процесс работает','','','research'),
 ('research.domain.succeeded.tooltip','ru','Системный цикл успешно завершён','Системный цикл успешно завершён','Цикл завершён','','','research'),
 ('research.domain.failed.tooltip','ru','Системный цикл завершился с ошибкой','Системный цикл завершился с ошибкой','Ошибка цикла','','','research'),
+('research.domain.running.tooltip','ru','Системный процесс выполняется','Системный процесс выполняется','Выполняется','','','research'),
+('research.domain.pending.tooltip','ru','Заявка ожидает выполнения планировщиком','Заявка ожидает выполнения','Ожидает','','','research'),
 ('research.domain.no_pass.tooltip','ru','Ни один вариант не получил подтверждение PASS','Ни один вариант не получил подтверждение PASS','Нет PASS','','','research'),
 ('research.domain.pass.tooltip','ru','Преимущество подтверждено проверкой','Преимущество подтверждено проверкой','PASS подтверждён','','','research'),
 ('research.domain.complete.tooltip','ru','Все этапы поиска завершены','Все этапы поиска завершены','Поиск завершён','','','research'),

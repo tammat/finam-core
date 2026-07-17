@@ -45,6 +45,53 @@
             this.announce(hint);
         }
 
+        openResearchActions(row, emit) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "research");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = "Рекомендуемые действия";
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = "Выберите процесс. Заявку выполнит системный планировщик.";
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const options = [
+                {label: "Запустить поиск", detail: "Повторить полный безопасный цикл", run: () => emit("DOUBLE_CLICK")},
+                {label: "Обновить данные", detail: "Пересчитать исследовательские источники", run: () => this.actionSink({
+                    actionId: "research.request.refresh", actionKind: "COMMAND", interactionKind: "DOUBLE_CLICK",
+                    commandCode: "RESEARCH.REQUEST_REFRESH", policyClass: "RESEARCH_MAINTENANCE",
+                    requiresApproval: false, reversible: true,
+                    rollbackCode: "RESEARCH.CANCEL_PENDING_REQUEST", idempotencyKey: "client.request"
+                })}
+            ];
+            options.forEach((option) => {
+                const button = this.documentObject.createElement("button");
+                button.type = "button";
+                button.className = "mc-action-dialog-item";
+                button.innerHTML = `<strong>${option.label}</strong><span>${option.detail}</span>`;
+                button.addEventListener("click", async () => {
+                    if (!globalObject.confirm(`Подтвердить: ${option.label}?`)) return;
+                    button.disabled = true;
+                    this.announce("Заявка ставится в очередь…", "RUNNING");
+                    try {
+                        await option.run();
+                        dialog.close(); dialog.remove();
+                        this.announce("Заявка принята системой", "SUCCESS");
+                    } catch (error) {
+                        button.disabled = false;
+                        this.announce("Не удалось поставить заявку в очередь", "ERROR");
+                    }
+                });
+                list.appendChild(button);
+            });
+            const close = this.documentObject.createElement("button");
+            close.type = "button"; close.className = "mc-action-dialog-close"; close.textContent = "Закрыть";
+            close.addEventListener("click", () => { dialog.close(); dialog.remove(); });
+            dialog.append(title, hint, list, close);
+            this.documentObject.body.appendChild(dialog);
+            dialog.showModal();
+        }
+
         async activateInteractive(element, emit, interactionKind, pendingLabel) {
             if (element.getAttribute("aria-busy") === "true") return;
             element.setAttribute("aria-busy", "true");
@@ -247,7 +294,14 @@
                     }
                     if (isTableRow) {
                         element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть рекомендуемые действия"));
-                        element.addEventListener("dblclick", () => this.openRecommendedActions(element));
+                        element.addEventListener("dblclick", (event) => {
+                            const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
+                            const isResearchRow = element.getAttribute("data-mc-node-id")?.startsWith("research.audit.");
+                            const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
+                            if (isResearchRow && isRecommendation) this.openResearchActions(element, emit);
+                            else if (isResearchRow) this.announce("Запуск доступен двойным кликом в колонке «Далее»");
+                            else this.openRecommendedActions(element);
+                        });
                     } else if (isContainer) {
                         element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть раздел"));
                         element.addEventListener("dblclick", () => this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"));
@@ -286,7 +340,11 @@
                     "Принято к рассмотрению": 50,
                     "Результат измерен": 100,
                     "Заблокировано": 0,
-                    "Просрочено": 0
+                    "Просрочено": 0,
+                    "Выполнено": 100,
+                    "Ошибка": 0,
+                    "Выполняется": 50,
+                    "Ожидает": 10
                 };
                 element.textContent = "";
                 const progress = this.documentObject.createElement("progress");

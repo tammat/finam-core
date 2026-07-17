@@ -7,7 +7,7 @@ def test_double_click_opens_prioritized_operator_action_dialog() -> None:
     assert 'cell.textContent.trim() === "Требуется решение оператора"' in source
     assert ".filter(requiresOperator)" in source
     assert ".sort((left, right) => Number(left.cells[0]?.textContent" in source
-    assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
+    assert 'else this.openRecommendedActions(element);' in source
     assert "globalObject.confirm" in source
     assert '"Принять рекомендацию"' in source
     assert '"Проверить результат"' in source

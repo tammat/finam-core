@@ -33,6 +33,7 @@
         let currentEndpoint = ENDPOINT_BY_TARGET[currentTargetId];
         const navigationStack = [];
         let refreshInFlight = false;
+        let researchRefreshTimer = null;
 
         const updateBackButton = () => {
             if (!backButton) return;
@@ -55,6 +56,14 @@
             actionSink
             });
             mountElement.setAttribute("data-runtime-status", "READY");
+            if (researchRefreshTimer) globalObject.clearInterval(researchRefreshTimer);
+            researchRefreshTimer = currentTargetId === "container.research"
+                ? globalObject.setInterval(() => {
+                    if (refreshInFlight) return;
+                    refreshInFlight = true;
+                    render(currentEndpoint).finally(() => { refreshInFlight = false; });
+                }, 10000)
+                : null;
             return result;
         };
 

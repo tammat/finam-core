@@ -9,7 +9,8 @@ def test_rows_and_clickable_containers_require_double_click() -> None:
     assert 'const isTableRow = node.type === "table_row";' in source
     assert 'const isContainer = node.type === "card";' in source
     assert "const requiresDoubleClick = isTableRow || isContainer || isCommandButton;" in source
-    assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
+    assert 'if (isResearchRow && isRecommendation) this.openResearchActions(element, emit);' in source
+    assert 'else this.openRecommendedActions(element);' in source
     assert 'element.addEventListener("dblclick", () => this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"));' in source
     assert 'if (isTableRow) this.openRecommendedActions(element);' in source
     assert 'else if (isContainer) this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…");' in source
