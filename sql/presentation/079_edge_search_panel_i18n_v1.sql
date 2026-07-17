@@ -3,6 +3,7 @@ INSERT INTO presentation.ui_resource_v1
 ('research.control.section.edge_search_process.title','ru','Этапы поиска замены','Этапы поиска','Поиск','Выполнение системного сценария поиска edge.','','control'),
 ('research.control.section.edge_search_results.title','ru','Результат поиска','Результат','Итог','Последний сохранённый результат системного цикла.','','control'),
 ('research.action.run_edge_search','ru','Поставить поиск в очередь','Запланировать поиск','Поиск','Создать аудируемую заявку; система выполнит её в окно низкой нагрузки.','','action'),
+('research.action.cancel_edge_search','ru','Отменить ожидающий поиск','Отменить поиск','Отмена','Отменяется только заявка, которая ещё не запущена.','','action'),
 ('column.step','ru','Этап','Этап','Этап','','','column'),
 ('column.duration.ms','ru','Время, мс','Время','Время','','','column'),
 ('column.result','ru','Результат','Результат','Итог','','','column'),

@@ -118,6 +118,8 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
     )
     request_accepted = result.status.value == "EXECUTED" and action_kind == "COMMAND"
     request_status = "PENDING" if request_accepted else None
+    if request_accepted and definition.request_kind == "EDGE_SEARCH_CANCEL":
+        request_status = GovernedCommandWorkerV2().run_once(request_id=request_id)
     if request_accepted and operator_request_id and operator_request_kind:
         request_status = GovernedCommandWorkerV2().run_once(request_id=operator_request_id)
     return _response(

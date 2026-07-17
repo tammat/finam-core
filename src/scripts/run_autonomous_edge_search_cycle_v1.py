@@ -185,6 +185,7 @@ def reconcile_stale_runs(connection) -> int:
 def main() -> int:
     cycle_id = uuid.uuid4()
     run_id = uuid.uuid4()
+    request_id = os.getenv("EDGE_SEARCH_REQUEST_ID")
     freshness_minutes = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", str(session_freshness_minutes())))
     env = os.environ.copy()
     env.update({
@@ -199,6 +200,12 @@ def main() -> int:
     })
     with psycopg2.connect("postgresql:///finam_core") as lock_connection:
         with lock_connection.cursor() as cursor:
+            if request_id:
+                cursor.execute("""INSERT INTO marketcore_action.edge_search_request_run_v1(request_id,cycle_id,run_id)
+                    VALUES(%s,%s,%s) ON CONFLICT(request_id) DO UPDATE SET cycle_id=EXCLUDED.cycle_id,
+                    run_id=EXCLUDED.run_id,updated_at=clock_timestamp()""",
+                    (request_id,str(cycle_id),str(run_id)))
+                lock_connection.commit()
             cursor.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_ID,))
             if not cursor.fetchone()[0]:
                 print("cycle_skipped=1")

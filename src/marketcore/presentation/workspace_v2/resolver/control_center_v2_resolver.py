@@ -634,9 +634,11 @@ class ControlCenterV2Resolver:
 
     @staticmethod
     def _edge_search_process(cur) -> list[dict[str, Any]]:
-        cur.execute("SELECT run_id FROM analytics.edge_search_scenario_run_v1 ORDER BY started_at DESC LIMIT 1")
+        cur.execute("""SELECT l.run_id,q.status FROM marketcore_action.command_request_v2 q
+            LEFT JOIN marketcore_action.edge_search_request_run_v1 l USING(request_id)
+            WHERE q.request_kind='EDGE_SEARCH_RUN' ORDER BY q.requested_at DESC LIMIT 1""")
         latest=cur.fetchone()
-        run_id=latest["run_id"] if latest else None
+        run_id=latest["run_id"] if latest and latest["status"] not in ('PENDING','CANCELLED') else None
         cur.execute("""SELECT p.step_order,p.title_ru step,
                    coalesce(r.status_code,'PENDING') status_code,
                    CASE coalesce(r.status_code,'PENDING') WHEN 'SUCCEEDED' THEN 100 WHEN 'RUNNING' THEN 50 ELSE 0 END progress_pct,
@@ -651,16 +653,18 @@ class ControlCenterV2Resolver:
 
     @staticmethod
     def _edge_search_results(cur) -> list[dict[str, Any]]:
-        cur.execute("""SELECT (SELECT status FROM marketcore_action.command_request_v2
-                              WHERE request_kind='EDGE_SEARCH_RUN' ORDER BY requested_at DESC LIMIT 1) command_status,
-                   (SELECT requested_at FROM marketcore_action.command_request_v2
-                              WHERE request_kind='EDGE_SEARCH_RUN' ORDER BY requested_at DESC LIMIT 1) requested_at,
+        cur.execute("""WITH request AS (
+                   SELECT q.request_id,q.status,q.requested_at,l.cycle_id,l.run_id
+                   FROM marketcore_action.command_request_v2 q
+                   LEFT JOIN marketcore_action.edge_search_request_run_v1 l USING(request_id)
+                   WHERE q.request_kind='EDGE_SEARCH_RUN' ORDER BY q.requested_at DESC LIMIT 1)
+            SELECT request.status command_status,request.requested_at,
                    c.status_code,c.current_step,c.progress_pct,c.markets_evaluated,
                    c.combinations_evaluated,c.oos_pass,c.reason_code,c.started_at,c.finished_at,
                    a.outcome_code,a.recommendation_code,a.explanation_ru
-            FROM analytics.edge_search_cycle_status_v1 c
-            LEFT JOIN analytics.edge_search_scenario_run_v1 r USING(cycle_id)
-            LEFT JOIN analytics.edge_search_run_analysis_v1 a USING(run_id)
-            ORDER BY c.started_at DESC LIMIT 1""")
+            FROM request LEFT JOIN analytics.edge_search_cycle_status_v1 c ON c.cycle_id=request.cycle_id
+            LEFT JOIN analytics.edge_search_scenario_run_v1 r ON r.run_id=request.run_id
+            LEFT JOIN analytics.edge_search_run_analysis_v1 a ON a.run_id=request.run_id
+            LIMIT 1""")
         row=cur.fetchone()
         return [dict(row)] if row else []

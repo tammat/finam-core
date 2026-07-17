@@ -418,6 +418,13 @@ def render_control_center_domain_v2(
                                 idempotency_key="client.request",
                             ),
                         ),
+                        RenderNodeV2(
+                            RenderNodeTypeV2.ACTION,"control.action.edge_search_cancel",
+                            content=RenderContentV2(message_key="research.action.cancel_edge_search"),
+                            action=RenderActionV2("research.edge_search.cancel",ActionKindV2.COMMAND,
+                                command_code="RESEARCH.CANCEL_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",
+                                requires_approval=True,idempotency_key="client.request"),
+                        ),
                         *tuple(_table_section(code, rows) for code, rows in raw_sections),
                     ),
                 ),

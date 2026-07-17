@@ -99,14 +99,21 @@ class GovernedCommandWorkerV2:
             return self._acknowledge_operator_decision(row)
         if row["request_kind"] == "OPERATOR_DECISION_MEASURE":
             return self._measure_operator_decision(row)
+        if row["request_kind"] == "EDGE_SEARCH_CANCEL":
+            return self._cancel_edge_search(row)
         if command is None:
             return self._finish(row, False, None, "WORKER_REQUEST_KIND_FORBIDDEN")
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
         try:
+            if row["request_kind"] == "EDGE_SEARCH_RUN":
+                os.environ["EDGE_SEARCH_REQUEST_ID"] = str(row["request_id"])
             result = self._executor.execute(command)
         except Exception as exc:
             failure = str(exc).strip() or type(exc).__name__
             return self._finish(row, False, None, failure[:256])
+        finally:
+            if row["request_kind"] == "EDGE_SEARCH_RUN":
+                os.environ.pop("EDGE_SEARCH_REQUEST_ID", None)
         return self._finish(row, True, result, None)
 
     def _acknowledge_operator_decision(self, row) -> str:
@@ -135,6 +142,19 @@ class GovernedCommandWorkerV2:
             return self._finish(row, True, f"acknowledged:{selected[0]}", None)
         except Exception as exc:
             return self._finish(row, False, None, str(exc)[:256])
+
+    def _cancel_edge_search(self, row) -> str:
+        with psycopg2.connect("postgresql:///finam_core") as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""UPDATE marketcore_action.command_request_v2 SET status='CANCELLED',
+                    finished_at=clock_timestamp(),result_reference=%s
+                    WHERE request_id=(SELECT request_id FROM marketcore_action.command_request_v2
+                      WHERE request_kind='EDGE_SEARCH_RUN' AND status='PENDING'
+                      ORDER BY requested_at DESC LIMIT 1) RETURNING request_id""",(f"cancelled_by:{row['request_id']}",))
+                cancelled=cursor.fetchone()
+        if cancelled is None:
+            return self._finish(row,False,None,"EDGE_SEARCH_PENDING_REQUEST_NOT_FOUND")
+        return self._finish(row,True,f"cancelled:{cancelled[0]}",None)
 
     def _measure_operator_decision(self, row) -> str:
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
