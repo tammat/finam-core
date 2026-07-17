@@ -3,6 +3,8 @@ from __future__ import annotations
 import statistics
 import uuid
 import os
+import math
+from collections import defaultdict
 
 import psycopg2
 import psycopg2.extras
@@ -40,6 +42,33 @@ def failure_reason(aggregate, folds_passed: int, final_holdout: bool, gate: dict
     if not final_holdout:
         return "FINAL_HOLDOUT_FAILED"
     return "WALKFORWARD_STABILITY_GATE_FAILED"
+
+
+def methodology_evidence(trades, bars) -> dict:
+    pnls = [float(trade.net_pnl) for trade in trades]
+    mean = statistics.fmean(pnls) if pnls else 0.0
+    stdev = statistics.pstdev(pnls) if len(pnls) > 1 else 0.0
+    z_score = mean / (stdev / math.sqrt(len(pnls))) if stdev > 0 else 0.0
+    p_value = 0.5 * math.erfc(z_score / math.sqrt(2.0)) if z_score > 0 else 1.0
+    stressed = [float(t.gross_pnl) - 1.5 * (float(t.commission) + float(t.slippage)) for t in trades]
+    wins = [value for value in stressed if value > 0]
+    losses = [value for value in stressed if value <= 0]
+    gross_loss = abs(sum(losses))
+    stressed_pf = sum(wins) / gross_loss if gross_loss else (sum(wins) if wins else 0.0)
+    volume_by_ts = {bar.ts: float(bar.volume) for bar in bars}
+    capacities = [volume_by_ts.get(t.entry_ts,0.0) * float(t.entry_price) * 0.01 for t in trades]
+    daily = defaultdict(float)
+    for trade in trades:
+        day = trade.exit_ts.date().isoformat() if hasattr(trade.exit_ts,"date") else str(trade.exit_ts)
+        daily[day] += float(trade.net_pnl)
+    return {
+        "one_sided_p_value": round(p_value,10), "z_score": round(z_score,8),
+        "pnl_stdev": round(stdev,8), "stress_cost_multiplier": 1.5,
+        "stressed_profit_factor": round(stressed_pf,8),
+        "stressed_expectancy": round(statistics.fmean(stressed),8) if stressed else 0.0,
+        "capacity_rub": round(statistics.median(capacities),2) if capacities else 0.0,
+        "daily_pnl": [{"date":day,"pnl":round(value,8)} for day,value in sorted(daily.items())],
+    }
 
 
 def main() -> None:
@@ -112,6 +141,7 @@ def main() -> None:
                             })
                             all_trades.extend(trades)
                         aggregate = metrics(all_trades)
+                        evidence = methodology_evidence(all_trades,bars)
                         folds_passed = sum(int(row["passed"]) for row in fold_rows)
                         final_holdout = bool(fold_rows[-1]["passed"])
                         is_pass = (
@@ -129,13 +159,15 @@ def main() -> None:
                                 parameter_json,transaction_cost_bps,total_trades,net_profit_factor,
                                 net_expectancy,max_drawdown,folds_total,folds_passed,final_holdout_passed,
                                 fold_metrics,verdict_code,promotion_allowed,reason_code,source_version
-                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,%s,%s)
+                                ,methodology_evidence
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,%s,%s,%s)
                         """, (
                             str(uuid.uuid5(NAMESPACE,identity)),str(search_run_id),family,strategy_code,
                             market["symbol"],market["timeframe"],psycopg2.extras.Json(params),
                             cost_bps,aggregate["trades"],aggregate["profit_factor"],aggregate["expectancy"],
                             aggregate["max_drawdown"],FOLDS,folds_passed,final_holdout,
                             psycopg2.extras.Json(fold_rows),"OOS_PASS" if is_pass else "OOS_FAIL",reason,SOURCE_VERSION,
+                            psycopg2.extras.Json(evidence),
                         ))
                         total += 1
                         passed += int(is_pass)

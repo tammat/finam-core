@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+import os
 
 import psycopg2
 import psycopg2.extras
@@ -12,9 +13,11 @@ SOURCE_VERSION = "REGIME_OOS_CANONICAL_PROMOTION_V2_TRUSTED_BARS"
 VALIDATION_VERSION = "REGIME_COST_ADJUSTED_OOS_V3_TRUSTED_BARS"
 TRUSTED_DISCOVERY_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V4_CONTRACT_AWARE"
 NAMESPACE = uuid.UUID("a405feaa-b0cd-5b76-88d5-ae7aceb2254f")
+METHODOLOGY_CONTRACT = "METHODOLOGY_V1_STRICT"
 
 
 def main() -> None:
+    scenario_run_id = os.environ["EDGE_SEARCH_SCENARIO_RUN_ID"]
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute("""
@@ -62,9 +65,15 @@ def main() -> None:
                   AND h.oos_expectancy>0 AND h.folds_passed>=2
                   AND h.regime_coverage_ratio>=0.80 AND h.transaction_cost_bps>=8
                   AND h.parameter_json ? 'lookback' AND h.parameter_json ? 'hold'
+                  AND EXISTS (
+                    SELECT 1 FROM analytics.edge_methodology_evaluation_v1 m
+                    WHERE m.scenario_run_id=%s AND m.contract_code=%s AND m.verdict_code='PASS'
+                      AND m.strategy_code=h.strategy_code AND m.symbol=h.symbol AND m.timeframe=h.timeframe
+                      AND m.parameter_core=h.parameter_json
+                  )
                   AND market.latest_bar_ts>=clock_timestamp()-interval '15 minutes'
                 ORDER BY h.hypothesis_score DESC,h.id LIMIT 1
-            """, (TRUSTED_DISCOVERY_VERSION,TRUSTED_DISCOVERY_VERSION))
+            """, (TRUSTED_DISCOVERY_VERSION,TRUSTED_DISCOVERY_VERSION,scenario_run_id,METHODOLOGY_CONTRACT))
             row = cursor.fetchone()
             if row is None:
                 print(f"legacy_regime_promotions_revoked={legacy_promotions_revoked}")
