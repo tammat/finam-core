@@ -27,17 +27,35 @@ def load_search_configuration(cursor):
     rows = cursor.fetchall()
     if not rows:
         raise RuntimeError("EDGE_SEARCH_ALGORITHM_CONFIG_MISSING")
-    result = {}
+    result = []
     for row in rows:
         family = row["algorithm_code"]
         grid = row["parameter_grid"]
         if not grid:
             raise RuntimeError(f"EDGE_SEARCH_PARAMETER_GRID_EMPTY:{family}")
-        result[family] = {
+        result.append((family, {
             "strategy_code": row["strategy_code"], "grid": grid,
             "regime_policy": row["regime_policy"], "gate_policy": row["gate_policy"],
             "config_version": row["config_version"],
-        }
+        }))
+    cursor.execute("""
+        SELECT adaptive_scenario_id,algorithm_code,strategy_code,parameter_grid,
+               generation_policy,config_version,target_symbol
+        FROM analytics.edge_search_adaptive_scenario_v1
+        WHERE status_code='ACTIVE'
+        ORDER BY created_at,adaptive_scenario_id
+    """)
+    for row in cursor.fetchall():
+        grid = [
+            {**item, "adaptive_scenario_id": str(row["adaptive_scenario_id"])}
+            for item in row["parameter_grid"]
+        ]
+        result.append((row["algorithm_code"], {
+            "strategy_code": row["strategy_code"], "grid": grid,
+            "regime_policy": {"target_symbols": [row["target_symbol"]]},
+            "gate_policy": row["generation_policy"]["gate_policy"],
+            "config_version": row["config_version"],
+        }))
     return result
 
 
@@ -108,7 +126,10 @@ def main() -> None:
                 reference_price = statistics.median(bar.close for bar in bars)
                 roundtrip_cost = reference_price * cost_bps / 10000.0
 
-                for family, configuration in configurations.items():
+                for family, configuration in configurations:
+                    targets = configuration["regime_policy"].get("target_symbols", [])
+                    if targets and market["symbol"] not in targets:
+                        continue
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     for base_params in grid:
                         params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0}

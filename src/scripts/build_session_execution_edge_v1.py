@@ -143,7 +143,10 @@ def main() -> None:
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
                 cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
                 configurations = load_search_configuration(cursor)
-                for family, configuration in configurations.items():
+                for family, configuration in configurations:
+                    targets = configuration["regime_policy"].get("target_symbols", [])
+                    if targets and market["symbol"] not in targets:
+                        continue
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     for base_params in grid:
                         hold = int(base_params.get("hold", 5))

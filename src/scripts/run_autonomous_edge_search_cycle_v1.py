@@ -29,6 +29,7 @@ EXECUTORS = {
     "ADMIT_PAPER": "src/scripts/build_profit_funnel_shadow_paper_admission_v2.py",
     "BUILD_LINEAGE": "src/scripts/build_profit_funnel_transition_lineage_v2.py",
     "ANALYZE_RESULTS": "src/scripts/analyze_edge_search_results_v1.py",
+    "GENERATE_ADAPTIVE_SCENARIOS": "src/scripts/generate_adaptive_edge_search_scenarios_v1.py",
 }
 
 

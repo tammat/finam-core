@@ -61,7 +61,10 @@ def main() -> None:
                 fold_span = max(1, (len(bars)-evaluation_start)//FOLDS)
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
                 roundtrip_cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
-                for family, configuration in configurations.items():
+                for family, configuration in configurations:
+                    targets = configuration["regime_policy"].get("target_symbols", [])
+                    if targets and market["symbol"] not in targets:
+                        continue
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     walkforward_gate = configuration["gate_policy"]["walkforward"]
                     for base_params in grid:
