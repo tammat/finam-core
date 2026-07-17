@@ -15,6 +15,15 @@ class ResearchAlgorithmResultV2:
     fail_reason: str
 
 @dataclass(frozen=True, slots=True)
+class MethodologyGateFailureV1:
+    gate_code: str
+    total: int
+    failed: int
+    passed: int
+    fail_pct: float
+    status: str
+
+@dataclass(frozen=True, slots=True)
 class EdgeSearchRunAuditV1:
     process_id: str
     run_id: str
@@ -65,6 +74,7 @@ class ResearchSnapshotV2:
     execution_spec_count: int
     execution_quote_status: str
     execution_spec_status: str
+    methodology_failures: tuple[MethodologyGateFailureV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
     generated_at: datetime
