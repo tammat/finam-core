@@ -129,7 +129,7 @@ def strategy_family(code: str) -> str:
     c = code.upper()
     if "MEAN" in c or "RSI" in c or "BOLLINGER" in c or "VWAP" in c:
         return "MEAN_REVERSION"
-    if "MOMENTUM" in c or "IMPULSE" in c:
+    if "MOMENTUM" in c or "IMPULSE" in c or "EMA_TREND" in c:
         return "MOMENTUM"
     return "BREAKOUT"
 
@@ -169,6 +169,46 @@ def _mean_reversion_side(code: str, bars: list[Bar], index: int, lookback: int, 
     return 1 if z_score <= -threshold else (-1 if z_score >= threshold else 0)
 
 
+def _ema(values: list[float], period: int) -> float:
+    alpha = 2.0 / (period + 1.0)
+    value = values[0]
+    for current in values[1:]:
+        value = alpha * current + (1.0 - alpha) * value
+    return value
+
+
+def _orthogonal_side(code: str, bars: list[Bar], index: int, params: dict[str, Any]) -> int | None:
+    threshold = float(params.get("threshold", 1.0))
+    if code == "EMA_TREND_FILTER_V1":
+        fast = int(params.get("fast", 10))
+        slow = int(params.get("slow", 40))
+        closes = [bar.close for bar in bars[index - slow:index + 1]]
+        volatility = statistics.pstdev(closes)
+        if volatility <= 0:
+            return 0
+        strength = (_ema(closes[-fast:], fast) - _ema(closes, slow)) / volatility
+        return 1 if strength >= threshold else (-1 if strength <= -threshold else 0)
+    if code == "VOLATILITY_SCALED_MOMENTUM_V1":
+        lookback = int(params.get("lookback", 40))
+        vol_lookback = int(params.get("vol_lookback", 20))
+        changes = [
+            (bars[position].close / bars[position - 1].close) - 1.0
+            for position in range(index - vol_lookback + 1, index + 1)
+        ]
+        volatility = statistics.pstdev(changes)
+        if volatility <= 0:
+            return 0
+        scaled = ((bars[index].close / bars[index - lookback].close) - 1.0) / (volatility * math.sqrt(lookback))
+        return 1 if scaled >= threshold else (-1 if scaled <= -threshold else 0)
+    if code == "DONCHIAN_VOLATILITY_BREAKOUT_V1":
+        lookback = int(params.get("lookback", 40))
+        window = [bar.close for bar in bars[index - lookback:index]]
+        buffer = statistics.pstdev(window) * threshold
+        close = bars[index].close
+        return 1 if close > max(window) + buffer else (-1 if close < min(window) - buffer else 0)
+    return None
+
+
 def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     if len(bars) < 60:
         return []
@@ -183,14 +223,19 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     strategy_code = str(run["strategy_code"]).upper()
     family = strategy_family(strategy_code)
     trades: list[Trade] = []
-    i = max(lookback, 20)
+    required_history = max(lookback, int(params.get("slow", 0)), int(params.get("vol_lookback", 0)), 20)
+    i = required_history
 
     while i + hold < len(bars):
         window = [b.close for b in bars[i - lookback:i]]
         close = bars[i].close
         side = 0
 
-        if family == "BREAKOUT":
+        orthogonal_side = _orthogonal_side(strategy_code, bars, i, params)
+        if orthogonal_side is not None:
+            side = orthogonal_side
+
+        elif family == "BREAKOUT":
             if close > max(window):
                 side = 1
             elif close < min(window):
