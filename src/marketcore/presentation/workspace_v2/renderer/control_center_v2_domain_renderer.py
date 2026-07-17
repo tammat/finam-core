@@ -350,6 +350,9 @@ def render_control_center_domain_v2(
 ) -> RenderDocumentV2:
     now = _utc(generated_at) or datetime.now(timezone.utc)
     raw_sections: tuple[tuple[str, tuple[dict[str, Any], ...]], ...] = (
+        ("shadow_process", tuple(view_model.shadow_process)),
+        ("shadow_alerts", tuple(view_model.shadow_alerts)),
+        ("forward_blockers", tuple(view_model.forward_blockers)),
         ("shadow", (dict(view_model.shadow_summary),)),
         ("funnel", _funnel_rows(view_model)),
         ("loss_reasons", _loss_rows(view_model)),

@@ -17,6 +17,8 @@ PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
     "FORWARD_PASS_SHADOW_OBSERVER_V2": "src/scripts/run_forward_pass_shadow_observer_v2.py",
+    "SHADOW_PIPELINE_MONITOR_V1": "src/scripts/monitor_shadow_pipeline_v1.py",
+    "SHADOW_PASS_EVALUATOR_V1": "src/scripts/evaluate_shadow_pass_v1.py",
 }
 
 

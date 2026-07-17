@@ -120,6 +120,9 @@ class ControlCenterV2Presenter:
             exit_analysis=tuple(data["exit_analysis"]),
             block_analysis=tuple(data["block_analysis"]),
             shadow_requirements=tuple(data["shadow_requirements"]),
+            shadow_process=tuple(data["shadow_process"]),
+            shadow_alerts=tuple(data["shadow_alerts"]),
+            forward_blockers=tuple(data["forward_blockers"]),
         )
 
     @staticmethod

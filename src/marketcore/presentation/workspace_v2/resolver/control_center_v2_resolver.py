@@ -34,6 +34,9 @@ class ControlCenterV2Resolver:
                 shadow_requirements = self._shadow_requirements(cur)
                 funnel_stages, loss_reasons, funnel_comparable = self._signal_funnel(cur)
                 shadow = self._shadow(cur)
+                shadow_process = self._shadow_process(cur)
+                shadow_alerts = self._shadow_alerts(cur)
+                forward_blockers = self._forward_blockers(cur)
 
         return {
             "quality": quality,
@@ -54,6 +57,9 @@ class ControlCenterV2Resolver:
             "loss_reasons": loss_reasons,
             "funnel_comparable": funnel_comparable,
             "shadow": shadow,
+            "shadow_process": shadow_process,
+            "shadow_alerts": shadow_alerts,
+            "forward_blockers": forward_blockers,
         }
 
     @staticmethod
@@ -190,7 +196,7 @@ class ControlCenterV2Resolver:
                    ) = count(*),
                    count(*) FILTER (WHERE t.side IN ('BUY','LONG')),0,0,0,0,0,
                    count(*) FILTER (WHERE t.shadow_status='CLOSED')
-            FROM analytics.forward_edge_shadow_trade_v1 t
+            FROM analytics.forward_pass_shadow_observation_v1 t
             LEFT JOIN LATERAL (
                 SELECT snapshot_id
                 FROM analytics.market_microstructure_snapshot_v1 s
@@ -211,7 +217,7 @@ class ControlCenterV2Resolver:
                 LIMIT 1
             ) ms ON true
             WHERE t.cohort_id=(
-                SELECT cohort_id FROM analytics.forward_edge_shadow_trade_v1
+                SELECT cohort_id FROM analytics.forward_pass_shadow_observation_v1
                 ORDER BY created_at DESC LIMIT 1
             ) AND t.entry_ts IS NOT NULL
         """)
@@ -350,25 +356,18 @@ class ControlCenterV2Resolver:
 
     @staticmethod
     def _shadow_requirements(cur) -> list[dict[str, Any]]:
-        policy_path = Path("config/research/swing_forward_shadow_policy_v1.json")
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
         cur.execute("""
-            SELECT timeframe,
-                   count(*) FILTER (WHERE shadow_status='CLOSED') AS closed,
-                   count(DISTINCT signal_ts::date) AS sessions
-            FROM analytics.forward_edge_shadow_trade_v1
-            WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
-            GROUP BY timeframe ORDER BY timeframe
+            SELECT c.symbol,c.timeframe,s.decision_code,s.closed_trades,s.calendar_days,
+                   s.profit_factor,s.expectancy,s.max_drawdown,s.cost_coverage,
+                   s.tested_regimes,s.positive_regime_share,s.progress_pct,s.reason_codes,
+                   p.minimum_closed,p.minimum_calendar_days,p.minimum_profit_factor,
+                   p.minimum_cost_coverage,s.evaluated_at
+            FROM analytics.shadow_pass_status_v1 s
+            JOIN analytics.forward_pass_shadow_candidate_v1 c USING(shadow_candidate_id)
+            JOIN analytics.shadow_pass_policy_v1 p ON p.policy_code=s.policy_code
+            ORDER BY s.decision_code,c.symbol
         """)
-        result = []
-        for row in cur.fetchall():
-            item = dict(row)
-            item["minimum_closed"] = int(policy["minimum_closed_per_timeframe"])
-            item["minimum_sessions"] = int(policy["minimum_trading_sessions"])
-            item["missing_closed"] = max(0, item["minimum_closed"] - int(item.get("closed") or 0))
-            item["missing_sessions"] = max(0, item["minimum_sessions"] - int(item.get("sessions") or 0))
-            result.append(item)
-        return result
+        return [dict(row) for row in cur.fetchall()]
 
     @staticmethod
     def _signal_funnel(cur) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
@@ -426,6 +425,18 @@ class ControlCenterV2Resolver:
 
     @staticmethod
     def _shadow(cur) -> dict[str, Any]:
+        cur.execute("""
+            SELECT count(*) total,count(*) FILTER (WHERE shadow_status='PENDING_ENTRY') pending,
+                   count(*) FILTER (WHERE shadow_status='OPEN') open,
+                   count(*) FILTER (WHERE shadow_status='CLOSED') closed,
+                   coalesce(sum(net_pnl) FILTER (WHERE shadow_status='CLOSED'),0) net_pnl,
+                   count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) unsafe,
+                   max(updated_at) source_as_of
+            FROM analytics.forward_pass_shadow_observation_v1
+        """)
+        return dict(cur.fetchone() or {})
+
+        # Legacy implementation intentionally retained below for schema history; unreachable in V2.
         cur.execute("SELECT to_regclass('analytics.forward_edge_shadow_trade_v1') AS table_name")
         if not cur.fetchone()["table_name"]:
             return {"total": 0, "pending": 0, "open": 0, "closed": 0, "net_pnl": 0, "unsafe": 0}
@@ -568,3 +579,33 @@ class ControlCenterV2Resolver:
             guard = dict(cur.fetchone() or {})
             result.update({f"guard_{key}": value for key, value in guard.items()})
         return result
+
+    @staticmethod
+    def _shadow_process(cur) -> list[dict[str, Any]]:
+        cur.execute("SELECT count(*) count,max(updated_at) updated_at FROM analytics.forward_edge_regime_promotion_gate_v1 WHERE decision_code='READY_FOR_PAPER_REVIEW' AND review_eligible")
+        forward=dict(cur.fetchone() or {})
+        cur.execute("SELECT * FROM analytics.forward_pass_shadow_heartbeat_v1 WHERE worker_code='FORWARD_PASS_SHADOW_OBSERVER'")
+        heartbeat=dict(cur.fetchone() or {})
+        cur.execute("SELECT count(*) count,coalesce(max(progress_pct),0) progress_pct,max(evaluated_at) updated_at,count(*) FILTER(WHERE decision_code='PASS') passed FROM analytics.shadow_pass_status_v1")
+        shadow=dict(cur.fetchone() or {})
+        cur.execute("SELECT count(*) count,max(updated_at) updated_at FROM analytics.forward_pass_paper_candidate_v1 WHERE paper_allowed")
+        paper=dict(cur.fetchone() or {})
+        return [
+            {"step_code":"FORWARD_PASS","status":"PASS" if forward.get("count") else "WAITING","progress_pct":100 if forward.get("count") else 0,"count":forward.get("count",0),"reason_code":"FORWARD_PASS_CONFIRMED" if forward.get("count") else "NO_FORWARD_PASS","updated_at":forward.get("updated_at")},
+            {"step_code":"SHADOW_OBSERVER","status":heartbeat.get("status_code","NEVER_RUN"),"progress_pct":100 if heartbeat.get("status_code")=="HEALTHY" else 0,"count":heartbeat.get("candidates_active",0),"reason_code":heartbeat.get("last_error_code") or "SHADOW_HEARTBEAT_OK","updated_at":heartbeat.get("updated_at")},
+            {"step_code":"SHADOW_PASS","status":"PASS" if shadow.get("passed") else "WAITING","progress_pct":shadow.get("progress_pct",0),"count":shadow.get("passed",0),"reason_code":"SHADOW_PASS_CONFIRMED" if shadow.get("passed") else "SHADOW_EVIDENCE_PENDING","updated_at":shadow.get("updated_at")},
+            {"step_code":"PAPER_CANDIDATE","status":"READY" if paper.get("count") else "WAITING","progress_pct":100 if paper.get("count") else 0,"count":paper.get("count",0),"reason_code":"PAPER_CANDIDATE_READY" if paper.get("count") else "AWAITING_SHADOW_PASS","updated_at":paper.get("updated_at")},
+        ]
+
+    @staticmethod
+    def _shadow_alerts(cur) -> list[dict[str, Any]]:
+        cur.execute("SELECT severity_code,status_code,alert_code,reason_code,opened_at,updated_at FROM analytics.shadow_pipeline_alert_v1 WHERE status_code='OPEN' ORDER BY CASE severity_code WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 ELSE 3 END,opened_at")
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _forward_blockers(cur) -> list[dict[str, Any]]:
+        cur.execute("""SELECT reason.value reason_code,count(*) count,max(g.updated_at) updated_at
+            FROM analytics.forward_edge_regime_promotion_gate_v1 g
+            CROSS JOIN LATERAL jsonb_array_elements_text(g.reason_codes) reason(value)
+            WHERE g.decision_code='HOLD_RESEARCH' GROUP BY reason.value ORDER BY count(*) DESC,reason.value""")
+        return [dict(row) for row in cur.fetchall()]

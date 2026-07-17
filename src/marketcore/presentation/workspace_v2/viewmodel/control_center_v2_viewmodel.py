@@ -81,3 +81,6 @@ class ControlCenterV2ViewModel:
     exit_analysis: tuple[dict[str, Any], ...]
     block_analysis: tuple[dict[str, Any], ...]
     shadow_requirements: tuple[dict[str, Any], ...]
+    shadow_process: tuple[dict[str, Any], ...]
+    shadow_alerts: tuple[dict[str, Any], ...]
+    forward_blockers: tuple[dict[str, Any], ...]
