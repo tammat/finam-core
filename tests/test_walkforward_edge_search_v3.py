@@ -12,6 +12,17 @@ def test_walkforward_search_is_cost_adjusted_and_fail_closed() -> None:
     assert "folds_passed>=4 and final_holdout" in source
     assert "promotion_allowed=0" in source
     assert "live_allowed=0" in source
+    assert "NEGATIVE_COST_ADJUSTED_EXPECTANCY" in source
+    assert "WALKFORWARD_FOLDS_UNSTABLE" in source
+    assert "FINAL_HOLDOUT_FAILED" in source
+
+
+def test_regime_search_requires_auditable_futures_contract() -> None:
+    source = Path("src/scripts/build_edge_regime_hypothesis_discovery_v2.py").read_text()
+    assert "futures_contract_calendar" in source
+    assert "futures_contract_universe" in source
+    assert "contract_expiration" in source
+    assert "coalesce(c.expiration_date,u.expiration_date) IS NOT NULL" in source
 
 
 def test_walkforward_results_are_auditable() -> None:

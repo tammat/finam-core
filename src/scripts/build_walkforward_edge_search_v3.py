@@ -18,6 +18,20 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 TARGET_SYMBOL = os.getenv("EDGE_SEARCH_TARGET_SYMBOL", "").strip()
 
 
+def failure_reason(aggregate, folds_passed: int, final_holdout: bool) -> str:
+    if aggregate["trades"] < 80:
+        return "INSUFFICIENT_TRADES"
+    if aggregate["expectancy"] <= 0:
+        return "NEGATIVE_COST_ADJUSTED_EXPECTANCY"
+    if aggregate["profit_factor"] < 1.15:
+        return "PROFIT_FACTOR_BELOW_GATE"
+    if folds_passed < 4:
+        return "WALKFORWARD_FOLDS_UNSTABLE"
+    if not final_holdout:
+        return "FINAL_HOLDOUT_FAILED"
+    return "WALKFORWARD_STABILITY_GATE_FAILED"
+
+
 def main() -> None:
     search_run_id = uuid.uuid4()
     passed = total = 0
@@ -81,7 +95,7 @@ def main() -> None:
                             aggregate["trades"]>=80 and aggregate["profit_factor"]>=1.15
                             and aggregate["expectancy"]>0 and folds_passed>=4 and final_holdout
                         )
-                        reason = "WALKFORWARD_COST_ADJUSTED_PASS" if is_pass else "WALKFORWARD_STABILITY_GATE_FAILED"
+                        reason = "WALKFORWARD_COST_ADJUSTED_PASS" if is_pass else failure_reason(aggregate,folds_passed,final_holdout)
                         identity = f"{search_run_id}:{strategy_code}:{market['symbol']}:{market['timeframe']}:{params}"
                         cursor.execute("""
                             INSERT INTO analytics.walkforward_edge_search_v3 (

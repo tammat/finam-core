@@ -37,7 +37,7 @@ def test_research_and_home_show_trusted_algorithm_results() -> None:
     home = Path("src/marketcore/presentation/workspace_v2/resolver/home_operator_dashboard_resolver_v1.py").read_text()
     assert "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS" in resolver
     assert "research.algorithms.table" in renderer
-    assert 'columns=("algorithm","markets","variants","folds","pf","passes","status")' in renderer
+    assert 'columns=("algorithm","markets","variants","folds","pf","passes","status","reason")' in renderer
     assert 'key=f"research.algorithm.column.{code}"' in renderer
     assert "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS" in home
     assert '"algorithms": algorithms' in home

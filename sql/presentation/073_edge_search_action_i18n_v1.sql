@@ -29,6 +29,7 @@ INSERT INTO presentation.ui_resource_v1
 ('research.algorithm.column.pf','ru','Лучший PF','PF','PF','','','research'),
 ('research.algorithm.column.passes','ru','PASS','PASS','PASS','','','research'),
 ('research.algorithm.column.status','ru','Статус','Статус','Стат.','','','research'),
+('research.algorithm.column.reason','ru','Причина FAIL','Причина','Прич.','','','research'),
 ('research.algorithm.folds','ru','{passed}/{total}','{passed}/{total}','{passed}/{total}','','','research'),
 ('research.algorithm.status.pass','ru','Подтверждено','PASS','PASS','','','research'),
 ('research.algorithm.status.no_pass','ru','Нет PASS','Нет PASS','Нет','','','research')

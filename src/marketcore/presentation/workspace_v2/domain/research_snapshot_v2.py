@@ -12,6 +12,7 @@ class ResearchAlgorithmResultV2:
     best_profit_factor: float
     passes: int
     status: str
+    fail_reason: str
 
 @dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:

@@ -13,7 +13,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades,
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V3_TRUSTED_BARS"
+SOURCE_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V4_CONTRACT_AWARE"
 MIN_BARS = int(os.getenv("EDGE_HYPOTHESIS_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
 FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
@@ -52,10 +52,16 @@ def main() -> None:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT symbol,timeframe,count(*) AS bars
-                FROM public.market_bars WHERE timeframe='M5'
-                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
-                GROUP BY symbol,timeframe
+                SELECT b.symbol,b.timeframe,count(*) AS bars,
+                       coalesce(c.root_symbol,u.root_symbol) contract_root,
+                       coalesce(c.expiration_date,u.expiration_date) expiration_date
+                FROM public.market_bars b
+                LEFT JOIN public.futures_contract_calendar c ON c.symbol=b.symbol
+                LEFT JOIN public.futures_contract_universe u ON u.contract_symbol=b.symbol
+                WHERE b.timeframe='M5'
+                  AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
+                  AND (b.symbol NOT LIKE '%@RTSX' OR coalesce(c.expiration_date,u.expiration_date) IS NOT NULL)
+                GROUP BY b.symbol,b.timeframe,c.root_symbol,u.root_symbol,c.expiration_date,u.expiration_date
                 HAVING count(*) >= %s
                    AND max(ts) >= clock_timestamp()-(%s * interval '1 minute')
                 ORDER BY count(*) DESC LIMIT %s
@@ -63,7 +69,7 @@ def main() -> None:
             markets = cur.fetchall()
 
             for market in markets:
-                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts", (market["symbol"], market["timeframe"]))
+                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') AND (%s IS NULL OR ts < %s::date + interval '1 day') ORDER BY ts", (market["symbol"], market["timeframe"],market["expiration_date"],market["expiration_date"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
                 cur.execute("""
                     SELECT DISTINCT ON (ts) ts,regime,confidence,source
@@ -86,7 +92,10 @@ def main() -> None:
 
                 for family, (strategy_code, grid) in GRIDS.items():
                     for base_params in grid:
-                        params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0}
+                        params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0,
+                                  "contract_symbol": market["symbol"] if market["expiration_date"] else None,
+                                  "contract_root": market["contract_root"],
+                                  "contract_expiration": market["expiration_date"].isoformat() if market["expiration_date"] else None}
                         lookback = int(params["lookback"])
                         run = {"strategy_code": strategy_code, "parameter_json": params}
                         validation_all = [trade for trade in build_trades(run, bars[train_end - lookback:validation_end]) if trade.entry_ts >= validation_start_ts]

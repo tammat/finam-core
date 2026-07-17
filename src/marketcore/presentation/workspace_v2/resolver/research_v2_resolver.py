@@ -35,11 +35,18 @@ class ResearchV2Resolver:
                     SELECT strategy_family,count(DISTINCT symbol) markets,count(*) variants,
                            max(folds_passed) best_folds,max(folds_total) folds_total,
                            coalesce(max(net_profit_factor) FILTER (WHERE total_trades>=80),0) best_profit_factor,
-                           count(*) FILTER (WHERE verdict_code='OOS_PASS') passes
+                           count(*) FILTER (WHERE verdict_code='OOS_PASS') passes,
+                           mode() WITHIN GROUP (ORDER BY CASE
+                               WHEN total_trades<80 THEN 'INSUFFICIENT_TRADES'
+                               WHEN net_expectancy<=0 THEN 'NEGATIVE_COST_ADJUSTED_EXPECTANCY'
+                               WHEN net_profit_factor<1.15 THEN 'PROFIT_FACTOR_BELOW_GATE'
+                               WHEN folds_passed<4 THEN 'WALKFORWARD_FOLDS_UNSTABLE'
+                               WHEN NOT final_holdout_passed THEN 'FINAL_HOLDOUT_FAILED'
+                               ELSE reason_code END) fail_reason
                     FROM analytics.walkforward_edge_search_v3
                     WHERE search_run_id=(SELECT search_run_id FROM latest)
                     GROUP BY strategy_family
                     ORDER BY CASE strategy_family WHEN 'RSI' THEN 1 WHEN 'VWAP' THEN 2 WHEN 'BOLLINGER' THEN 3 WHEN 'MOMENTUM' THEN 4 ELSE 5 END
                 """)
-                algorithms=tuple(ResearchAlgorithmResultV2(str(row["strategy_family"]),int(row["markets"]),int(row["variants"]),int(row["best_folds"]),int(row["folds_total"]),float(row["best_profit_factor"]),int(row["passes"]),"PASS" if int(row["passes"]) else "NO_PASS") for row in cursor.fetchall())
+                algorithms=tuple(ResearchAlgorithmResultV2(str(row["strategy_family"]),int(row["markets"]),int(row["variants"]),int(row["best_folds"]),int(row["folds_total"]),float(row["best_profit_factor"]),int(row["passes"]),"PASS" if int(row["passes"]) else "NO_PASS",str(row["fail_reason"] or "NO_DATA")) for row in cursor.fetchall())
         return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),algorithms,now)
