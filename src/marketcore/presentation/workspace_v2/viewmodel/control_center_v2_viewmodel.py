@@ -86,3 +86,5 @@ class ControlCenterV2ViewModel:
     forward_blockers: tuple[dict[str, Any], ...]
     forward_pass_process: tuple[dict[str, Any], ...]
     forward_readiness: tuple[dict[str, Any], ...]
+    edge_search_process: tuple[dict[str, Any], ...]
+    edge_search_results: tuple[dict[str, Any], ...]

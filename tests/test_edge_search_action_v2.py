@@ -18,8 +18,10 @@ def test_research_page_exposes_edge_search_button() -> None:
     controller = Path("src/marketcore/presentation/action_http_controller_v2.py").read_text()
     assert 'message_key="research.action.run_edge_search"' in renderer
     assert '"research.edge_search.run",ActionKindV2.COMMAND' in renderer
-    assert 'definition.request_kind == "EDGE_SEARCH_RUN"' in controller
-    assert "_start_async_command_worker(request_id)" in controller
+    assert "PostgresCommandRequestHandlerV2" in controller
+    assert "_start_async_command_worker(request_id)" not in controller
+    scheduler = Path("src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert "EDGE_SEARCH_COMMAND_QUEUE_V1" in scheduler
     resolver = Path("src/marketcore/presentation/workspace_v2/resolver/research_v2_resolver.py").read_text()
     assert "edge_search_cycle_status_v1" in resolver
     assert 'edge_search_status' in renderer

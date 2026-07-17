@@ -1,0 +1,26 @@
+INSERT INTO presentation.ui_resource_v1
+(resource_key,locale_code,caption,caption_short,caption_mobile,tooltip,icon,resource_group) VALUES
+('research.control.section.edge_search_process.title','ru','Этапы поиска замены','Этапы поиска','Поиск','Выполнение системного сценария поиска edge.','','control'),
+('research.control.section.edge_search_results.title','ru','Результат поиска','Результат','Итог','Последний сохранённый результат системного цикла.','','control'),
+('research.action.run_edge_search','ru','Поставить поиск в очередь','Запланировать поиск','Поиск','Создать аудируемую заявку; система выполнит её в окно низкой нагрузки.','','action'),
+('column.step','ru','Этап','Этап','Этап','','','column'),
+('column.duration.ms','ru','Время, мс','Время','Время','','','column'),
+('column.result','ru','Результат','Результат','Итог','','','column'),
+('column.command.status','ru','Заявка','Заявка','Заявка','','','column'),
+('column.requested.at','ru','Запрошено','Запрошено','Запрос','','','column'),
+('column.markets.evaluated','ru','Рынки','Рынки','Рынки','','','column'),
+('column.combinations.evaluated','ru','Варианты','Варианты','Вар.','','','column'),
+('column.oos.pass','ru','OOS PASS','OOS PASS','PASS','','','column'),
+('column.outcome.code','ru','Итог','Итог','Итог','','','column'),
+('column.recommendation.code','ru','Далее','Далее','Далее','','','column'),
+('column.explanation.ru','ru','Анализ','Анализ','Анализ','','','column'),
+('status.pending','ru','В очереди','В очереди','Очередь','','','status'),
+('status.running','ru','Выполняется','В работе','Работа','','','status'),
+('status.succeeded','ru','Выполнено','Готово','Готово','','','status'),
+('status.failed','ru','Ошибка','Ошибка','Ошибка','','','status'),
+('research.control.section.edge_search_process.title','en','Replacement search stages','Search stages','Search','System edge-search scenario execution.','','control'),
+('research.control.section.edge_search_results.title','en','Search result','Result','Result','Latest persisted system-cycle result.','','control'),
+('research.action.run_edge_search','en','Queue edge search','Queue search','Search','Create an audited request for the low-load execution window.','','action')
+ON CONFLICT(resource_key,locale_code) DO UPDATE SET caption=EXCLUDED.caption,
+caption_short=EXCLUDED.caption_short,caption_mobile=EXCLUDED.caption_mobile,
+tooltip=EXCLUDED.tooltip,icon=EXCLUDED.icon,resource_group=EXCLUDED.resource_group;

@@ -39,6 +39,8 @@ class ControlCenterV2Resolver:
                 forward_blockers = self._forward_blockers(cur)
                 forward_pass_process = self._forward_pass_process(cur)
                 forward_readiness = self._forward_readiness(cur)
+                edge_search_process = self._edge_search_process(cur)
+                edge_search_results = self._edge_search_results(cur)
 
         return {
             "quality": quality,
@@ -64,6 +66,8 @@ class ControlCenterV2Resolver:
             "forward_blockers": forward_blockers,
             "forward_pass_process": forward_pass_process,
             "forward_readiness": forward_readiness,
+            "edge_search_process": edge_search_process,
+            "edge_search_results": edge_search_results,
         }
 
     @staticmethod
@@ -627,3 +631,33 @@ class ControlCenterV2Resolver:
                        tested_regimes,overall_progress_pct,decision_code,reason_codes
                 FROM analytics.forward_pass_readiness_v1 ORDER BY readiness_rank LIMIT 10""")
         return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _edge_search_process(cur) -> list[dict[str, Any]]:
+        cur.execute("SELECT run_id FROM analytics.edge_search_scenario_run_v1 ORDER BY started_at DESC LIMIT 1")
+        latest=cur.fetchone()
+        run_id=latest["run_id"] if latest else None
+        cur.execute("""SELECT p.step_order,p.title_ru step,
+                   coalesce(r.status_code,'PENDING') status_code,
+                   CASE coalesce(r.status_code,'PENDING') WHEN 'SUCCEEDED' THEN 100 WHEN 'RUNNING' THEN 50 ELSE 0 END progress_pct,
+                   r.duration_ms,coalesce(r.metrics,'{}'::jsonb) result
+            FROM analytics.edge_search_scenario_step_v1 p
+            LEFT JOIN analytics.edge_search_step_run_v1 r ON r.run_id=%s AND r.step_order=p.step_order
+            WHERE p.scenario_code='AUTONOMOUS_EDGE_SEARCH' AND p.enabled ORDER BY p.step_order""",(run_id,))
+        return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def _edge_search_results(cur) -> list[dict[str, Any]]:
+        cur.execute("""SELECT (SELECT status FROM marketcore_action.command_request_v2
+                              WHERE request_kind='EDGE_SEARCH_RUN' ORDER BY requested_at DESC LIMIT 1) command_status,
+                   (SELECT requested_at FROM marketcore_action.command_request_v2
+                              WHERE request_kind='EDGE_SEARCH_RUN' ORDER BY requested_at DESC LIMIT 1) requested_at,
+                   c.status_code,c.current_step,c.progress_pct,c.markets_evaluated,
+                   c.combinations_evaluated,c.oos_pass,c.reason_code,c.started_at,c.finished_at,
+                   a.outcome_code,a.recommendation_code,a.explanation_ru
+            FROM analytics.edge_search_cycle_status_v1 c
+            LEFT JOIN analytics.edge_search_scenario_run_v1 r USING(cycle_id)
+            LEFT JOIN analytics.edge_search_run_analysis_v1 a USING(run_id)
+            ORDER BY c.started_at DESC LIMIT 1""")
+        row=cur.fetchone()
+        return [dict(row)] if row else []

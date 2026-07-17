@@ -350,6 +350,8 @@ def render_control_center_domain_v2(
 ) -> RenderDocumentV2:
     now = _utc(generated_at) or datetime.now(timezone.utc)
     raw_sections: tuple[tuple[str, tuple[dict[str, Any], ...]], ...] = (
+        ("edge_search_process", tuple(view_model.edge_search_process)),
+        ("edge_search_results", tuple(view_model.edge_search_results)),
         ("forward_pass_process", tuple(view_model.forward_pass_process)),
         ("forward_readiness", tuple(view_model.forward_readiness)),
         ("shadow_process", tuple(view_model.shadow_process)),
@@ -404,6 +406,18 @@ def render_control_center_domain_v2(
                             message_key="research.control.workspace.subtitle",
                         ),
                         _traffic_section(view_model),
+                        RenderNodeV2(
+                            RenderNodeTypeV2.ACTION,
+                            "control.action.edge_search",
+                            content=RenderContentV2(message_key="research.action.run_edge_search"),
+                            action=RenderActionV2(
+                                "research.edge_search.run", ActionKindV2.COMMAND,
+                                command_code="RESEARCH.RUN_EDGE_SEARCH",
+                                policy_class="RESEARCH_MAINTENANCE", reversible=True,
+                                rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
+                                idempotency_key="client.request",
+                            ),
+                        ),
                         *tuple(_table_section(code, rows) for code, rows in raw_sections),
                     ),
                 ),

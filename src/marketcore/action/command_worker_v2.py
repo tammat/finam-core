@@ -56,8 +56,6 @@ class SafeSubprocessCommandExecutorV2:
             "EXECUTION_ENABLED": "0",
             "REAL_TRADING_ENABLED": "0",
         })
-        if command.request_kind == "EDGE_SEARCH_RUN":
-            env["EDGE_SEARCH_FORCE"] = "1"
         result = subprocess.run(command.argv, cwd=ROOT, env=env, text=True, capture_output=True, timeout=command.timeout_seconds, check=False)
         output = f"{result.stdout}\n{result.stderr}"
         if result.returncode != 0:
