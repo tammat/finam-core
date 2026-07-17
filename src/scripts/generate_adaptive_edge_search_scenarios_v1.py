@@ -13,7 +13,7 @@ import psycopg2.extras
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-VERSION = "NEXT_EDGE_RESEARCH_PLAN_V1_FAIL_DRIVEN"
+VERSION = "NEXT_EDGE_RESEARCH_PLAN_V2_METHODOLOGY_FAIL_DRIVEN"
 NAMESPACE = uuid.UUID("33eab308-54f5-47ad-a9ae-f7f42ac19fa7")
 MIN_FUTURE_BARS = int(os.getenv("ADAPTIVE_EDGE_MIN_FUTURE_BARS", "500"))
 MAX_NEW_SCENARIOS = int(os.getenv("ADAPTIVE_EDGE_MAX_NEW_SCENARIOS", "3"))
@@ -26,6 +26,12 @@ REASON_POLICY = {
     "PROFIT_FACTOR_BELOW_GATE": ("LOCAL_PARAMETER_NEIGHBORHOOD", 2, "Проверить ближайшую область параметров при прежнем PASS."),
     "WALKFORWARD_FOLDS_UNSTABLE": ("REFINE_REGIME_CONTRACT", 1, "Разделить режимы рынка и проверить устойчивость фолдов."),
     "FINAL_HOLDOUT_FAILED": ("ORTHOGONAL_FUTURE_ONLY", 5, "Исключить прежний fingerprint и проверять только будущие данные."),
+    "METHODOLOGY_REALISTIC_EXECUTION": ("STRENGTHEN_SIGNAL_SAME_COSTS", 1, "Усилить сигнал и сохранить полную модель издержек."),
+    "METHODOLOGY_STATISTICAL_SIGNIFICANCE": ("EXPAND_FUTURE_EVIDENCE", 2, "Накопить больше независимых будущих наблюдений."),
+    "METHODOLOGY_PARAMETER_ROBUSTNESS": ("LOCAL_PARAMETER_NEIGHBORHOOD", 3, "Проверить соседние параметры без выбора единичного пика."),
+    "METHODOLOGY_INDEPENDENT_HOLDOUT": ("NEW_CLEAN_HOLDOUT", 4, "Использовать только новую, ранее не потреблённую выборку."),
+    "METHODOLOGY_CAPACITY": ("LIQUIDITY_PEER_MARKET", 5, "Проверить ту же гипотезу на более ликвидном инструменте-аналогe."),
+    "METHODOLOGY_PORTFOLIO_CONTRIBUTION": ("DIVERSIFY_MARKET_EXPOSURE", 6, "Проверить гипотезу на другом ликвидном рынке для снижения корреляции."),
 }
 
 
@@ -64,13 +70,16 @@ def adapted_grid(base_grid: list[dict], reason: str) -> list[dict]:
             "commission", "slippage", "transaction_cost_bps", "adaptive_scenario_id"
         }}
         lookback, hold, threshold = int(clean["lookback"]), int(clean["hold"]), float(clean["threshold"])
-        if reason == "INSUFFICIENT_TRADES":
+        if reason in {"INSUFFICIENT_TRADES", "METHODOLOGY_STATISTICAL_SIGNIFICANCE"}:
             lookbacks, holds, thresholds = _number_set(lookback, (.5, .75, 1), 10, True), _number_set(hold, (.65, 1), 2, True), _number_set(threshold, (.65, .8, 1), 0)
-        elif reason == "NEGATIVE_COST_ADJUSTED_EXPECTANCY":
+        elif reason in {"NEGATIVE_COST_ADJUSTED_EXPECTANCY", "METHODOLOGY_REALISTIC_EXECUTION"}:
             lookbacks, holds, thresholds = _number_set(lookback, (.75, 1, 1.25), 10, True), _number_set(hold, (.5, .75, 1), 2, True), _number_set(threshold, (1, 1.2, 1.5), 0)
         elif reason == "WALKFORWARD_FOLDS_UNSTABLE":
             lookbacks, holds, thresholds = _number_set(lookback, (.8, 1, 1.2), 10, True), [hold], _number_set(threshold, (.9, 1, 1.1), 0)
-        elif reason == "FINAL_HOLDOUT_FAILED":
+        elif reason in {"FINAL_HOLDOUT_FAILED", "METHODOLOGY_INDEPENDENT_HOLDOUT"}:
+            if reason == "METHODOLOGY_INDEPENDENT_HOLDOUT":
+                output.append(clean)
+                continue
             lookbacks, holds, thresholds = _number_set(lookback, (.6, 1.4), 10, True), _number_set(hold, (.6, 1.4), 2, True), _number_set(threshold, (.75, 1.35), 0)
         else:
             lookbacks, holds, thresholds = _number_set(lookback, (.75, 1, 1.25), 10, True), _number_set(hold, (.75, 1, 1.25), 2, True), _number_set(threshold, (.9, 1, 1.15), 0)
@@ -88,6 +97,48 @@ def priority_score(row: dict) -> tuple:
     reason_rank = REASON_POLICY.get(row["primary_reason_code"], ("RESEARCH_NEW_FAMILY", 9, ""))[1]
     return (reason_rank, -int(metrics.get("folds", 0)), -float(metrics.get("profit_factor", 0)),
             -float(metrics.get("expectancy", 0)), row["algorithm_code"])
+
+
+def methodology_failures(cursor, parent_run_id: str) -> list[dict]:
+    cursor.execute("""
+        SELECT m.evaluation_id AS methodology_evaluation_id,m.result_id,m.algorithm_code,
+               m.strategy_code,m.symbol,m.parameter_core AS parameter_json,w.fold_metrics,
+               r.parameter_grid,r.regime_policy,r.gate_policy,
+               jsonb_build_object('folds',w.folds_passed,'profit_factor',w.net_profit_factor,
+                                  'expectancy',w.net_expectancy) AS best_metrics,
+               CASE
+                 WHEN NOT m.execution_pass THEN 'METHODOLOGY_REALISTIC_EXECUTION'
+                 WHEN NOT m.statistical_pass THEN 'METHODOLOGY_STATISTICAL_SIGNIFICANCE'
+                 WHEN NOT m.robustness_pass THEN 'METHODOLOGY_PARAMETER_ROBUSTNESS'
+                 WHEN NOT m.holdout_pass THEN 'METHODOLOGY_INDEPENDENT_HOLDOUT'
+                 WHEN NOT m.capacity_pass THEN 'METHODOLOGY_CAPACITY'
+                 WHEN NOT m.portfolio_pass THEN 'METHODOLOGY_PORTFOLIO_CONTRIBUTION'
+               END AS primary_reason_code
+        FROM analytics.edge_methodology_evaluation_v1 m
+        JOIN analytics.walkforward_edge_search_v3 w ON w.result_id=m.result_id
+        JOIN analytics.edge_search_algorithm_registry_v1 r ON r.algorithm_code=m.algorithm_code
+        WHERE m.scenario_run_id=%s AND m.verdict_code='FAIL' AND r.enabled
+          AND coalesce((m.evidence->>'base_walkforward_pass')::boolean,false)
+        ORDER BY m.created_at,m.evaluation_id
+    """, (parent_run_id,))
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def liquid_peer(cursor, source_symbol: str) -> str:
+    suffix = source_symbol.split("@",1)[1] if "@" in source_symbol else ""
+    cursor.execute("""
+      WITH liquidity AS (
+        SELECT b.symbol,percentile_cont(.5) WITHIN GROUP(ORDER BY b.close*b.volume) score
+        FROM public.market_bars b
+        JOIN analytics.market_contract_spec_v1 s ON s.symbol=b.symbol AND s.is_active
+        WHERE b.timeframe='M5' AND b.ts>=clock_timestamp()-interval '7 days'
+          AND b.symbol<>%s AND (%s='' OR split_part(b.symbol,'@',2)=%s)
+          AND b.close>0 AND b.volume>0
+        GROUP BY b.symbol)
+      SELECT symbol FROM liquidity ORDER BY score DESC NULLS LAST,symbol LIMIT 1
+    """, (source_symbol,suffix,suffix))
+    row=cursor.fetchone()
+    return str(row["symbol"]) if row else source_symbol
 
 
 def activate_ready(cursor) -> int:
@@ -144,6 +195,10 @@ def sync_plan_statuses(cursor) -> None:
           updated_at=clock_timestamp()
         WHERE p.status_code <> 'EMPTY'
     """)
+    cursor.execute("""UPDATE analytics.edge_methodology_research_lineage_v1 l
+        SET status_code=i.status_code,updated_at=clock_timestamp()
+        FROM analytics.edge_next_research_plan_item_v1 i
+        WHERE i.plan_item_id=l.plan_item_id AND l.status_code<>i.status_code""")
 
 
 def main() -> None:
@@ -169,7 +224,15 @@ def main() -> None:
                 ) w ON true
                 WHERE a.run_id=%s AND a.verdict_code='FAIL' AND r.enabled
             """, (parent_run_id,))
-            failures = sorted(cursor.fetchall(), key=priority_score)
+            algorithm_failures = [dict(row) for row in cursor.fetchall()]
+            method_failures = methodology_failures(cursor,parent_run_id)
+            combined = sorted(method_failures + algorithm_failures,key=priority_score)
+            failures=[]
+            seen_algorithms=set()
+            for row in combined:
+                if row["algorithm_code"] not in seen_algorithms:
+                    failures.append(row)
+                    seen_algorithms.add(row["algorithm_code"])
             reason_summary = dict(Counter(row["primary_reason_code"] for row in failures))
             cursor.execute("""
                 INSERT INTO analytics.edge_next_research_plan_v1
@@ -181,14 +244,20 @@ def main() -> None:
             for priority, row in enumerate(failures[:MAX_NEW_SCENARIOS], 1):
                 adaptation, _, rationale = REASON_POLICY.get(row["primary_reason_code"],
                     ("RESEARCH_NEW_FAMILY", 9, "Сформировать новую проверяемую гипотезу."))
-                grid = adapted_grid(row["parameter_grid"], row["primary_reason_code"])
+                source_grid = ([row["parameter_json"]] if row.get("methodology_evaluation_id") else row["parameter_grid"])
+                grid = adapted_grid(source_grid, row["primary_reason_code"])
                 fold5 = next(item for item in row["fold_metrics"] if int(item["fold"]) == 5)
                 plan_item_id = uuid.uuid5(NAMESPACE, f"{plan_id}:{row['algorithm_code']}")
                 scenario_id = uuid.uuid5(NAMESPACE, f"{plan_item_id}:adaptive")
                 metrics = development_metrics(row["fold_metrics"]) or {}
+                target_symbol = (liquid_peer(cursor,row["symbol"])
+                                 if row["primary_reason_code"] in {"METHODOLOGY_CAPACITY","METHODOLOGY_PORTFOLIO_CONTRIBUTION"}
+                                 else row["symbol"])
                 policy = {"generator": VERSION, "plan_id": str(plan_id), "plan_item_id": str(plan_item_id),
                           "priority": priority, "adaptation_code": adaptation,
-                          "gate_policy": row["gate_policy"], "selection_uses_final_holdout": False}
+                          "gate_policy": row["gate_policy"], "selection_uses_final_holdout": False,
+                          "source_symbol": row["symbol"], "target_symbol": target_symbol,
+                          "methodology_evaluation_id": str(row.get("methodology_evaluation_id") or "")}
                 holdout = {"selection_folds": [1, 2, 3, 4], "consumed_holdout_fold": 5,
                            "confirmation_mode": "FUTURE_DATA_ONLY", "confirmation_after": fold5["end"]}
                 cursor.execute("""
@@ -201,7 +270,7 @@ def main() -> None:
                             'WAITING_FUTURE_DATA','FAIL_DRIVEN_PLAN_WAITING_FUTURE_DATA',%s)
                     ON CONFLICT (parent_result_id,config_version) DO NOTHING
                 """, (str(scenario_id),parent_run_id,search_run_id,str(row["result_id"]),row["algorithm_code"],
-                      row["strategy_code"],row["symbol"],psycopg2.extras.Json(grid),psycopg2.extras.Json(metrics),
+                      row["strategy_code"],target_symbol,psycopg2.extras.Json(grid),psycopg2.extras.Json(metrics),
                       psycopg2.extras.Json(policy),psycopg2.extras.Json(holdout),datetime.fromisoformat(fold5["end"]),
                       MIN_FUTURE_BARS,VERSION))
                 cursor.execute("""
@@ -217,6 +286,19 @@ def main() -> None:
                       psycopg2.extras.Json(row["regime_policy"]),psycopg2.extras.Json(row["gate_policy"]),
                       json.dumps(row["gate_policy"]),len(grid),str(row["result_id"]),str(scenario_id),rationale))
                 created += cursor.rowcount
+                if row.get("methodology_evaluation_id"):
+                    gate_code=row["primary_reason_code"].removeprefix("METHODOLOGY_")
+                    cursor.execute("""INSERT INTO analytics.edge_methodology_research_lineage_v1
+                      (lineage_id,evaluation_id,parent_run_id,parent_result_id,plan_id,plan_item_id,
+                       adaptive_scenario_id,gate_code,adaptation_code,source_symbol,target_symbol,
+                       pass_gate_snapshot,holdout_policy,status_code)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'WAITING_FUTURE_DATA')
+                      ON CONFLICT(evaluation_id,gate_code) DO NOTHING""",
+                      (str(uuid.uuid5(NAMESPACE,f"{row['methodology_evaluation_id']}:{gate_code}")),
+                       str(row["methodology_evaluation_id"]),parent_run_id,str(row["result_id"]),
+                       str(plan_id),str(plan_item_id),str(scenario_id),gate_code,adaptation,
+                       row["symbol"],target_symbol,psycopg2.extras.Json(row["gate_policy"]),
+                       psycopg2.extras.Json(holdout)))
             cursor.execute("""UPDATE analytics.edge_next_research_plan_v1 SET
                 item_count=(SELECT count(*) FROM analytics.edge_next_research_plan_item_v1 WHERE plan_id=%s),
                 total_parameter_variants=coalesce((SELECT sum(evaluation_budget) FROM analytics.edge_next_research_plan_item_v1 WHERE plan_id=%s),0),
