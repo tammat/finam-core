@@ -15,7 +15,8 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 CONTRACT = "METHODOLOGY_V1_STRICT"
 NAMESPACE = uuid.UUID("1d9a3a47-e61c-4d97-9443-bc4f0104dc22")
 EXECUTION_KEYS = {"transaction_cost_bps","commission","slippage","reference_symbol",
-                  "contract_symbol","contract_root","contract_expiration","adaptive_scenario_id"}
+                  "contract_symbol","contract_root","contract_expiration","adaptive_scenario_id",
+                  "execution_policy"}
 
 
 def parameter_core(parameters: dict) -> dict:
@@ -89,6 +90,12 @@ def main() -> int:
             if not contract_row:
                 raise RuntimeError("METHODOLOGY_CONTRACT_NOT_ACTIVE")
             policy = contract_row["policy"]
+            cursor.execute("""SELECT policy_code,policy FROM analytics.execution_simulation_policy_v1
+                WHERE active ORDER BY activated_at DESC LIMIT 1""")
+            execution_contract = cursor.fetchone()
+            if not execution_contract:
+                raise RuntimeError("EXECUTION_SIMULATION_POLICY_NOT_ACTIVE")
+            execution_policy = execution_contract["policy"]
             cursor.execute("SELECT * FROM analytics.walkforward_edge_search_v3 WHERE search_run_id=%s ORDER BY result_id",(search_run_id,))
             rows = cursor.fetchall()
             if not rows:
@@ -118,8 +125,14 @@ def main() -> int:
                 statistical = q_values[index] <= float(policy["max_fdr_q"])
                 robustness = neighbors >= int(policy["min_robust_neighbors"])
                 holdout = bool(fold5 and fold5["passed"] and not consumed)
-                execution = (float(evidence.get("stressed_profit_factor",0)) >= float(policy["stress_min_profit_factor"])
-                             and float(evidence.get("stressed_expectancy",0)) > 0)
+                execution = (
+                    float(evidence.get("stressed_profit_factor",0)) >= float(policy["stress_min_profit_factor"])
+                    and float(evidence.get("stressed_expectancy",0)) > 0
+                    and int(evidence.get("signal_latency_bars",0)) >= int(execution_policy["signal_latency_bars"])
+                    and float(evidence.get("average_fill_ratio",0)) >= float(execution_policy["minimum_fill_ratio"])
+                    and float(evidence.get("fallback_quote_share",1)) <= float(execution_policy["max_fallback_quote_share"])
+                    and float(evidence.get("contract_spec_coverage",0)) >= 1.0
+                )
                 capacity = float(evidence.get("capacity_rub",0)) >= float(policy["min_capacity_rub"])
                 portfolio_pass = (not portfolio_exists) or (overlap >= int(policy["min_portfolio_overlap_days"])
                     and portfolio_corr is not None and abs(portfolio_corr) <= float(policy["max_portfolio_abs_correlation"]))
@@ -130,7 +143,9 @@ def main() -> int:
                 verdict = "PASS" if base_pass and all(gates.values()) else "FAIL"
                 reasons = (["BASE_WALKFORWARD_FAILED"] if not base_pass else []) + [key for key,value in gates.items() if not value]
                 audit = {**evidence,"base_walkforward_pass":base_pass,"portfolio_overlap_days":overlap,
-                         "empty_portfolio":not portfolio_exists,"contract_policy":policy}
+                         "empty_portfolio":not portfolio_exists,"contract_policy":policy,
+                         "execution_policy_code":execution_contract["policy_code"],
+                         "execution_policy":execution_policy}
                 cursor.execute("""INSERT INTO analytics.edge_methodology_evaluation_v1
                   (evaluation_id,scenario_run_id,search_run_id,result_id,contract_code,algorithm_code,
                    strategy_code,symbol,timeframe,parameter_core,parameter_hash,statistical_pass,

@@ -17,8 +17,8 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 LIMIT = int(os.getenv("STRATEGY_EXECUTION_RUNNER_LIMIT", "20"))
 MAX_BARS = int(os.getenv("STRATEGY_EXECUTION_MAX_BARS", "5000"))
 RESEARCH_BATCH_ID = os.getenv("STRATEGY_EXECUTION_RESEARCH_BATCH_ID")
-RUNNER_VERSION = "STRATEGY_EXECUTION_RUNNER_V2_TRUSTED_BARS"
-ENGINE_NAME = "STRATEGY_EXECUTION_RUNNER_V2_TRUSTED_BARS"
+RUNNER_VERSION = "STRATEGY_EXECUTION_RUNNER_V3_REALISTIC_EXECUTION"
+ENGINE_NAME = "STRATEGY_EXECUTION_RUNNER_V3_REALISTIC_EXECUTION"
 SCORE_FORMULA_VERSION = "EDGE_SCORE_ENGINE_PENDING"
 
 
@@ -28,6 +28,8 @@ class Bar:
     close: float
     volume: float = 0.0
     reference_close: float | None = None
+    best_bid: float | None = None
+    best_ask: float | None = None
 
 
 @dataclass(frozen=True)
@@ -42,12 +44,74 @@ class Trade:
     commission: float
     slippage: float
     net_pnl: float
+    quantity: float = 1.0
+    fill_ratio: float = 1.0
+    spread_cost: float = 0.0
+    impact_cost: float = 0.0
+    latency_bars: int = 0
+    quote_source: str = "LEGACY"
+    capacity_rub: float = 0.0
+    contract_spec_source: str = "LEGACY"
 
 
 def safe_float(v: Any) -> float:
     if v is None:
         return 0.0
     return float(v)
+
+
+DEFAULT_EXECUTION_POLICY = {
+    "policy_code": "REALISTIC_EXECUTION_V1",
+    "signal_latency_bars": 1,
+    "max_participation_rate": 0.01,
+    "minimum_fill_ratio": 0.25,
+    "target_notional_rub": 100000.0,
+    "fallback_spread_bps": 8.0,
+    "impact_bps_at_max_participation": 4.0,
+    "stress_cost_multiplier": 1.5,
+}
+
+
+def load_execution_context(cur, symbol: str) -> dict[str, Any]:
+    """Load one immutable policy plus empirical liquidity and contract metadata."""
+    policy = dict(DEFAULT_EXECUTION_POLICY)
+    cur.execute("""SELECT policy_code,policy FROM analytics.execution_simulation_policy_v1
+        WHERE active ORDER BY activated_at DESC LIMIT 1""")
+    row = cur.fetchone()
+    if row:
+        policy.update(row["policy"] or {})
+        policy["policy_code"] = row["policy_code"]
+
+    cur.execute("""SELECT lot_size,tick_size,contract_multiplier,source_version
+        FROM analytics.market_contract_spec_v1
+        WHERE is_active AND (symbol=%s OR
+          (%s LIKE 'BR%%@RTSX' AND symbol='BR@RTSX') OR
+          (%s LIKE 'NG%%@RTSX' AND symbol='NG@RTSX'))
+        ORDER BY (symbol=%s) DESC,valid_from DESC LIMIT 1""", (symbol,symbol,symbol,symbol))
+    spec = cur.fetchone()
+    policy.update({
+        "lot_size": float(spec["lot_size"]) if spec else 1.0,
+        "tick_size": float(spec["tick_size"]) if spec else 0.0,
+        "contract_multiplier": float(spec["contract_multiplier"]) if spec else 1.0,
+        "contract_spec_source": spec["source_version"] if spec else "MISSING_SPEC_FALLBACK",
+    })
+
+    cur.execute("""WITH recent AS (
+          SELECT spread_bps FROM analytics.market_microstructure_snapshot_v1
+          WHERE symbol=%s AND spread_bps>0 ORDER BY observed_at DESC LIMIT 10000
+        ) SELECT percentile_cont(0.90) WITHIN GROUP (ORDER BY spread_bps)::float8 spread_bps,
+                 count(*) samples FROM recent""", (symbol,))
+    quote = cur.fetchone()
+    if quote and int(quote["samples"] or 0) >= 100:
+        policy["fallback_spread_bps"] = max(
+            float(policy["fallback_spread_bps"]), float(quote["spread_bps"])
+        )
+        policy["quote_source"] = "EMPIRICAL_P90_MICROSTRUCTURE"
+        policy["quote_samples"] = int(quote["samples"])
+    else:
+        policy["quote_source"] = "POLICY_FALLBACK"
+        policy["quote_samples"] = int(quote["samples"] or 0) if quote else 0
+    return policy
 
 
 def discover_bar_table(cur) -> tuple[str, str, str, str, str | None, str | None, str | None] | None:
@@ -108,7 +172,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
         FROM {schema}.{table}
         WHERE {where}
           AND {close_col} IS NOT NULL
-        ORDER BY {ts_col} ASC
+        ORDER BY {ts_col} DESC
         LIMIT %s
     """).format(
         ts_col=sql.Identifier(ts_col),
@@ -122,7 +186,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
     params.append(MAX_BARS)
     cur.execute(q, params)
 
-    bars = [Bar(r["ts"], safe_float(r["close"]), safe_float(r["volume"])) for r in cur.fetchall()]
+    bars = [Bar(r["ts"], safe_float(r["close"]), safe_float(r["volume"])) for r in reversed(cur.fetchall())]
     return [b for b in bars if b.close > 0]
 
 
@@ -245,6 +309,16 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     threshold = float(params.get("threshold", 1.0))
     commission = float(params.get("commission", 0.0))
     slippage = float(params.get("slippage", 0.0))
+    explicit_execution_policy = bool(params.get("execution_policy"))
+    execution = {**DEFAULT_EXECUTION_POLICY, **(params.get("execution_policy") or {})}
+    latency = max(1, int(execution["signal_latency_bars"]))
+    participation_limit = max(0.0, float(execution["max_participation_rate"]))
+    minimum_fill = min(1.0, max(0.0, float(execution["minimum_fill_ratio"])))
+    target_notional = max(0.0, float(execution["target_notional_rub"]))
+    spread_bps = max(0.0, float(execution["fallback_spread_bps"]))
+    impact_at_limit = max(0.0, float(execution["impact_bps_at_max_participation"]))
+    lot_size = max(float(execution.get("lot_size", 1.0)), 1e-12)
+    multiplier = max(float(execution.get("contract_multiplier", 1.0)), 1e-12)
 
     strategy_code = str(run["strategy_code"]).upper()
     family = strategy_family(strategy_code)
@@ -252,7 +326,7 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     required_history = max(lookback, int(params.get("slow", 0)), int(params.get("vol_lookback", 0)), 20)
     i = required_history
 
-    while i + hold < len(bars):
+    while i + latency + hold < len(bars):
         window = [b.close for b in bars[i - lookback:i]]
         close = bars[i].close
         side = 0
@@ -280,21 +354,64 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             i += 1
             continue
 
-        entry = bars[i]
-        exit_bar = bars[i + hold]
+        entry = bars[i + latency]
+        exit_bar = bars[i + latency + hold]
+        requested = math.floor((target_notional / (entry.close * multiplier)) / lot_size) * lot_size
+        available = max(entry.volume, 0.0) * participation_limit
+        if not explicit_execution_policy:
+            requested = max(lot_size, requested)
+            available = max(requested, available)
+        filled = math.floor(min(requested, available) / lot_size) * lot_size if requested > 0 else 0.0
+        fill_ratio = min(1.0, filled / requested) if requested > 0 else 0.0
+        if filled <= 0 or fill_ratio < minimum_fill:
+            i += 1
+            continue
+        actual_participation = filled / max(entry.volume, filled)
+        participation_fraction = min(1.0, actual_participation / participation_limit) if participation_limit else 1.0
+        impact_bps = impact_at_limit * math.sqrt(participation_fraction)
         gross = (exit_bar.close - entry.close) * side
-        net = gross - commission - slippage
+        has_historical_quote = (
+            entry.best_bid is not None and entry.best_ask is not None
+            and exit_bar.best_bid is not None and exit_bar.best_ask is not None
+            and entry.best_ask >= entry.best_bid > 0 and exit_bar.best_ask >= exit_bar.best_bid > 0
+        )
+        if has_historical_quote:
+            crossed_entry = float(entry.best_ask if side > 0 else entry.best_bid)
+            crossed_exit = float(exit_bar.best_bid if side > 0 else exit_bar.best_ask)
+            spread_cost = max(0.0, gross - (crossed_exit-crossed_entry)*side)
+            quote_source = "HISTORICAL_BID_ASK"
+        else:
+            half_spread_bps = spread_bps / 2.0
+            crossed_entry = entry.close + side * entry.close * half_spread_bps / 10000.0
+            crossed_exit = exit_bar.close - side * exit_bar.close * half_spread_bps / 10000.0
+            spread_cost = (entry.close + exit_bar.close) * half_spread_bps / 10000.0
+            quote_source = str(execution.get("quote_source", "POLICY_FALLBACK"))
+        entry_impact = entry.close * impact_bps / 10000.0
+        exit_impact = exit_bar.close * impact_bps / 10000.0
+        executed_entry = crossed_entry + side * entry_impact
+        executed_exit = crossed_exit - side * exit_impact
+        impact_cost = (entry.close + exit_bar.close) * impact_bps / 10000.0
+        execution_slippage = spread_cost + impact_cost + slippage
+        net = gross - commission - execution_slippage
         trades.append(Trade(
             no=len(trades) + 1,
             side="BUY" if side > 0 else "SELL",
             entry_ts=entry.ts,
             exit_ts=exit_bar.ts,
-            entry_price=entry.close,
-            exit_price=exit_bar.close,
+            entry_price=executed_entry,
+            exit_price=executed_exit,
             gross_pnl=gross,
             commission=commission,
-            slippage=slippage,
+            slippage=execution_slippage,
             net_pnl=net,
+            quantity=filled,
+            fill_ratio=fill_ratio,
+            spread_cost=spread_cost,
+            impact_cost=impact_cost,
+            latency_bars=latency,
+            quote_source=quote_source,
+            capacity_rub=available * entry.close * multiplier,
+            contract_spec_source=str(execution.get("contract_spec_source", "MISSING_SPEC_FALLBACK")),
         ))
         i += hold
 
@@ -378,10 +495,15 @@ def main() -> None:
                     """, (RUNNER_VERSION, run["id"]))
 
                     bars = load_bars(cur, run)
+                    run["parameter_json"] = {
+                        **(run.get("parameter_json") or {}),
+                        "execution_policy": load_execution_context(cur, run["symbol"]),
+                    }
                     trades = build_trades(run, bars)
                     m = metrics(trades)
                     elapsed_ms = int((time.perf_counter() - start) * 1000)
 
+                    cur.execute("DELETE FROM analytics.research_trade_execution_audit_v1 WHERE run_uuid=%s", (run["run_uuid"],))
                     cur.execute("DELETE FROM analytics.research_trade_v1 WHERE run_uuid=%s", (run["run_uuid"],))
                     for t in trades:
                         cur.execute("""
@@ -399,6 +521,22 @@ def main() -> None:
                             Decimal(str(t.exit_price)), Decimal(str(t.gross_pnl)),
                             Decimal(str(t.commission)), Decimal(str(t.slippage)),
                             Decimal(str(t.net_pnl)), RUNNER_VERSION,
+                        ))
+                        cur.execute("""INSERT INTO analytics.research_trade_execution_audit_v1
+                            (run_uuid,trade_no,quantity,fill_ratio,spread_cost,impact_cost,latency_bars,
+                             quote_source,capacity_rub,contract_spec_source,execution_policy_code)
+                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT(run_uuid,trade_no) DO UPDATE SET
+                              quantity=EXCLUDED.quantity,fill_ratio=EXCLUDED.fill_ratio,
+                              spread_cost=EXCLUDED.spread_cost,impact_cost=EXCLUDED.impact_cost,
+                              latency_bars=EXCLUDED.latency_bars,quote_source=EXCLUDED.quote_source,
+                              capacity_rub=EXCLUDED.capacity_rub,
+                              contract_spec_source=EXCLUDED.contract_spec_source,
+                              execution_policy_code=EXCLUDED.execution_policy_code""",(
+                            run["run_uuid"],t.no,Decimal(str(t.quantity)),Decimal(str(t.fill_ratio)),
+                            Decimal(str(t.spread_cost)),Decimal(str(t.impact_cost)),t.latency_bars,
+                            t.quote_source,Decimal(str(t.capacity_rub)),t.contract_spec_source,
+                            run["parameter_json"]["execution_policy"]["policy_code"],
                         ))
 
                     verdict = "OBSERVED" if m["trades"] > 0 else ("NO_MARKET_DATA" if not bars else "NO_TRADES")

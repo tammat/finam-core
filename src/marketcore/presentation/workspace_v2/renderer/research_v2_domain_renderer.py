@@ -109,6 +109,8 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         _status_tile("auto_status",s.edge_auto_status),
         _tile("methodology",s.methodology_evaluated,"OK" if s.methodology_evaluated else "WARNING"),
         _tile("method_pass",s.methodology_pass,"OK" if s.methodology_pass else "WARNING"),
+        _tile("execution_quotes",s.execution_quote_symbols,"OK" if s.execution_quote_status == "READY" else "BLOCKED"),
+        _tile("execution_specs",s.execution_spec_count,"OK" if s.execution_spec_status == "READY" else "WARNING"),
     )
     refresh=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.refresh",content=RenderContentV2(message_key="research.action.request_refresh"),action=RenderActionV2("research.request.refresh",ActionKindV2.COMMAND,command_code="RESEARCH.REQUEST_REFRESH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
     edge_search=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.edge_search",content=RenderContentV2(message_key="research.action.run_edge_search"),action=RenderActionV2("research.edge_search.run",ActionKindV2.COMMAND,command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))

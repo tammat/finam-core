@@ -61,6 +61,10 @@ class ResearchSnapshotV2:
     edge_auto_status: str
     methodology_evaluated: int
     methodology_pass: int
+    execution_quote_symbols: int
+    execution_spec_count: int
+    execution_quote_status: str
+    execution_spec_status: str
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
     generated_at: datetime

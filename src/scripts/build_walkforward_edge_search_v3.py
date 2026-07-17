@@ -10,7 +10,7 @@ import psycopg2
 import psycopg2.extras
 
 from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
-from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
+from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, load_execution_context, metrics
 
 
 SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS"
@@ -50,23 +50,38 @@ def methodology_evidence(trades, bars) -> dict:
     stdev = statistics.pstdev(pnls) if len(pnls) > 1 else 0.0
     z_score = mean / (stdev / math.sqrt(len(pnls))) if stdev > 0 else 0.0
     p_value = 0.5 * math.erfc(z_score / math.sqrt(2.0)) if z_score > 0 else 1.0
-    stressed = [float(t.gross_pnl) - 1.5 * (float(t.commission) + float(t.slippage)) for t in trades]
+    stress_multiplier = 1.5
+    stressed = [float(t.gross_pnl) - stress_multiplier * (float(t.commission) + float(t.slippage)) for t in trades]
     wins = [value for value in stressed if value > 0]
     losses = [value for value in stressed if value <= 0]
     gross_loss = abs(sum(losses))
     stressed_pf = sum(wins) / gross_loss if gross_loss else (sum(wins) if wins else 0.0)
     volume_by_ts = {bar.ts: float(bar.volume) for bar in bars}
-    capacities = [volume_by_ts.get(t.entry_ts,0.0) * float(t.entry_price) * 0.01 for t in trades]
+    capacities = [
+        float(getattr(t,"capacity_rub",0.0))
+        or volume_by_ts.get(t.entry_ts,0.0) * float(t.entry_price) * 0.01
+        for t in trades
+    ]
+    fills = [float(getattr(t,"fill_ratio",1.0)) for t in trades]
+    fallback_quotes = [str(getattr(t,"quote_source","LEGACY")) == "POLICY_FALLBACK" for t in trades]
+    missing_specs = [str(getattr(t,"contract_spec_source","LEGACY")) == "MISSING_SPEC_FALLBACK" for t in trades]
     daily = defaultdict(float)
     for trade in trades:
         day = trade.exit_ts.date().isoformat() if hasattr(trade.exit_ts,"date") else str(trade.exit_ts)
         daily[day] += float(trade.net_pnl)
     return {
         "one_sided_p_value": round(p_value,10), "z_score": round(z_score,8),
-        "pnl_stdev": round(stdev,8), "stress_cost_multiplier": 1.5,
+        "pnl_stdev": round(stdev,8), "stress_cost_multiplier": stress_multiplier,
         "stressed_profit_factor": round(stressed_pf,8),
         "stressed_expectancy": round(statistics.fmean(stressed),8) if stressed else 0.0,
         "capacity_rub": round(statistics.median(capacities),2) if capacities else 0.0,
+        "average_fill_ratio": round(statistics.fmean(fills),8) if fills else 0.0,
+        "minimum_fill_ratio": round(min(fills),8) if fills else 0.0,
+        "fallback_quote_share": round(sum(fallback_quotes)/len(fallback_quotes),8) if fallback_quotes else 1.0,
+        "contract_spec_coverage": round(1-sum(missing_specs)/len(missing_specs),8) if missing_specs else 0.0,
+        "average_spread_cost": round(statistics.fmean(float(getattr(t,"spread_cost",0.0)) for t in trades),8) if trades else 0.0,
+        "average_impact_cost": round(statistics.fmean(float(getattr(t,"impact_cost",0.0)) for t in trades),8) if trades else 0.0,
+        "signal_latency_bars": min((int(getattr(t,"latency_bars",0)) for t in trades),default=0),
         "daily_pnl": [{"date":day,"pnl":round(value,8)} for day,value in sorted(daily.items())],
     }
 
@@ -89,6 +104,7 @@ def main() -> None:
             markets = cursor.fetchall()
             configurations = load_search_configuration(cursor)
             for market in markets:
+                execution_policy = load_execution_context(cursor, market["symbol"])
                 cursor.execute("""
                     SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars
                     WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL
@@ -113,6 +129,7 @@ def main() -> None:
                             **base_params, "transaction_cost_bps": cost_bps,
                             "commission": roundtrip_cost, "slippage": 0.0,
                             "reference_symbol": reference_symbol,
+                            "execution_policy": execution_policy,
                         }
                         lookback = int(params["lookback"])
                         fold_rows = []
