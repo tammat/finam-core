@@ -3,6 +3,17 @@ from dataclasses import dataclass
 from datetime import datetime
 
 @dataclass(frozen=True, slots=True)
+class ResearchAlgorithmResultV2:
+    family: str
+    markets: int
+    variants: int
+    best_folds: int
+    folds_total: int
+    best_profit_factor: float
+    passes: int
+    status: str
+
+@dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:
     supervisor_status: str
     active_symbols: int
@@ -26,4 +37,5 @@ class ResearchSnapshotV2:
     edge_search_combinations: int
     edge_search_pass: int
     edge_search_finished_at: datetime | None
+    algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     generated_at: datetime

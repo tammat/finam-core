@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
-from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import ResearchSnapshotV2
+from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import ResearchAlgorithmResultV2,ResearchSnapshotV2
 
 def _utc(value):
     if value is None: return None
@@ -26,4 +26,20 @@ class ResearchV2Resolver:
                 oos=cursor.fetchone()
                 cursor.execute("SELECT status_code status,current_step,progress_pct,markets_evaluated,combinations_evaluated,oos_pass,finished_at FROM analytics.edge_search_cycle_status_v1 ORDER BY started_at DESC LIMIT 1")
                 edge_search=cursor.fetchone() or {}
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),now)
+                cursor.execute("""
+                    WITH latest AS (
+                        SELECT search_run_id FROM analytics.walkforward_edge_search_v3
+                        WHERE source_version='WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS'
+                        ORDER BY created_at DESC LIMIT 1
+                    )
+                    SELECT strategy_family,count(DISTINCT symbol) markets,count(*) variants,
+                           max(folds_passed) best_folds,max(folds_total) folds_total,
+                           coalesce(max(net_profit_factor) FILTER (WHERE total_trades>=80),0) best_profit_factor,
+                           count(*) FILTER (WHERE verdict_code='OOS_PASS') passes
+                    FROM analytics.walkforward_edge_search_v3
+                    WHERE search_run_id=(SELECT search_run_id FROM latest)
+                    GROUP BY strategy_family
+                    ORDER BY CASE strategy_family WHEN 'RSI' THEN 1 WHEN 'VWAP' THEN 2 WHEN 'BOLLINGER' THEN 3 WHEN 'MOMENTUM' THEN 4 ELSE 5 END
+                """)
+                algorithms=tuple(ResearchAlgorithmResultV2(str(row["strategy_family"]),int(row["markets"]),int(row["variants"]),int(row["best_folds"]),int(row["folds_total"]),float(row["best_profit_factor"]),int(row["passes"]),"PASS" if int(row["passes"]) else "NO_PASS") for row in cursor.fetchall())
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),algorithms,now)

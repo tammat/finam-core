@@ -103,6 +103,17 @@ class HomeOperatorDashboardResolverV1:
             ORDER BY started_at DESC LIMIT 1
         """)
         row = cur.fetchone() or {}
+        cur.execute("""
+            WITH latest AS (SELECT search_run_id FROM analytics.walkforward_edge_search_v3 WHERE source_version='WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS' ORDER BY created_at DESC LIMIT 1)
+            SELECT string_agg(strategy_family||' '||passes, ' · ' ORDER BY rank) AS algorithms
+            FROM (
+                SELECT strategy_family,count(*) FILTER (WHERE verdict_code='OOS_PASS')::text passes,
+                       CASE strategy_family WHEN 'RSI' THEN 1 WHEN 'VWAP' THEN 2 WHEN 'BOLLINGER' THEN 3 WHEN 'MOMENTUM' THEN 4 ELSE 5 END rank
+                FROM analytics.walkforward_edge_search_v3 WHERE search_run_id=(SELECT search_run_id FROM latest)
+                GROUP BY strategy_family
+            ) grouped
+        """)
+        algorithms = str((cur.fetchone() or {}).get("algorithms") or "Нет данных")
         status = str(row.get("status_code") or "NOT_RUN")
         status_code = UiStatusCode.OK if status == "PASS_FOUND" else UiStatusCode.WARNING
         return HomeOperatorDashboardItemV1(
@@ -116,6 +127,7 @@ class HomeOperatorDashboardResolverV1:
                 "progress": int(row.get("progress_pct") or 0),
                 "variants": int(row.get("combinations_evaluated") or 0),
                 "passes": int(row.get("oos_pass") or 0),
+                "algorithms": algorithms,
             },
         )
 

@@ -12,7 +12,7 @@ VALUES
 
 ('home.operator.edge_search.title','ru','Поиск edge','Поиск edge','Edge','Автоматический поиск подтверждённого преимущества','', 'workspace_v2_home_operator'),
 ('home.operator.edge_search.subtitle','ru','Проверка алгоритмов и рынков','Алгоритмы','Алг.','Текущий цикл поиска и вневыборочной проверки','', 'workspace_v2_home_operator'),
-('home.operator.edge_search.summary','ru','{status} · {progress}% · вариантов {variants} · PASS {passes}','{progress}% · {variants} · PASS {passes}','{progress}% · PASS {passes}','Статус, прогресс, варианты и подтверждённые результаты','', 'workspace_v2_home_operator'),
+('home.operator.edge_search.summary','ru','{status} · {progress}% · вариантов {variants} · PASS {passes} · {algorithms}','{progress}% · PASS {passes} · {algorithms}','{progress}% · PASS {passes}','Статус, прогресс, варианты и подтверждённые результаты','', 'workspace_v2_home_operator'),
 
 ('home.operator.signal_funnel.title','ru','Воронка сигналов','Воронка','Ворон.','Стадии прохождения сигналов','', 'workspace_v2_home_operator'),
 ('home.operator.signal_funnel.subtitle','ru','Где теряются возможности','Потери','Пот.','Аналитика причин блокировок','', 'workspace_v2_home_operator'),
