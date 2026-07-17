@@ -18,28 +18,27 @@ MIN_BARS = int(os.getenv("EDGE_HYPOTHESIS_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
 
 
-GRIDS = {
-    "MOMENTUM": ("MOMENTUM_CONTINUATION_V1", [
-        {"lookback": lookback, "hold": hold, "threshold": threshold}
-        for lookback in (20, 40, 80) for hold in (5, 9) for threshold in (0.5, 1.0, 1.5)
-    ]),
-    "VWAP": ("VWAP_REVERSION_V2", [
-        {"lookback": lookback, "hold": hold, "threshold": threshold}
-        for lookback in (20, 40, 80) for hold in (5, 9) for threshold in (1.0, 1.5, 2.0)
-    ]),
-    "BOLLINGER": ("BOLLINGER_REVERSION_V1", [
-        {"lookback": lookback, "hold": hold, "threshold": threshold}
-        for lookback in (20, 40, 80) for hold in (5, 9) for threshold in (1.5, 2.0, 2.5)
-    ]),
-    "RSI": ("RSI_MEAN_REVERSION_V1", [
-        {"lookback": lookback, "hold": hold, "threshold": threshold}
-        for lookback in (14, 21) for hold in (5, 9) for threshold in (20.0, 25.0, 30.0)
-    ]),
-    "BREAKOUT": ("VOLATILITY_BREAKOUT_V2", [
-        {"lookback": lookback, "hold": hold, "threshold": 0.0}
-        for lookback in (20, 40, 80) for hold in (5, 9)
-    ]),
-}
+def load_search_configuration(cursor):
+    cursor.execute("""
+        SELECT algorithm_code,strategy_code,parameter_grid,regime_policy,gate_policy,config_version
+        FROM analytics.edge_search_algorithm_registry_v1
+        WHERE enabled ORDER BY algorithm_code
+    """)
+    rows = cursor.fetchall()
+    if not rows:
+        raise RuntimeError("EDGE_SEARCH_ALGORITHM_CONFIG_MISSING")
+    result = {}
+    for row in rows:
+        family = row["algorithm_code"]
+        grid = row["parameter_grid"]
+        if not grid:
+            raise RuntimeError(f"EDGE_SEARCH_PARAMETER_GRID_EMPTY:{family}")
+        result[family] = {
+            "strategy_code": row["strategy_code"], "grid": grid,
+            "regime_policy": row["regime_policy"], "gate_policy": row["gate_policy"],
+            "config_version": row["config_version"],
+        }
+    return result
 
 
 def regime_map(bars: list[Bar], start: int) -> dict[object, str]:
@@ -96,6 +95,7 @@ def main() -> None:
                 LIMIT %s
             """, (MIN_BARS, MAX_MARKETS))
             markets = cur.fetchall()
+            configurations = load_search_configuration(cur)
 
             for market in markets:
                 cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts", (market["symbol"], market["timeframe"]))
@@ -108,7 +108,8 @@ def main() -> None:
                 reference_price = statistics.median(bar.close for bar in bars)
                 roundtrip_cost = reference_price * cost_bps / 10000.0
 
-                for family, (strategy_code, grid) in GRIDS.items():
+                for family, configuration in configurations.items():
+                    strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     for base_params in grid:
                         params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0}
                         lookback = int(params["lookback"])

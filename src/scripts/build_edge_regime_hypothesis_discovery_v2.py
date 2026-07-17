@@ -8,7 +8,7 @@ from collections import defaultdict
 import psycopg2
 import psycopg2.extras
 
-from scripts.build_edge_hypothesis_discovery_v1 import GRIDS, score
+from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration, score
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades, metrics
 
 
@@ -20,20 +20,11 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 MIN_CONFIDENCE = float(os.getenv("EDGE_REGIME_MIN_CONFIDENCE", "0.60"))
 MIN_COVERAGE = float(os.getenv("EDGE_REGIME_MIN_COVERAGE", "0.80"))
 
-ALLOWED_REGIMES = {
-    "MOMENTUM": ("trend_up", "trend_down", "trend_up_expansion", "trend_down_expansion"),
-    "VWAP": ("range_normal", "range_compression", "compression"),
-    "BOLLINGER": ("range_normal", "range_compression", "compression"),
-    "RSI": ("range_normal", "range_compression", "compression"),
-    "BREAKOUT": ("compression", "trend_up_expansion", "trend_down_expansion"),
-}
-
-
 def _filtered(trades: list[Trade], regime_by_ts: dict[object, str], regime: str) -> list[Trade]:
     return [trade for trade in trades if regime_by_ts.get(trade.entry_ts) == regime]
 
 
-def _fold_passes(trades: list[Trade], bars: list[Bar], start_index: int) -> int:
+def _fold_passes(trades: list[Trade], bars: list[Bar], start_index: int, gate: dict) -> int:
     if not trades:
         return 0
     fold_span = max(1, (len(bars) - start_index) // 3)
@@ -42,7 +33,11 @@ def _fold_passes(trades: list[Trade], bars: list[Bar], start_index: int) -> int:
         start = start_index + fold_no * fold_span
         end = len(bars) if fold_no == 2 else min(len(bars), start + fold_span)
         fold = metrics([trade for trade in trades if bars[start].ts <= trade.entry_ts <= bars[end - 1].ts])
-        passed += int(fold["trades"] >= 8 and fold["profit_factor"] >= 1.0 and fold["expectancy"] > 0)
+        passed += int(
+            fold["trades"] >= gate["fold_min_trades"]
+            and fold["profit_factor"] >= gate["fold_min_profit_factor"]
+            and fold["expectancy"] > gate["fold_min_expectancy"]
+        )
     return passed
 
 
@@ -67,6 +62,7 @@ def main() -> None:
                 ORDER BY count(*) DESC LIMIT %s
             """, (MIN_BARS, FRESHNESS_MINUTES, MAX_MARKETS))
             markets = cur.fetchall()
+            configurations = load_search_configuration(cur)
 
             for market in markets:
                 cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') AND (%s IS NULL OR ts < %s::date + interval '1 day') ORDER BY ts", (market["symbol"], market["timeframe"],market["expiration_date"],market["expiration_date"]))
@@ -90,7 +86,12 @@ def main() -> None:
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
                 roundtrip_cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
 
-                for family, (strategy_code, grid) in GRIDS.items():
+                for family, configuration in configurations.items():
+                    strategy_code, grid = configuration["strategy_code"], configuration["grid"]
+                    allowed_regimes = configuration["regime_policy"]["allowed_regimes"]
+                    validation_gate = configuration["gate_policy"]["validation"]
+                    oos_gate = configuration["gate_policy"]["oos"]
+                    regime_gate = configuration["gate_policy"]["regime"]
                     for base_params in grid:
                         params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0,
                                   "contract_symbol": market["symbol"] if market["expiration_date"] else None,
@@ -101,19 +102,23 @@ def main() -> None:
                         validation_all = [trade for trade in build_trades(run, bars[train_end - lookback:validation_end]) if trade.entry_ts >= validation_start_ts]
                         oos_all = [trade for trade in build_trades(run, bars[validation_end - lookback:]) if trade.entry_ts >= oos_start_ts]
 
-                        for regime in ALLOWED_REGIMES[family]:
+                        for regime in allowed_regimes:
                             validation_trades = _filtered(validation_all, regime_by_ts, regime)
                             oos_trades = _filtered(oos_all, regime_by_ts, regime)
                             validation = metrics(validation_trades)
                             oos = metrics(oos_trades)
-                            folds = _fold_passes(oos_trades, bars, validation_end)
+                            folds = _fold_passes(oos_trades, bars, validation_end, regime_gate)
                             observed_ts = [trade.entry_ts for trade in validation_trades + oos_trades]
                             trust_status = "VERIFIED" if coverage >= MIN_COVERAGE and observed_ts else "UNVERIFIED"
                             passed = (
                                 trust_status == "VERIFIED"
-                                and validation["trades"] >= 30 and validation["profit_factor"] >= 1.05 and validation["expectancy"] > 0
-                                and oos["trades"] >= 30 and oos["profit_factor"] >= 1.10 and oos["expectancy"] > 0
-                                and folds >= 2
+                                and validation["trades"] >= validation_gate["min_trades"]
+                                and validation["profit_factor"] >= validation_gate["min_profit_factor"]
+                                and validation["expectancy"] > validation_gate["min_expectancy"]
+                                and oos["trades"] >= oos_gate["min_trades"]
+                                and oos["profit_factor"] >= oos_gate["min_profit_factor"]
+                                and oos["expectancy"] > oos_gate["min_expectancy"]
+                                and folds >= regime_gate["min_folds_passed"]
                             )
                             verdict = "OOS_PASS" if passed else ("UNVERIFIED" if trust_status == "UNVERIFIED" else "OOS_FAIL")
                             reason = "PASS" if passed else ("INSUFFICIENT_REGIME_COVERAGE" if trust_status == "UNVERIFIED" else "REGIME_OOS_GATE_FAILED")

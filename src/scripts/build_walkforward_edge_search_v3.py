@@ -7,7 +7,7 @@ import os
 import psycopg2
 import psycopg2.extras
 
-from scripts.build_edge_hypothesis_discovery_v1 import GRIDS
+from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
 
 
@@ -18,14 +18,14 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 TARGET_SYMBOL = os.getenv("EDGE_SEARCH_TARGET_SYMBOL", "").strip()
 
 
-def failure_reason(aggregate, folds_passed: int, final_holdout: bool) -> str:
-    if aggregate["trades"] < 80:
+def failure_reason(aggregate, folds_passed: int, final_holdout: bool, gate: dict) -> str:
+    if aggregate["trades"] < gate["min_trades"]:
         return "INSUFFICIENT_TRADES"
-    if aggregate["expectancy"] <= 0:
+    if aggregate["expectancy"] <= gate["min_expectancy"]:
         return "NEGATIVE_COST_ADJUSTED_EXPECTANCY"
-    if aggregate["profit_factor"] < 1.15:
+    if aggregate["profit_factor"] < gate["min_profit_factor"]:
         return "PROFIT_FACTOR_BELOW_GATE"
-    if folds_passed < 4:
+    if folds_passed < gate["min_folds_passed"]:
         return "WALKFORWARD_FOLDS_UNSTABLE"
     if not final_holdout:
         return "FINAL_HOLDOUT_FAILED"
@@ -48,6 +48,7 @@ def main() -> None:
                 ORDER BY count(*) DESC LIMIT 12
             """, (TARGET_SYMBOL,TARGET_SYMBOL,FRESHNESS_MINUTES))
             markets = cursor.fetchall()
+            configurations = load_search_configuration(cursor)
             for market in markets:
                 cursor.execute("""
                     SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars
@@ -60,7 +61,9 @@ def main() -> None:
                 fold_span = max(1, (len(bars)-evaluation_start)//FOLDS)
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
                 roundtrip_cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
-                for family, (strategy_code, grid) in GRIDS.items():
+                for family, configuration in configurations.items():
+                    strategy_code, grid = configuration["strategy_code"], configuration["grid"]
+                    walkforward_gate = configuration["gate_policy"]["walkforward"]
                     for base_params in grid:
                         params = {
                             **base_params, "transaction_cost_bps": cost_bps,
@@ -80,7 +83,11 @@ def main() -> None:
                                 ) if start_ts<=trade.entry_ts<=end_ts
                             ]
                             value = metrics(trades)
-                            fold_pass = value["trades"]>=12 and value["profit_factor"]>=1.0 and value["expectancy"]>0
+                            fold_pass = (
+                                value["trades"] >= walkforward_gate["fold_min_trades"]
+                                and value["profit_factor"] >= walkforward_gate["fold_min_profit_factor"]
+                                and value["expectancy"] > walkforward_gate["fold_min_expectancy"]
+                            )
                             fold_rows.append({
                                 "fold": fold_no+1,"start": start_ts.isoformat(),"end": end_ts.isoformat(),
                                 "trades": value["trades"],"profit_factor": value["profit_factor"],
@@ -92,10 +99,13 @@ def main() -> None:
                         folds_passed = sum(int(row["passed"]) for row in fold_rows)
                         final_holdout = bool(fold_rows[-1]["passed"])
                         is_pass = (
-                            aggregate["trades"]>=80 and aggregate["profit_factor"]>=1.15
-                            and aggregate["expectancy"]>0 and folds_passed>=4 and final_holdout
+                            aggregate["trades"] >= walkforward_gate["min_trades"]
+                            and aggregate["profit_factor"] >= walkforward_gate["min_profit_factor"]
+                            and aggregate["expectancy"] > walkforward_gate["min_expectancy"]
+                            and folds_passed >= walkforward_gate["min_folds_passed"]
+                            and (final_holdout or not walkforward_gate["final_holdout_required"])
                         )
-                        reason = "WALKFORWARD_COST_ADJUSTED_PASS" if is_pass else failure_reason(aggregate,folds_passed,final_holdout)
+                        reason = "WALKFORWARD_COST_ADJUSTED_PASS" if is_pass else failure_reason(aggregate,folds_passed,final_holdout,walkforward_gate)
                         identity = f"{search_run_id}:{strategy_code}:{market['symbol']}:{market['timeframe']}:{params}"
                         cursor.execute("""
                             INSERT INTO analytics.walkforward_edge_search_v3 (

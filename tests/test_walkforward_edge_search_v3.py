@@ -7,9 +7,11 @@ def test_walkforward_search_is_cost_adjusted_and_fail_closed() -> None:
     assert "transaction_cost_bps" in source
     assert 'EDGE_SEARCH_FRESHNESS_MINUTES' in source
     assert '"transaction_cost_bps": cost_bps' in source
-    assert "aggregate[\"trades\"]>=80" in source
-    assert "aggregate[\"profit_factor\"]>=1.15" in source
-    assert "folds_passed>=4 and final_holdout" in source
+    assert 'configuration["gate_policy"]["walkforward"]' in source
+    assert 'walkforward_gate["min_trades"]' in source
+    assert 'walkforward_gate["min_profit_factor"]' in source
+    assert 'walkforward_gate["min_folds_passed"]' in source
+    assert 'walkforward_gate["final_holdout_required"]' in source
     assert "promotion_allowed=0" in source
     assert "live_allowed=0" in source
     assert "NEGATIVE_COST_ADJUSTED_EXPECTANCY" in source

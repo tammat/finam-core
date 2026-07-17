@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 
-from scripts.build_edge_hypothesis_discovery_v1 import GRIDS
+from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades, metrics
 
 
@@ -142,7 +142,9 @@ def main() -> None:
                 validation_start, oos_start = bars[train_end].ts, bars[validation_end].ts
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
                 cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
-                for family, (strategy_code, grid) in GRIDS.items():
+                configurations = load_search_configuration(cursor)
+                for family, configuration in configurations.items():
+                    strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     for base_params in grid:
                         hold = int(base_params.get("hold", 5))
                         params = {**base_params, "commission": cost, "slippage": 0.0}
