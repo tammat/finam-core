@@ -14,7 +14,7 @@ def main() -> None:
             cursor.execute("""
                 DELETE FROM analytics.profit_funnel_shadow_paper_admission_v2 a
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM analytics.forward_edge_shadow_trade_v1 s
+                    SELECT 1 FROM analytics.forward_pass_shadow_observation_v1 s
                     JOIN analytics.forward_edge_incubator_v1 i
                       ON i.cohort_id=s.cohort_id AND i.incubator_candidate_id=s.incubator_candidate_id
                     WHERE s.cohort_id=a.cohort_id
@@ -29,7 +29,7 @@ def main() -> None:
                            coalesce(sum(s.net_pnl) FILTER (WHERE s.shadow_status='CLOSED'),0) net_pnl,
                            coalesce((max(s.exit_ts)::date-min(s.entry_ts)::date),0)::int observed_days
                     FROM analytics.forward_edge_incubator_v1 i
-                    JOIN analytics.forward_edge_shadow_trade_v1 s
+                    JOIN analytics.forward_pass_shadow_observation_v1 s
                       ON s.cohort_id=i.cohort_id AND s.incubator_candidate_id=i.incubator_candidate_id
                     GROUP BY i.incubator_candidate_id,i.cohort_id,i.minimum_observations,i.minimum_calendar_days
                 )

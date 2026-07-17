@@ -17,7 +17,9 @@ class IntradayV2Resolver:
             with c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as x:
                 x.execute('SELECT count(*) total,count(DISTINCT "Инструмент") instruments,coalesce(sum("P&L сделки"),0) pnl,max("Время") last_at FROM public.v_intraday_pnl_ru WHERE "Дата"=%s',(session_date,)); intraday=x.fetchone()
                 x.execute("SELECT paper_status,signals_today,fills_today,pnl_today,refreshed_at FROM marketcore_ui.paper_runtime_summary_v1 WHERE id=1"); paper=x.fetchone() or {}
-                x.execute("""SELECT (SELECT count(*) FROM public.shadow_runtime_orders) orders,(SELECT count(*) FROM public.shadow_runtime_fills) fills,(SELECT count(*) FROM public.shadow_runtime_positions WHERE qty<>0) positions,GREATEST((SELECT max(created_at) FROM public.shadow_runtime_orders),(SELECT max(created_at) FROM public.shadow_runtime_fills),(SELECT max(updated_at) FROM public.shadow_runtime_positions)) last_at"""); shadow=x.fetchone()
+                x.execute("""SELECT count(*) orders,count(*) FILTER (WHERE shadow_status IN ('OPEN','CLOSED')) fills,
+                              count(*) FILTER (WHERE shadow_status='OPEN') positions,max(updated_at) last_at
+                              FROM analytics.forward_pass_shadow_observation_v1"""); shadow=x.fetchone()
         shadow_last=_utc(shadow["last_at"])
         shadow_status=("WAITING_CANDIDATE" if not shadow["orders"] else
                        "STALE" if shadow_last is None or (now-shadow_last).total_seconds()>900 else

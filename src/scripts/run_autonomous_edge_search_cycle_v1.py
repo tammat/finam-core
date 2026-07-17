@@ -25,7 +25,7 @@ EXECUTORS = {
     "OOS_FORWARD_HANDOFF": "src/scripts/build_profit_funnel_oos_forward_handoff_v2.py",
     "ADMIT_FORWARD": "src/scripts/admit_oos_forward_clean_cohort_v1.py",
     "OBSERVE_FORWARD": "src/scripts/run_forward_edge_observation_worker_v1.py",
-    "PROJECT_SHADOW": "src/scripts/project_forward_edge_shadow_trades_v1.py",
+    "PROJECT_SHADOW": "src/scripts/run_forward_pass_shadow_observer_v2.py",
     "ADMIT_PAPER": "src/scripts/build_profit_funnel_shadow_paper_admission_v2.py",
     "BUILD_LINEAGE": "src/scripts/build_profit_funnel_transition_lineage_v2.py",
     "ANALYZE_RESULTS": "src/scripts/analyze_edge_search_results_v1.py",
