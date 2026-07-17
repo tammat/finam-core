@@ -10,9 +10,9 @@ def test_rows_and_clickable_containers_require_double_click() -> None:
     assert 'const isContainer = node.type === "card";' in source
     assert "const requiresDoubleClick = isTableRow || isContainer || isCommandButton;" in source
     assert 'element.addEventListener("dblclick", () => this.openRecommendedActions(element));' in source
-    assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));' in source
+    assert 'element.addEventListener("dblclick", () => this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"));' in source
     assert 'if (isTableRow) this.openRecommendedActions(element);' in source
-    assert 'else if (isContainer) emit("DOUBLE_CLICK");' in source
+    assert 'else if (isContainer) this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…");' in source
     assert 'else emit("CLICK");' in source
 
 
@@ -42,7 +42,7 @@ def test_clickable_cards_highlight_and_open_only_on_double_click() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     css = Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
     assert 'const isContainer = node.type === "card"' in source
-    assert 'element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"))' in source
+    assert 'element.addEventListener("dblclick", () => this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"))' in source
     assert '[data-mc-node="card"][data-mc-action-id]:not([disabled]):hover' in css
     assert 'cursor: pointer' in css
 
@@ -52,4 +52,4 @@ def test_command_buttons_require_confirmed_double_click() -> None:
     assert 'const isCommandButton = node.type === "action"' in source
     assert 'isTableRow || isContainer || isCommandButton' in source
     assert 'globalObject.confirm("Подтвердить выполнение действия?")' in source
-    assert 'emit("DOUBLE_CLICK")' in source
+    assert 'activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…")' in source

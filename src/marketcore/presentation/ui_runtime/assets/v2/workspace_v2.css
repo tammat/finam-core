@@ -133,6 +133,20 @@ h1[data-mc-node="title"] { font-size: clamp(1.55rem, 2.8vw, 2.25rem); letter-spa
     cursor: pointer;
     transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
+[data-mc-interaction="double-click"][data-mc-selected="true"] {
+    border-color: #8ff3e1 !important;
+    box-shadow: 0 0 0 3px rgba(143, 243, 225, .38) !important;
+}
+[data-mc-interaction="double-click"][aria-busy="true"] { cursor: progress !important; opacity: .78; }
+[data-mc-ux-toast] {
+    position: fixed; right: 22px; bottom: 22px; z-index: 10000;
+    max-width: min(420px, calc(100vw - 32px)); padding: 12px 16px;
+    border: 1px solid #49d8bc; border-radius: 10px; background: #102b34;
+    color: #eefafa; box-shadow: 0 12px 35px rgba(0,0,0,.42); font-weight: 750;
+}
+[data-mc-ux-toast][data-state="RUNNING"] { border-color: #d69b35; }
+[data-mc-ux-toast][data-state="SUCCESS"] { border-color: #49d8bc; }
+[data-mc-ux-toast][data-state="ERROR"] { border-color: #ef6079; background: #391923; }
 [data-mc-node="card"][data-mc-action-id]:not([disabled]):hover,
 [data-mc-node="card"][data-mc-action-id]:not([disabled]):focus,
 article[role="link"][data-mc-action-id]:hover,
@@ -175,4 +189,5 @@ article[role="link"][data-mc-action-id]:focus {
     [data-mc-node="table"] { width: max-content; min-width: 760px; }
     [data-mc-node="table_header_cell"], [data-mc-node="table_cell"] { padding: 10px; }
     [data-mc-node-id="home.operator.actions.table"] { min-width: 700px; }
+    [data-mc-ux-toast] { left: 16px; right: 16px; bottom: 16px; }
 }

@@ -23,6 +23,43 @@
             this.actionSink = typeof options.actionSink === "function" ? options.actionSink : null;
         }
 
+        announce(message, state = "INFO") {
+            let toast = this.documentObject.querySelector("[data-mc-ux-toast]");
+            if (!toast) {
+                toast = this.documentObject.createElement("div");
+                toast.setAttribute("data-mc-ux-toast", "true");
+                toast.setAttribute("role", "status");
+                toast.setAttribute("aria-live", "polite");
+                this.documentObject.body.appendChild(toast);
+            }
+            toast.dataset.state = state;
+            toast.textContent = message;
+            globalObject.clearTimeout(this.toastTimer);
+            this.toastTimer = globalObject.setTimeout(() => toast.remove(), 2600);
+        }
+
+        selectInteractive(element, hint) {
+            this.documentObject.querySelectorAll('[data-mc-selected="true"]')
+                .forEach((selected) => selected.removeAttribute("data-mc-selected"));
+            element.setAttribute("data-mc-selected", "true");
+            this.announce(hint);
+        }
+
+        async activateInteractive(element, emit, interactionKind, pendingLabel) {
+            if (element.getAttribute("aria-busy") === "true") return;
+            element.setAttribute("aria-busy", "true");
+            this.announce(pendingLabel, "RUNNING");
+            try {
+                await emit(interactionKind);
+                this.announce("Открыто", "SUCCESS");
+            } catch (error) {
+                globalObject.console.error("MARKETCORE_INTERACTION_FAILED", error);
+                this.announce("Не удалось выполнить действие. Обновите страницу.", "ERROR");
+            } finally {
+                element.removeAttribute("aria-busy");
+            }
+        }
+
         openRecommendedActions(sourceElement) {
             const table = sourceElement.closest("table");
             if (!table) return;
@@ -192,7 +229,7 @@
                             rollbackCode: node.action.rollback_code || null,
                             idempotencyKey: node.action.idempotency_key || null
                         });
-                        if (this.actionSink) this.actionSink(intent);
+                        return this.actionSink ? this.actionSink(intent) : Promise.resolve(null);
                     };
                     element.setAttribute("role", node.action.action_kind === "NAVIGATE" ? "link" : "button");
                     element.setAttribute("tabindex", "0");
@@ -200,13 +237,26 @@
                     const isContainer = node.type === "card";
                     const isCommandButton = node.type === "action" && node.action.action_kind === "COMMAND";
                     const requiresDoubleClick = isTableRow || isContainer || isCommandButton;
+                    if (requiresDoubleClick) {
+                        element.setAttribute("data-mc-interaction", "double-click");
+                        element.setAttribute("title", isTableRow
+                            ? "Двойной клик — открыть рекомендуемые действия"
+                            : isCommandButton
+                                ? "Двойной клик — выполнить после подтверждения"
+                                : "Двойной клик — открыть раздел");
+                    }
                     if (isTableRow) {
+                        element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть рекомендуемые действия"));
                         element.addEventListener("dblclick", () => this.openRecommendedActions(element));
                     } else if (isContainer) {
-                        element.addEventListener("dblclick", () => emit("DOUBLE_CLICK"));
+                        element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть раздел"));
+                        element.addEventListener("dblclick", () => this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"));
                     } else if (isCommandButton) {
-                        element.addEventListener("dblclick", () => {
-                            if (globalObject.confirm("Подтвердить выполнение действия?")) emit("DOUBLE_CLICK");
+                        element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — выполнить действие"));
+                        element.addEventListener("dblclick", async () => {
+                            if (globalObject.confirm("Подтвердить выполнение действия?")) {
+                                await this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
+                            }
                         });
                     } else {
                         element.addEventListener("click", () => emit("CLICK"));
@@ -215,8 +265,8 @@
                         if (event.key === "Enter" || (!requiresDoubleClick && event.key === " ")) {
                             event.preventDefault();
                             if (isTableRow) this.openRecommendedActions(element);
-                            else if (isContainer) emit("DOUBLE_CLICK");
-                            else if (isCommandButton && globalObject.confirm("Подтвердить выполнение действия?")) emit("DOUBLE_CLICK");
+                            else if (isContainer) this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…");
+                            else if (isCommandButton && globalObject.confirm("Подтвердить выполнение действия?")) this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
                             else emit("CLICK");
                         }
                     });
