@@ -27,6 +27,7 @@ class Bar:
     ts: Any
     close: float
     volume: float = 0.0
+    reference_close: float | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +207,31 @@ def _orthogonal_side(code: str, bars: list[Bar], index: int, params: dict[str, A
         buffer = statistics.pstdev(window) * threshold
         close = bars[index].close
         return 1 if close > max(window) + buffer else (-1 if close < min(window) - buffer else 0)
+    if code == "RELATIVE_STRENGTH_V1":
+        lookback = int(params.get("lookback", 40))
+        current_reference = bars[index].reference_close
+        previous_reference = bars[index - lookback].reference_close
+        if not current_reference or not previous_reference:
+            return 0
+        own_return = (bars[index].close / bars[index - lookback].close) - 1.0
+        reference_return = (current_reference / previous_reference) - 1.0
+        relative_pct = (own_return - reference_return) * 100.0
+        return 1 if relative_pct >= threshold else (-1 if relative_pct <= -threshold else 0)
+    if code == "INTERMARKET_SPREAD_REVERSION_V1":
+        lookback = int(params.get("lookback", 40))
+        ratios = [
+            math.log(bar.close / bar.reference_close)
+            for bar in bars[index - lookback:index + 1]
+            if bar.reference_close and bar.close > 0
+        ]
+        if len(ratios) != lookback + 1:
+            return 0
+        center = statistics.fmean(ratios[:-1])
+        deviation = statistics.pstdev(ratios[:-1])
+        if deviation <= 0:
+            return 0
+        z_score = (ratios[-1] - center) / deviation
+        return -1 if z_score >= threshold else (1 if z_score <= -threshold else 0)
     return None
 
 

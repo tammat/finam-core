@@ -18,6 +18,16 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 TARGET_SYMBOL = os.getenv("EDGE_SEARCH_TARGET_SYMBOL", "").strip()
 
 
+def _attach_reference(cursor, bars: list[Bar], symbol: str | None, timeframe: str) -> list[Bar]:
+    if not symbol:
+        return bars
+    cursor.execute("""SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s
+        AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts""",
+        (symbol,timeframe))
+    reference = {row["ts"]: float(row["close"]) for row in cursor.fetchall()}
+    return [Bar(bar.ts,bar.close,bar.volume,reference.get(bar.ts)) for bar in bars]
+
+
 def failure_reason(aggregate, folds_passed: int, final_holdout: bool, gate: dict) -> str:
     if aggregate["trades"] < gate["min_trades"]:
         return "INSUFFICIENT_TRADES"
@@ -66,11 +76,14 @@ def main() -> None:
                     if targets and market["symbol"] not in targets:
                         continue
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
+                    reference_symbol = configuration["regime_policy"].get("reference_symbol")
+                    strategy_bars = _attach_reference(cursor,bars,reference_symbol,market["timeframe"])
                     walkforward_gate = configuration["gate_policy"]["walkforward"]
                     for base_params in grid:
                         params = {
                             **base_params, "transaction_cost_bps": cost_bps,
                             "commission": roundtrip_cost, "slippage": 0.0,
+                            "reference_symbol": reference_symbol,
                         }
                         lookback = int(params["lookback"])
                         fold_rows = []
@@ -82,7 +95,7 @@ def main() -> None:
                             trades = [
                                 trade for trade in build_trades(
                                     {"strategy_code": strategy_code,"parameter_json": params},
-                                    bars[max(0,start-lookback):end],
+                                    strategy_bars[max(0,start-lookback):end],
                                 ) if start_ts<=trade.entry_ts<=end_ts
                             ]
                             value = metrics(trades)

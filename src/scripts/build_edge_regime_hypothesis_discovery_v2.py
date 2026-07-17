@@ -20,6 +20,16 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 MIN_CONFIDENCE = float(os.getenv("EDGE_REGIME_MIN_CONFIDENCE", "0.60"))
 MIN_COVERAGE = float(os.getenv("EDGE_REGIME_MIN_COVERAGE", "0.80"))
 
+
+def _attach_reference(cur, bars: list[Bar], symbol: str | None, timeframe: str) -> list[Bar]:
+    if not symbol:
+        return bars
+    cur.execute("""SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s
+        AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts""",
+        (symbol,timeframe))
+    reference = {row["ts"]: float(row["close"]) for row in cur.fetchall()}
+    return [Bar(bar.ts,bar.close,bar.volume,reference.get(bar.ts)) for bar in bars]
+
 def _filtered(trades: list[Trade], regime_by_ts: dict[object, str], regime: str) -> list[Trade]:
     return [trade for trade in trades if regime_by_ts.get(trade.entry_ts) == regime]
 
@@ -91,6 +101,8 @@ def main() -> None:
                     if targets and market["symbol"] not in targets:
                         continue
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
+                    reference_symbol = configuration["regime_policy"].get("reference_symbol")
+                    strategy_bars = _attach_reference(cur,bars,reference_symbol,market["timeframe"])
                     allowed_regimes = configuration["regime_policy"]["allowed_regimes"]
                     validation_gate = configuration["gate_policy"]["validation"]
                     oos_gate = configuration["gate_policy"]["oos"]
@@ -101,9 +113,10 @@ def main() -> None:
                                   "contract_root": market["contract_root"],
                                   "contract_expiration": market["expiration_date"].isoformat() if market["expiration_date"] else None}
                         lookback = int(params["lookback"])
+                        params["reference_symbol"] = reference_symbol
                         run = {"strategy_code": strategy_code, "parameter_json": params}
-                        validation_all = [trade for trade in build_trades(run, bars[train_end - lookback:validation_end]) if trade.entry_ts >= validation_start_ts]
-                        oos_all = [trade for trade in build_trades(run, bars[validation_end - lookback:]) if trade.entry_ts >= oos_start_ts]
+                        validation_all = [trade for trade in build_trades(run, strategy_bars[train_end - lookback:validation_end]) if trade.entry_ts >= validation_start_ts]
+                        oos_all = [trade for trade in build_trades(run, strategy_bars[validation_end - lookback:]) if trade.entry_ts >= oos_start_ts]
 
                         for regime in allowed_regimes:
                             validation_trades = _filtered(validation_all, regime_by_ts, regime)
