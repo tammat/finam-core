@@ -24,6 +24,15 @@ class MethodologyGateFailureV1:
     status: str
 
 @dataclass(frozen=True, slots=True)
+class ResearchUniverseItemV1:
+    symbol: str
+    category_code: str
+    bars: int
+    category_rank: int
+    selected: bool
+    reason_code: str
+
+@dataclass(frozen=True, slots=True)
 class EdgeSearchRunAuditV1:
     process_id: str
     run_id: str
@@ -75,6 +84,7 @@ class ResearchSnapshotV2:
     execution_quote_status: str
     execution_spec_status: str
     methodology_failures: tuple[MethodologyGateFailureV1, ...]
+    universe_items: tuple[ResearchUniverseItemV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
     generated_at: datetime

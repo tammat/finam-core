@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Any
+
+POLICY_CODE="DIVERSE_RESEARCH_UNIVERSE_V1"
+
+
+def category(symbol: str) -> str:
+    base=symbol.split("@",1)[0]
+    if base.startswith("BR"): return "OIL"
+    if base.startswith("NG"): return "GAS"
+    if base.startswith(("GD","GL","SV")) or base == "PLZL": return "METALS"
+    if "RUB" in base or base.startswith(("USD","CNY")): return "FX"
+    if base in {"IMOEX","IMOEX2","RTSI"}: return "INDEX"
+    if symbol.endswith("@MISX"): return "EQUITY"
+    return "OTHER"
+
+
+def select_diverse(candidates: list[dict[str,Any]], policy: dict[str,Any]) -> list[dict[str,Any]]:
+    quotas={key:int(value) for key,value in policy["category_quotas"].items()}
+    maximum=int(policy["max_markets"])
+    grouped=defaultdict(list)
+    for item in candidates:
+        grouped[item["category_code"]].append(item)
+    selected=[]
+    selected_symbols=set()
+    for category_code in policy["category_order"]:
+        for item in grouped.get(category_code,[])[:quotas.get(category_code,0)]:
+            selected.append(item); selected_symbols.add(item["symbol"])
+    for item in candidates:
+        if len(selected)>=maximum: break
+        if item["symbol"] not in selected_symbols:
+            selected.append(item); selected_symbols.add(item["symbol"])
+    return selected[:maximum]
+
+
+def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: int,
+                           freshness_minutes: int, target_symbol: str="") -> list[dict[str,Any]]:
+    cursor.execute("""SELECT policy FROM analytics.edge_research_universe_policy_v1
+        WHERE policy_code=%s AND active""",(POLICY_CODE,))
+    row=cursor.fetchone()
+    if not row:
+        raise RuntimeError("EDGE_RESEARCH_UNIVERSE_POLICY_NOT_ACTIVE")
+    policy=row["policy"]
+    quotas={key:int(value) for key,value in policy["category_quotas"].items()}
+    cursor.execute("""
+      SELECT b.symbol,b.timeframe,count(*) AS bars,max(b.ts) AS latest_ts,
+             coalesce(c.root_symbol,u.root_symbol) AS contract_root,
+             coalesce(c.expiration_date,u.expiration_date) AS expiration_date
+      FROM public.market_bars b
+      LEFT JOIN public.futures_contract_calendar c ON c.symbol=b.symbol
+      LEFT JOIN public.futures_contract_universe u ON u.contract_symbol=b.symbol
+      WHERE b.timeframe='M5' AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
+        AND (%s='' OR b.symbol=%s)
+        AND (b.symbol NOT LIKE '%%@RTSX' OR
+             coalesce(c.expiration_date,u.expiration_date)>=current_date)
+      GROUP BY b.symbol,b.timeframe,c.root_symbol,u.root_symbol,c.expiration_date,u.expiration_date
+      HAVING count(*) >= %s AND max(b.ts)>=clock_timestamp()-(%s * interval '1 minute')
+      ORDER BY count(*) DESC,b.symbol
+    """,(target_symbol,target_symbol,min_bars,freshness_minutes))
+    candidates=[dict(item) for item in cursor.fetchall()]
+    for rank,item in enumerate(candidates,1):
+        item["category_code"]=category(item["symbol"])
+        item["overall_rank"]=rank
+    selected=select_diverse(candidates,policy)
+    selected_symbols={item["symbol"] for item in selected}
+    category_rank=defaultdict(int)
+    cursor.execute("DELETE FROM analytics.edge_research_universe_snapshot_v1 WHERE run_id=%s AND stage_code=%s",(run_id,stage_code))
+    for item in candidates:
+        code=item["category_code"]; category_rank[code]+=1
+        quota=quotas.get(code,0)
+        chosen=item["symbol"] in selected_symbols
+        reason=("CATEGORY_QUOTA_SELECTED" if chosen and category_rank[code]<=quota else
+                "GLOBAL_FILL_SELECTED" if chosen else "CATEGORY_QUOTA_EXCEEDED")
+        cursor.execute("""INSERT INTO analytics.edge_research_universe_snapshot_v1
+          (run_id,stage_code,policy_code,symbol,timeframe,category_code,bars,latest_ts,
+           category_rank,overall_rank,selected,reason_code,contract_root,expiration_date)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+          (run_id,stage_code,POLICY_CODE,item["symbol"],item["timeframe"],code,item["bars"],
+           item["latest_ts"],category_rank[code],item["overall_rank"],chosen,reason,
+           item["contract_root"],item["expiration_date"]))
+    return selected

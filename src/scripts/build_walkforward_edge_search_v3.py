@@ -11,6 +11,7 @@ import psycopg2.extras
 
 from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, load_execution_context, metrics
+from scripts.edge_research_universe_v1 import load_research_universe
 
 
 SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS"
@@ -91,17 +92,8 @@ def main() -> None:
     passed = total = 0
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-            cursor.execute("""
-                SELECT symbol,timeframe,count(*) bars
-                FROM public.market_bars WHERE timeframe='M5'
-                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
-                  AND (%s='' OR symbol=%s)
-                GROUP BY symbol,timeframe
-                HAVING count(*)>=6000
-                   AND max(ts)>=clock_timestamp()-(%s * interval '1 minute')
-                ORDER BY count(*) DESC LIMIT 12
-            """, (TARGET_SYMBOL,TARGET_SYMBOL,FRESHNESS_MINUTES))
-            markets = cursor.fetchall()
+            markets=load_research_universe(cursor,run_id=str(search_run_id),stage_code="WALKFORWARD",
+                min_bars=6000,freshness_minutes=FRESHNESS_MINUTES,target_symbol=TARGET_SYMBOL)
             configurations = load_search_configuration(cursor)
             for market in markets:
                 execution_policy = load_execution_context(cursor, market["symbol"])

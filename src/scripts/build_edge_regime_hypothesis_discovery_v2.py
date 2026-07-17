@@ -10,12 +10,12 @@ import psycopg2.extras
 
 from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration, score
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades, metrics
+from scripts.edge_research_universe_v1 import load_research_universe
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V4_CONTRACT_AWARE"
 MIN_BARS = int(os.getenv("EDGE_HYPOTHESIS_MIN_BARS", "6000"))
-MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
 FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 MIN_CONFIDENCE = float(os.getenv("EDGE_REGIME_MIN_CONFIDENCE", "0.60"))
 MIN_COVERAGE = float(os.getenv("EDGE_REGIME_MIN_COVERAGE", "0.80"))
@@ -56,22 +56,8 @@ def main() -> None:
     result_count = pass_count = unverified_count = 0
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT b.symbol,b.timeframe,count(*) AS bars,
-                       coalesce(c.root_symbol,u.root_symbol) contract_root,
-                       coalesce(c.expiration_date,u.expiration_date) expiration_date
-                FROM public.market_bars b
-                LEFT JOIN public.futures_contract_calendar c ON c.symbol=b.symbol
-                LEFT JOIN public.futures_contract_universe u ON u.contract_symbol=b.symbol
-                WHERE b.timeframe='M5'
-                  AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
-                  AND (b.symbol NOT LIKE '%%@RTSX' OR coalesce(c.expiration_date,u.expiration_date) IS NOT NULL)
-                GROUP BY b.symbol,b.timeframe,c.root_symbol,u.root_symbol,c.expiration_date,u.expiration_date
-                HAVING count(*) >= %s
-                   AND max(ts) >= clock_timestamp()-(%s * interval '1 minute')
-                ORDER BY count(*) DESC LIMIT %s
-            """, (MIN_BARS, FRESHNESS_MINUTES, MAX_MARKETS))
-            markets = cur.fetchall()
+            markets=load_research_universe(cur,run_id=str(run_id),stage_code="DISCOVERY",
+                min_bars=MIN_BARS,freshness_minutes=FRESHNESS_MINUTES)
             configurations = load_search_configuration(cur)
 
             for market in markets:
