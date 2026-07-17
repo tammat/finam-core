@@ -112,7 +112,9 @@ class HomeV2Presenter:
             ),
         )
 
+        clean_mode = os.getenv("MARKETCORE_HOME_CLEAN_MODE", "1") == "1"
         operator_items = self._operator_resolver.resolve()
+        clean_operator_codes = {"model_health", "edge_search", "signal_funnel"}
         operator_decisions = OperatorDecisionV2Resolver().resolve()
         operator_actions_section = BaseSection(
             section_id="home.operator.actions",
@@ -134,7 +136,10 @@ class HomeV2Presenter:
             status_label_key="ui.status.warning",
             cards=tuple(
                 self._operator_card(item, index)
-                for index, item in enumerate(operator_items, start=1)
+                for index, item in enumerate(
+                    (item for item in operator_items if not clean_mode or item.item_code in clean_operator_codes),
+                    start=1,
+                )
             ),
         )
 
@@ -157,6 +162,12 @@ class HomeV2Presenter:
             ),
         )
 
+        visible_sections = (
+            (operating_section, operator_actions_section, operator_section)
+            if clean_mode else
+            (operating_section, profit_section, system_section, status_section,
+             operator_actions_section, operator_section, navigation_section)
+        )
         layout = BaseLayout(
             layout_id="home.layout.desktop",
             layout_type=LayoutType.DESKTOP,
@@ -164,7 +175,7 @@ class HomeV2Presenter:
             subtitle_key="home.workspace.subtitle",
             status_code=UiStatusCode.WARNING,
             status_label_key="ui.status.warning",
-            sections=(operating_section, profit_section, system_section, status_section, operator_actions_section, operator_section, navigation_section),
+            sections=visible_sections,
         )
 
         return HomeV2ViewModel(layout=layout)

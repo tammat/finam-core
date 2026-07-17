@@ -8,7 +8,8 @@ def _walk(node):
         yield from _walk(child)
 
 
-def test_operator_dashboard_cards_navigate_to_registered_modes() -> None:
+def test_operator_dashboard_cards_navigate_to_registered_modes(monkeypatch) -> None:
+    monkeypatch.setenv("MARKETCORE_HOME_CLEAN_MODE", "0")
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     cards = {
         node.node_id: node
