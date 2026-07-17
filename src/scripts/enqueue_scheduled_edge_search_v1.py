@@ -13,7 +13,7 @@ NAMESPACE = uuid.UUID("884b9314-6458-4f49-9a67-382a1e3fe9d8")
 LOCK_ID = 741903129
 
 
-def main() -> int:
+def run() -> int:
     decision = "NO_NEW_MARKET_DATA"
     request_id = None
     with psycopg2.connect(DB) as connection:
@@ -75,6 +75,31 @@ def main() -> int:
     print("live_allowed=0")
     print("VERDICT=EDGE_SEARCH_AUTO_ENQUEUE_V1_OK")
     return 0
+
+
+def record_failure(error: Exception) -> None:
+    detail = (str(error).strip() or type(error).__name__)[:500]
+    with psycopg2.connect(DB) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO analytics.edge_search_auto_schedule_state_v1
+                  (scheduler_code,status_code,decision_code,source_version,last_error_code,updated_at)
+                VALUES('EDGE_SEARCH_AUTO','FAILED','SCHEDULER_ERROR',%s,%s,clock_timestamp())
+                ON CONFLICT(scheduler_code) DO UPDATE SET status_code='FAILED',
+                  decision_code='SCHEDULER_ERROR',last_error_code=EXCLUDED.last_error_code,
+                  source_version=EXCLUDED.source_version,updated_at=clock_timestamp()
+            """, (SOURCE_VERSION, detail))
+
+
+def main() -> int:
+    try:
+        return run()
+    except Exception as error:
+        record_failure(error)
+        print(f"error={type(error).__name__}")
+        print("live_allowed=0")
+        print("VERDICT=EDGE_SEARCH_AUTO_ENQUEUE_V1_FAILED")
+        raise
 
 
 if __name__ == "__main__":
