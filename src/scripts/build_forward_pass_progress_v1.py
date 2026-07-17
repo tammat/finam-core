@@ -17,7 +17,10 @@ def ratio(value: Decimal | int, target: Decimal | int) -> Decimal:
 def main() -> int:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM analytics.forward_edge_regime_promotion_gate_v1")
+            cur.execute("""SELECT g.* FROM analytics.forward_edge_regime_promotion_gate_v1 g
+                JOIN analytics.forward_edge_incubator_v1 i USING(cohort_id,incubator_candidate_id)
+                WHERE g.cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
+                  AND i.incubator_status IN ('ACCUMULATING','ROUTER_REQUIRED')""")
             gates = [dict(row) for row in cur.fetchall()]
             readiness = []
             for gate in gates:

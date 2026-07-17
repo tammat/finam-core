@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import psycopg2
 import psycopg2.extras
@@ -79,6 +79,35 @@ def main() -> None:
             if not rows:
                 print("pending_handoffs=0")
                 print("VERDICT=OOS_FORWARD_CLEAN_COHORT_ALREADY_DECIDED")
+                return
+
+            fresh_rows = []
+            for row in rows:
+                cursor.execute("SELECT max(ts) latest_bar FROM public.market_bars WHERE symbol=%s AND timeframe=%s",
+                               (row["symbol"], row["timeframe"]))
+                latest_bar = cursor.fetchone()["latest_bar"]
+                if latest_bar is not None and latest_bar >= now - timedelta(days=7):
+                    fresh_rows.append(row)
+                    continue
+                fingerprint, _ = canonical_execution(row)
+                decision_id = uuid.uuid5(NAMESPACE, "decision:" + str(row["handoff_id"]))
+                evidence = {"symbol": row["symbol"], "timeframe": row["timeframe"],
+                            "latest_bar": latest_bar.isoformat() if latest_bar else None,
+                            "freshness_limit_days": 7}
+                cursor.execute("""INSERT INTO analytics.profit_funnel_oos_forward_admission_decision_v1
+                    (decision_id,handoff_id,candidate_uuid,decision_code,reason_code,
+                     execution_fingerprint,target_cohort_id,evidence,policy_version,evaluator_version)
+                    VALUES(%s,%s,%s,'FAIL','STALE_MARKET_DATA',%s,NULL,%s,%s,%s)""",
+                    (str(decision_id),str(row["handoff_id"]),str(row["candidate_uuid"]),fingerprint,
+                     psycopg2.extras.Json(evidence),POLICY_VERSION,SOURCE_VERSION))
+                cursor.execute("""UPDATE analytics.profit_funnel_oos_forward_handoff_v2
+                    SET handoff_status='REJECTED',reason_code='STALE_MARKET_DATA',
+                        runtime_allowed=false,live_allowed=false,source_version=%s,updated_at=clock_timestamp()
+                    WHERE handoff_id=%s""", (SOURCE_VERSION,row["handoff_id"]))
+            rows = fresh_rows
+            if not rows:
+                print("fresh_pending_handoffs=0")
+                print("VERDICT=OOS_FORWARD_ADMISSION_NO_FRESH_MARKET_DATA")
                 return
 
             enriched = []

@@ -45,7 +45,7 @@ def main() -> int:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(MIGRATION.read_text(encoding="utf-8"))
-            cur.execute("SELECT cohort_id FROM analytics.forward_edge_incubator_v1 ORDER BY created_at DESC LIMIT 1")
+            cur.execute("SELECT analytics.forward_edge_baseline_cohort_id_v1() AS cohort_id")
             latest = cur.fetchone()
             if not latest:
                 print("VERDICT=FORWARD_EDGE_REGIME_PROMOTION_GATE_V1_NO_COHORT")

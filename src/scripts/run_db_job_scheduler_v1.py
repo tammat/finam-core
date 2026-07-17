@@ -16,6 +16,7 @@ ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
+    "FORWARD_COHORT_RECONCILIATION_V1": "src/scripts/reconcile_forward_cohort_v1.py",
     "FORWARD_EVIDENCE_PIPELINE_V1": "src/scripts/run_forward_evidence_pipeline_v1.py",
     "FORWARD_PASS_PROGRESS_V1": "src/scripts/build_forward_pass_progress_v1.py",
     "FORWARD_REMEDIATION_SCENARIOS_V1": "src/scripts/generate_forward_remediation_scenarios_v1.py",
