@@ -8,8 +8,9 @@ import psycopg2
 import psycopg2.extras
 
 
-SOURCE_VERSION = "REGIME_OOS_CANONICAL_PROMOTION_V1"
-VALIDATION_VERSION = "REGIME_COST_ADJUSTED_OOS_V2"
+SOURCE_VERSION = "REGIME_OOS_CANONICAL_PROMOTION_V2_TRUSTED_BARS"
+VALIDATION_VERSION = "REGIME_COST_ADJUSTED_OOS_V3_TRUSTED_BARS"
+TRUSTED_DISCOVERY_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V3_TRUSTED_BARS"
 NAMESPACE = uuid.UUID("a405feaa-b0cd-5b76-88d5-ae7aceb2254f")
 
 
@@ -24,6 +25,7 @@ def main() -> None:
                   AND NOT EXISTS (
                       SELECT 1 FROM public.market_bars b
                       WHERE b.symbol=o.symbol AND b.timeframe=o.timeframe
+                        AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
                         AND b.ts>=clock_timestamp()-interval '15 minutes'
                   )
             """, (VALIDATION_VERSION,))
@@ -39,21 +41,24 @@ def main() -> None:
                         FROM analytics.edge_regime_hypothesis_result_v2 x
                         WHERE x.strategy_code=h.strategy_code AND x.symbol=h.symbol
                           AND x.timeframe=h.timeframe AND x.parameter_json=h.parameter_json
-                          AND x.regime_code=h.regime_code AND x.verdict_code='OOS_PASS') repeat_runs
+                          AND x.regime_code=h.regime_code AND x.verdict_code='OOS_PASS'
+                          AND x.source_version=%s) repeat_runs
                 FROM analytics.edge_regime_hypothesis_result_v2 h
                 JOIN LATERAL (
                     SELECT max(ts) latest_bar_ts FROM public.market_bars b
                     WHERE b.symbol=h.symbol AND b.timeframe=h.timeframe
+                      AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
                 ) market ON true
                 WHERE h.discovery_run_id=(SELECT discovery_run_id FROM latest)
                   AND h.verdict_code='OOS_PASS' AND h.trust_status='VERIFIED'
+                  AND h.source_version=%s
                   AND h.oos_trades>=30 AND h.oos_profit_factor>=1.20
                   AND h.oos_expectancy>0 AND h.folds_passed>=2
                   AND h.regime_coverage_ratio>=0.80 AND h.transaction_cost_bps>=8
                   AND h.parameter_json ? 'lookback' AND h.parameter_json ? 'hold'
                   AND market.latest_bar_ts>=clock_timestamp()-interval '15 minutes'
                 ORDER BY h.hypothesis_score DESC,h.id LIMIT 1
-            """)
+            """, (TRUSTED_DISCOVERY_VERSION,TRUSTED_DISCOVERY_VERSION))
             row = cursor.fetchone()
             if row is None:
                 print(f"stale_canonical_promotions_revoked={stale_revoked}")
@@ -77,7 +82,7 @@ def main() -> None:
             batch_id = f"REGIME_OOS_{row['discovery_run_id']}"
 
             cursor.execute(
-                "SELECT count(*)::int,min(ts),max(ts) FROM public.market_bars WHERE symbol=%s AND timeframe=%s",
+                "SELECT count(*)::int,min(ts),max(ts) FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND source NOT IN ('unknown','synthetic_futures_backfill_v1')",
                 (row["symbol"], row["timeframe"]),
             )
             bar_stats = cursor.fetchone()
@@ -87,7 +92,9 @@ def main() -> None:
             in_sample_bars = int(bars_total * 0.75)
             cursor.execute("""
                 SELECT ts FROM public.market_bars
-                WHERE symbol=%s AND timeframe=%s ORDER BY ts OFFSET %s LIMIT 1
+                WHERE symbol=%s AND timeframe=%s
+                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
+                ORDER BY ts OFFSET %s LIMIT 1
             """, (row["symbol"], row["timeframe"], in_sample_bars))
             oos_start = cursor.fetchone()["ts"]
 
@@ -98,7 +105,7 @@ def main() -> None:
                     market_data_version,runner_version,score_formula_version,market_regime,bars_used,
                     trades,profit_factor,expectancy,max_drawdown,stability_score,raw_edge_score,
                     normalized_edge_score,confidence_score,commission,slippage,verdict_code,source_version
-                ) VALUES (%s,%s,%s,'REGIME_AWARE_EDGE_DISCOVERY_V2',%s,'v2',%s,%s,%s,%s,
+                ) VALUES (%s,%s,%s,'REGIME_AWARE_EDGE_DISCOVERY_V3_TRUSTED_BARS',%s,'v3',%s,%s,%s,%s,
                           %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,'OOS_PASS',%s)
                 ON CONFLICT (run_uuid) DO UPDATE SET
                     parameter_json=EXCLUDED.parameter_json,verdict_code='OOS_PASS',updated_at=clock_timestamp()
@@ -120,7 +127,7 @@ def main() -> None:
                     live_allowed,source_version,discovery_batch_id,discovery_rank,discovery_score,
                     candidate_class,discovery_formula_version,validation_score,validation_reason,
                     validation_formula_version
-                ) VALUES (%s,%s,%s,'REGIME_AWARE_EDGE_DISCOVERY_V2',%s,'v2',%s,%s,%s,%s,%s,
+                ) VALUES (%s,%s,%s,'REGIME_AWARE_EDGE_DISCOVERY_V3_TRUSTED_BARS',%s,'v3',%s,%s,%s,%s,%s,
                           %s,%s,%s,%s,'OOS_PASS','OOS_COMPLETE',false,false,false,false,%s,%s,1,%s,
                           'REGIME_EDGE',%s,%s,'REGIME_COST_ADJUSTED_OOS_PASS',%s)
                 ON CONFLICT (observation_uuid) DO UPDATE SET

@@ -17,8 +17,8 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 LIMIT = int(os.getenv("STRATEGY_EXECUTION_RUNNER_LIMIT", "20"))
 MAX_BARS = int(os.getenv("STRATEGY_EXECUTION_MAX_BARS", "5000"))
 RESEARCH_BATCH_ID = os.getenv("STRATEGY_EXECUTION_RESEARCH_BATCH_ID")
-RUNNER_VERSION = "STRATEGY_EXECUTION_RUNNER_V1"
-ENGINE_NAME = "STRATEGY_EXECUTION_RUNNER_V1"
+RUNNER_VERSION = "STRATEGY_EXECUTION_RUNNER_V2_TRUSTED_BARS"
+ENGINE_NAME = "STRATEGY_EXECUTION_RUNNER_V2_TRUSTED_BARS"
 SCORE_FORMULA_VERSION = "EDGE_SCORE_ENGINE_PENDING"
 
 
@@ -49,7 +49,7 @@ def safe_float(v: Any) -> float:
     return float(v)
 
 
-def discover_bar_table(cur) -> tuple[str, str, str, str, str | None, str | None] | None:
+def discover_bar_table(cur) -> tuple[str, str, str, str, str | None, str | None, str | None] | None:
     candidates = [
         ("analytics", "market_bars"),
         ("public", "market_bars"),
@@ -81,7 +81,8 @@ def discover_bar_table(cur) -> tuple[str, str, str, str, str | None, str | None]
         tf_col = next((x for x in ["timeframe", "tf", "interval"] if x in c), None)
         if symbol_col and close_col and ts_col:
             volume_col = "volume" if "volume" in c else None
-            return schema, table, ts_col, close_col, tf_col, volume_col
+            source_col = "source" if "source" in c else None
+            return schema, table, ts_col, close_col, tf_col, volume_col, source_col
     return None
 
 
@@ -90,7 +91,7 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
     if not found:
         return []
 
-    schema, table, ts_col, close_col, tf_col, volume_col = found
+    schema, table, ts_col, close_col, tf_col, volume_col, source_col = found
 
     where = [sql.SQL("{} = %s").format(sql.Identifier("symbol"))]
     params: list[Any] = [run["symbol"]]
@@ -98,6 +99,8 @@ def load_bars(cur, run: dict[str, Any]) -> list[Bar]:
     if tf_col:
         where.append(sql.SQL("{} = %s").format(sql.Identifier(tf_col)))
         params.append(run["timeframe"])
+    if source_col:
+        where.append(sql.SQL("{} NOT IN ('unknown','synthetic_futures_backfill_v1')").format(sql.Identifier(source_col)))
 
     q = sql.SQL("""
         SELECT {ts_col} AS ts, {close_col} AS close, {volume_col} AS volume

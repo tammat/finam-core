@@ -13,7 +13,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades,
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V2"
+SOURCE_VERSION = "REGIME_AWARE_EDGE_DISCOVERY_V3_TRUSTED_BARS"
 MIN_BARS = int(os.getenv("EDGE_HYPOTHESIS_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
 FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
@@ -54,6 +54,7 @@ def main() -> None:
             cur.execute("""
                 SELECT symbol,timeframe,count(*) AS bars
                 FROM public.market_bars WHERE timeframe='M5'
+                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
                 GROUP BY symbol,timeframe
                 HAVING count(*) >= %s
                    AND max(ts) >= clock_timestamp()-(%s * interval '1 minute')
@@ -62,7 +63,7 @@ def main() -> None:
             markets = cur.fetchall()
 
             for market in markets:
-                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts", (market["symbol"], market["timeframe"]))
+                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts", (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
                 cur.execute("""
                     SELECT DISTINCT ON (ts) ts,regime,confidence,source

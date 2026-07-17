@@ -13,7 +13,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metric
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "EDGE_HYPOTHESIS_DISCOVERY_V1"
+SOURCE_VERSION = "EDGE_HYPOTHESIS_DISCOVERY_V2_TRUSTED_BARS"
 MIN_BARS = int(os.getenv("EDGE_HYPOTHESIS_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
 
@@ -89,6 +89,7 @@ def main() -> None:
                 SELECT symbol,timeframe,count(*) AS bars
                 FROM public.market_bars
                 WHERE timeframe='M5'
+                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
                 GROUP BY symbol,timeframe
                 HAVING count(*) >= %s
                 ORDER BY count(*) DESC
@@ -97,7 +98,7 @@ def main() -> None:
             markets = cur.fetchall()
 
             for market in markets:
-                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts", (market["symbol"], market["timeframe"]))
+                cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts", (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
                 train_end = int(len(bars) * 0.50)
                 validation_end = int(len(bars) * 0.75)

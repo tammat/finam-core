@@ -11,10 +11,11 @@ from scripts.build_edge_hypothesis_discovery_v1 import GRIDS
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
 
 
-SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V3"
+SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS"
 NAMESPACE = uuid.UUID("e304fdfc-03db-5863-b65c-fe3ac08a0b93")
 FOLDS = 5
 FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
+TARGET_SYMBOL = os.getenv("EDGE_SEARCH_TARGET_SYMBOL", "").strip()
 
 
 def main() -> None:
@@ -25,16 +26,20 @@ def main() -> None:
             cursor.execute("""
                 SELECT symbol,timeframe,count(*) bars
                 FROM public.market_bars WHERE timeframe='M5'
+                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
+                  AND (%s='' OR symbol=%s)
                 GROUP BY symbol,timeframe
                 HAVING count(*)>=6000
                    AND max(ts)>=clock_timestamp()-(%s * interval '1 minute')
                 ORDER BY count(*) DESC LIMIT 12
-            """, (FRESHNESS_MINUTES,))
+            """, (TARGET_SYMBOL,TARGET_SYMBOL,FRESHNESS_MINUTES))
             markets = cursor.fetchall()
             for market in markets:
                 cursor.execute("""
                     SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars
-                    WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts
+                    WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL
+                      AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
+                    ORDER BY ts
                 """, (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cursor.fetchall()]
                 evaluation_start = int(len(bars) * 0.40)
@@ -96,6 +101,7 @@ def main() -> None:
                         passed += int(is_pass)
     print(f"search_run_id={search_run_id}")
     print(f"freshness_minutes={FRESHNESS_MINUTES}")
+    print(f"target_symbol={TARGET_SYMBOL or 'ALL'}")
     print(f"candidates_evaluated={total}")
     print(f"oos_pass={passed}")
     print("promotion_allowed=0")
