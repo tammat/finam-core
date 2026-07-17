@@ -37,6 +37,7 @@
         function visit(node, depth, path) {
             const content = node.content || null;
             let displayValue = null;
+            let tooltipValue = null;
             if (content !== null) {
                 if (content.message_key !== undefined) {
                     displayValue = translate(
@@ -45,6 +46,14 @@
                         documentPayload.locale_code,
                         documentPayload.fallback_locale_code
                     );
+                    if (content.message_args && content.message_args.tooltip_key) {
+                        tooltipValue = translate(
+                            content.message_args.tooltip_key,
+                            Object.freeze({}),
+                            documentPayload.locale_code,
+                            documentPayload.fallback_locale_code
+                        );
+                    }
                 } else {
                     displayValue = format(
                         content.value,
@@ -54,7 +63,7 @@
                     );
                 }
             }
-            driver.renderNode(node, Object.freeze({depth, path, displayValue}));
+            driver.renderNode(node, Object.freeze({depth, path, displayValue, tooltipValue}));
             nodesProcessed += 1;
             node.children.forEach((child, index) => visit(child, depth + 1, `${path}.children[${index}]`));
         }

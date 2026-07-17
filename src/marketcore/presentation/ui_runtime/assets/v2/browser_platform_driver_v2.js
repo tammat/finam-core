@@ -275,6 +275,10 @@
             if (context.displayValue !== null && context.displayValue !== undefined) {
                 element.textContent = String(context.displayValue);
             }
+            if (context.tooltipValue) {
+                element.setAttribute("title", String(context.tooltipValue));
+                element.setAttribute("aria-label", `${String(context.displayValue || "")}. ${String(context.tooltipValue)}`);
+            }
             if (node.type === "table_cell" && node.node_id.endsWith(".status")) {
                 const label = String(context.displayValue || "");
                 const progressByLabel = {

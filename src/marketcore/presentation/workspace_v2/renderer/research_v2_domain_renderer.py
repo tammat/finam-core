@@ -7,20 +7,28 @@ def _leaf(t,i,*,key=None,args=None,value=None,fmt=None,level=None):
 def _metric(code,value,fmt="INTEGER"):
     return RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,f"research.metric.{code}",children=(_leaf(RenderNodeTypeV2.METRIC_LABEL,f"research.metric.{code}.label",key=f"research.metric.{code}"),_leaf(RenderNodeTypeV2.METRIC_VALUE,f"research.metric.{code}.value",value=value,fmt=fmt)))
 
+def _domain_key(value):
+    code = str(value or "NO_DATA").strip().lower().replace(":", ".")
+    return f"research.domain.{code}"
+
+def _domain(t, node_id, value):
+    key = _domain_key(value)
+    return _leaf(t, node_id, key=key, args={"tooltip_key": f"{key}.tooltip"})
+
 def _algorithm_table(items):
     columns=("algorithm","markets","variants","folds","pf","passes","status","reason")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.algorithms.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.algorithms.header.{code}",key=f"research.algorithm.column.{code}") for code in columns))
     rows=[]
     for index,item in enumerate(items,start=1):
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.algorithm.{index}",children=(
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.family",value=item.family,fmt="DOMAIN_CODE"),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.family",item.family),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.markets",value=item.markets,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.variants",value=item.variants,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.folds",key="research.algorithm.folds",args={"passed":item.best_folds,"total":item.folds_total}),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.pf",value=item.best_profit_factor,fmt="DECIMAL"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.passes",value=item.passes,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.status",key=f"research.algorithm.status.{item.status.lower()}"),
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.reason",value=item.fail_reason,fmt="DOMAIN_CODE"),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.algorithm.{index}.reason",item.fail_reason),
         )))
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.algorithms.table",children=(RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.algorithms.head",children=(header,)),RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.algorithms.body",children=tuple(rows))))
 
@@ -31,12 +39,12 @@ def _run_audit_table(items):
     for index,item in enumerate(items,start=1):
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.audit.{index}",children=(
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.started",value=item.started_at,fmt="DATETIME"),
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.status",value=item.status,fmt="DOMAIN_CODE"),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.status",item.status),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.steps",key="research.audit.steps",args={"completed":item.steps_completed,"total":item.steps_total}),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.duration",value=item.duration_seconds,fmt="INTEGER"),
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.outcome",value=item.outcome,fmt="DOMAIN_CODE"),
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.reason",value=item.reason,fmt="DOMAIN_CODE"),
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.recommendation",value=item.recommendation,fmt="DOMAIN_CODE"),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.outcome",item.outcome),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.reason",item.reason),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.recommendation",item.recommendation),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.analysis",value=item.explanation),
         )))
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.audit.table",children=(RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.audit.head",children=(header,)),RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.audit.body",children=tuple(rows))))
@@ -45,12 +53,13 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
     source_as_of=min(times) if times else s.generated_at
     metrics=(
-        _metric("supervisor_status",s.supervisor_status,"DOMAIN_CODE"),_metric("active_symbols",s.active_symbols),_metric("failed_symbols",s.failed_symbols),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.metric.supervisor_status",children=(_leaf(RenderNodeTypeV2.METRIC_LABEL,"research.metric.supervisor_status.label",key="research.metric.supervisor_status"),_domain(RenderNodeTypeV2.METRIC_VALUE,"research.metric.supervisor_status.value",s.supervisor_status))),
+        _metric("active_symbols",s.active_symbols),_metric("failed_symbols",s.failed_symbols),
         _metric("candidates",s.candidates),_metric("summary_oos_pass",s.oos_pass),_metric("paper_ready",s.paper_ready),
         _metric("queue_total",s.queue_total),_metric("queue_pending",s.queue_pending),_metric("queue_failed",s.queue_failed),
         _metric("oos_total",s.oos_total),_metric("oos_pass",s.oos_pass_total),
-        _metric("edge_search_status",s.edge_search_status,"DOMAIN_CODE"),
-        _metric("edge_search_step",s.edge_search_step,"DOMAIN_CODE"),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.metric.edge_search_status",children=(_leaf(RenderNodeTypeV2.METRIC_LABEL,"research.metric.edge_search_status.label",key="research.metric.edge_search_status"),_domain(RenderNodeTypeV2.METRIC_VALUE,"research.metric.edge_search_status.value",s.edge_search_status))),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.metric.edge_search_step",children=(_leaf(RenderNodeTypeV2.METRIC_LABEL,"research.metric.edge_search_step.label",key="research.metric.edge_search_step"),_domain(RenderNodeTypeV2.METRIC_VALUE,"research.metric.edge_search_step.value",s.edge_search_step))),
         _metric("edge_search_progress",s.edge_search_progress_pct,"PERCENT"),
         _metric("edge_search_markets",s.edge_search_markets),
         _metric("edge_search_combinations",s.edge_search_combinations),
