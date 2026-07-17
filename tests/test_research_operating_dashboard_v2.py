@@ -19,10 +19,10 @@ def test_recommendation_cell_opens_real_db_backed_process_choices() -> None:
         "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js"
     ).read_text()
     assert 'endsWith(".recommendation")' in driver
-    assert 'openResearchActions(element, emit)' in driver
-    assert 'actionId: "research.request.refresh"' in driver
-    assert 'commandCode: "RESEARCH.REQUEST_REFRESH"' in driver
-    assert 'run: () => emit("DOUBLE_CLICK")' in driver
+    assert 'openResearchActions(element)' in driver
+    assert "option.action_id" in driver
+    assert "option.command_code" in driver
+    assert "dataset.mcActions" in driver
 
 
 def test_research_page_auto_refreshes_process_state() -> None:
@@ -41,7 +41,7 @@ def test_status_is_first_column_and_uses_progress_bar() -> None:
     driver = Path(
         "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js"
     ).read_text()
-    assert 'columns=("status","started"' in renderer
+    assert 'columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")' in renderer
     assert '"Выполнено": 100' in driver
     assert '"Выполняется": 50' in driver
     assert '"Ожидает": 10' in driver

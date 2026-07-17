@@ -202,11 +202,11 @@ article[role="link"][data-mc-action-id]:focus {
 [data-mc-node-id="research.audit.table"] [data-mc-node="table_header_cell"]:nth-child(6),
 [data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(6) { width: 13%; }
 [data-mc-node-id="research.audit.table"] [data-mc-node="table_header_cell"]:nth-child(7),
-[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(7) { width: 15%; }
+[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(7) { width: 28%; }
 [data-mc-node-id="research.audit.table"] [data-mc-node="table_header_cell"]:nth-child(8),
-[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(8) { width: 28%; }
-[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(7) { cursor: pointer; }
-[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(7):hover { background: rgba(73,216,188,.28); box-shadow: inset 0 0 0 1px #49d8bc; }
+[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(8) { width: 15%; }
+[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(8) { cursor: pointer; color: #7de7d2; font-weight: 750; }
+[data-mc-node-id="research.audit.table"] [data-mc-node="table_cell"]:nth-child(8):hover { background: rgba(73,216,188,.28); box-shadow: inset 0 0 0 1px #49d8bc; }
 
 [data-mc-node="action"] { appearance: none; min-height: 38px; padding: 9px 13px; border: 1px solid #36cdb3; border-radius: 9px; background: #1ba88f; color: #041411; font: inherit; font-size: .75rem; font-weight: 800; cursor: pointer; }
 [data-mc-node="action"]:hover { background: #42d6bd; }

@@ -83,6 +83,15 @@ def persist_analysis(run_id, outcome, reason, markets, combinations, passes, *, 
                   json.dumps([reason] if failed else []),json.dumps(evidence),
                   "FIX_EXECUTOR_AND_RETRY_SYSTEM_SCHEDULE" if technical_failure else
                   ("PROMOTE_CONFIRMED_PASS" if passes else "KEEP_GATES_AND_EXPAND_EVIDENCE"),explanation))
+            cursor.execute("""UPDATE marketcore_action.research_process_v1 p SET
+                outcome_code=%s,reason_code=%s,
+                recommendation_code=%s,explanation_ru=%s,updated_at=clock_timestamp()
+                FROM analytics.edge_search_scenario_run_v1 r
+                WHERE r.run_id=%s AND p.process_id=r.process_id""",
+                (outcome,reason,
+                 "FIX_EXECUTOR_AND_RETRY_SYSTEM_SCHEDULE" if technical_failure else
+                 ("PROMOTE_CONFIRMED_PASS" if passes else "KEEP_GATES_AND_EXPAND_EVIDENCE"),
+                 explanation,str(run_id)))
 
 
 def session_freshness_minutes(now: datetime | None = None) -> int:
@@ -135,6 +144,23 @@ def record_status(cycle_id: uuid.UUID, **values: object) -> None:
                 f"UPDATE analytics.edge_search_cycle_status_v1 SET {assignments},updated_at=clock_timestamp() WHERE cycle_id=%s",
                 (*values.values(), str(cycle_id)),
             )
+            process_id = os.getenv("MARKETCORE_PROCESS_ID")
+            if process_id:
+                process_status = "FAILED" if values.get("status_code") == "FAILED" else "RUNNING"
+                if values.get("finished_at") is not None and process_status != "FAILED":
+                    process_status = "SUCCEEDED"
+                progress = values.get("progress_pct")
+                step = values.get("current_step")
+                cursor.execute("""UPDATE marketcore_action.research_process_v1 SET
+                    status_code=%s,progress_pct=coalesce(%s,progress_pct),
+                    current_step_code=coalesce(%s,current_step_code),updated_at=clock_timestamp()
+                    WHERE process_id=%s::uuid""",
+                    (process_status,progress,step,process_id))
+                cursor.execute("""INSERT INTO marketcore_action.research_process_event_v1
+                    (process_id,event_code,status_code,progress_pct,step_code,payload)
+                    SELECT process_id,'PROGRESS_UPDATED',status_code,progress_pct,current_step_code,%s::jsonb
+                    FROM marketcore_action.research_process_v1 WHERE process_id=%s::uuid""",
+                    (json.dumps(values,default=str),process_id))
 
 
 def market_data_watermark(cursor, freshness_minutes: int):
@@ -186,6 +212,7 @@ def main() -> int:
     cycle_id = uuid.uuid4()
     run_id = uuid.uuid4()
     request_id = os.getenv("EDGE_SEARCH_REQUEST_ID")
+    process_id = os.getenv("MARKETCORE_PROCESS_ID")
     freshness_minutes = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", str(session_freshness_minutes())))
     env = os.environ.copy()
     env.update({
@@ -205,6 +232,11 @@ def main() -> int:
                     VALUES(%s,%s,%s) ON CONFLICT(request_id) DO UPDATE SET cycle_id=EXCLUDED.cycle_id,
                     run_id=EXCLUDED.run_id,updated_at=clock_timestamp()""",
                     (request_id,str(cycle_id),str(run_id)))
+            if process_id:
+                cursor.execute("""UPDATE marketcore_action.research_process_v1 SET
+                    cycle_id=%s,run_id=%s,status_code='RUNNING',progress_pct=5,
+                    current_step_code='STARTING',updated_at=clock_timestamp()
+                    WHERE process_id=%s::uuid""", (str(cycle_id),str(run_id),process_id))
                 lock_connection.commit()
             cursor.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_ID,))
             if not cursor.fetchone()[0]:
@@ -275,9 +307,9 @@ def main() -> int:
                 scenario = load_scenario(status_connection)
                 status_cursor.execute("""
                     INSERT INTO analytics.edge_search_scenario_run_v1
-                      (run_id,cycle_id,scenario_code,status_code,config_snapshot)
-                    VALUES (%s,%s,%s,'RUNNING',%s::jsonb)
-                """, (str(run_id),str(cycle_id),SCENARIO_CODE,json.dumps(scenario)))
+                      (run_id,cycle_id,scenario_code,status_code,config_snapshot,process_id)
+                    VALUES (%s,%s,%s,'RUNNING',%s::jsonb,%s::uuid)
+                """, (str(run_id),str(cycle_id),SCENARIO_CODE,json.dumps(scenario),process_id))
         markets_evaluated = combinations_evaluated = passes = 0
         steps = scenario["steps"]
         for step_index, step_config in enumerate(steps, start=1):

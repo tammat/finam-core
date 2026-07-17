@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
+from uuid import UUID
 
 import psycopg2
 
@@ -66,15 +67,61 @@ class PostgresCommandRequestHandlerV2:
         request_id = str(intent.idempotency_key)
         with psycopg2.connect("postgresql:///finam_core") as connection:
             with connection.cursor() as cursor:
+                process_id = None
+                if definition.request_kind in {"EDGE_SEARCH_RUN", "RESEARCH_REFRESH"}:
+                    try:
+                        candidate_process_id = str(UUID(str(intent.target_id)))
+                    except (TypeError, ValueError, AttributeError):
+                        candidate_process_id = request_id
+                    cursor.execute(
+                        "SELECT recommendation_code FROM marketcore_action.research_process_v1 WHERE process_id=%s::uuid",
+                        (candidate_process_id,),
+                    )
+                    existing = cursor.fetchone()
+                    process_id = candidate_process_id if existing is not None else request_id
+                    recommendation = (
+                        str(existing[0]) if existing is not None else
+                        ("KEEP_GATES_AND_EXPAND_EVIDENCE" if definition.request_kind == "EDGE_SEARCH_RUN" else "WAIT_FOR_SYSTEM_ANALYSIS")
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO marketcore_action.research_process_v1 (
+                            process_id,process_type,actor_id,recommendation_code,selected_action_id,
+                            command_request_id,status_code,progress_pct,current_step_code,
+                            requested_at,started_at,finished_at,updated_at
+                        ) VALUES (%s::uuid,%s,%s,%s,%s,%s,'PENDING',0,'QUEUED',
+                                  clock_timestamp(),NULL,NULL,clock_timestamp())
+                        ON CONFLICT (process_id) DO UPDATE SET
+                            process_type=EXCLUDED.process_type,
+                            actor_id=EXCLUDED.actor_id,
+                            selected_action_id=EXCLUDED.selected_action_id,
+                            command_request_id=EXCLUDED.command_request_id,
+                            status_code='PENDING',progress_pct=0,current_step_code='QUEUED',
+                            outcome_code=NULL,reason_code=NULL,explanation_ru=NULL,
+                            requested_at=clock_timestamp(),started_at=NULL,finished_at=NULL,
+                            updated_at=clock_timestamp()
+                        """,
+                        (process_id,
+                         "EDGE_SEARCH" if definition.request_kind == "EDGE_SEARCH_RUN" else "RESEARCH_REFRESH",
+                         intent.actor_id,recommendation,intent.action_id,request_id),
+                    )
+                    cursor.execute(
+                        """INSERT INTO marketcore_action.research_process_event_v1
+                           (process_id,event_code,status_code,progress_pct,step_code,payload)
+                           VALUES(%s::uuid,'ACTION_SELECTED','PENDING',0,'QUEUED',
+                                  jsonb_build_object('action_id',%s,'request_id',%s))""",
+                        (process_id,intent.action_id,request_id),
+                    )
                 cursor.execute(
                     """
                     INSERT INTO marketcore_action.command_request_v2 (
-                        request_id,action_id,request_kind,command_code,actor_id,target_id,status,requested_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,'PENDING',clock_timestamp())
+                        request_id,action_id,request_kind,command_code,actor_id,target_id,status,requested_at,process_id
+                    ) VALUES (%s,%s,%s,%s,%s,%s,'PENDING',clock_timestamp(),%s::uuid)
                     ON CONFLICT DO NOTHING
                     RETURNING request_id
                     """,
-                    (request_id, intent.action_id, definition.request_kind, definition.command_code, intent.actor_id, intent.target_id),
+                    (request_id, intent.action_id, definition.request_kind, definition.command_code,
+                     intent.actor_id, intent.target_id, process_id),
                 )
                 row = cursor.fetchone()
                 if row is None:

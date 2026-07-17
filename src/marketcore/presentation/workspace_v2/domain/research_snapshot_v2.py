@@ -16,8 +16,11 @@ class ResearchAlgorithmResultV2:
 
 @dataclass(frozen=True, slots=True)
 class EdgeSearchRunAuditV1:
+    process_id: str
     run_id: str
     status: str
+    progress_pct: float
+    current_step: str
     steps_completed: int
     steps_total: int
     duration_seconds: int
@@ -26,6 +29,7 @@ class EdgeSearchRunAuditV1:
     recommendation: str
     explanation: str
     started_at: datetime | None
+    available_actions: tuple[dict[str, str], ...]
 
 @dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:

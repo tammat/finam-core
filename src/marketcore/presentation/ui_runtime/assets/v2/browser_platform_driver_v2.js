@@ -45,7 +45,7 @@
             this.announce(hint);
         }
 
-        openResearchActions(row, emit) {
+        openResearchActions(row) {
             this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
             const dialog = this.documentObject.createElement("dialog");
             dialog.setAttribute("data-mc-action-dialog", "research");
@@ -55,26 +55,34 @@
             hint.textContent = "Выберите процесс. Заявку выполнит системный планировщик.";
             const list = this.documentObject.createElement("div");
             list.className = "mc-action-dialog-list";
-            const options = [
-                {label: "Запустить поиск", detail: "Повторить полный безопасный цикл", run: () => emit("DOUBLE_CLICK")},
-                {label: "Обновить данные", detail: "Пересчитать исследовательские источники", run: () => this.actionSink({
-                    actionId: "research.request.refresh", actionKind: "COMMAND", interactionKind: "DOUBLE_CLICK",
-                    commandCode: "RESEARCH.REQUEST_REFRESH", policyClass: "RESEARCH_MAINTENANCE",
-                    requiresApproval: false, reversible: true,
-                    rollbackCode: "RESEARCH.CANCEL_PENDING_REQUEST", idempotencyKey: "client.request"
-                })}
-            ];
+            const recommendationCell = row.querySelector('[data-mc-node-id$=".recommendation"]');
+            let options = [];
+            try { options = JSON.parse(recommendationCell?.dataset.mcActions || "[]"); }
+            catch (error) { options = []; }
+            const processId = recommendationCell?.dataset.mcProcessId || null;
+            if (!options.length) {
+                hint.textContent = "Для текущего состояния действия не требуются.";
+            }
             options.forEach((option) => {
                 const button = this.documentObject.createElement("button");
                 button.type = "button";
                 button.className = "mc-action-dialog-item";
-                button.innerHTML = `<strong>${option.label}</strong><span>${option.detail}</span>`;
+                const label = this.documentObject.createElement("strong");
+                label.textContent = option.label;
+                const detail = this.documentObject.createElement("span");
+                detail.textContent = option.detail;
+                button.append(label, detail);
                 button.addEventListener("click", async () => {
                     if (!globalObject.confirm(`Подтвердить: ${option.label}?`)) return;
                     button.disabled = true;
                     this.announce("Заявка ставится в очередь…", "RUNNING");
                     try {
-                        await option.run();
+                        await this.actionSink({
+                            actionId: option.action_id, actionKind: "COMMAND", interactionKind: "DOUBLE_CLICK",
+                            targetId: processId, commandCode: option.command_code,
+                            policyClass: option.policy_class, requiresApproval: false, reversible: true,
+                            rollbackCode: option.rollback_code, idempotencyKey: "client.request"
+                        });
                         dialog.close(); dialog.remove();
                         this.announce("Заявка принята системой", "SUCCESS");
                     } catch (error) {
@@ -298,7 +306,7 @@
                             const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
                             const isResearchRow = element.getAttribute("data-mc-node-id")?.startsWith("research.audit.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
-                            if (isResearchRow && isRecommendation) this.openResearchActions(element, emit);
+                            if (isResearchRow && isRecommendation) this.openResearchActions(element);
                             else if (isResearchRow) this.announce("Запуск доступен двойным кликом в колонке «Далее»");
                             else this.openRecommendedActions(element);
                         });
@@ -333,6 +341,10 @@
                 element.setAttribute("title", String(context.tooltipValue));
                 element.setAttribute("aria-label", `${String(context.displayValue || "")}. ${String(context.tooltipValue)}`);
             }
+            if (node.type === "table_cell" && node.node_id.endsWith(".recommendation") && node.content?.message_args) {
+                element.dataset.mcProcessId = String(node.content.message_args.process_id || "");
+                element.dataset.mcActions = JSON.stringify(node.content.message_args.actions || []);
+            }
             if (node.type === "table_cell" && node.node_id.endsWith(".status")) {
                 const label = String(context.displayValue || "");
                 const progressByLabel = {
@@ -349,7 +361,8 @@
                 element.textContent = "";
                 const progress = this.documentObject.createElement("progress");
                 progress.max = 100;
-                progress.value = progressByLabel[label] ?? 0;
+                const processProgress = Number(node.content?.message_args?.progress_pct);
+                progress.value = Number.isFinite(processProgress) ? Math.max(0, Math.min(100, processProgress)) : (progressByLabel[label] ?? 0);
                 progress.setAttribute("aria-label", `${label}: ${progress.value} %`);
                 const value = this.documentObject.createElement("span");
                 value.textContent = label;

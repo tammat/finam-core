@@ -15,6 +15,22 @@ def _domain(t, node_id, value):
     key = _domain_key(value)
     return _leaf(t, node_id, key=key, args={"tooltip_key": f"{key}.tooltip"})
 
+def _process_status(node_id, item):
+    key = _domain_key(item.status)
+    return _leaf(RenderNodeTypeV2.TABLE_CELL,node_id,key=key,args={
+        "tooltip_key": f"{key}.tooltip",
+        "progress_pct": item.progress_pct,
+        "current_step": item.current_step,
+    })
+
+def _recommendation(node_id, item):
+    key = _domain_key(item.recommendation)
+    return _leaf(RenderNodeTypeV2.TABLE_CELL,node_id,key=key,args={
+        "tooltip_key": f"{key}.tooltip",
+        "process_id": item.process_id,
+        "actions": list(item.available_actions),
+    })
+
 def _tile(code, value, status):
     return RenderNodeV2(
         RenderNodeTypeV2.CARD,
@@ -44,22 +60,22 @@ def _algorithm_table(items):
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.algorithms.table",children=(RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.algorithms.head",children=(header,)),RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.algorithms.body",children=tuple(rows))))
 
 def _run_audit_table(items):
-    columns=("status","started","steps","duration","outcome","reason","recommendation","analysis")
+    columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.audit.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.audit.header.{code}",key=f"research.audit.column.{code}") for code in columns))
     rows=[]
     for index,item in enumerate(items,start=1):
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.audit.{index}",children=(
-            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.status",item.status),
+            _process_status(f"research.audit.{index}.status",item),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.started",value=item.started_at,fmt="DATETIME"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.steps",key="research.audit.steps",args={"completed":item.steps_completed,"total":item.steps_total}),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.duration",value=item.duration_seconds,fmt="INTEGER"),
             _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.outcome",item.outcome),
             _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.reason",item.reason),
-            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.recommendation",item.recommendation),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.analysis",value=item.explanation),
+            _recommendation(f"research.audit.{index}.recommendation",item),
         ),action=RenderActionV2(
             "research.edge_search.run",ActionKindV2.COMMAND,
-            command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",
+            target_id=item.process_id,command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",
             reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
             idempotency_key="client.request",
         )))

@@ -81,7 +81,7 @@ class GovernedCommandWorkerV2:
             with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute(
                     """
-                    SELECT request_id,action_id,request_kind,command_code,actor_id,target_id
+                    SELECT request_id,action_id,request_kind,command_code,actor_id,target_id,process_id
                     FROM marketcore_action.command_request_v2
                     WHERE status='PENDING'
                       AND (%s IS NULL OR request_id=%s)
@@ -94,6 +94,16 @@ class GovernedCommandWorkerV2:
                 if row is None:
                     return None
                 cursor.execute("UPDATE marketcore_action.command_request_v2 SET status='RUNNING',started_at=clock_timestamp() WHERE request_id=%s", (row["request_id"],))
+                if row["process_id"] is not None:
+                    cursor.execute("""UPDATE marketcore_action.research_process_v1
+                        SET status_code='RUNNING',progress_pct=5,current_step_code='STARTING',
+                            started_at=clock_timestamp(),finished_at=NULL,updated_at=clock_timestamp()
+                        WHERE process_id=%s""", (row["process_id"],))
+                    cursor.execute("""INSERT INTO marketcore_action.research_process_event_v1
+                        (process_id,event_code,status_code,progress_pct,step_code,payload)
+                        VALUES(%s,'EXECUTION_STARTED','RUNNING',5,'STARTING',
+                               jsonb_build_object('request_id',%s))""",
+                        (row["process_id"],row["request_id"]))
         command = COMMANDS.get(str(row["request_kind"]))
         if row["request_kind"] == "OPERATOR_DECISION_ACKNOWLEDGE":
             return self._acknowledge_operator_decision(row)
@@ -107,6 +117,8 @@ class GovernedCommandWorkerV2:
         try:
             if row["request_kind"] == "EDGE_SEARCH_RUN":
                 os.environ["EDGE_SEARCH_REQUEST_ID"] = str(row["request_id"])
+            if row["process_id"] is not None:
+                os.environ["MARKETCORE_PROCESS_ID"] = str(row["process_id"])
             result = self._executor.execute(command)
         except Exception as exc:
             failure = str(exc).strip() or type(exc).__name__
@@ -114,6 +126,7 @@ class GovernedCommandWorkerV2:
         finally:
             if row["request_kind"] == "EDGE_SEARCH_RUN":
                 os.environ.pop("EDGE_SEARCH_REQUEST_ID", None)
+            os.environ.pop("MARKETCORE_PROCESS_ID", None)
         return self._finish(row, True, result, None)
 
     def _acknowledge_operator_decision(self, row) -> str:
@@ -205,6 +218,22 @@ class GovernedCommandWorkerV2:
                 )
                 if cursor.rowcount != 1:
                     raise RuntimeError("WORKER_REQUEST_STATE_CONFLICT")
+                if row.get("process_id") is not None:
+                    process_status = "SUCCEEDED" if success else "FAILED"
+                    cursor.execute("""UPDATE marketcore_action.research_process_v1
+                        SET status_code=%s,progress_pct=100,current_step_code='COMPLETE',
+                            outcome_code=coalesce(outcome_code,%s),reason_code=coalesce(reason_code,%s),
+                            explanation_ru=coalesce(explanation_ru,%s),finished_at=clock_timestamp(),
+                            updated_at=clock_timestamp()
+                        WHERE process_id=%s""",
+                        (process_status,"COMPLETED" if success else "FAILED",failure,
+                         "Процесс завершён" if success else "Процесс завершился с ошибкой",
+                         row["process_id"]))
+                    cursor.execute("""INSERT INTO marketcore_action.research_process_event_v1
+                        (process_id,event_code,status_code,progress_pct,step_code,payload)
+                        VALUES(%s,'EXECUTION_FINISHED',%s,100,'COMPLETE',
+                               jsonb_build_object('request_id',%s,'result',%s,'failure',%s))""",
+                        (row["process_id"],process_status,row["request_id"],result,failure))
         self._record(row, AuditStageV2.EXECUTION_FINISHED, DispatchStatusV2.EXECUTED if success else DispatchStatusV2.FAILED, "WORKER_COMPLETED" if success else "WORKER_FAILED", result)
         return status
 

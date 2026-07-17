@@ -50,24 +50,37 @@ class ResearchV2Resolver:
                 """)
                 algorithms=tuple(ResearchAlgorithmResultV2(str(row["strategy_family"]),int(row["markets"]),int(row["variants"]),int(row["best_folds"]),int(row["folds_total"]),float(row["best_profit_factor"]),int(row["passes"]),"PASS" if int(row["passes"]) else "NO_PASS",str(row["fail_reason"] or "NO_DATA")) for row in cursor.fetchall())
                 cursor.execute("""
-                    SELECT r.run_id,r.status_code,r.started_at,r.finished_at,
-                           count(s.step_run_id) FILTER (WHERE s.status_code='SUCCEEDED') steps_completed,
-                           count(s.step_run_id) steps_total,
-                           coalesce(extract(epoch FROM (coalesce(r.finished_at,clock_timestamp())-r.started_at)),0)::int duration_seconds,
-                           coalesce(a.outcome_code,r.status_code) outcome_code,
-                           coalesce(a.primary_reason_code,'ANALYSIS_PENDING') reason_code,
-                           coalesce(a.recommendation_code,'WAIT_FOR_SYSTEM_ANALYSIS') recommendation_code,
-                           coalesce(a.explanation_ru,'Системный анализ ещё не завершён') explanation_ru
-                    FROM analytics.edge_search_scenario_run_v1 r
-                    LEFT JOIN analytics.edge_search_step_run_v1 s ON s.run_id=r.run_id
-                    LEFT JOIN analytics.edge_search_run_analysis_v1 a ON a.run_id=r.run_id
-                    GROUP BY r.run_id,a.outcome_code,a.primary_reason_code,a.recommendation_code,a.explanation_ru
-                    ORDER BY r.started_at DESC LIMIT 10
+                    SELECT p.process_id,p.run_id,p.status_code,p.progress_pct,p.current_step_code,p.requested_at,p.started_at,p.finished_at,
+                           coalesce(count(s.step_run_id) FILTER (WHERE s.status_code='SUCCEEDED'),
+                                    CASE WHEN p.status_code='SUCCEEDED' THEN 1 ELSE 0 END) steps_completed,
+                           greatest(count(s.step_run_id),CASE WHEN p.process_type='RESEARCH_REFRESH' THEN 1 ELSE 0 END) steps_total,
+                           coalesce(extract(epoch FROM (coalesce(p.finished_at,clock_timestamp())-coalesce(p.started_at,p.requested_at))),0)::int duration_seconds,
+                           coalesce(p.outcome_code,p.status_code) outcome_code,
+                           coalesce(p.reason_code,'ANALYSIS_PENDING') reason_code,
+                           p.recommendation_code,
+                           coalesce(p.explanation_ru,'Системный процесс ожидает обновления') explanation_ru,
+                           coalesce(actions.items,'[]'::jsonb) available_actions
+                    FROM marketcore_action.research_process_v1 p
+                    LEFT JOIN analytics.edge_search_step_run_v1 s ON s.run_id=p.run_id
+                    LEFT JOIN LATERAL (
+                        SELECT jsonb_agg(jsonb_build_object(
+                            'action_id',a.action_id,'command_code',a.command_code,
+                            'policy_class',a.policy_class,'rollback_code',a.rollback_code,
+                            'label',a.label,'detail',a.detail
+                        ) ORDER BY a.action_order) items
+                        FROM marketcore_action.research_recommendation_action_v1 a
+                        WHERE a.recommendation_code=p.recommendation_code
+                          AND a.locale_code='ru' AND a.enabled
+                          AND p.status_code IN ('SUCCEEDED','FAILED','SKIPPED')
+                    ) actions ON TRUE
+                    WHERE p.actor_id <> 'test.worker'
+                    GROUP BY p.process_id,actions.items
+                    ORDER BY p.updated_at DESC LIMIT 10
                 """)
                 runs=tuple(EdgeSearchRunAuditV1(
-                    str(row["run_id"]),str(row["status_code"]),int(row["steps_completed"] or 0),
+                    str(row["process_id"]),str(row["run_id"] or ""),str(row["status_code"]),float(row["progress_pct"] or 0),str(row["current_step_code"] or "QUEUED"),int(row["steps_completed"] or 0),
                     int(row["steps_total"] or 0),int(row["duration_seconds"] or 0),str(row["outcome_code"]),
                     str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
-                    _utc(row["started_at"]),
+                    _utc(row["started_at"] or row["requested_at"]),tuple(dict(item) for item in row["available_actions"]),
                 ) for row in cursor.fetchall())
         return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),algorithms,runs,now)
