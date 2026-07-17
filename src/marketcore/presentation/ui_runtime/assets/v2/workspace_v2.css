@@ -77,7 +77,7 @@ body {
     padding: 12px clamp(16px, 3vw, 48px) 0;
     pointer-events: none;
 }
-#marketcore-workspace-back {
+#marketcore-workspace-back, #marketcore-workspace-home {
     min-height: 38px;
     padding: 8px 14px;
     border: 1px solid #2c766f;
@@ -89,9 +89,9 @@ body {
     cursor: pointer;
     pointer-events: auto;
 }
-#marketcore-workspace-back:hover { border-color: #55e0c5; background: #154049; }
-#marketcore-workspace-back:disabled { cursor: default; opacity: .45; border-color: #344b55; background: #10222b; }
-#marketcore-workspace-back:disabled:hover { border-color: #344b55; background: #10222b; }
+#marketcore-workspace-back:hover, #marketcore-workspace-home:hover { border-color: #55e0c5; background: #154049; }
+#marketcore-workspace-back:disabled, #marketcore-workspace-home:disabled { cursor: default; opacity: .45; border-color: #344b55; background: #10222b; }
+#marketcore-workspace-back:disabled:hover, #marketcore-workspace-home:disabled:hover { border-color: #344b55; background: #10222b; }
 #marketcore-workspace-back[hidden] { display: none; }
 
 [data-marketcore-ui-runtime="v2"] { min-height: 100vh; overflow-x: hidden; }

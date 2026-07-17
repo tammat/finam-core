@@ -25,6 +25,7 @@
         const mountElement = globalObject.document.getElementById(ROOT_ID);
         if (!mountElement) throw new Error("WORKSPACE_SHELL_V2_MOUNT_REQUIRED");
         const backButton = globalObject.document.getElementById("marketcore-workspace-back");
+        const homeButton = globalObject.document.getElementById("marketcore-workspace-home");
         const services = await globalObject.MarketCoreBrowserPresentationServicesV2.load({localeCode: "ru-RU"});
         let actionSink;
         const initialTargetId = initialTarget(globalObject.location && globalObject.location.pathname);
@@ -39,6 +40,7 @@
             backButton.disabled = atHome;
             backButton.textContent = navigationStack.length > 0 ? "← Назад" : "← Главная";
             backButton.setAttribute("aria-label", atHome ? "Вы на главной странице" : backButton.textContent);
+            if (homeButton) homeButton.disabled = false;
         };
 
         const render = async (endpoint) => {
@@ -74,6 +76,13 @@
             const previousTargetId = navigationStack.pop();
             if (!previousTargetId && currentTargetId === "container.home") return updateBackButton();
             currentTargetId = previousTargetId || "container.home";
+            await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            updateBackButton();
+        });
+
+        if (homeButton) homeButton.addEventListener("click", async () => {
+            navigationStack.length = 0;
+            currentTargetId = "container.home";
             await render(ENDPOINT_BY_TARGET[currentTargetId]);
             updateBackButton();
         });
