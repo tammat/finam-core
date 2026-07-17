@@ -94,6 +94,34 @@ def session_freshness_minutes(now: datetime | None = None) -> int:
     return 15
 
 
+def resource_snapshot() -> dict[str, float]:
+    load_1m = os.getloadavg()[0]
+    available_kb = 0
+    with open("/proc/meminfo", encoding="utf-8") as source:
+        for line in source:
+            if line.startswith("MemAvailable:"):
+                available_kb = int(line.split()[1])
+                break
+    return {"load_1m": load_1m, "memory_available_mb": available_kb / 1024.0}
+
+
+def heavy_search_window_open(now: datetime | None = None) -> bool:
+    current = now or datetime.now(ZoneInfo("Europe/Moscow"))
+    return current.weekday() >= 5 or current.hour < 9
+
+
+def resource_block_reason(snapshot: dict[str, float], now: datetime | None = None) -> str | None:
+    if os.getenv("EDGE_SEARCH_FORCE", "0") == "1":
+        return None
+    if not heavy_search_window_open(now):
+        return "EDGE_SEARCH_OUTSIDE_LOW_LOAD_WINDOW"
+    if snapshot["load_1m"] > float(os.getenv("EDGE_SEARCH_MAX_LOAD_1M", "2.5")):
+        return "EDGE_SEARCH_SERVER_LOAD_HIGH"
+    if snapshot["memory_available_mb"] < float(os.getenv("EDGE_SEARCH_MIN_MEMORY_MB", "3072")):
+        return "EDGE_SEARCH_MEMORY_RESERVE_LOW"
+    return None
+
+
 def output_metric(output: str, name: str) -> int:
     matches = re.findall(rf"(?m)^{re.escape(name)}=(\d+)$", output)
     return int(matches[-1]) if matches else 0
@@ -180,6 +208,25 @@ def main() -> int:
             lock_connection.commit()  # Session advisory lock survives commit; audit repair becomes visible immediately.
             if stale_runs:
                 print(f"stale_runs_reconciled={stale_runs}")
+            snapshot = resource_snapshot()
+            block_reason = resource_block_reason(snapshot)
+            if block_reason:
+                with psycopg2.connect("postgresql:///finam_core") as status_connection:
+                    with status_connection.cursor() as status_cursor:
+                        status_cursor.execute("""
+                            INSERT INTO analytics.edge_search_cycle_status_v1 (
+                                cycle_id,status_code,current_step,progress_pct,freshness_minutes,
+                                reason_code,finished_at
+                            ) VALUES (%s,'SKIPPED','RESOURCE_GUARD',100,%s,%s,clock_timestamp())
+                        """, (str(cycle_id),freshness_minutes,block_reason))
+                print(f"cycle_id={cycle_id}")
+                print("cycle_status=SKIPPED")
+                print(f"reason={block_reason}")
+                print(f"load_1m={snapshot['load_1m']:.2f}")
+                print(f"memory_available_mb={snapshot['memory_available_mb']:.0f}")
+                print("live_allowed=0")
+                print("VERDICT=AUTONOMOUS_EDGE_SEARCH_RESOURCE_GUARD_OK")
+                return 0
             watermark = market_data_watermark(cursor, freshness_minutes)
             cursor.execute("""
                 SELECT market_data_watermark
