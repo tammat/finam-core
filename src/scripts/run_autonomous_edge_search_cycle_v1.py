@@ -118,6 +118,41 @@ def market_data_watermark(cursor, freshness_minutes: int):
     return cursor.fetchone()[0]
 
 
+def reconcile_stale_runs(connection) -> int:
+    """The advisory lock is held, so any older RUNNING row has no live owner."""
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            WITH stale AS (
+              UPDATE analytics.edge_search_scenario_run_v1
+              SET status_code='FAILED',finished_at=clock_timestamp()
+              WHERE status_code='RUNNING'
+              RETURNING run_id,cycle_id
+            ), failed_steps AS (
+              UPDATE analytics.edge_search_step_run_v1 s
+              SET status_code='FAILED',finished_at=clock_timestamp(),return_code=-2,
+                  stderr_tail=concat_ws(E'\n',s.stderr_tail,'SYSTEM_PROCESS_TERMINATED_WITHOUT_FINAL_STATUS')
+              FROM stale WHERE s.run_id=stale.run_id AND s.status_code='RUNNING'
+              RETURNING s.run_id
+            ), failed_cycles AS (
+              UPDATE analytics.edge_search_cycle_status_v1 c
+              SET status_code='FAILED',reason_code='EDGE_SEARCH_PROCESS_TERMINATED',
+                  finished_at=clock_timestamp(),updated_at=clock_timestamp()
+              FROM stale WHERE c.cycle_id=stale.cycle_id
+              RETURNING c.cycle_id
+            )
+            INSERT INTO analytics.edge_search_run_analysis_v1
+              (run_id,outcome_code,primary_reason_code,failure_factors,evidence,
+               recommendation_code,explanation_ru)
+            SELECT run_id,'FAILED','EDGE_SEARCH_PROCESS_TERMINATED',
+                   '["TECHNICAL_PROCESS_TERMINATION"]'::jsonb,'{}'::jsonb,
+                   'RETRY_ON_NEXT_SYSTEM_SCHEDULE',
+                   'Процесс завершился без финального статуса; торговый результат не оценивался. Система закрыла зависшую запись.'
+            FROM stale ON CONFLICT (run_id) DO NOTHING
+            RETURNING run_id
+        """)
+        return len(cursor.fetchall())
+
+
 def main() -> int:
     cycle_id = uuid.uuid4()
     run_id = uuid.uuid4()
@@ -140,6 +175,10 @@ def main() -> int:
                 print("cycle_skipped=1")
                 print("reason=AUTONOMOUS_EDGE_SEARCH_ALREADY_RUNNING")
                 return 0
+            stale_runs = reconcile_stale_runs(lock_connection)
+            lock_connection.commit()  # Session advisory lock survives commit; audit repair becomes visible immediately.
+            if stale_runs:
+                print(f"stale_runs_reconciled={stale_runs}")
             watermark = market_data_watermark(cursor, freshness_minutes)
             cursor.execute("""
                 SELECT market_data_watermark
@@ -198,10 +237,18 @@ def main() -> int:
                       VALUES (%s,%s,%s,%s,'RUNNING')""",
                       (str(step_run_id),str(run_id),step_config["step_order"],executor_code))
             record_status(cycle_id,current_step=executor_code,progress_pct=int((step_index-1)*100/len(steps)))
-            result = subprocess.run(
-                (str(PYTHON), step), cwd=ROOT, env=env,
-                text=True, capture_output=True, timeout=step_config["timeout_seconds"], check=False,
-            )
+            timed_out = False
+            try:
+                result = subprocess.run(
+                    (str(PYTHON), step), cwd=ROOT, env=env,
+                    text=True, capture_output=True, timeout=step_config["timeout_seconds"], check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+                stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+                stderr = f"{stderr}\nSTEP_TIMEOUT_SECONDS={step_config['timeout_seconds']}".strip()
+                result = subprocess.CompletedProcess(exc.cmd,124,stdout,stderr)
             print(f"step={step}|returncode={result.returncode}")
             if result.stdout:
                 print(result.stdout.rstrip())
@@ -234,15 +281,16 @@ def main() -> int:
                 if result.stderr:
                     print(result.stderr.rstrip())
                 print("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_FAILED")
+                technical_reason = f"EDGE_SEARCH_STEP_TIMEOUT:{executor_code}" if timed_out else f"EDGE_SEARCH_EXECUTOR_FAILED:{executor_code}"
                 record_status(
-                    cycle_id,status_code="FAILED",reason_code="EDGE_SEARCH_STEP_FAILED",
+                    cycle_id,status_code="FAILED",reason_code=technical_reason,
                     finished_at=datetime.now(ZoneInfo("Europe/Moscow")),progress_pct=int(step_index*100/len(steps)),
                 )
                 with psycopg2.connect("postgresql:///finam_core") as connection:
                     with connection.cursor() as cursor:
                         cursor.execute("UPDATE analytics.edge_search_scenario_run_v1 SET status_code='FAILED',finished_at=clock_timestamp() WHERE run_id=%s",(str(run_id),))
                 persist_analysis(
-                    run_id,"FAILED",f"EDGE_SEARCH_EXECUTOR_FAILED:{executor_code}",
+                    run_id,"FAILED",technical_reason,
                     markets_evaluated,combinations_evaluated,passes,technical_step=executor_code,
                 )
                 return 2
