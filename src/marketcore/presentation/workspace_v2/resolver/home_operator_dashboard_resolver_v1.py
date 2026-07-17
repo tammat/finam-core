@@ -30,6 +30,12 @@ class HomeOperatorDashboardResolverV1:
             ("analytics.marketcore_model_health_recommendation_v1", "analytics.recommendation_score_v1"),
         ),
         (
+            "edge_search",
+            "home.operator.edge_search.title",
+            "home.operator.edge_search.subtitle",
+            ("analytics.edge_search_cycle_status_v1",),
+        ),
+        (
             "signal_funnel",
             "home.operator.signal_funnel.title",
             "home.operator.signal_funnel.subtitle",
@@ -74,6 +80,8 @@ class HomeOperatorDashboardResolverV1:
         subtitle_key: str,
         table_names: tuple[str, ...],
     ) -> HomeOperatorDashboardItemV1:
+        if item_code == "edge_search":
+            return self._edge_search_item(cur, item_code, title_key, subtitle_key)
         rows_total = sum(self._safe_count(cur, table_name) for table_name in table_names)
         status_code = UiStatusCode.OK if rows_total > 0 else UiStatusCode.WARNING
 
@@ -85,6 +93,30 @@ class HomeOperatorDashboardResolverV1:
             status_label_key=self._status_label_key(status_code),
             rows_total=rows_total,
             updated_at=self._updated_at(cur, table_names),
+        )
+
+    def _edge_search_item(self, cur: Any, item_code: str, title_key: str, subtitle_key: str) -> HomeOperatorDashboardItemV1:
+        cur.execute("""
+            SELECT status_code,current_step,progress_pct,combinations_evaluated,oos_pass,
+                   coalesce(finished_at,updated_at) AS displayed_at
+            FROM analytics.edge_search_cycle_status_v1
+            ORDER BY started_at DESC LIMIT 1
+        """)
+        row = cur.fetchone() or {}
+        status = str(row.get("status_code") or "NOT_RUN")
+        status_code = UiStatusCode.OK if status == "PASS_FOUND" else UiStatusCode.WARNING
+        return HomeOperatorDashboardItemV1(
+            item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
+            status_code=status_code,status_label_key=self._status_label_key(status_code),
+            rows_total=int(row.get("combinations_evaluated") or 0),
+            updated_at=str(row.get("displayed_at") or ""),
+            summary_message_key="home.operator.edge_search.summary",
+            summary_message_args={
+                "status": status,
+                "progress": int(row.get("progress_pct") or 0),
+                "variants": int(row.get("combinations_evaluated") or 0),
+                "passes": int(row.get("oos_pass") or 0),
+            },
         )
 
     def _updated_at(

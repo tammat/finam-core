@@ -14,3 +14,5 @@ class HomeOperatorDashboardItemV1:
     status_label_key: str
     rows_total: int
     updated_at: str
+    summary_message_key: str | None = None
+    summary_message_args: dict[str, object] | None = None

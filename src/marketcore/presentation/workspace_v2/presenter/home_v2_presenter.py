@@ -303,8 +303,10 @@ class HomeV2Presenter:
             priority=priority,
             actions=({"action_code": "navigation.open", "target": item.item_code},),
             payload={
-                "rows_total": item.rows_total,
+                "rows_total": None if item.summary_message_key else item.rows_total,
                 "updated_at": item.updated_at,
+                "v2_message_key": item.summary_message_key,
+                "v2_message_args": item.summary_message_args,
             },
         )
 
