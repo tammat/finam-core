@@ -18,6 +18,12 @@ def main() -> None:
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute("""
+                UPDATE analytics.edge_regime_hypothesis_result_v2
+                SET promotion_allowed=false
+                WHERE promotion_allowed AND source_version<>%s
+            """, (TRUSTED_DISCOVERY_VERSION,))
+            legacy_promotions_revoked = cursor.rowcount
+            cursor.execute("""
                 UPDATE analytics.edge_oos_result_v1 o
                 SET verdict_code='OOS_FAIL',promotion_allowed=false,
                     reason='OOS_MARKET_DATA_STALE_AT_PROMOTION',updated_at=clock_timestamp()
@@ -61,6 +67,7 @@ def main() -> None:
             """, (TRUSTED_DISCOVERY_VERSION,TRUSTED_DISCOVERY_VERSION))
             row = cursor.fetchone()
             if row is None:
+                print(f"legacy_regime_promotions_revoked={legacy_promotions_revoked}")
                 print(f"stale_canonical_promotions_revoked={stale_revoked}")
                 print("canonical_candidates_promoted=0")
                 print("VERDICT=REGIME_OOS_CANONICAL_PROMOTION_NO_PASS")
@@ -165,6 +172,7 @@ def main() -> None:
     print(f"candidate_uuid={candidate_uuid}")
     print(f"observation_uuid={observation_uuid}")
     print(f"repeat_runs={row['repeat_runs']}")
+    print(f"legacy_regime_promotions_revoked={legacy_promotions_revoked}")
     print(f"stale_canonical_promotions_revoked={stale_revoked}")
     print("canonical_candidates_promoted=1")
     print("paper_allowed=0")

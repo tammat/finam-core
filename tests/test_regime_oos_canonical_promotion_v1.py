@@ -17,3 +17,5 @@ def test_promotion_requires_cost_adjusted_repeatable_oos_pass() -> None:
     assert "TRUSTED_DISCOVERY_VERSION" in source
     assert "REGIME_AWARE_EDGE_DISCOVERY_V3_TRUSTED_BARS" in source
     assert source.count("synthetic_futures_backfill_v1") >= 4
+    assert "legacy_regime_promotions_revoked" in source
+    assert "source_version<>%s" in source
