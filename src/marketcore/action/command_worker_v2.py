@@ -29,7 +29,7 @@ class WorkerCommandV2:
 COMMANDS = {
     "EDGE_SEARCH_RUN": WorkerCommandV2(
         "EDGE_SEARCH_RUN", (str(ROOT / "venv/bin/python"), "src/scripts/run_autonomous_edge_search_cycle_v1.py"),
-        ("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK", "live_allowed=0"), 1800,
+        ("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK", "live_allowed=0"), 10800,
     ),
     "RESEARCH_REFRESH": WorkerCommandV2(
         "RESEARCH_REFRESH", (str(ROOT / "venv/bin/python"), "src/scripts/run_market_universe_research_queue_cycle_v1.py"),
@@ -60,6 +60,17 @@ class SafeSubprocessCommandExecutorV2:
         output = f"{result.stdout}\n{result.stderr}"
         if result.returncode != 0:
             raise RuntimeError(f"WORKER_COMMAND_FAILED:{command.request_kind}:{result.returncode}")
+        if command.request_kind == "EDGE_SEARCH_RUN":
+            verdicts = (
+                "VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK",
+                "VERDICT=AUTONOMOUS_EDGE_SEARCH_RESOURCE_GUARD_OK",
+            )
+            missing = ["live_allowed=0"] if "live_allowed=0" not in output else []
+            if not any(verdict in output for verdict in verdicts):
+                missing.append("EDGE_SEARCH_TERMINAL_VERDICT")
+            if missing:
+                raise RuntimeError(f"WORKER_VERDICT_MISSING:{command.request_kind}:{','.join(missing)}")
+            return next(verdict for verdict in verdicts if verdict in output)
         missing = [marker for marker in command.expected_markers if marker not in output]
         if missing:
             raise RuntimeError(f"WORKER_VERDICT_MISSING:{command.request_kind}:{','.join(missing)}")

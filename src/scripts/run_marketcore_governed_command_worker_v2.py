@@ -5,6 +5,13 @@ import argparse
 from marketcore.action.command_worker_v2 import COMMANDS, GovernedCommandWorkerV2
 
 
+def scheduled_request_kinds(request_kind: str | None) -> tuple[str | None, ...]:
+    """The installed research timer also owns governed edge-search requests."""
+    if request_kind == "RESEARCH_REFRESH":
+        return ("EDGE_SEARCH_RUN", "RESEARCH_REFRESH")
+    return (request_kind,)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process governed Research/Paper command requests")
     parser.add_argument("--request-id")
@@ -20,7 +27,11 @@ def main() -> int:
     processed = 0
     statuses: list[str] = []
     for _ in range(args.limit):
-        status = worker.run_once(request_id=args.request_id, request_kind=args.request_kind)
+        status = None
+        for request_kind in scheduled_request_kinds(args.request_kind):
+            status = worker.run_once(request_id=args.request_id, request_kind=request_kind)
+            if status is not None:
+                break
         if status is None:
             break
         processed += 1

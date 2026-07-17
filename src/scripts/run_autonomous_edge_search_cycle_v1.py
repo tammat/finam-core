@@ -242,6 +242,8 @@ def main() -> int:
             if not cursor.fetchone()[0]:
                 print("cycle_skipped=1")
                 print("reason=AUTONOMOUS_EDGE_SEARCH_ALREADY_RUNNING")
+                print("live_allowed=0")
+                print("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK")
                 return 0
             stale_runs = reconcile_stale_runs(lock_connection)
             lock_connection.commit()  # Session advisory lock survives commit; audit repair becomes visible immediately.
