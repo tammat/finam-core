@@ -15,6 +15,7 @@ class IntradaySnapshotV2:
     paper_fills_today: int
     paper_pnl_today: Decimal
     paper_refreshed_at: datetime | None
+    shadow_status: str
     shadow_orders_total: int
     shadow_fills_total: int
     shadow_positions_total: int

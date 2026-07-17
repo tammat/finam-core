@@ -117,7 +117,18 @@ def main() -> None:
             if table_exists(cur, "public.runtime_active_universe"):
                 active_symbols = int(scalar(cur, "SELECT count(*) FROM public.runtime_active_universe;"))
 
-            paper_status = "READY" if closed_total >= 0 else "UNKNOWN"
+            admitted = 0
+            if table_exists(cur, "analytics.profit_funnel_paper_runtime_admission_v2"):
+                admitted = int(scalar(cur, """
+                    SELECT count(*) FROM analytics.profit_funnel_paper_runtime_admission_v2
+                    WHERE runtime_allowed
+                """))
+            if admitted == 0:
+                paper_status = "WAITING_ADMISSION"
+            elif signals_today == 0:
+                paper_status = "WAITING_SIGNALS"
+            else:
+                paper_status = "OBSERVING"
 
             cur.execute(
                 """
