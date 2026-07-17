@@ -25,22 +25,63 @@ def shadow_status(source_status: str) -> str:
     return {"SIGNAL_PENDING_ENTRY": "PENDING_ENTRY", "OPEN": "OPEN", "CLOSED": "CLOSED"}.get(source_status, "OBSERVING")
 
 
-def main() -> int:
-    run_id = uuid.uuid4()
-    admitted = inserted = updated = 0
+def record_started(run_id: uuid.UUID) -> None:
     with psycopg2.connect(DB) as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-            cursor.execute("SELECT pg_try_advisory_xact_lock(%s) locked", (LOCK_ID,))
-            if not cursor.fetchone()["locked"]:
-                cursor.execute("""INSERT INTO analytics.forward_pass_shadow_run_v1
-                    (run_id,status_code,reason_code,finished_at,source_version)
-                    VALUES(%s,'SKIPPED','OBSERVER_ALREADY_RUNNING',clock_timestamp(),%s)""",
-                    (str(run_id), SOURCE_VERSION))
-                print("VERDICT=FORWARD_PASS_SHADOW_OBSERVER_ALREADY_RUNNING")
-                return 0
+        with connection.cursor() as cursor:
             cursor.execute("""INSERT INTO analytics.forward_pass_shadow_run_v1
                 (run_id,status_code,reason_code,source_version)
                 VALUES(%s,'RUNNING','OBSERVER_STARTED',%s)""", (str(run_id), SOURCE_VERSION))
+            cursor.execute("""INSERT INTO analytics.forward_pass_shadow_heartbeat_v1(
+                worker_code,status_code,last_started_at,current_run_id,source_version,updated_at)
+                VALUES('FORWARD_PASS_SHADOW_OBSERVER','RUNNING',clock_timestamp(),%s,%s,clock_timestamp())
+                ON CONFLICT(worker_code) DO UPDATE SET status_code='RUNNING',
+                  last_started_at=clock_timestamp(),current_run_id=EXCLUDED.current_run_id,
+                  last_error_code=NULL,last_error_detail=NULL,source_version=EXCLUDED.source_version,
+                  updated_at=clock_timestamp()""", (str(run_id), SOURCE_VERSION))
+
+
+def record_failed(run_id: uuid.UUID, error: BaseException) -> None:
+    error_code = type(error).__name__.upper()
+    detail = str(error).replace("\n", " ")[:500]
+    with psycopg2.connect(DB) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("""UPDATE analytics.forward_pass_shadow_run_v1 SET
+                status_code='FAILED',reason_code=%s,finished_at=clock_timestamp()
+                WHERE run_id=%s""", (f"OBSERVER_{error_code}", str(run_id)))
+            cursor.execute("""UPDATE analytics.forward_pass_shadow_heartbeat_v1 SET
+                status_code='FAILED',last_failure_at=clock_timestamp(),last_error_code=%s,
+                last_error_detail=%s,current_run_id=NULL,updated_at=clock_timestamp()
+                WHERE worker_code='FORWARD_PASS_SHADOW_OBSERVER'""", (error_code, detail))
+
+
+def record_success(run_id: uuid.UUID, active: int, inserted: int, updated: int, unsafe: int) -> None:
+    with psycopg2.connect(DB) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("""UPDATE analytics.forward_pass_shadow_heartbeat_v1 SET
+                status_code='HEALTHY',last_success_at=clock_timestamp(),current_run_id=NULL,
+                candidates_active=%s,observations_inserted=%s,observations_updated=%s,
+                unsafe_rows=%s,last_error_code=NULL,last_error_detail=NULL,updated_at=clock_timestamp()
+                WHERE worker_code='FORWARD_PASS_SHADOW_OBSERVER'""",
+                (active, inserted, updated, unsafe))
+
+
+def main() -> int:
+    run_id = uuid.uuid4()
+    record_started(run_id)
+    admitted = inserted = updated = 0
+    try:
+      with psycopg2.connect(DB) as connection:
+       with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute("SELECT pg_try_advisory_xact_lock(%s) locked", (LOCK_ID,))
+            if not cursor.fetchone()["locked"]:
+                cursor.execute("""UPDATE analytics.forward_pass_shadow_run_v1 SET
+                    status_code='SKIPPED',reason_code='OBSERVER_ALREADY_RUNNING',
+                    finished_at=clock_timestamp() WHERE run_id=%s""", (str(run_id),))
+                cursor.execute("""UPDATE analytics.forward_pass_shadow_heartbeat_v1 SET
+                    status_code='HEALTHY',current_run_id=NULL,updated_at=clock_timestamp()
+                    WHERE worker_code='FORWARD_PASS_SHADOW_OBSERVER'""")
+                print("VERDICT=FORWARD_PASS_SHADOW_OBSERVER_ALREADY_RUNNING")
+                return 0
             cursor.execute("""
                 SELECT g.*,i.hypothesis_id,i.symbol,i.timeframe,i.frozen_parameter_json
                 FROM analytics.forward_edge_regime_promotion_gate_v1 g
@@ -136,6 +177,13 @@ def main() -> int:
                 finished_at=clock_timestamp() WHERE run_id=%s""",
                 ("FORWARD_PASS_CANDIDATES_OBSERVED" if active else "NO_FORWARD_PASS_CANDIDATES",
                  admitted,active,inserted,updated,unsafe,str(run_id)))
+      record_success(run_id, active, inserted, updated, unsafe)
+    except BaseException as error:
+      record_failed(run_id, error)
+      print(f"run_id={run_id}")
+      print(f"error_code={type(error).__name__.upper()}")
+      print("VERDICT=FORWARD_PASS_SHADOW_OBSERVER_V2_FAILED")
+      return 1
     print(f"run_id={run_id}")
     print(f"candidates_admitted={admitted}")
     print(f"candidates_active={active}")
