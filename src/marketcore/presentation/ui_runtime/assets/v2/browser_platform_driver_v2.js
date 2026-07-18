@@ -75,6 +75,8 @@
                 button.addEventListener("click", async () => {
                     if (!globalObject.confirm(`Подтвердить: ${option.label}?`)) return;
                     button.disabled = true;
+                    dialog.close();
+                    dialog.remove();
                     this.announce("Заявка ставится в очередь…", "RUNNING");
                     try {
                         await this.actionSink({
@@ -83,7 +85,6 @@
                             policyClass: option.policy_class, requiresApproval: false, reversible: true,
                             rollbackCode: option.rollback_code, idempotencyKey: "client.request"
                         });
-                        dialog.close(); dialog.remove();
                         this.announce("Заявка принята системой", "SUCCESS");
                     } catch (error) {
                         button.disabled = false;
