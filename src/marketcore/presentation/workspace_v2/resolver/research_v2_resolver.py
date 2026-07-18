@@ -95,12 +95,25 @@ class ResearchV2Resolver:
                 cursor.execute("""WITH latest AS (
                     SELECT run_id FROM analytics.edge_research_universe_snapshot_v1
                     WHERE stage_code='WALKFORWARD' ORDER BY created_at DESC LIMIT 1)
-                    SELECT symbol,category_code,bars,category_rank,selected,reason_code
-                    FROM analytics.edge_research_universe_snapshot_v1
+                    SELECT u.symbol,u.category_code,u.bars,u.category_rank,u.selected,u.reason_code,
+                           a.process_id,coalesce(a.status_code,'NOT_REQUESTED') action_status,
+                           coalesce(a.progress_pct,0) action_progress,
+                           coalesce(a.current_step_code,'AVAILABLE') action_step
+                    FROM analytics.edge_research_universe_snapshot_v1 u
+                    LEFT JOIN LATERAL (
+                      SELECT q.process_id,p.status_code,p.progress_pct,p.current_step_code
+                      FROM marketcore_action.command_request_v2 q
+                      LEFT JOIN marketcore_action.research_process_v1 p ON p.process_id=q.process_id
+                      WHERE q.request_kind LIKE 'RESEARCH_UNIVERSE_%%'
+                        AND split_part(coalesce(q.target_id,''),'|',1)=u.symbol
+                      ORDER BY q.requested_at DESC LIMIT 1
+                    ) a ON true
                     WHERE stage_code='WALKFORWARD' AND run_id=(SELECT run_id FROM latest)
                     ORDER BY selected DESC,category_code,category_rank,symbol""")
                 universe_items=tuple(ResearchUniverseItemV1(str(row["symbol"]),str(row["category_code"]),
-                    int(row["bars"]),int(row["category_rank"]),bool(row["selected"]),str(row["reason_code"]))
+                    int(row["bars"]),int(row["category_rank"]),bool(row["selected"]),str(row["reason_code"]),
+                    str(row["process_id"]) if row["process_id"] else None,str(row["action_status"]),
+                    float(row["action_progress"]),str(row["action_step"]))
                     for row in cursor.fetchall())
                 cursor.execute("""
                     WITH latest AS (

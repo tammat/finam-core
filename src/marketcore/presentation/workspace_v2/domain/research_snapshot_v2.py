@@ -31,6 +31,10 @@ class ResearchUniverseItemV1:
     category_rank: int
     selected: bool
     reason_code: str
+    process_id: str | None
+    status: str
+    progress_pct: float
+    current_step: str
 
 @dataclass(frozen=True, slots=True)
 class FuturesRollItemV1:

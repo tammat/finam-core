@@ -86,7 +86,7 @@ def _methodology_failure_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.failures.body",children=tuple(rows))))
 
 def _universe_table(items):
-    columns=("selected","symbol","category","bars","rank","reason")
+    columns=("selected","symbol","category","bars","rank","reason","status")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.universe.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.universe.header.{code}",key=f"research.universe.column.{code}") for code in columns))
     rows=[]
@@ -100,6 +100,7 @@ def _universe_table(items):
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.bars",value=item.bars,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.rank",value=item.category_rank,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.reason",key=f"research.universe.reason.{item.reason_code.lower()}"),
+                _process_status(f"research.universe.{index}.status",item),
             ),action=RenderActionV2(
                 "research.universe.include_next",ActionKindV2.COMMAND,target_id=item.symbol,
                 command_code="RESEARCH.UNIVERSE_INCLUDE_NEXT",policy_class="RESEARCH_MAINTENANCE",
