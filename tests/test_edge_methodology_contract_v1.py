@@ -3,7 +3,7 @@ from pathlib import Path
 
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade
 from scripts.build_walkforward_edge_search_v3 import methodology_evidence
-from scripts.evaluate_edge_methodology_contract_v1 import are_neighbors,bh_q_values,correlation,parameter_core
+from scripts.evaluate_edge_methodology_contract_v1 import are_neighbors,bh_q_values,correlation,parameter_core,portfolio_daily_pnl
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +40,18 @@ def test_portfolio_correlation_requires_overlap() -> None:
     value,overlap=correlation({"a":1,"b":2,"c":3},{"a":3,"b":2,"c":1})
     assert overlap == 3 and value == -1
     assert correlation({"a":1},{"a":2}) == (None,1)
+
+
+def test_portfolio_daily_pnl_query_executes_on_postgres() -> None:
+    import psycopg2
+    import psycopg2.extras
+
+    with psycopg2.connect("postgresql:///finam_core") as connection:
+        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            daily_pnl, portfolio_exists = portfolio_daily_pnl(cursor)
+
+    assert isinstance(daily_pnl, dict)
+    assert isinstance(portfolio_exists, bool)
 
 
 def test_active_portfolio_with_short_history_is_not_treated_as_empty() -> None:

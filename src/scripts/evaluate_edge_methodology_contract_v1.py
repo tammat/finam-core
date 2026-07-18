@@ -62,12 +62,13 @@ def portfolio_daily_pnl(cursor) -> tuple[dict[str,float],bool]:
     active = bool(cursor.fetchone()["active"])
     cursor.execute("""
       WITH latest AS (
-        SELECT date(mtm_ts) day,candidate_id,net_pnl,
+        SELECT date(mtm_ts) AS mtm_day,candidate_id,net_pnl,
                row_number() OVER(PARTITION BY date(mtm_ts),candidate_id ORDER BY mtm_ts DESC,id DESC) rn
         FROM analytics.paper_portfolio_mtm_v1 WHERE paper_status='ACTIVE'
       ), totals AS (
-        SELECT day,sum(net_pnl)::float8 value FROM latest WHERE rn=1 GROUP BY day ORDER BY day
-      ) SELECT day,value FROM totals ORDER BY day
+        SELECT mtm_day,sum(net_pnl)::float8 AS value
+        FROM latest WHERE rn=1 GROUP BY mtm_day
+      ) SELECT mtm_day,value FROM totals ORDER BY mtm_day
     """)
     rows = cursor.fetchall()
     result = {}
@@ -75,7 +76,7 @@ def portfolio_daily_pnl(cursor) -> tuple[dict[str,float],bool]:
     for row in rows:
         value = float(row["value"])
         if previous is not None:
-            result[row["day"].isoformat()] = value-previous
+            result[row["mtm_day"].isoformat()] = value-previous
         previous = value
     return result,active
 
