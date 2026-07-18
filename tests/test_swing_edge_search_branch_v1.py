@@ -21,6 +21,19 @@ def test_swing_branch_is_db_driven_and_fail_aware() -> None:
     assert '"REAL_TRADING_ENABLED": "0"' in runner
 
 
+def test_swing_failures_create_future_only_db_plan() -> None:
+    validator = (ROOT / "src/scripts/run_swing_selection_validation_engine_v1.py").read_text()
+    generator = (ROOT / "src/scripts/generate_next_swing_research_plan_v1.py").read_text()
+    migration = (ROOT / "sql/analytics/107_swing_fail_driven_next_plan_v1.sql").read_text()
+    assert "VALIDATION_FOLDS_UNSTABLE" in validator
+    assert "MULTIPLE_TESTING_SIGNIFICANCE_FAILED" in validator
+    assert "swing_next_research_plan_v1" in generator
+    assert "FUTURE_DATA_ONLY" in generator
+    assert "pass_gates=UNCHANGED" in generator
+    assert "SWING_NEXT_RESEARCH_PLAN_V1" in (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert "CHECK(pass_gates_unchanged)" in migration
+
+
 def test_swing_branch_schema_is_installed_in_postgres() -> None:
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:

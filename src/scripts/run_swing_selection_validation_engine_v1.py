@@ -32,6 +32,16 @@ def adjusted_p(rows, trials):
     return min(1.0, max(0.0, 1.0 - NormalDist().cdf(z)) * trials)
 
 
+def failure_reason(st, spf, sexp, vt, vpf, vexp, folds, p):
+    if st < 20: return "INSUFFICIENT_SELECTION_TRADES"
+    if spf < 1.05 or sexp <= 0: return "SELECTION_EDGE_FAILED"
+    if vt < 15: return "INSUFFICIENT_VALIDATION_TRADES"
+    if vpf < 1.05 or vexp <= 0: return "VALIDATION_EDGE_FAILED"
+    if folds < 2: return "VALIDATION_FOLDS_UNSTABLE"
+    if p > 0.05: return "MULTIPLE_TESTING_SIGNIFICANCE_FAILED"
+    return "PASS"
+
+
 def trade_rows(family, params, timestamps, prices, source_prices=None):
     rows = []
     lookback = int(params.get("lookback", params.get("impulse_bars", 10)))
@@ -102,7 +112,7 @@ def main():
                 p=adjusted_p(validation,len(candidates))
                 ok=st>=20 and spf>=1.05 and sexp>0 and vt>=15 and vpf>=1.05 and vexp>0 and folds==2 and p<=0.05
                 status="VALIDATION_PASS" if ok else "VALIDATION_FAIL"
-                reason="PASS" if ok else "SWING_SELECTION_VALIDATION_GATE_FAILED"
+                reason=failure_reason(st,spf,sexp,vt,vpf,vexp,folds,p)
                 passed+=int(ok); failed+=int(not ok)
                 cur.execute("""INSERT INTO analytics.swing_selection_validation_result_v1
                     (validation_run_id,factory_run_id,hypothesis_id,strategy_family,symbol,timeframe,
