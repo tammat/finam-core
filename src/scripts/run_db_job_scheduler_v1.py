@@ -17,6 +17,7 @@ PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
     "SWING_EDGE_SEARCH_CYCLE_V1": "src/scripts/run_swing_edge_search_cycle_v1.py",
+    "SWING_BARS_REFRESH_V1": "src/scripts/build_canonical_swing_timeframes_v1.py",
     "SWING_NEXT_RESEARCH_PLAN_V1": "src/scripts/generate_next_swing_research_plan_v1.py",
     "SWING_FUTURE_EXECUTION_V1": "src/scripts/run_swing_future_execution_v1.py",
     "SWING_PROCESS_MONITOR_V1": "src/scripts/monitor_swing_process_v1.py",

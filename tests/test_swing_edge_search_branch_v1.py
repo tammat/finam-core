@@ -85,3 +85,14 @@ def test_swing_panel_has_auditable_double_click_details() -> None:
     assert "ondblclick" in page
     assert "Статистика" in page and "Устойчивость" in page
     assert "Исполнение" in page and "Портфель" in page
+
+
+def test_swing_bars_are_refreshed_incrementally_by_db_scheduler() -> None:
+    aggregator = (ROOT / "src/scripts/build_canonical_swing_timeframes_v1.py").read_text()
+    migration = (ROOT / "sql/analytics/110_swing_market_bar_refresh_schedule_v1.sql").read_text()
+    scheduler = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
+    page = (ROOT / "src/marketcore/presentation/workspace_v2/edge_oos_control_center_v1.py").read_text()
+    assert "DELETE FROM analytics.swing_market_bars_v1" not in aggregator
+    assert "ON CONFLICT(symbol,timeframe,ts) DO UPDATE" in aggregator
+    assert "SWING_BARS_REFRESH_V1" in migration and "SWING_BARS_REFRESH_V1" in scheduler
+    assert "future_bars" in page and "Будущие данные" in page
