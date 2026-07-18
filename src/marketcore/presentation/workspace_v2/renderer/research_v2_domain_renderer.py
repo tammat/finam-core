@@ -134,6 +134,33 @@ def _futures_roll_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.futures.head",children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.futures.body",children=tuple(rows))))
 
+def _futures_card_metric(index,code,*,value=None,key=None,args=None,fmt=None):
+    return RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,f"research.futures.{index}.{code}",children=(
+        _leaf(RenderNodeTypeV2.METRIC_LABEL,f"research.futures.{index}.{code}.label",key=f"research.futures.card.{code}"),
+        _leaf(RenderNodeTypeV2.METRIC_VALUE,f"research.futures.{index}.{code}.value",value=value,key=key,args=args,fmt=fmt),
+    ))
+
+def _futures_roll_cards(items):
+    cards=[]
+    for index,item in enumerate(items,start=1):
+        status_key=f"research.futures.status.{item.status_code.lower()}"
+        cards.append(RenderNodeV2(RenderNodeTypeV2.CARD,f"research.futures.card.{item.root_symbol.lower()}",
+            state=RenderNodeStateV2(status_code="OK" if item.status_code=="READY" else "WARNING"),children=(
+                _leaf(RenderNodeTypeV2.TITLE,f"research.futures.{index}.title",value=item.root_symbol),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,f"research.futures.{index}.status",key=status_key,
+                    args={"progress_pct":item.progress_pct}),
+                _futures_card_metric(index,"working",value=item.selected_symbol),
+                _futures_card_metric(index,"next",value=item.next_symbol),
+                _futures_card_metric(index,"expiry",value=item.days_to_expiry,fmt="INTEGER"),
+                _futures_card_metric(index,"liquidity",key="research.futures.liquidity",
+                    args={"current":round(item.current_volume,1),"next":round(item.next_volume,1),"progress_pct":item.progress_pct}),
+                _futures_card_metric(index,"decision",key=f"research.futures.decision.{item.decision_code.lower()}"),
+                _futures_card_metric(index,"leverage",key="research.futures.leverage_value",
+                    args={"value":item.max_leverage,"margin_source":item.margin_source}),
+                _futures_card_metric(index,"limit",key="research.futures.percent",args={"value":item.max_position_pct}),
+            )))
+    return RenderNodeV2(RenderNodeTypeV2.GRID,"research.futures.cards",children=tuple(cards))
+
 def _run_audit_table(items):
     columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.audit.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.audit.header.{code}",key=f"research.audit.column.{code}") for code in columns))
@@ -161,25 +188,13 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
     source_as_of=min(times) if times else s.generated_at
     tiles=(
         _tile("instruments",s.active_symbols,"OK" if s.active_symbols else "WARNING"),
-        _tile("errors",s.failed_symbols,"BLOCKED" if s.failed_symbols else "OK"),
         _tile("candidates",s.candidates,"OK" if s.candidates else "WARNING"),
         _tile("oos_pass",s.oos_pass_total,"OK" if s.oos_pass_total else "WARNING"),
         _tile("paper_ready",s.paper_ready,"OK" if s.paper_ready else "WARNING"),
         _tile("queue",s.queue_pending,"WARNING" if s.queue_pending else "OK"),
-        _tile("markets",s.edge_search_markets,"OK" if s.edge_search_markets else "WARNING"),
-        _tile("variants",s.edge_search_combinations,"OK" if s.edge_search_combinations else "WARNING"),
-        _tile("pass",s.edge_search_pass,"OK" if s.edge_search_pass else "WARNING"),
         _tile("progress",s.edge_search_progress_pct,"OK" if s.edge_search_progress_pct >= 100 else "WARNING"),
-        _tile("next_plan",s.next_plan_items,"OK" if s.next_plan_items else "WARNING"),
-        _tile("next_variants",s.next_plan_variants,"OK" if s.next_plan_variants else "WARNING"),
-        _tile("auto_queue",s.edge_auto_queue,"WARNING" if s.edge_auto_queue else "OK"),
-        _status_tile("auto_status",s.edge_auto_status),
-        _tile("methodology",s.methodology_evaluated,"OK" if s.methodology_evaluated else "WARNING"),
-        _tile("method_pass",s.methodology_pass,"OK" if s.methodology_pass else "WARNING"),
-        _tile("execution_quotes",s.execution_quote_symbols,"OK" if s.execution_quote_status == "READY" else "BLOCKED"),
-        _tile("execution_specs",s.execution_spec_count,"OK" if s.execution_spec_status == "READY" else "WARNING"),
     )
     refresh=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.refresh",content=RenderContentV2(message_key="research.action.request_refresh"),action=RenderActionV2("research.request.refresh",ActionKindV2.COMMAND,command_code="RESEARCH.REQUEST_REFRESH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
     edge_search=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.edge_search",content=RenderContentV2(message_key="research.action.run_edge_search"),action=RenderActionV2("research.edge_search.run",ActionKindV2.COMMAND,command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
-    d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=(_leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),_leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_table(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results))),)))
+    d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=(_leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),_leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results))),)))
     validate_render_document_v2(d); return d
