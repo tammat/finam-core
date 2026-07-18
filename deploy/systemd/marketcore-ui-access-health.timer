@@ -1,0 +1,12 @@
+[Unit]
+Description=Check MarketCore UI access every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Persistent=true
+AccuracySec=15s
+Unit=marketcore-ui-access-health.service
+
+[Install]
+WantedBy=timers.target

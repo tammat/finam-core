@@ -1,0 +1,6 @@
+[Unit]
+Description=Recover MarketCore UI after an internal health failure
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart marketcore-ui-shell.service
