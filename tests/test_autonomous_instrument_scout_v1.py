@@ -29,6 +29,15 @@ def test_scout_run_is_complete_and_selects_ready_energy_contracts():
             energy=dict(cursor.fetchall())
             assert "BRQ6@RTSX" in energy["OIL"]
             assert "NGN6@RTSX" in energy["GAS"]
+            assert "BRU6@RTSX" not in energy["OIL"]
+            assert "NGQ6@RTSX" not in energy["GAS"]
+            cursor.execute("""SELECT symbol,decision_code,reason_codes->>0
+                FROM analytics.instrument_scout_result_v1 WHERE run_id=%s
+                  AND symbol IN ('BRU6@RTSX','NGQ6@RTSX') ORDER BY symbol""",(run_id,))
+            assert cursor.fetchall() == [
+                ("BRU6@RTSX","RESERVE","NEXT_FUTURES_CONTRACT"),
+                ("NGQ6@RTSX","RESERVE","NEXT_FUTURES_CONTRACT"),
+            ]
 
 
 def test_scout_is_db_audited_and_bounded():

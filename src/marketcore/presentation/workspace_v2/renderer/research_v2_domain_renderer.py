@@ -115,9 +115,10 @@ def _scout_table(items):
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.scout.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.scout.header.{code}",key=f"research.scout.column.{code}") for code in columns))
     reasons={"CATEGORY_QUOTA_SELECTED":"Квота категории","CATEGORY_QUOTA_EXCEEDED":"Резерв категории",
-             "INSUFFICIENT_OR_STALE_BARS":"Нужна история","SPECIFICATION_NOT_READY":"Нет спецификации"}
+             "NEXT_FUTURES_CONTRACT":"Следующий контракт","INSUFFICIENT_OR_STALE_BARS":"Нужна история",
+             "SPECIFICATION_NOT_READY":"Нет спецификации"}
     actions={"RESEARCH_NEXT":"Исследовать","KEEP_RESERVE":"Оставить в резерве",
-             "COLLECT_DATA":"Собирать данные","VERIFY_SPEC":"Проверить контракт"}
+             "WAIT_ROLL":"Ждать роллирования","COLLECT_DATA":"Собирать данные","VERIFY_SPEC":"Проверить контракт"}
     rows=[]
     for index,item in enumerate(items,start=1):
         status="OK" if item.decision_code=="SELECTED" else "WARNING" if item.decision_code in ("BACKFILL","RESERVE") else "BLOCKED"

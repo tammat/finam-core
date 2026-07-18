@@ -43,7 +43,8 @@ def main():
     SELECT i.symbol,coalesce(i.asset_class,i.instrument_type,'') asset_class,coalesce(i.market,split_part(i.symbol,'@',2)) market_code,
       coalesce(b.bars,0) bars,b.latest_ts,coalesce(m.total_score,0) market_score,(s.symbol is not null) spec_ready,
       exists(select 1 from public.market_data_watch_universe w where w.symbol=i.symbol and w.is_enabled) watched,
-      (i.symbol NOT LIKE '%%@RTSX' OR EXISTS(SELECT 1 FROM rolls r WHERE i.symbol IN(r.current_symbol,r.next_symbol,r.selected_symbol))) roll_eligible
+      (i.symbol NOT LIKE '%%@RTSX' OR EXISTS(SELECT 1 FROM rolls r WHERE i.symbol IN(r.current_symbol,r.next_symbol,r.selected_symbol))) roll_eligible,
+      (i.symbol NOT LIKE '%%@RTSX' OR EXISTS(SELECT 1 FROM rolls r WHERE i.symbol=r.selected_symbol)) research_eligible
     FROM deduplicated_catalog i LEFT JOIN bars b USING(symbol) LEFT JOIN market m USING(symbol) LEFT JOIN specs s USING(symbol)
     WHERE (i.symbol LIKE '%%@MISX' AND (i.instrument_type='stock' OR i.asset_class IN('common_share','preferred_share','stock_index','currency','stock_index_pf')))
        OR (i.symbol LIKE '%%@RTSX' AND (i.instrument_type='future' OR i.asset_class='futures'
@@ -60,12 +61,13 @@ def main():
    for x in sorted(rows,key=lambda z:(-z["score"],z["symbol"])): grouped[x["category_code"]].append(x)
    selected=set(); quotas=policy["category_quotas"]
    for code in policy["category_order"]:
-    eligible=[x for x in grouped[code] if x["data_ready"] and x["spec_ready"] and x["liquidity_ready"]]
+    eligible=[x for x in grouped[code] if x["data_ready"] and x["spec_ready"] and x["liquidity_ready"] and x["research_eligible"]]
     selected.update(x["symbol"] for x in eligible[:int(quotas.get(code,0))])
    ranks=defaultdict(int); backfill=[]; counts=defaultdict(int)
    for x in sorted(rows,key=lambda z:(z["category_code"],-z["score"],z["symbol"])):
     ranks[x["category_code"]]+=1
     if x["symbol"] in selected: decision,reason,action="SELECTED",["CATEGORY_QUOTA_SELECTED"],"RESEARCH_NEXT"
+    elif x["data_ready"] and x["spec_ready"] and not x["research_eligible"]: decision,reason,action="RESERVE",["NEXT_FUTURES_CONTRACT"],"WAIT_ROLL"
     elif x["data_ready"] and x["spec_ready"]: decision,reason,action="RESERVE",["CATEGORY_QUOTA_EXCEEDED"],"KEEP_RESERVE"
     elif x["spec_ready"] and x["roll_eligible"] and not x["data_ready"]: decision,reason,action="BACKFILL",["INSUFFICIENT_OR_STALE_BARS"],"COLLECT_DATA"; backfill.append(x)
     else: decision,reason,action="EXCLUDED",["SPECIFICATION_NOT_READY"],"VERIFY_SPEC"
