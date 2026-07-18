@@ -16,6 +16,7 @@ ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
+    "CONTRACT_SPEC_SYNC_V1": "src/scripts/sync_market_contract_specs_v1.py",
     "SWING_EDGE_SEARCH_CYCLE_V1": "src/scripts/run_swing_edge_search_cycle_v1.py",
     "SWING_BARS_REFRESH_V1": "src/scripts/build_canonical_swing_timeframes_v1.py",
     "SWING_NEXT_RESEARCH_PLAN_V1": "src/scripts/generate_next_swing_research_plan_v1.py",
@@ -23,6 +24,7 @@ EXECUTORS = {
     "SWING_PROCESS_MONITOR_V1": "src/scripts/monitor_swing_process_v1.py",
     "SWING_AUTONOMOUS_LIFECYCLE_V1": "src/scripts/run_swing_autonomous_lifecycle_v1.py",
     "SWING_SHADOW_OBSERVER_V1": "src/scripts/run_swing_forward_shadow_router_v1.py",
+    "SWING_PAPER_ENGINE_V1": "src/scripts/run_swing_paper_engine_v1.py",
     "EDGE_SEARCH_AUTO_ENQUEUE_V1": "src/scripts/enqueue_scheduled_edge_search_v1.py",
     "EDGE_SEARCH_QUEUE_MONITOR_V1": "src/scripts/monitor_edge_search_command_queue_v1.py",
     "EDGE_SEARCH_COMMAND_QUEUE_V1": "src/scripts/run_edge_search_command_queue_v1.py",

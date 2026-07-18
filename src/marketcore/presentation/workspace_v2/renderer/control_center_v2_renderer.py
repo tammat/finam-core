@@ -485,6 +485,57 @@ def render_control_center_v2(
         ),
     )
 
+    swing = vm.swing_summary
+    swing_section = RenderNode(
+        RenderNodeType.SECTION,
+        props={"class": "mc-v2-section", "id": "swing-lifecycle", "data-section": "RESEARCH"},
+        children=(
+            _title("Swing · Paper", 2),
+            RenderNode(RenderNodeType.SUBTITLE, text="Автономный путь OOS → Forward → Shadow → Paper; LIVE отключён"),
+            RenderNode(
+                RenderNodeType.GRID,
+                props={"class": "mc-v2-grid", "style": compact_grid_style},
+                children=tuple(
+                    RenderNode(RenderNodeType.CARD, props={"class": "mc-v2-card", "style": compact_card_style, "data-card": "KPI", "data-status": status}, children=(
+                        _title(label, 3), RenderNode(RenderNodeType.TEXT, props={"class": "mc-v2-kpi-value", "style": compact_kpi_style}, text=str(value)),
+                    ))
+                    for label,value,status in (
+                        ("Кандидаты", int(swing.get("candidates") or 0), "OK"),
+                        ("Ждут данных", int(swing.get("waiting_data") or 0), "WARNING"),
+                        ("Paper READY", int(swing.get("paper_ready") or 0), "OK" if int(swing.get("paper_ready") or 0) else "WARNING"),
+                        ("Позиции", int(swing.get("open_positions") or 0), "WARNING"),
+                        ("Сделки", int(swing.get("trades") or 0), "OK"),
+                        ("PnL после налога", f'{float(swing.get("net_after_tax") or 0):.2f} ₽', "OK" if float(swing.get("net_after_tax") or 0)>=0 else "BLOCKED"),
+                    )
+                ),
+            ),
+            data_table_node(
+                (
+                    DataTableColumn("priority", "№"), DataTableColumn("symbol", "Инструмент"),
+                    DataTableColumn("strategy", "Алгоритм"), DataTableColumn("timeframe", "ТФ"),
+                    DataTableColumn("stage", "Этап"), DataTableColumn("data", "Данные"),
+                    DataTableColumn("status", "Статус"), DataTableColumn("position", "Позиция"),
+                    DataTableColumn("pnl", "Paper PnL"), DataTableColumn("risk", "Риск"),
+                ),
+                tuple({
+                    "priority": row.get("priority"), "symbol": row.get("symbol"),
+                    "strategy": str(row.get("strategy_family") or "—").replace("_", " "),
+                    "timeframe": row.get("timeframe"), "stage": row.get("stage_code"),
+                    "data": f'{int(row.get("future_bars") or 0)}/{int(row.get("minimum_future_bars") or 0)}',
+                    "status": i18n.text(
+                        "status.waiting" if row.get("status_code") in {"WAITING_FUTURE_DATA", "PENDING", "WAITING"}
+                        else "status.done" if row.get("status_code") in {"COMPLETE", "COMPLETED", "PASS", "EVALUATED_PASS"}
+                        else "status.active" if row.get("status_code") in {"ACTIVE", "READY"}
+                        else "status.review"
+                    ),
+                    "position": row.get("position_status"),
+                    "pnl": f'{float(row.get("paper_net_pnl") or 0):.2f} ₽', "risk": row.get("risk_decision"),
+                    "_status": "OK" if row.get("status_code") in {"READY","PASS","EVALUATED_PASS"} else "WARNING",
+                } for row in swing.get("items", ())),
+            ),
+        ),
+    )
+
     return RenderDocument(
         root=RenderNode(
             RenderNodeType.WORKSPACE,
@@ -498,6 +549,7 @@ def render_control_center_v2(
                         RenderNode(RenderNodeType.HEADER, props={"class": "mc-v2-header"}, text=vm.subtitle),
                         navigation,
                         traffic,
+                        swing_section,
                         shadow_section,
                         funnel,
                         recommendations,

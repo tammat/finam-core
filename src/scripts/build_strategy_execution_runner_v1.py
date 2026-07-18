@@ -87,7 +87,7 @@ def load_execution_context(cur, symbol: str) -> dict[str, Any]:
         policy["policy_code"] = row["policy_code"]
 
     cur.execute("""SELECT s.lot_size,coalesce(x.quantity_step,s.lot_size) quantity_step,
-          coalesce(x.underlying_units,1) underlying_units,s.tick_size,s.contract_multiplier,s.source_version
+          coalesce(x.underlying_units,1) underlying_units,s.tick_size,s.tick_value,s.contract_multiplier,s.source_version
         FROM analytics.market_contract_spec_v1 s
         LEFT JOIN analytics.market_contract_execution_spec_v2 x ON x.symbol=s.symbol
         WHERE s.is_active AND (s.symbol=%s OR
@@ -100,6 +100,7 @@ def load_execution_context(cur, symbol: str) -> dict[str, Any]:
         "quantity_step": float(spec["quantity_step"]) if spec else 1.0,
         "underlying_units": float(spec["underlying_units"]) if spec else 1.0,
         "tick_size": float(spec["tick_size"]) if spec else 0.0,
+        "tick_value": float(spec["tick_value"]) if spec else 0.0,
         "contract_multiplier": float(spec["contract_multiplier"]) if spec else 1.0,
         "contract_spec_source": spec["source_version"] if spec else "MISSING_SPEC_FALLBACK",
     })

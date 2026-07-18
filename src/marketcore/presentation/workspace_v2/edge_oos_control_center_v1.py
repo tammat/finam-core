@@ -615,20 +615,33 @@ def _swing_summary() -> dict:
                 r.holdout_pass,r.execution_pass,r.capacity_pass,r.portfolio_pass,r.verdict_code,
                 r.reason_codes,r.execution_policy,l.process_id,l.stage_code,l.status_code lifecycle_status,
                 l.progress_pct,l.gate_evidence,l.paper_allowed,rd.readiness_status,
-                rd.estimated_ready_at,rd.reason_code readiness_reason,rd.source_age_hours
+                rd.estimated_ready_at,rd.reason_code readiness_reason,rd.source_age_hours,
+                ps.status_code paper_strategy_status,pp.status_code paper_position_status,
+                pp.unrealized_pnl,paper.trades paper_trades,paper.net_pnl paper_net_pnl,
+                risk.decision_code paper_risk_decision,risk.reason_codes paper_risk_reasons
               FROM analytics.swing_next_research_plan_item_v1 i
               LEFT JOIN analytics.swing_final_oos_result_v1 r USING(plan_item_id)
               LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
               LEFT JOIN LATERAL (SELECT readiness_status,estimated_ready_at,reason_code,source_age_hours
                 FROM analytics.swing_future_data_readiness_v1 d WHERE d.plan_item_id=i.plan_item_id
                 ORDER BY observed_at DESC LIMIT 1) rd ON true
+              LEFT JOIN analytics.swing_paper_strategy_v1 ps ON ps.process_id=l.process_id
+              LEFT JOIN analytics.swing_paper_position_v1 pp ON pp.process_id=l.process_id
+              LEFT JOIN LATERAL (SELECT count(*) trades,coalesce(sum(net_pnl),0) net_pnl
+                FROM analytics.swing_paper_trade_v1 t WHERE t.process_id=l.process_id) paper ON true
+              LEFT JOIN LATERAL (SELECT decision_code,reason_codes FROM analytics.swing_paper_risk_decision_v1 x
+                WHERE x.process_id=l.process_id ORDER BY created_at DESC LIMIT 1) risk ON true
               WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
               ORDER BY i.priority,i.symbol LIMIT 50""")
             swing_items=[dict(row) for row in cur.fetchall()]
+            cur.execute("""SELECT count(*) strategies,count(*) FILTER(WHERE status_code='ACTIVE') active
+              FROM analytics.swing_paper_strategy_v1"""); paper_summary=dict(cur.fetchone() or {})
+            cur.execute("""SELECT count(*) trades,coalesce(sum(net_pnl),0) net_pnl,
+              coalesce(sum(net_after_tax),0) net_after_tax FROM analytics.swing_paper_trade_v1"""); paper_summary.update(dict(cur.fetchone() or {}))
             result.update({"bars": bars, "quality_rows": quality.get("rows", 0), "quality_ready": quality.get("ready", 0),
                            "plan_status":plan.get("status_code","NOT_RUN"),"plan_items":plan.get("item_count",0),
                            "heartbeat":plan.get("heartbeat_at"),"last_error":plan.get("last_error_code"),
-                           "items":swing_items,**progress})
+                           "items":swing_items,"paper":paper_summary,**progress})
     return result
 
 
@@ -939,6 +952,9 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <p><b>Последний бар:</b> {_format_datetime_ru(item.get('latest_bar_ts'))}</p>
           <p><b>Прогноз готовности:</b> {_format_datetime_ru(item.get('estimated_ready_at'))}</p>
           <p><b>Источник:</b> {html.escape(str(display_status))} · {html.escape(str(item.get('readiness_reason') or '—'))}</p>
+          <p><b>Paper:</b> {html.escape(str(item.get('paper_strategy_status') or 'Не допущен'))} · позиция {html.escape(str(item.get('paper_position_status') or '—'))}</p>
+          <p><b>Paper PnL:</b> {float(item.get('paper_net_pnl') or 0):,.2f} ₽ · сделок {int(item.get('paper_trades') or 0)} · открытый PnL {float(item.get('unrealized_pnl') or 0):,.2f} ₽</p>
+          <p><b>Риск:</b> {html.escape(str(item.get('paper_risk_decision') or '—'))} · {html.escape(', '.join(item.get('paper_risk_reasons') or []))}</p>
           <ul>{gates}</ul><p><b>Причина:</b> {html.escape(reasons)}</p>
           <p><b>Далее:</b> {html.escape(str(item.get('adaptation_code') or stage))}</p>
           <form method="dialog"><button>Закрыть</button></form></dialog>""")
@@ -1247,6 +1263,11 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>В работе</span><b>{swing_summary.get('active', 0)}</b></article>
           <article><span>PASS</span><b>{swing_summary.get('passed', 0)}</b></article>
           <article><span>FAIL</span><b>{swing_summary.get('failed', 0)}</b></article></div>
+          <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Paper</span><b>{swing_summary.get('paper', {}).get('strategies', 0)}</b></article>
+          <article><span>Активны</span><b>{swing_summary.get('paper', {}).get('active', 0)}</b></article>
+          <article><span>Сделки</span><b>{swing_summary.get('paper', {}).get('trades', 0)}</b></article>
+          <article><span>Чистый PnL</span><b>{float(swing_summary.get('paper', {}).get('net_pnl', 0) or 0):,.2f} ₽</b></article>
+          <article><span>После налога</span><b>{float(swing_summary.get('paper', {}).get('net_after_tax', 0) or 0):,.2f} ₽</b></article></div>
           <progress max="{max(1, int(swing_summary.get('plan_items', 0) or 0))}" value="{int(swing_summary.get('passed', 0) or 0)+int(swing_summary.get('failed', 0) or 0)}"></progress>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>№</th><th>Инструмент</th><th>Алгоритм</th><th>ТФ</th><th>Этап</th><th>Данные</th><th>Статус</th></tr></thead><tbody>{swing_item_table}</tbody></table></div>
           {swing_detail_dialogs}

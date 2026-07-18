@@ -340,6 +340,25 @@ def _loss_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ..
     )
 
 
+def _swing_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        {
+            "priority": row.get("priority"),
+            "symbol": row.get("symbol"),
+            "strategy": str(row.get("strategy_family") or "—").replace("_", " "),
+            "timeframe": row.get("timeframe"),
+            "stage": row.get("stage_code") or "OOS",
+            "future_bars": int(row.get("future_bars") or 0),
+            "required_bars": int(row.get("minimum_future_bars") or 0),
+            "state": str(row.get("status_code") or "—").replace("WAITING_FUTURE_DATA", "Ждёт данных"),
+            "position": row.get("position_status") or "—",
+            "paper_pnl": float(row.get("paper_net_pnl") or 0),
+            "risk": row.get("risk_decision") or "—",
+        }
+        for row in view_model.swing_summary.get("items", ())
+    )
+
+
 def render_control_center_domain_v2(
     view_model: ControlCenterV2ViewModel,
     *,
@@ -350,6 +369,7 @@ def render_control_center_domain_v2(
 ) -> RenderDocumentV2:
     now = _utc(generated_at) or datetime.now(timezone.utc)
     raw_sections: tuple[tuple[str, tuple[dict[str, Any], ...]], ...] = (
+        ("swing_lifecycle", _swing_rows(view_model)),
         ("edge_search_process", tuple(view_model.edge_search_process)),
         ("edge_search_results", tuple(view_model.edge_search_results)),
         ("forward_pass_process", tuple(view_model.forward_pass_process)),

@@ -31,6 +31,9 @@ class Spec:
     tick_value: Decimal
     contract_multiplier: Decimal
     price_precision: int
+    initial_margin: Decimal | None
+    buy_sell_fee: Decimal | None
+    scalper_fee: Decimal | None
     source_payload: dict[str, Any]
 
 
@@ -66,7 +69,10 @@ def fetch_spec(symbol: str) -> Spec:
             symbol, "RTSX", "FUTURES", "RUB", str(row.get("SECNAME") or row.get("SHORTNAME") or secid),
             _positive(row.get("LOTVOLUME"), "LOTVOLUME"), Decimal("1"),
             _positive(row.get("LOTVOLUME"), "LOTVOLUME"), tick_size, tick_value,
-            tick_value / tick_size, int(row.get("DECIMALS") or 0), row,
+            tick_value / tick_size, int(row.get("DECIMALS") or 0),
+            _positive(row.get("INITIALMARGIN"), "INITIALMARGIN"),
+            _positive(row.get("BUYSELLFEE"), "BUYSELLFEE"),
+            _positive(row.get("SCALPERFEE"), "SCALPERFEE"),row,
         )
 
     if symbol == "CNYRUB_TOM@MISX":
@@ -88,7 +94,7 @@ def fetch_spec(symbol: str) -> Spec:
         symbol, "MISX", asset_class, "RUB", str(row.get("SECNAME") or row.get("SHORTNAME") or secid),
         _positive(row.get("LOTSIZE"), "LOTSIZE"), _positive(row.get("LOTSIZE"), "LOTSIZE"),
         Decimal("1"), tick_size, tick_size, Decimal("1"),
-        int(row.get("DECIMALS") or 0), row,
+        int(row.get("DECIMALS") or 0),None,None,None,row,
     )
 
 
@@ -150,6 +156,28 @@ def main() -> int:
                        quantity_step=EXCLUDED.quantity_step,underlying_units=EXCLUDED.underlying_units,
                        source_version=EXCLUDED.source_version,updated_at=EXCLUDED.updated_at""",
                       (symbol,spec.quantity_step,spec.underlying_units,SOURCE_VERSION))
+                    if spec.asset_class == "FUTURES":
+                        cursor.execute("""INSERT INTO analytics.market_contract_cost_spec_v1
+                          (symbol,initial_margin,buy_sell_fee,scalper_fee,negotiated_fee,exercise_fee,source_version,source_payload,verified_at)
+                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s::jsonb,clock_timestamp()) ON CONFLICT(symbol) DO UPDATE SET
+                            initial_margin=EXCLUDED.initial_margin,buy_sell_fee=EXCLUDED.buy_sell_fee,
+                            scalper_fee=EXCLUDED.scalper_fee,negotiated_fee=EXCLUDED.negotiated_fee,
+                            exercise_fee=EXCLUDED.exercise_fee,source_version=EXCLUDED.source_version,
+                            source_payload=EXCLUDED.source_payload,verified_at=EXCLUDED.verified_at""",
+                          (symbol,spec.initial_margin,spec.buy_sell_fee,spec.scalper_fee,
+                           spec.source_payload.get("NEGOTIATEDFEE"),spec.source_payload.get("EXERCISEFEE"),
+                           SOURCE_VERSION,json.dumps(spec.source_payload,default=str)))
+                        cursor.execute("""UPDATE public.margin_requirements SET initial_margin=%s,
+                          maintenance_margin=%s,base_symbol=%s,asset_class='FUTURES',currency='RUB',
+                          source=%s,active=true,updated_at=clock_timestamp(),raw_json=%s::jsonb WHERE symbol=%s""",
+                          (spec.initial_margin,spec.initial_margin,symbol.split('@')[0],SOURCE_VERSION,
+                           json.dumps(spec.source_payload,default=str),symbol))
+                        if cursor.rowcount == 0:
+                            cursor.execute("""INSERT INTO public.margin_requirements
+                              (symbol,base_symbol,asset_class,initial_margin,maintenance_margin,currency,source,active,raw_json)
+                              VALUES(%s,%s,'FUTURES',%s,%s,'RUB',%s,true,%s::jsonb)""",
+                              (symbol,symbol.split('@')[0],spec.initial_margin,spec.initial_margin,SOURCE_VERSION,
+                               json.dumps(spec.source_payload,default=str)))
                     cursor.execute("""INSERT INTO analytics.contract_spec_sync_item_v1
                       (run_id,symbol,status_code,reason_code,source_version,source_payload)
                       VALUES(%s,%s,%s,'MOEX_ISS_VALIDATED',%s,%s::jsonb)""",

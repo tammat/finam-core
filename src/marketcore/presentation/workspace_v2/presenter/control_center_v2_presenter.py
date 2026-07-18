@@ -127,6 +127,7 @@ class ControlCenterV2Presenter:
             forward_readiness=tuple(data["forward_readiness"]),
             edge_search_process=tuple(data["edge_search_process"]),
             edge_search_results=tuple(data["edge_search_results"]),
+            swing_summary=data["swing_summary"],
         )
 
     @staticmethod

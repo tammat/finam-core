@@ -41,6 +41,7 @@ class ControlCenterV2Resolver:
                 forward_readiness = self._forward_readiness(cur)
                 edge_search_process = self._edge_search_process(cur)
                 edge_search_results = self._edge_search_results(cur)
+                swing_summary = self._swing_summary(cur)
 
         return {
             "quality": quality,
@@ -68,7 +69,51 @@ class ControlCenterV2Resolver:
             "forward_readiness": forward_readiness,
             "edge_search_process": edge_search_process,
             "edge_search_results": edge_search_results,
+            "swing_summary": swing_summary,
         }
+
+    @staticmethod
+    def _swing_summary(cur) -> dict[str, Any]:
+        cur.execute("""
+            SELECT count(*) AS candidates,
+                   count(*) FILTER (WHERE l.stage_code='PAPER' AND l.status_code='READY') AS paper_ready,
+                   count(*) FILTER (WHERE p.status_code='OPEN') AS open_positions,
+                   count(*) FILTER (WHERE i.status_code='WAITING_FUTURE_DATA') AS waiting_data
+            FROM analytics.swing_next_research_plan_item_v1 i
+            LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
+            LEFT JOIN analytics.swing_paper_position_v1 p ON p.process_id=l.process_id
+            WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
+        """)
+        summary = dict(cur.fetchone() or {})
+        cur.execute("""
+            SELECT count(*) AS trades,coalesce(sum(net_pnl),0) AS net_pnl,
+                   coalesce(sum(net_after_tax),0) AS net_after_tax
+            FROM analytics.swing_paper_trade_v1
+        """)
+        summary.update(dict(cur.fetchone() or {}))
+        cur.execute("""
+            SELECT i.priority,i.symbol,i.strategy_family,i.timeframe,i.minimum_future_bars,
+                   count(b.ts) AS future_bars,coalesce(l.stage_code,'OOS') AS stage_code,
+                   coalesce(l.status_code,i.status_code) AS status_code,
+                   coalesce(p.status_code,'—') AS position_status,
+                   coalesce(p.unrealized_pnl,0) AS unrealized_pnl,
+                   coalesce(t.trades,0) AS paper_trades,coalesce(t.net_pnl,0) AS paper_net_pnl,
+                   coalesce(r.decision_code,'—') AS risk_decision
+            FROM analytics.swing_next_research_plan_item_v1 i
+            LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
+            LEFT JOIN analytics.swing_paper_position_v1 p ON p.process_id=l.process_id
+            LEFT JOIN LATERAL (SELECT count(*) trades,coalesce(sum(net_pnl),0) net_pnl
+              FROM analytics.swing_paper_trade_v1 x WHERE x.process_id=l.process_id) t ON true
+            LEFT JOIN LATERAL (SELECT decision_code FROM analytics.swing_paper_risk_decision_v1 x
+              WHERE x.process_id=l.process_id ORDER BY created_at DESC LIMIT 1) r ON true
+            LEFT JOIN analytics.swing_market_bars_v1 b ON b.symbol=i.symbol AND b.timeframe=i.timeframe
+              AND b.ts>i.confirmation_after_ts
+            WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
+            GROUP BY i.plan_item_id,l.stage_code,l.status_code,p.status_code,p.unrealized_pnl,t.trades,t.net_pnl,r.decision_code
+            ORDER BY i.priority,i.symbol LIMIT 50
+        """)
+        summary["items"] = [dict(row) for row in cur.fetchall()]
+        return summary
 
     @staticmethod
     def _quality(cur) -> dict[str, Any]:

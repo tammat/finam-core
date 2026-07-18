@@ -88,3 +88,4 @@ class ControlCenterV2ViewModel:
     forward_readiness: tuple[dict[str, Any], ...]
     edge_search_process: tuple[dict[str, Any], ...]
     edge_search_results: tuple[dict[str, Any], ...]
+    swing_summary: dict[str, Any]

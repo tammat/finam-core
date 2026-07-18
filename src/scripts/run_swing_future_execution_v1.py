@@ -4,8 +4,8 @@ from collections import defaultdict
 from statistics import NormalDist
 import psycopg2,psycopg2.extras
 from scripts.run_swing_selection_validation_engine_v1 import COST_BPS,trade_rows,metrics
-from scripts.build_strategy_execution_runner_v1 import load_execution_context
 from scripts.evaluate_edge_methodology_contract_v1 import correlation,portfolio_daily_pnl
+from scripts.swing_execution_contract_v1 import cost_bps,load_swing_execution_contract
 
 DB=os.getenv("DATABASE_URL","postgresql:///finam_core")
 NS=uuid.UUID("42d42cb2-601e-5e17-a890-11b490c922b4")
@@ -21,28 +21,21 @@ def daily_pnl(rows):
 def execution_evidence(q,item,future):
   symbol=item["symbol"]
   root="BR" if symbol.startswith("BR") else ("NG" if symbol.startswith("NG") else None)
-  roll=None
-  if root:
-    q.execute("""SELECT selected_symbol,decision_code,days_to_expiry,current_median_volume,next_median_volume
-      FROM analytics.futures_roll_decision_v1 WHERE root_symbol=%s ORDER BY created_at DESC LIMIT 1""",(root,))
-    roll=q.fetchone()
-  execution_symbol=roll["selected_symbol"] if roll and roll["selected_symbol"] else symbol
-  context=load_execution_context(q,execution_symbol)
+  context=load_swing_execution_contract(q,symbol); roll=context.get("roll_decision")
+  execution_symbol=context["execution_symbol"]
   gaps=[]
   for previous,current in zip(future,future[1:]):
     close=float(previous["close"] or 0); opened=float(current.get("open") or current["close"] or 0)
     if close>0: gaps.append(abs(opened/close-1)*10000)
   gap_bps=statistics.median(gaps) if gaps else 0.0
-  commission=float(context.get("commission_bps",POLICY["commission_bps"]))
-  spread=float(context.get("fallback_spread_bps",0))
-  impact=float(context.get("impact_bps_at_max_participation",0))
-  total_bps=commission+spread+impact+gap_bps*POLICY["overnight_gap_stress"]
-  spec_ready=context.get("contract_spec_source") not in (None,"MISSING_SPEC_FALLBACK")
+  exact_cost=float(cost_bps(float(future[-1]["close"]),1,context))
+  total_bps=exact_cost+gap_bps*POLICY["overnight_gap_stress"]
+  spec_ready=bool(context.get("contract_ready"))
   margin_ready=(not root) or float(context.get("initial_margin_rub",0))>0
   roll_ready=(not root) or bool(roll and roll["selected_symbol"])
   carry_ready=(not root) or bool(roll and str(roll["decision_code"]).startswith("KEEP_"))
   carry_bps=0.0 if carry_ready else None
-  return {**context,"research_symbol":symbol,"execution_symbol":execution_symbol,"commission_bps":commission,"spread_bps":spread,"impact_bps":impact,
+  return {**context,"research_symbol":symbol,"execution_symbol":execution_symbol,"round_trip_cost_bps":exact_cost,
     "median_gap_bps":gap_bps,"total_stress_cost_bps":total_bps,"spec_ready":spec_ready,
     "margin_ready":margin_ready,"roll_ready":roll_ready,"carry_ready":carry_ready,"carry_bps":carry_bps,
     "carry_source":"NOT_APPLICABLE_KEEP_CONTRACT" if carry_ready else "MISSING_ROLL_BASIS",

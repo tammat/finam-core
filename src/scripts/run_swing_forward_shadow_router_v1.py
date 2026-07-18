@@ -8,6 +8,7 @@ from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
+from scripts.swing_execution_contract_v1 import gross_pnl_rub,load_swing_execution_contract,round_trip_cost_rub
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "SWING_FORWARD_SHADOW_ROUTER_V1"
@@ -122,7 +123,6 @@ def main() -> int:
     policy = load_policy()
     atr_lookback = int(policy["atr_lookback"])
     atr_multiplier = float(policy["atr_multiplier"])
-    commission_bps = float(policy["commission_bps"])
     created = entered = closed = trailing_closed = unavailable = 0
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -137,11 +137,12 @@ def main() -> int:
             latest = cur.fetchone()
             if not latest:
                 print("VERDICT=SWING_FORWARD_SHADOW_ROUTER_V1_NO_COHORT")
-                return 1
+                return 0
             cohort_id = latest["swing_shadow_cohort_id"]
             cur.execute("SELECT * FROM analytics.swing_shadow_cohort_v1 WHERE swing_shadow_cohort_id=%s ORDER BY timeframe,strategy_family", (cohort_id,))
             candidates = cur.fetchall()
             for candidate in candidates:
+                execution_contract=load_swing_execution_contract(cur,candidate["symbol"])
                 cur.execute("SELECT * FROM analytics.swing_shadow_observation_v1 WHERE swing_shadow_cohort_id=%s AND swing_shadow_candidate_id=%s AND observation_status IN ('PENDING_ENTRY','OPEN') ORDER BY signal_ts LIMIT 1", (cohort_id,candidate["swing_shadow_candidate_id"]))
                 observation = cur.fetchone()
                 cur.execute("SELECT ts,open,high,low,close FROM analytics.swing_market_bars_v1 WHERE symbol=%s AND timeframe=%s ORDER BY ts", (candidate["symbol"],candidate["timeframe"]))
@@ -174,18 +175,16 @@ def main() -> int:
                             if trail_exit_ts is None:
                                 stop = max(stop,float(bar["high"])-atr_multiplier*float(observation["atr_value"])) if observation["side"] == "LONG" else min(stop,float(bar["low"])+atr_multiplier*float(observation["atr_value"]))
                     if trail_exit_ts is not None and observation["trailing_exit_ts"] is None:
-                        direction = 1 if observation["side"] == "LONG" else -1
-                        gross = (float(trail_exit_price)-float(observation["entry_price"]))*direction
-                        commission = float(observation["entry_price"])*commission_bps/10000
+                        gross = float(gross_pnl_rub(observation["side"],observation["entry_price"],trail_exit_price,1,execution_contract))
+                        commission = float(round_trip_cost_rub(observation["entry_price"],1,execution_contract))
                         cur.execute("UPDATE analytics.swing_shadow_observation_v1 SET trailing_stop=%s,trailing_exit_ts=%s,trailing_exit_price=%s,trailing_gross_pnl=%s,trailing_commission=%s,trailing_net_pnl=%s,trailing_exit_reason='ATR_TRAILING_STOP',updated_at=now() WHERE observation_id=%s", (stop,trail_exit_ts,trail_exit_price,gross,commission,gross-commission,observation["observation_id"]))
                         trailing_closed += 1
                     hold = int(observation["holding_bars"])
                     if len(later) >= hold:
                         exit_bar = later[hold-1]
-                        direction = 1 if observation["side"] == "LONG" else -1
                         exit_price = float(exit_bar["close"])
-                        gross = (exit_price-float(observation["entry_price"]))*direction
-                        commission = float(observation["entry_price"])*commission_bps/10000
+                        gross = float(gross_pnl_rub(observation["side"],observation["entry_price"],exit_price,1,execution_contract))
+                        commission = float(round_trip_cost_rub(observation["entry_price"],1,execution_contract))
                         if trail_exit_ts is None:
                             trail_gross = gross
                             cur.execute("UPDATE analytics.swing_shadow_observation_v1 SET trailing_exit_ts=%s,trailing_exit_price=%s,trailing_gross_pnl=%s,trailing_commission=%s,trailing_net_pnl=%s,trailing_exit_reason='BASE_HORIZON' WHERE observation_id=%s", (exit_bar["ts"],exit_price,trail_gross,commission,trail_gross-commission,observation["observation_id"]))
@@ -207,7 +206,8 @@ def main() -> int:
                         benchmark = cur.fetchall()
                     side = side_for(candidate,target,benchmark)
                     if side:
-                        context = {"benchmark":benchmark_symbol,"parameters":params,"final_oos_opened":False}
+                        context = {"benchmark":benchmark_symbol,"parameters":params,"final_oos_opened":False,
+                                   "execution_contract":execution_contract}
                         cur.execute("""INSERT INTO analytics.swing_shadow_observation_v1
                             (observation_id,swing_shadow_cohort_id,swing_shadow_candidate_id,hypothesis_id,strategy_family,
                              symbol,timeframe,side,signal_ts,holding_bars,observation_status,shadow_only,
@@ -215,7 +215,7 @@ def main() -> int:
                             VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'PENDING_ENTRY',true,false,false,false,%s::jsonb,%s)
                             ON CONFLICT DO NOTHING""", (str(uuid.uuid4()),str(cohort_id),str(candidate["swing_shadow_candidate_id"]),
                             str(candidate["hypothesis_id"]),candidate["strategy_family"],candidate["symbol"],candidate["timeframe"],
-                            side,latest_bar["ts"],int(params.get("holding_bars",6)),json.dumps(context),SOURCE_VERSION))
+                            side,latest_bar["ts"],int(params.get("holding_bars",6)),json.dumps(context,default=str),SOURCE_VERSION))
                         created += cur.rowcount
                 latest_ts = bars[-1]["ts"] if bars else last
                 cur.execute("""INSERT INTO analytics.swing_shadow_worker_state_v1 VALUES(%s,%s,%s,'OK',NULL,%s,now())
