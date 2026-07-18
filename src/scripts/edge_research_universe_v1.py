@@ -66,6 +66,13 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
     cursor.execute("""SELECT symbol,inclusion_mode,priority_override
         FROM analytics.edge_research_universe_override_v1 WHERE active""")
     overrides={str(item["symbol"]):dict(item) for item in cursor.fetchall()}
+    cursor.execute("""WITH latest AS (SELECT run_id FROM analytics.instrument_scout_run_v1
+        WHERE status_code='COMPLETE' ORDER BY started_at DESC LIMIT 1)
+      SELECT r.run_id,r.symbol FROM analytics.instrument_scout_result_v1 r
+      WHERE r.run_id=(SELECT run_id FROM latest) AND r.decision_code='SELECTED'""")
+    scout_rows=cursor.fetchall()
+    scout_run_id=scout_rows[0]["run_id"] if scout_rows else None
+    scout_selected={str(item["symbol"]) for item in scout_rows}
     for rank,item in enumerate(candidates,1):
         item["category_code"]=category(item["symbol"])
         item["overall_rank"]=rank
@@ -73,9 +80,11 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
             item["contract_root"] not in roll_selection or
             roll_selection[item["contract_root"]]==item["symbol"])
         item["override"]=overrides.get(item["symbol"],{})
+        item["scout_selected"]=item["symbol"] in scout_selected
     eligible=[item for item in candidates if item["roll_eligible"] and item["override"].get("inclusion_mode") != "FORCE_EXCLUDE"]
-    eligible.sort(key=lambda item: (-(item["override"].get("priority_override") or 0),item["overall_rank"]))
-    forced=[item for item in eligible if item["override"].get("inclusion_mode") == "FORCE_INCLUDE"]
+    eligible.sort(key=lambda item: (not item["scout_selected"],-(item["override"].get("priority_override") or 0),item["overall_rank"]))
+    operator_forced=[item for item in eligible if item["override"].get("inclusion_mode") == "FORCE_INCLUDE"]
+    forced=operator_forced+[item for item in eligible if item["scout_selected"] and item not in operator_forced]
     forced_counts=defaultdict(int)
     for item in forced: forced_counts[item["category_code"]]+=1
     adjusted_policy=dict(policy)
@@ -95,6 +104,7 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
         chosen=item["symbol"] in selected_symbols
         reason=("OPERATOR_FORCE_EXCLUDED" if item["override"].get("inclusion_mode")=="FORCE_EXCLUDE" else
                 "OPERATOR_FORCE_INCLUDED" if chosen and item["override"].get("inclusion_mode")=="FORCE_INCLUDE" else
+                "AUTONOMOUS_SCOUT_SELECTED" if chosen and item["scout_selected"] else
                 "OPERATOR_PRIORITY_SELECTED" if chosen and item["override"].get("priority_override") else
                 "ROLLOVER_CONTRACT_NOT_SELECTED" if not item["roll_eligible"] else
                 "CATEGORY_QUOTA_SELECTED" if chosen and eligible_category_rank[code]<=quota else
@@ -106,4 +116,13 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
           (run_id,stage_code,POLICY_CODE,item["symbol"],item["timeframe"],code,item["bars"],
            item["latest_ts"],category_rank[code],item["overall_rank"],chosen,reason,
            item["contract_root"],item["expiration_date"]))
+    if scout_run_id:
+        cursor.execute("""WITH unlocked AS (
+            SELECT queue_id FROM analytics.instrument_scout_queue_v1
+            WHERE run_id=%s AND symbol=ANY(%s) AND status_code='PENDING'
+            FOR UPDATE SKIP LOCKED)
+          UPDATE analytics.instrument_scout_queue_v1 q SET status_code='APPLIED',updated_at=clock_timestamp(),
+            evidence=evidence||jsonb_build_object('applied_run_id',%s::text,'applied_stage',%s)
+          FROM unlocked u WHERE q.queue_id=u.queue_id""",
+          (scout_run_id,list(selected_symbols),run_id,stage_code))
     return selected

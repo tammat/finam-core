@@ -53,4 +53,4 @@ def test_research_v2_renders_scout_and_supports_row_actions():
     browser=(ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert 'research.scout.title' in renderer
     assert '_scout_table(s.scout_items)' in renderer
-    assert 'research\\.(?:universe|scout)' in browser
+    assert 'research\\.(?:universe\\.\\d+|scout\\.[a-z_]+\\.\\d+)' in browser

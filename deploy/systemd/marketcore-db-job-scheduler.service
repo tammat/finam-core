@@ -1,0 +1,16 @@
+[Unit]
+Description=MarketCore DB-driven job scheduler
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=RUNTIME_ALLOW_TRADING=0
+Environment=EXECUTION_ENABLED=0
+Environment=REAL_TRADING_ENABLED=0
+ExecStart=/usr/bin/nice -n 10 /opt/finam-core/venv/bin/python /opt/finam-core/src/scripts/run_db_job_scheduler_v1.py
+
+[Install]
+WantedBy=default.target

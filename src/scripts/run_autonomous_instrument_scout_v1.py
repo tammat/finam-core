@@ -28,6 +28,8 @@ def main():
    q.execute("SELECT pg_try_advisory_lock(941903131) locked")
    if not q.fetchone()["locked"]: print("VERDICT=INSTRUMENT_SCOUT_ALREADY_RUNNING"); return 0
    q.execute("SELECT policy FROM analytics.instrument_scout_policy_v1 WHERE active LIMIT 1"); policy=q.fetchone()["policy"]
+   q.execute("""UPDATE analytics.instrument_scout_queue_v1 SET status_code='SUPERSEDED',updated_at=clock_timestamp()
+     WHERE status_code='PENDING'""")
    q.execute("INSERT INTO analytics.instrument_scout_run_v1(run_id,status_code) VALUES(%s,'RUNNING')",(run,))
    q.execute("""WITH bars AS(SELECT symbol,count(*) FILTER(WHERE timeframe='M5') bars,max(ts) latest_ts
       FROM public.market_bars GROUP BY symbol), market AS(SELECT DISTINCT ON(symbol) symbol,total_score
@@ -84,7 +86,13 @@ def main():
     if x["watched"] or per_category[x["category_code"]]>=1: continue
     q.execute("""INSERT INTO public.market_data_watch_universe(symbol,asset_group,timeframe,is_enabled,reason)
       VALUES(%s,%s,'M1',true,%s) ON CONFLICT(symbol) DO NOTHING RETURNING symbol""",(x["symbol"],x["category_code"],SOURCE))
-    if q.fetchone(): additions+=1; per_category[x["category_code"]]+=1
+    if q.fetchone():
+     additions+=1; per_category[x["category_code"]]+=1
+     q.execute("""INSERT INTO analytics.instrument_scout_queue_v1
+       (queue_id,run_id,symbol,action_code,status_code,priority,evidence)
+       VALUES(%s,%s,%s,'COLLECT_DATA','APPLIED',%s,%s)""",
+       (str(uuid.uuid4()),run,x["symbol"],90+additions,
+        psycopg2.extras.Json({"source":SOURCE,"reason":"PRIORITY_BACKFILL"})))
    for priority,symbol in enumerate(sorted(selected),1):
     q.execute("""INSERT INTO analytics.instrument_scout_queue_v1(queue_id,run_id,symbol,action_code,priority,evidence)
       VALUES(%s,%s,%s,'RESEARCH_NEXT',%s,%s)""",(str(uuid.uuid4()),run,symbol,priority,psycopg2.extras.Json({"source":SOURCE})))

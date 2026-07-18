@@ -45,6 +45,10 @@ class InstrumentScoutItemV1:
     decision_code: str
     reason_code: str
     next_action_code: str
+    process_id: str | None
+    status: str
+    progress_pct: float
+    current_step: str
 
 @dataclass(frozen=True, slots=True)
 class FuturesRollItemV1:
@@ -112,6 +116,9 @@ class ResearchSnapshotV2:
     scout_backfill: int
     scout_watch_added: int
     scout_status: str
+    scout_last_run_at: datetime | None
+    scout_next_run_at: datetime | None
+    scout_scheduler_status: str
     methodology_evaluated: int
     methodology_pass: int
     execution_quote_symbols: int

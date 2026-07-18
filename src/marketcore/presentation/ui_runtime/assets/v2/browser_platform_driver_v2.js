@@ -45,6 +45,39 @@
             this.announce(hint);
         }
 
+        applyScoutFilter(table, filter) {
+            const rows = table.querySelectorAll('tbody tr[data-mc-node-id^="research.scout."]');
+            rows.forEach((row) => {
+                const nodeId = row.getAttribute("data-mc-node-id") || "";
+                const decision = (nodeId.match(/^research\.scout\.([a-z_]+)\.\d+$/) || [])[1] || "";
+                row.hidden = !(filter === "all" || filter === decision ||
+                    (filter === "active" && (decision === "selected" || decision === "reserve")));
+            });
+            table.dataset.mcScoutFilter = filter;
+            const toolbar = table.previousElementSibling;
+            toolbar?.querySelectorAll("button").forEach((button) =>
+                button.setAttribute("aria-pressed", String(button.dataset.filter === filter)));
+        }
+
+        ensureScoutFilters(row) {
+            const table = row.closest("table");
+            if (!table || table.dataset.mcScoutFiltersReady === "true") return;
+            table.dataset.mcScoutFiltersReady = "true";
+            const toolbar = this.documentObject.createElement("div");
+            toolbar.className = "mc-scout-filters";
+            toolbar.setAttribute("role", "toolbar");
+            toolbar.setAttribute("aria-label", "Фильтр разведки инструментов");
+            [["active","Активные"],["selected","Выбраны"],["reserve","Резерв"],
+             ["backfill","Сбор данных"],["excluded","Исключены"],["all","Все"]].forEach(([code,label]) => {
+                const button=this.documentObject.createElement("button");
+                button.type="button"; button.dataset.filter=code; button.textContent=label;
+                button.addEventListener("click",()=>this.applyScoutFilter(table,code));
+                toolbar.appendChild(button);
+            });
+            table.parentNode.insertBefore(toolbar,table);
+            globalObject.setTimeout(()=>this.applyScoutFilter(table,"active"),0);
+        }
+
         openResearchActions(row) {
             this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
             const dialog = this.documentObject.createElement("dialog");
@@ -376,11 +409,19 @@
                                 : "Двойной клик — открыть раздел");
                     }
                     if (isTableRow) {
-                        element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть рекомендуемые действия"));
+                        const nodeId = element.getAttribute("data-mc-node-id") || "";
+                        const isUniverseRow = /^research\.(?:universe\.\d+|scout\.[a-z_]+\.\d+)$/.test(nodeId);
+                        if (nodeId.startsWith("research.scout."))
+                            globalObject.setTimeout(()=>this.ensureScoutFilters(element),0);
+                        element.addEventListener("click", (event) => {
+                            const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
+                            if (isUniverseRow && cell?.getAttribute("data-mc-node-id")?.endsWith(".operator_action")) {
+                                this.openUniverseActions(element); return;
+                            }
+                            this.selectInteractive(element,"Двойной клик — открыть рекомендуемые действия");
+                        });
                         element.addEventListener("dblclick", (event) => {
                             const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
-                            const nodeId = element.getAttribute("data-mc-node-id") || "";
-                            const isUniverseRow = /^research\.(?:universe|scout)\.\d+$/.test(nodeId);
                             const isResearchRow = nodeId.startsWith("research.audit.");
                             const isSwingRow = nodeId.startsWith("control.section.swing_lifecycle.row.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");

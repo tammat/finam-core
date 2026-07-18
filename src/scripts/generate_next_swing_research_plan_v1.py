@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 import psycopg2.extras
@@ -22,6 +23,10 @@ def adaptation(reason: str) -> tuple[str, str]:
         "VALIDATION_FOLDS_UNSTABLE": ("REFINE_REGIME", "Разделить рыночные режимы и повторить на будущих данных."),
         "MULTIPLE_TESTING_SIGNIFICANCE_FAILED": ("REDUCE_HYPOTHESIS_FAMILY", "Сократить семейство гипотез и накопить независимые наблюдения."),
     }.get(reason, ("REVIEW", "Провести дополнительную независимую проверку."))
+
+def confirmation_contract(timeframe: str) -> tuple[datetime, int]:
+    days,bars={"H1":(4,50),"H4":(10,30),"D1":(30,20)}[timeframe]
+    return datetime.now(timezone.utc)+timedelta(days=days),bars
 
 
 def main() -> int:
@@ -60,14 +65,16 @@ def main() -> int:
                  len(candidates),psycopg2.extras.Json(reasons)))
             for priority,row in enumerate(candidates,1):
                 code,rationale = adaptation(row["reason_code"])
+                confirmation_after,minimum_future_bars=confirmation_contract(row["timeframe"])
                 item_id = uuid.uuid5(NAMESPACE,f"{plan_id}:{row['hypothesis_id']}")
                 cursor.execute("""INSERT INTO analytics.swing_next_research_plan_item_v1
                     (plan_item_id,plan_id,priority,hypothesis_id,strategy_family,symbol,timeframe,
-                     source_reason_code,adaptation_code,parameter_snapshot,status_code,rationale_ru)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'WAITING_FUTURE_DATA',%s)""",
+                     source_reason_code,adaptation_code,parameter_snapshot,status_code,rationale_ru,
+                     confirmation_after_ts,minimum_future_bars)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'WAITING_FUTURE_DATA',%s,%s,%s)""",
                     (str(item_id),str(plan_id),priority,str(row["hypothesis_id"]),row["strategy_family"],
                      row["symbol"],row["timeframe"],row["reason_code"],code,
-                     psycopg2.extras.Json(row["parameter_json"]),rationale))
+                     psycopg2.extras.Json(row["parameter_json"]),rationale,confirmation_after,minimum_future_bars))
     print(f"plan_id={plan_id}")
     print(f"items={len(candidates)}")
     print("confirmation_mode=FUTURE_DATA_ONLY")
