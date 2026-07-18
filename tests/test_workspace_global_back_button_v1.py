@@ -17,5 +17,5 @@ def test_direct_nested_url_returns_home_without_navigation_history() -> None:
 
 def test_back_button_asset_cache_is_invalidated() -> None:
     shell=Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_v2.html").read_text()
-    assert "workspace-shell-bootstrap.js?v=20260717.5" in shell
-    assert "workspace.css?v=20260717.10" in shell
+    assert "workspace-shell-bootstrap.js?v=20260718.1" in shell
+    assert "workspace.css?v=20260717.11" in shell

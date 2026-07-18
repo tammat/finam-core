@@ -19,5 +19,5 @@ def test_home_button_clears_history_and_opens_home() -> None:
 
 def test_home_button_assets_are_cache_busted() -> None:
     shell=Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_v2.html").read_text()
-    assert "workspace-shell-bootstrap.js?v=20260717.5" in shell
-    assert "workspace.css?v=20260717.10" in shell
+    assert "workspace-shell-bootstrap.js?v=20260718.1" in shell
+    assert "workspace.css?v=20260717.11" in shell

@@ -16,7 +16,13 @@
 
     function initialTarget(pathname) {
         const path = String(pathname || "").toLowerCase();
+        if (path.includes("/research")) return "container.research";
+        if (path.includes("/intraday")) return "container.intraday";
         if (path.includes("/portfolio")) return "container.portfolio";
+        if (path.includes("/capital")) return "container.capital";
+        if (path.includes("/risk")) return "container.risk";
+        if (path.includes("/program")) return "container.program";
+        if (path.includes("/settings")) return "container.settings";
         if (path.includes("/control-center") || path.includes("/edge-oos")) return "container.edge";
         return "container.home";
     }

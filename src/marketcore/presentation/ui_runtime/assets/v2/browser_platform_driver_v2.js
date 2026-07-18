@@ -388,6 +388,20 @@
         }
 
         endDocument() {
+            this.mountElement.querySelectorAll('[data-mc-node="table"]').forEach((table) => {
+                if (!table.querySelector('tbody [data-mc-node="table_row"]')) table.remove();
+            });
+            this.mountElement.querySelectorAll('[data-mc-node="grid"]').forEach((grid) => {
+                if (!grid.querySelector('[data-mc-node="card"]')) grid.remove();
+            });
+            Array.from(this.mountElement.querySelectorAll('[data-mc-node="section"]')).reverse().forEach((section) => {
+                const hasContent = section.querySelector([
+                    '[data-mc-node="table"]', '[data-mc-node="grid"]', '[data-mc-node="card"]',
+                    '[data-mc-node="metric_list"]', '[data-mc-node="action"]', '[data-mc-node="text"]',
+                    '[data-mc-node="badge"]'
+                ].join(','));
+                if (!hasContent) section.remove();
+            });
             this.mountElement.querySelectorAll('tbody tr[data-mc-action-id]').forEach((row) => {
                 const requiresOperator = Array.from(row.cells)
                     .some((cell) => cell.textContent.trim() === "Требуется решение оператора");
