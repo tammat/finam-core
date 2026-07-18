@@ -63,13 +63,27 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
       ORDER BY count(*) DESC,b.symbol
     """,(target_symbol,target_symbol,min_bars,freshness_minutes))
     candidates=[dict(item) for item in cursor.fetchall()]
+    cursor.execute("""SELECT symbol,inclusion_mode,priority_override
+        FROM analytics.edge_research_universe_override_v1 WHERE active""")
+    overrides={str(item["symbol"]):dict(item) for item in cursor.fetchall()}
     for rank,item in enumerate(candidates,1):
         item["category_code"]=category(item["symbol"])
         item["overall_rank"]=rank
         item["roll_eligible"]=(target_symbol or not item["contract_root"] or
             item["contract_root"] not in roll_selection or
             roll_selection[item["contract_root"]]==item["symbol"])
-    selected=select_diverse([item for item in candidates if item["roll_eligible"]],policy)
+        item["override"]=overrides.get(item["symbol"],{})
+    eligible=[item for item in candidates if item["roll_eligible"] and item["override"].get("inclusion_mode") != "FORCE_EXCLUDE"]
+    eligible.sort(key=lambda item: (-(item["override"].get("priority_override") or 0),item["overall_rank"]))
+    forced=[item for item in eligible if item["override"].get("inclusion_mode") == "FORCE_INCLUDE"]
+    forced_counts=defaultdict(int)
+    for item in forced: forced_counts[item["category_code"]]+=1
+    adjusted_policy=dict(policy)
+    adjusted_policy["max_markets"]=max(0,int(policy["max_markets"])-len(forced))
+    adjusted_policy["category_quotas"]={key:max(0,int(value)-forced_counts[key]) for key,value in quotas.items()}
+    selected=forced[:int(policy["max_markets"])]
+    if len(selected)<int(policy["max_markets"]):
+        selected.extend(select_diverse([item for item in eligible if item not in forced],adjusted_policy))
     selected_symbols={item["symbol"] for item in selected}
     category_rank=defaultdict(int)
     eligible_category_rank=defaultdict(int)
@@ -79,7 +93,10 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
         if item["roll_eligible"]: eligible_category_rank[code]+=1
         quota=quotas.get(code,0)
         chosen=item["symbol"] in selected_symbols
-        reason=("ROLLOVER_CONTRACT_NOT_SELECTED" if not item["roll_eligible"] else
+        reason=("OPERATOR_FORCE_EXCLUDED" if item["override"].get("inclusion_mode")=="FORCE_EXCLUDE" else
+                "OPERATOR_FORCE_INCLUDED" if chosen and item["override"].get("inclusion_mode")=="FORCE_INCLUDE" else
+                "OPERATOR_PRIORITY_SELECTED" if chosen and item["override"].get("priority_override") else
+                "ROLLOVER_CONTRACT_NOT_SELECTED" if not item["roll_eligible"] else
                 "CATEGORY_QUOTA_SELECTED" if chosen and eligible_category_rank[code]<=quota else
                 "GLOBAL_FILL_SELECTED" if chosen else "CATEGORY_QUOTA_EXCEEDED")
         cursor.execute("""INSERT INTO analytics.edge_research_universe_snapshot_v1

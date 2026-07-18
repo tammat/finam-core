@@ -122,6 +122,8 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
         request_status = GovernedCommandWorkerV2().run_once(request_id=request_id)
     if request_accepted and operator_request_id and operator_request_kind:
         request_status = GovernedCommandWorkerV2().run_once(request_id=operator_request_id)
+    if request_accepted and definition.request_kind.startswith("RESEARCH_UNIVERSE_"):
+        request_status = GovernedCommandWorkerV2().run_once(request_id=request_id)
     return _response(
         (202 if result.status.value == "EXECUTED" else 200) if result.successful else 403,
         status="ACCEPTED" if request_accepted else result.status.value,

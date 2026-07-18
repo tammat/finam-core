@@ -101,6 +101,49 @@
             dialog.showModal();
         }
 
+        openUniverseActions(row) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const symbol = row.cells[1]?.textContent?.trim() || "";
+            const reason = row.cells[5]?.textContent?.trim() || "Нет объяснения";
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "universe");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = symbol;
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = "Действие применяется только к следующему исследовательскому циклу.";
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const addButton = (label, detail, handler) => {
+                const button = this.documentObject.createElement("button");
+                button.type = "button"; button.className = "mc-action-dialog-item";
+                const strong = this.documentObject.createElement("strong"); strong.textContent = label;
+                const span = this.documentObject.createElement("span"); span.textContent = detail;
+                button.append(strong, span); button.addEventListener("click", handler); list.appendChild(button);
+            };
+            const submit = async (actionId, commandCode, targetId, label) => {
+                if (!globalObject.confirm(`Подтвердить: ${label}?`)) return;
+                dialog.close(); dialog.remove();
+                await this.actionSink({actionId,actionKind:"COMMAND",interactionKind:"DOUBLE_CLICK",targetId,
+                    commandCode,policyClass:"RESEARCH_MAINTENANCE",requiresApproval:false,reversible:true,
+                    rollbackCode:"RESEARCH.UNIVERSE_CLEAR_OVERRIDE",idempotencyKey:"client.request"});
+                this.announce("Заявка применена к следующему циклу", "SUCCESS");
+            };
+            addButton("Показать объяснение", reason, () => { hint.textContent = `${symbol}: ${reason}`; });
+            addButton("Исследовать следующим циклом", "Гарантированно включить инструмент", () =>
+                submit("research.universe.include_next","RESEARCH.UNIVERSE_INCLUDE_NEXT",symbol,"включить инструмент"));
+            addButton("Исключить из следующего цикла", "Не менять уже выполняющийся цикл", () =>
+                submit("research.universe.exclude_next","RESEARCH.UNIVERSE_EXCLUDE_NEXT",symbol,"исключить инструмент"));
+            addButton("Изменить приоритет", "Значение от 1 до 100", () => {
+                const value = Number(globalObject.prompt("Приоритет от 1 до 100", "50"));
+                if (!Number.isInteger(value) || value < 1 || value > 100) return this.announce("Введите целое число от 1 до 100", "ERROR");
+                return submit("research.universe.priority","RESEARCH.UNIVERSE_SET_PRIORITY",`${symbol}|${value}`,`приоритет ${value}`);
+            });
+            const close = this.documentObject.createElement("button");
+            close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
+            close.addEventListener("click",()=>{dialog.close();dialog.remove();});
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+        }
+
         async activateInteractive(element, emit, interactionKind, pendingLabel) {
             if (element.getAttribute("aria-busy") === "true") return;
             element.setAttribute("aria-busy", "true");
@@ -305,9 +348,12 @@
                         element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть рекомендуемые действия"));
                         element.addEventListener("dblclick", (event) => {
                             const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
-                            const isResearchRow = element.getAttribute("data-mc-node-id")?.startsWith("research.audit.");
+                            const nodeId = element.getAttribute("data-mc-node-id") || "";
+                            const isUniverseRow = /^research\.universe\.\d+$/.test(nodeId);
+                            const isResearchRow = nodeId.startsWith("research.audit.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
-                            if (isResearchRow && isRecommendation) this.openResearchActions(element);
+                            if (isUniverseRow) this.openUniverseActions(element);
+                            else if (isResearchRow && isRecommendation) this.openResearchActions(element);
                             else if (isResearchRow) this.announce("Запуск доступен двойным кликом в колонке «Далее»");
                             else this.openRecommendedActions(element);
                         });

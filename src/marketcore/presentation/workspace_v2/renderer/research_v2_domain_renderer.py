@@ -100,6 +100,10 @@ def _universe_table(items):
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.bars",value=item.bars,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.rank",value=item.category_rank,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.reason",key=f"research.universe.reason.{item.reason_code.lower()}"),
+            ),action=RenderActionV2(
+                "research.universe.include_next",ActionKindV2.COMMAND,target_id=item.symbol,
+                command_code="RESEARCH.UNIVERSE_INCLUDE_NEXT",policy_class="RESEARCH_MAINTENANCE",
+                reversible=True,rollback_code="RESEARCH.UNIVERSE_CLEAR_OVERRIDE",idempotency_key="client.request",
             )))
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.universe.table",children=(
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.universe.head",children=(header,)),

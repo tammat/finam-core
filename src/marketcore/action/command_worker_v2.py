@@ -122,6 +122,8 @@ class GovernedCommandWorkerV2:
             return self._measure_operator_decision(row)
         if row["request_kind"] == "EDGE_SEARCH_CANCEL":
             return self._cancel_edge_search(row)
+        if str(row["request_kind"]).startswith("RESEARCH_UNIVERSE_"):
+            return self._apply_universe_override(row)
         if command is None:
             return self._finish(row, False, None, "WORKER_REQUEST_KIND_FORBIDDEN")
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
@@ -179,6 +181,40 @@ class GovernedCommandWorkerV2:
         if cancelled is None:
             return self._finish(row,False,None,"EDGE_SEARCH_PENDING_REQUEST_NOT_FOUND")
         return self._finish(row,True,f"cancelled:{cancelled[0]}",None)
+
+    def _apply_universe_override(self, row) -> str:
+        self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
+        raw_target = str(row["target_id"] or "")
+        symbol, _, priority_text = raw_target.partition("|")
+        symbol = symbol.strip().upper()
+        if not symbol or len(symbol) > 64:
+            return self._finish(row, False, None, "RESEARCH_UNIVERSE_SYMBOL_INVALID")
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as connection:
+                with connection.cursor() as cursor:
+                    if row["request_kind"] == "RESEARCH_UNIVERSE_PRIORITY":
+                        priority = int(priority_text)
+                        if priority < 1 or priority > 100:
+                            raise ValueError("RESEARCH_UNIVERSE_PRIORITY_INVALID")
+                        cursor.execute("""INSERT INTO analytics.edge_research_universe_override_v1
+                            (symbol,priority_override,request_id,requested_by) VALUES(%s,%s,%s::uuid,%s)
+                            ON CONFLICT(symbol) DO UPDATE SET priority_override=excluded.priority_override,
+                              request_id=excluded.request_id,requested_by=excluded.requested_by,
+                              active=true,updated_at=clock_timestamp()""",
+                            (symbol,priority,row["request_id"],row["actor_id"]))
+                        result = f"priority:{symbol}:{priority}"
+                    else:
+                        mode = "FORCE_INCLUDE" if row["request_kind"] == "RESEARCH_UNIVERSE_INCLUDE" else "FORCE_EXCLUDE"
+                        cursor.execute("""INSERT INTO analytics.edge_research_universe_override_v1
+                            (symbol,inclusion_mode,request_id,requested_by) VALUES(%s,%s,%s::uuid,%s)
+                            ON CONFLICT(symbol) DO UPDATE SET inclusion_mode=excluded.inclusion_mode,
+                              request_id=excluded.request_id,requested_by=excluded.requested_by,
+                              active=true,updated_at=clock_timestamp()""",
+                            (symbol,mode,row["request_id"],row["actor_id"]))
+                        result = f"{mode.lower()}:{symbol}"
+            return self._finish(row, True, result, None)
+        except Exception as exc:
+            return self._finish(row, False, None, str(exc)[:256])
 
     def _measure_operator_decision(self, row) -> str:
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
