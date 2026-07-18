@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
-from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,MethodologyGateFailureV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1
+from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,MethodologyGateFailureV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1
 
 def _utc(value):
     if value is None: return None
@@ -68,6 +68,30 @@ class ResearchV2Resolver:
                 cursor.execute("""SELECT quote_symbols,spec_count,quote_status,spec_status
                     FROM analytics.execution_model_health_v1""")
                 execution=cursor.fetchone() or {}
+                cursor.execute("""WITH latest AS (
+                    SELECT DISTINCT ON(root_symbol) root_symbol,current_symbol,next_symbol,
+                      selected_symbol,days_to_expiry,current_median_volume,next_median_volume,
+                      decision_code,created_at
+                    FROM analytics.futures_roll_decision_v1 ORDER BY root_symbol,created_at DESC)
+                  SELECT l.*,p.policy,
+                    coalesce(m.source,'LEVERAGE_CAP_FALLBACK') margin_source
+                  FROM latest l CROSS JOIN analytics.futures_autonomy_policy_v1 p
+                  LEFT JOIN public.margin_requirements m ON m.symbol=l.selected_symbol AND m.active
+                  WHERE p.active ORDER BY l.root_symbol""")
+                futures_roll_items=[]
+                for row in cursor.fetchall():
+                    current_volume=float(row["current_median_volume"] or 0)
+                    next_volume=float(row["next_median_volume"] or 0)
+                    progress=round(min(100.0,100.0*next_volume/current_volume),1) if current_volume else 0.0
+                    status=("ROLLED" if row["selected_symbol"]!=row["current_symbol"] else
+                            "WATCH" if int(row["days_to_expiry"])<=7 else "READY")
+                    policy=row["policy"]
+                    futures_roll_items.append(FuturesRollItemV1(
+                        str(row["root_symbol"]),str(row["current_symbol"] or ""),str(row["next_symbol"] or ""),
+                        str(row["selected_symbol"]),int(row["days_to_expiry"]),current_volume,next_volume,
+                        progress,str(row["decision_code"]),status,float(policy["max_gross_leverage"]),
+                        100.0*float(policy["max_position_share"]),str(row["margin_source"])))
+                futures_roll_items=tuple(futures_roll_items)
                 cursor.execute("""WITH latest AS (
                     SELECT run_id FROM analytics.edge_research_universe_snapshot_v1
                     WHERE stage_code='WALKFORWARD' ORDER BY created_at DESC LIMIT 1)
@@ -135,4 +159,4 @@ class ResearchV2Resolver:
                     str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
                     _utc(row["started_at"] or row["requested_at"]),tuple(dict(item) for item in row["available_actions"]),
                 ) for row in cursor.fetchall())
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),methodology_failures,universe_items,algorithms,runs,now)
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),methodology_failures,futures_roll_items,universe_items,algorithms,runs,now)

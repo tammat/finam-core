@@ -105,6 +105,35 @@ def _universe_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.universe.head",children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.universe.body",children=tuple(rows))))
 
+def _futures_roll_table(items):
+    columns=("status","root","current","next","selected","expiry","liquidity","decision","leverage","limit")
+    header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.futures.header",children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.futures.header.{code}",key=f"research.futures.column.{code}") for code in columns))
+    rows=[]
+    for index,item in enumerate(items,start=1):
+        status="OK" if item.status_code=="READY" else "WARNING"
+        status_key=f"research.futures.status.{item.status_code.lower()}"
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.futures.{index}",
+            state=RenderNodeStateV2(status_code=status),children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.status",key=status_key,
+                    args={"tooltip_key":f"{status_key}.tooltip","progress_pct":item.progress_pct}),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.root",value=item.root_symbol),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.current",value=item.current_symbol),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.next",value=item.next_symbol),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.selected",value=item.selected_symbol),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.expiry",value=item.days_to_expiry,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.liquidity",key="research.futures.liquidity",
+                    args={"current":round(item.current_volume,1),"next":round(item.next_volume,1),"progress_pct":item.progress_pct}),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.decision",key=f"research.futures.decision.{item.decision_code.lower()}"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.leverage",key="research.futures.leverage_value",
+                    args={"value":item.max_leverage,"margin_source":item.margin_source}),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.futures.{index}.limit",key="research.futures.percent",
+                    args={"value":item.max_position_pct}),
+            )))
+    return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.futures.table",children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.futures.head",children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.futures.body",children=tuple(rows))))
+
 def _run_audit_table(items):
     columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.audit.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.audit.header.{code}",key=f"research.audit.column.{code}") for code in columns))
@@ -152,5 +181,5 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
     )
     refresh=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.refresh",content=RenderContentV2(message_key="research.action.request_refresh"),action=RenderActionV2("research.request.refresh",ActionKindV2.COMMAND,command_code="RESEARCH.REQUEST_REFRESH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
     edge_search=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.edge_search",content=RenderContentV2(message_key="research.action.run_edge_search"),action=RenderActionV2("research.edge_search.run",ActionKindV2.COMMAND,command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
-    d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=(_leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),_leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results))),)))
+    d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=(_leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),_leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_table(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results))),)))
     validate_render_document_v2(d); return d

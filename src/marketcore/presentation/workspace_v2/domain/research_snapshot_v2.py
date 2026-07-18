@@ -33,6 +33,22 @@ class ResearchUniverseItemV1:
     reason_code: str
 
 @dataclass(frozen=True, slots=True)
+class FuturesRollItemV1:
+    root_symbol: str
+    current_symbol: str
+    next_symbol: str
+    selected_symbol: str
+    days_to_expiry: int
+    current_volume: float
+    next_volume: float
+    progress_pct: float
+    decision_code: str
+    status_code: str
+    max_leverage: float
+    max_position_pct: float
+    margin_source: str
+
+@dataclass(frozen=True, slots=True)
 class EdgeSearchRunAuditV1:
     process_id: str
     run_id: str
@@ -84,6 +100,7 @@ class ResearchSnapshotV2:
     execution_quote_status: str
     execution_spec_status: str
     methodology_failures: tuple[MethodologyGateFailureV1, ...]
+    futures_roll_items: tuple[FuturesRollItemV1, ...]
     universe_items: tuple[ResearchUniverseItemV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
