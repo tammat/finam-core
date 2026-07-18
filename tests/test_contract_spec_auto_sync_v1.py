@@ -14,6 +14,8 @@ def test_futures_multiplier_comes_from_moex_step_value(monkeypatch) -> None:
     }})
     spec = sync.fetch_spec("BRQ6@RTSX")
     assert spec.lot_size == Decimal("1")
+    assert spec.quantity_step == Decimal("1")
+    assert spec.underlying_units == Decimal("1")
     assert spec.tick_size == Decimal("0.01")
     assert spec.tick_value == Decimal("7.95")
     assert spec.contract_multiplier == Decimal("795")
@@ -27,6 +29,7 @@ def test_equity_requires_execution_board_and_positive_fields(monkeypatch) -> Non
     spec = sync.fetch_spec("SBER@MISX")
     assert spec.asset_class == "EQUITY"
     assert spec.lot_size == Decimal("10")
+    assert spec.quantity_step == Decimal("10")
     assert spec.contract_multiplier == Decimal("1")
 
 

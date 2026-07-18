@@ -44,6 +44,9 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
         raise RuntimeError("EDGE_RESEARCH_UNIVERSE_POLICY_NOT_ACTIVE")
     policy=row["policy"]
     quotas={key:int(value) for key,value in policy["category_quotas"].items()}
+    cursor.execute("""SELECT DISTINCT ON(root_symbol) root_symbol,selected_symbol
+        FROM analytics.futures_roll_decision_v1 ORDER BY root_symbol,created_at DESC""")
+    roll_selection={item["root_symbol"]:item["selected_symbol"] for item in cursor.fetchall()}
     cursor.execute("""
       SELECT b.symbol,b.timeframe,count(*) AS bars,max(b.ts) AS latest_ts,
              coalesce(c.root_symbol,u.root_symbol) AS contract_root,
@@ -63,15 +66,21 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
     for rank,item in enumerate(candidates,1):
         item["category_code"]=category(item["symbol"])
         item["overall_rank"]=rank
-    selected=select_diverse(candidates,policy)
+        item["roll_eligible"]=(target_symbol or not item["contract_root"] or
+            item["contract_root"] not in roll_selection or
+            roll_selection[item["contract_root"]]==item["symbol"])
+    selected=select_diverse([item for item in candidates if item["roll_eligible"]],policy)
     selected_symbols={item["symbol"] for item in selected}
     category_rank=defaultdict(int)
+    eligible_category_rank=defaultdict(int)
     cursor.execute("DELETE FROM analytics.edge_research_universe_snapshot_v1 WHERE run_id=%s AND stage_code=%s",(run_id,stage_code))
     for item in candidates:
         code=item["category_code"]; category_rank[code]+=1
+        if item["roll_eligible"]: eligible_category_rank[code]+=1
         quota=quotas.get(code,0)
         chosen=item["symbol"] in selected_symbols
-        reason=("CATEGORY_QUOTA_SELECTED" if chosen and category_rank[code]<=quota else
+        reason=("ROLLOVER_CONTRACT_NOT_SELECTED" if not item["roll_eligible"] else
+                "CATEGORY_QUOTA_SELECTED" if chosen and eligible_category_rank[code]<=quota else
                 "GLOBAL_FILL_SELECTED" if chosen else "CATEGORY_QUOTA_EXCEEDED")
         cursor.execute("""INSERT INTO analytics.edge_research_universe_snapshot_v1
           (run_id,stage_code,policy_code,symbol,timeframe,category_code,bars,latest_ts,

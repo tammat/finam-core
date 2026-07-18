@@ -25,6 +25,8 @@ class Spec:
     currency_code: str
     instrument_name: str
     lot_size: Decimal
+    quantity_step: Decimal
+    underlying_units: Decimal
     tick_size: Decimal
     tick_value: Decimal
     contract_multiplier: Decimal
@@ -62,6 +64,7 @@ def fetch_spec(symbol: str) -> Spec:
         tick_value = _positive(row.get("STEPPRICE"), "STEPPRICE")
         return Spec(
             symbol, "RTSX", "FUTURES", "RUB", str(row.get("SECNAME") or row.get("SHORTNAME") or secid),
+            _positive(row.get("LOTVOLUME"), "LOTVOLUME"), Decimal("1"),
             _positive(row.get("LOTVOLUME"), "LOTVOLUME"), tick_size, tick_value,
             tick_value / tick_size, int(row.get("DECIMALS") or 0), row,
         )
@@ -83,7 +86,8 @@ def fetch_spec(symbol: str) -> Spec:
     tick_size = _positive(row.get("MINSTEP"), "MINSTEP")
     return Spec(
         symbol, "MISX", asset_class, "RUB", str(row.get("SECNAME") or row.get("SHORTNAME") or secid),
-        _positive(row.get("LOTSIZE"), "LOTSIZE"), tick_size, tick_size, Decimal("1"),
+        _positive(row.get("LOTSIZE"), "LOTSIZE"), _positive(row.get("LOTSIZE"), "LOTSIZE"),
+        Decimal("1"), tick_size, tick_size, Decimal("1"),
         int(row.get("DECIMALS") or 0), row,
     )
 
@@ -140,6 +144,12 @@ def main() -> int:
                            spec.contract_multiplier,spec.price_precision,SOURCE_VERSION))
                         outcome = "UPDATED" if current else "CREATED"
                         written += 1
+                    cursor.execute("""INSERT INTO analytics.market_contract_execution_spec_v2
+                      (symbol,quantity_step,underlying_units,source_version,updated_at)
+                      VALUES(%s,%s,%s,%s,clock_timestamp()) ON CONFLICT(symbol) DO UPDATE SET
+                       quantity_step=EXCLUDED.quantity_step,underlying_units=EXCLUDED.underlying_units,
+                       source_version=EXCLUDED.source_version,updated_at=EXCLUDED.updated_at""",
+                      (symbol,spec.quantity_step,spec.underlying_units,SOURCE_VERSION))
                     cursor.execute("""INSERT INTO analytics.contract_spec_sync_item_v1
                       (run_id,symbol,status_code,reason_code,source_version,source_payload)
                       VALUES(%s,%s,%s,'MOEX_ISS_VALIDATED',%s,%s::jsonb)""",

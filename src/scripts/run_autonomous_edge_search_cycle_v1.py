@@ -19,6 +19,7 @@ LOCK_ID = 741903126
 SCENARIO_CODE = "AUTONOMOUS_EDGE_SEARCH"
 EXECUTORS = {
     "SYNC_CONTRACT_SPECS": "src/scripts/sync_market_contract_specs_v1.py",
+    "RESOLVE_FUTURES_ROLL": "src/scripts/build_futures_roll_decision_v1.py",
     "DISCOVER_REGIME": "src/scripts/build_edge_regime_hypothesis_discovery_v2.py",
     "WALKFORWARD": "src/scripts/build_walkforward_edge_search_v3.py",
     "METHODOLOGY_GATE": "src/scripts/evaluate_edge_methodology_contract_v1.py",

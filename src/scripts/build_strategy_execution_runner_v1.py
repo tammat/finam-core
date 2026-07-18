@@ -66,6 +66,10 @@ DEFAULT_EXECUTION_POLICY = {
     "max_participation_rate": 0.01,
     "minimum_fill_ratio": 0.25,
     "target_notional_rub": 100000.0,
+    "research_equity_rub": 100000.0,
+    "max_gross_leverage": 3.0,
+    "max_position_share": 0.35,
+    "max_margin_share": 0.35,
     "fallback_spread_bps": 8.0,
     "impact_bps_at_max_participation": 4.0,
     "stress_cost_multiplier": 1.5,
@@ -82,18 +86,30 @@ def load_execution_context(cur, symbol: str) -> dict[str, Any]:
         policy.update(row["policy"] or {})
         policy["policy_code"] = row["policy_code"]
 
-    cur.execute("""SELECT lot_size,tick_size,contract_multiplier,source_version
-        FROM analytics.market_contract_spec_v1
-        WHERE is_active AND (symbol=%s OR
-          (%s LIKE 'BR%%@RTSX' AND symbol='BR@RTSX') OR
-          (%s LIKE 'NG%%@RTSX' AND symbol='NG@RTSX'))
-        ORDER BY (symbol=%s) DESC,valid_from DESC LIMIT 1""", (symbol,symbol,symbol,symbol))
+    cur.execute("""SELECT s.lot_size,coalesce(x.quantity_step,s.lot_size) quantity_step,
+          coalesce(x.underlying_units,1) underlying_units,s.tick_size,s.contract_multiplier,s.source_version
+        FROM analytics.market_contract_spec_v1 s
+        LEFT JOIN analytics.market_contract_execution_spec_v2 x ON x.symbol=s.symbol
+        WHERE s.is_active AND (s.symbol=%s OR
+          (%s LIKE 'BR%%@RTSX' AND s.symbol='BR@RTSX') OR
+          (%s LIKE 'NG%%@RTSX' AND s.symbol='NG@RTSX'))
+        ORDER BY (s.symbol=%s) DESC,s.valid_from DESC LIMIT 1""", (symbol,symbol,symbol,symbol))
     spec = cur.fetchone()
     policy.update({
         "lot_size": float(spec["lot_size"]) if spec else 1.0,
+        "quantity_step": float(spec["quantity_step"]) if spec else 1.0,
+        "underlying_units": float(spec["underlying_units"]) if spec else 1.0,
         "tick_size": float(spec["tick_size"]) if spec else 0.0,
         "contract_multiplier": float(spec["contract_multiplier"]) if spec else 1.0,
         "contract_spec_source": spec["source_version"] if spec else "MISSING_SPEC_FALLBACK",
+    })
+    cur.execute("""SELECT initial_margin,maintenance_margin,source FROM public.margin_requirements
+        WHERE active AND symbol=%s ORDER BY updated_at DESC LIMIT 1""",(symbol,))
+    margin=cur.fetchone()
+    policy.update({
+        "initial_margin_rub":float(margin["initial_margin"]) if margin else 0.0,
+        "maintenance_margin_rub":float(margin["maintenance_margin"]) if margin else 0.0,
+        "margin_source":margin["source"] if margin else "LEVERAGE_CAP_FALLBACK",
     })
 
     cur.execute("""WITH recent AS (
@@ -314,10 +330,15 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     latency = max(1, int(execution["signal_latency_bars"]))
     participation_limit = max(0.0, float(execution["max_participation_rate"]))
     minimum_fill = min(1.0, max(0.0, float(execution["minimum_fill_ratio"])))
-    target_notional = max(0.0, float(execution["target_notional_rub"]))
+    equity = max(0.0, float(execution.get("research_equity_rub",0.0)))
+    leverage_budget = (
+        equity * max(0.0,float(execution.get("max_gross_leverage",0.0)))
+        * min(1.0,max(0.0,float(execution.get("max_position_share",1.0))))
+    )
+    target_notional = leverage_budget or max(0.0, float(execution["target_notional_rub"]))
     spread_bps = max(0.0, float(execution["fallback_spread_bps"]))
     impact_at_limit = max(0.0, float(execution["impact_bps_at_max_participation"]))
-    lot_size = max(float(execution.get("lot_size", 1.0)), 1e-12)
+    quantity_step = max(float(execution.get("quantity_step",execution.get("lot_size",1.0))),1e-12)
     multiplier = max(float(execution.get("contract_multiplier", 1.0)), 1e-12)
 
     strategy_code = str(run["strategy_code"]).upper()
@@ -356,12 +377,16 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
 
         entry = bars[i + latency]
         exit_bar = bars[i + latency + hold]
-        requested = math.floor((target_notional / (entry.close * multiplier)) / lot_size) * lot_size
+        requested = math.floor((target_notional / (entry.close * multiplier)) / quantity_step) * quantity_step
+        initial_margin = max(0.0,float(execution.get("initial_margin_rub",0.0)))
+        if initial_margin > 0 and equity > 0:
+            margin_cap = math.floor((equity*float(execution.get("max_margin_share",0.35))/initial_margin)/quantity_step)*quantity_step
+            requested = min(requested,margin_cap)
         available = max(entry.volume, 0.0) * participation_limit
         if not explicit_execution_policy:
-            requested = max(lot_size, requested)
+            requested = max(quantity_step, requested)
             available = max(requested, available)
-        filled = math.floor(min(requested, available) / lot_size) * lot_size if requested > 0 else 0.0
+        filled = math.floor(min(requested, available) / quantity_step) * quantity_step if requested > 0 else 0.0
         fill_ratio = min(1.0, filled / requested) if requested > 0 else 0.0
         if filled <= 0 or fill_ratio < minimum_fill:
             i += 1

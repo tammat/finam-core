@@ -45,14 +45,15 @@ class ExecutionSymbolResolver:
             requested_symbol=requested,
             execution_symbol=preferred,
             continuous_symbol=continuous_symbol,
-            reason=f"preferred_symbol_from_liquidity_decision:{continuous_symbol}->{preferred}",
+            reason=f"autonomous_roll_decision:{continuous_symbol}->{preferred}",
         )
 
     def _continuous_symbol_for(self, symbol: str) -> str | None:
-        if symbol in {"BR_CONT", "BRM6@RTSX", "BRN6@RTSX"}:
+        base=symbol.split("@",1)[0]
+        if symbol == "BR_CONT" or (symbol.endswith("@RTSX") and base.startswith("BR")):
             return "BR_CONT"
 
-        if symbol in {"NG_CONT", "NGK6@RTSX", "NGM6@RTSX"}:
+        if symbol == "NG_CONT" or (symbol.endswith("@RTSX") and base.startswith("NG")):
             return "NG_CONT"
 
         if symbol in {"USDRUB_CONT", "USDRUBF@RTSX"}:
@@ -62,16 +63,18 @@ class ExecutionSymbolResolver:
 
     def _load_preferred_symbol(self, continuous_symbol: str) -> str | None:
         sql = """
-        select preferred_symbol
-        from cross_contract_liquidity_decisions
-        where continuous_symbol = %s
-        order by ts desc
+        select selected_symbol
+        from analytics.futures_roll_decision_v1
+        where root_symbol = %s
+        order by created_at desc
         limit 1
         """
 
+        root=continuous_symbol.removesuffix("_CONT")
+
         with self.pg_logger._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (continuous_symbol,))
+                cur.execute(sql, (root,))
                 row = cur.fetchone()
 
         if not row:

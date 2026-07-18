@@ -63,8 +63,21 @@ def test_historical_bid_ask_is_preferred_when_available() -> None:
 
 
 def test_participation_limit_can_reject_unfillable_trade() -> None:
-    constrained = run({"target_notional_rub": 100000000.0, "minimum_fill_ratio": 0.25})
+    constrained = run({"research_equity_rub":100000000.0,"max_gross_leverage":3.0,
+                       "max_position_share":1.0,"minimum_fill_ratio":0.25})
     assert build_trades(constrained, bars()) == []
+
+
+def test_futures_underlying_volume_is_not_quantity_step() -> None:
+    futures=run({"target_notional_rub":100000.0,"research_equity_rub":100000.0,
+                 "max_gross_leverage":3.0,"max_position_share":0.35,
+                 "quantity_step":1.0,"underlying_units":100.0,
+                 "contract_multiplier":7831.81})
+    futures_bars=[Bar(datetime(2026,1,1,tzinfo=timezone.utc)+timedelta(minutes=5*index),
+                      3.0+index*0.01,100000.0) for index in range(100)]
+    result=build_trades(futures,futures_bars)
+    assert result
+    assert result[0].quantity >= 1
 
 
 def test_policy_and_trade_audit_are_db_versioned() -> None:
