@@ -96,3 +96,14 @@ def test_swing_bars_are_refreshed_incrementally_by_db_scheduler() -> None:
     assert "ON CONFLICT(symbol,timeframe,ts) DO UPDATE" in aggregator
     assert "SWING_BARS_REFRESH_V1" in migration and "SWING_BARS_REFRESH_V1" in scheduler
     assert "future_bars" in page and "Будущие данные" in page
+
+
+def test_swing_monitor_persists_freshness_and_eta() -> None:
+    migration = (ROOT / "sql/analytics/111_swing_future_data_readiness_v1.sql").read_text()
+    monitor = (ROOT / "src/scripts/monitor_swing_process_v1.py").read_text()
+    page = (ROOT / "src/marketcore/presentation/workspace_v2/edge_oos_control_center_v1.py").read_text()
+    assert "swing_future_data_readiness_v1" in migration
+    assert "FUTURE_DATA_SOURCE_STALE" in monitor
+    assert "estimated_ready_at" in monitor and "remaining_bars" in monitor
+    assert "monitor_run_id" in migration and "estimate_ready" in monitor
+    assert "Прогноз готовности" in page and "Нет источника" in page

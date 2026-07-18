@@ -614,10 +614,14 @@ def _swing_summary() -> dict:
                 r.capacity_rub,r.portfolio_correlation,r.statistical_pass,r.robustness_pass,
                 r.holdout_pass,r.execution_pass,r.capacity_pass,r.portfolio_pass,r.verdict_code,
                 r.reason_codes,r.execution_policy,l.process_id,l.stage_code,l.status_code lifecycle_status,
-                l.progress_pct,l.gate_evidence,l.paper_allowed
+                l.progress_pct,l.gate_evidence,l.paper_allowed,rd.readiness_status,
+                rd.estimated_ready_at,rd.reason_code readiness_reason,rd.source_age_hours
               FROM analytics.swing_next_research_plan_item_v1 i
               LEFT JOIN analytics.swing_final_oos_result_v1 r USING(plan_item_id)
               LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
+              LEFT JOIN LATERAL (SELECT readiness_status,estimated_ready_at,reason_code,source_age_hours
+                FROM analytics.swing_future_data_readiness_v1 d WHERE d.plan_item_id=i.plan_item_id
+                ORDER BY observed_at DESC LIMIT 1) rd ON true
               WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
               ORDER BY i.priority,i.symbol LIMIT 50""")
             swing_items=[dict(row) for row in cur.fetchall()]
@@ -912,6 +916,8 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         dialog_id = f"swing-detail-{item_id}"
         stage = item.get("stage_code") or "OOS"
         status = item.get("lifecycle_status") or item.get("verdict_code") or item.get("status_code")
+        readiness_labels = {"WAITING": "Копятся", "READY": "Готово", "STALE": "Устарели", "NO_SOURCE": "Нет источника"}
+        display_status = readiness_labels.get(str(item.get("readiness_status")), status) if stage == "OOS" else status
         progress = int(item.get("progress_pct") or (100 if status in {"PASS", "FAIL", "EVALUATED_PASS", "EVALUATED_FAIL"} else 0))
         future_bars = int(item.get("future_bars") or 0)
         future_required = int(item.get("minimum_future_bars") or 0)
@@ -921,7 +927,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <td>{item.get('priority', '')}</td><td>{html.escape(str(item.get('symbol', '')))}</td>
           <td>{html.escape(str(item.get('strategy_family', '')))}</td><td>{html.escape(str(item.get('timeframe', '')))}</td>
           <td>{html.escape(stage)}</td><td title="Накоплено {future_bars} из {future_required} будущих баров"><progress max="100" value="{data_progress if stage == 'OOS' else progress}"></progress> {future_bars}/{future_required}</td>
-          <td>{html.escape(str(status))}</td></tr>""")
+          <td title="{html.escape(str(item.get('readiness_reason') or status))}">{html.escape(str(display_status))}</td></tr>""")
         gates = "".join(f"<li>{label}: <b>{'PASS' if item.get(key) else ('FAIL' if item.get(key) is not None else '—')}</b></li>" for key, label in gate_labels)
         reasons = ", ".join(item.get("reason_codes") or []) or "Нет"
         swing_dialogs.append(f"""<dialog id="{dialog_id}" class="mc-action-dialog">
@@ -931,6 +937,8 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <p><b>Параметры:</b> {_parameters_ru(item.get('parameter_snapshot'))}</p>
           <p><b>Будущие данные:</b> {future_bars} из {future_required}; осталось {max(0, future_required-future_bars)} баров.</p>
           <p><b>Последний бар:</b> {_format_datetime_ru(item.get('latest_bar_ts'))}</p>
+          <p><b>Прогноз готовности:</b> {_format_datetime_ru(item.get('estimated_ready_at'))}</p>
+          <p><b>Источник:</b> {html.escape(str(display_status))} · {html.escape(str(item.get('readiness_reason') or '—'))}</p>
           <ul>{gates}</ul><p><b>Причина:</b> {html.escape(reasons)}</p>
           <p><b>Далее:</b> {html.escape(str(item.get('adaptation_code') or stage))}</p>
           <form method="dialog"><button>Закрыть</button></form></dialog>""")
