@@ -89,6 +89,24 @@ def main() -> int:
                     return_code=%s,stdout_tail=%s,stderr_tail=%s,finished_at=clock_timestamp()
                     WHERE scheduler_run_id=%s""",(status,return_code,stdout,stderr,str(scheduler_run_id)))
                 connection.commit()
+                if status in {"FAILED", "TIMEOUT"}:
+                    cursor.execute("""INSERT INTO analytics.system_job_failure_rollup_v1(
+                        job_code,error_fingerprint,occurrences,first_seen_at,last_seen_at,return_code,stdout_sample,stderr_sample)
+                      VALUES(%s,md5(%s||E'\\n'||%s),1,clock_timestamp(),clock_timestamp(),%s,%s,%s)
+                      ON CONFLICT(job_code,error_fingerprint) DO UPDATE SET
+                        occurrences=analytics.system_job_failure_rollup_v1.occurrences+1,
+                        last_seen_at=clock_timestamp(),return_code=excluded.return_code,
+                        stdout_sample=excluded.stdout_sample,stderr_sample=excluded.stderr_sample,resolved_at=NULL""",
+                      (job["job_code"],stderr,stdout,return_code,stdout,stderr))
+                    cursor.execute("""DELETE FROM analytics.system_job_run_v1
+                      WHERE job_code=%s AND status_code IN('FAILED','TIMEOUT') AND scheduler_run_id<>%s
+                        AND md5(coalesce(stderr_tail,'')||E'\\n'||coalesce(stdout_tail,''))=md5(%s||E'\\n'||%s)""",
+                      (job["job_code"],str(scheduler_run_id),stderr,stdout))
+                    connection.commit()
+                elif status == "COMPLETE":
+                    cursor.execute("""UPDATE analytics.system_job_failure_rollup_v1 SET resolved_at=coalesce(resolved_at,clock_timestamp())
+                      WHERE job_code=%s AND resolved_at IS NULL""",(job["job_code"],))
+                    connection.commit()
                 launched += 1
     print(f"jobs_launched={launched}")
     print("VERDICT=DB_JOB_SCHEDULER_V1_OK")

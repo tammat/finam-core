@@ -297,6 +297,30 @@
             dialog.showModal();
         }
 
+        openSwingDetails(row) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const values = Array.from(row.cells).map((cell) => cell.textContent.trim());
+            const labels = ["Приоритет","Инструмент","Алгоритм","Таймфрейм","Этап","Накоплено","Нужно","Прогресс","Статус","Позиция","Paper PnL","Риск"];
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "swing");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = `${values[1] || "Swing-кандидат"} · ${values[2] || "Алгоритм"}`;
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = "Текущий автономный путь OOS → Forward → Shadow → Paper. LIVE отключён.";
+            const list = this.documentObject.createElement("dl");
+            list.className = "mc-v2-values";
+            labels.forEach((label,index) => {
+                const key = this.documentObject.createElement("dt"); key.textContent = label;
+                const value = this.documentObject.createElement("dd"); value.textContent = values[index] || "—";
+                list.append(key,value);
+            });
+            const close = this.documentObject.createElement("button");
+            close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
+            close.addEventListener("click",()=>dialog.close());
+            dialog.addEventListener("close",()=>dialog.remove());
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+        }
+
         beginDocument() {
             this.mountElement.replaceChildren();
             this.stack = [];
@@ -358,8 +382,10 @@
                             const nodeId = element.getAttribute("data-mc-node-id") || "";
                             const isUniverseRow = /^research\.universe\.\d+$/.test(nodeId);
                             const isResearchRow = nodeId.startsWith("research.audit.");
+                            const isSwingRow = nodeId.startsWith("control.section.swing_lifecycle.row.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
-                            if (isUniverseRow) this.openUniverseActions(element);
+                            if (isSwingRow) this.openSwingDetails(element);
+                            else if (isUniverseRow) this.openUniverseActions(element);
                             else if (isResearchRow && isRecommendation) this.openResearchActions(element);
                             else if (isResearchRow) this.announce("Запуск доступен двойным кликом в колонке «Далее»");
                             else this.openRecommendedActions(element);

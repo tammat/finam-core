@@ -45,7 +45,7 @@ with psycopg2.connect(DB) as connection:
           (monitor_run_id,plan_item_id,accumulated_bars,required_bars,remaining_bars,latest_bar_ts,
            source_age_hours,readiness_status,estimated_ready_at,reason_code)
           VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-          (monitor_run_id,item["plan_item_id"],accumulated,required,remaining,latest,age,status,eta,reason))
+          (str(monitor_run_id),str(item["plan_item_id"]),accumulated,required,remaining,latest,age,status,eta,reason))
       if stale:
         cursor.execute("UPDATE analytics.swing_next_research_plan_v1 SET last_error_code='FUTURE_DATA_SOURCE_STALE',updated_at=clock_timestamp() WHERE plan_id=%s",(plan["plan_id"],))
       else:

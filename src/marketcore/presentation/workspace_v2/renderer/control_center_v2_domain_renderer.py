@@ -113,6 +113,12 @@ _FUNNEL_STAGE_CONTAINER = {
 
 
 def _table_row_action(section_code: str, row: dict[str, Any]) -> RenderActionV2 | None:
+    if section_code == "swing_lifecycle":
+        return RenderActionV2(
+            action_id=f"swing.details.{_code(row.get('symbol') or 'candidate')}.{row.get('priority') or 0}",
+            action_kind=ActionKindV2.NAVIGATE,
+            target_id="container.edge",
+        )
     if section_code != "funnel":
         return None
     stage_code = str(row.get("stage_code") or "").strip().upper()
@@ -341,19 +347,27 @@ def _loss_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ..
 
 
 def _swing_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
+    strategy_names = {
+        "MOMENTUM": "Импульс",
+        "INTERMARKET_LEAD_LAG": "Межрыночное опережение",
+        "RELATIVE_STRENGTH": "Относительная сила",
+        "SWING_EDGE_SEARCH": "Swing-поиск",
+    }
+    stage_names = {"OOS": "OOS", "FORWARD": "Forward", "SHADOW": "Shadow", "PAPER": "Paper"}
     return tuple(
         {
             "priority": row.get("priority"),
             "symbol": row.get("symbol"),
-            "strategy": str(row.get("strategy_family") or "—").replace("_", " "),
+            "strategy": strategy_names.get(str(row.get("strategy_family") or ""), "Неизвестный алгоритм"),
             "timeframe": row.get("timeframe"),
-            "stage": row.get("stage_code") or "OOS",
+            "stage": stage_names.get(str(row.get("stage_code") or "OOS"), "Неизвестный этап"),
             "future_bars": int(row.get("future_bars") or 0),
             "required_bars": int(row.get("minimum_future_bars") or 0),
+            "progress_pct": min(100,round(100*int(row.get("future_bars") or 0)/max(1,int(row.get("minimum_future_bars") or 0)))),
             "state": str(row.get("status_code") or "—").replace("WAITING_FUTURE_DATA", "Ждёт данных"),
-            "position": row.get("position_status") or "—",
+            "position": {"OPEN":"Открыта","FLAT":"Нет позиции","CLOSED":"Закрыта"}.get(str(row.get("position_status") or ""), "Нет позиции"),
             "paper_pnl": float(row.get("paper_net_pnl") or 0),
-            "risk": row.get("risk_decision") or "—",
+            "risk": {"ALLOW":"Разрешено","BLOCK":"Заблокировано"}.get(str(row.get("risk_decision") or ""), "Нет решения"),
         }
         for row in view_model.swing_summary.get("items", ())
     )

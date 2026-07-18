@@ -161,3 +161,16 @@ def test_active_control_center_v2_exposes_swing_lifecycle() -> None:
     assert "swing_summary" in resolver and "swing_paper_trade_v1" in resolver
     assert '"swing_lifecycle"' in renderer and "_swing_rows" in renderer
     assert "research.control.section.swing_lifecycle.title" in migration
+
+
+def test_swing_monitor_adapts_uuids_and_failures_are_rolled_up() -> None:
+    monitor = (ROOT / "src/scripts/monitor_swing_process_v1.py").read_text()
+    scheduler = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
+    migration = (ROOT / "sql/analytics/113_system_job_failure_rollup_v1.sql").read_text()
+    driver = (ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    domain = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_center_v2_domain_renderer.py").read_text()
+    assert "str(monitor_run_id),str(item[\"plan_item_id\"])" in monitor
+    assert "system_job_failure_rollup_v1" in scheduler and "occurrences+1" in scheduler
+    assert "DELETE FROM analytics.system_job_run_v1" in migration
+    assert "openSwingDetails" in driver and "isSwingRow" in driver
+    assert '"progress_pct"' in domain and "Межрыночное опережение" in domain
