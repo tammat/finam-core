@@ -86,7 +86,9 @@ class GovernedCommandWorkerV2:
         self._audit = PostgresActionAuditTrailV2()
 
     def run_once(self, *, request_id: str | None = None, request_kind: str | None = None) -> str | None:
-        if request_kind is not None and request_kind not in COMMANDS:
+        inline_commands = {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE", "EDGE_SEARCH_CANCEL",
+                           "RESEARCH_UNIVERSE_INCLUDE", "RESEARCH_UNIVERSE_EXCLUDE", "RESEARCH_UNIVERSE_PRIORITY"}
+        if request_kind is not None and request_kind not in COMMANDS and request_kind not in inline_commands:
             raise ValueError("WORKER_REQUEST_KIND_FORBIDDEN")
         with psycopg2.connect("postgresql:///finam_core") as connection:
             with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
