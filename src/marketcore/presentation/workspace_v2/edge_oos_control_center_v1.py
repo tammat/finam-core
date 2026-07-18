@@ -593,7 +593,19 @@ def _swing_summary() -> dict:
             factory = cur.fetchone()
             cur.execute("SELECT count(*) candidates,count(*) FILTER(WHERE final_oos_opened) opened FROM analytics.swing_hypothesis_factory_v1 WHERE factory_run_id=%s", (factory["factory_run_id"],))
             result = dict(cur.fetchone() or {})
-            result.update({"bars": bars, "quality_rows": quality.get("rows", 0), "quality_ready": quality.get("ready", 0)})
+            cur.execute("""SELECT status_code,item_count,heartbeat_at,last_error_code,attempt_count
+                FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1""")
+            plan=dict(cur.fetchone() or {})
+            cur.execute("""SELECT count(*) FILTER(WHERE status_code='WAITING_FUTURE_DATA') waiting,
+                count(*) FILTER(WHERE status_code='ACTIVE') active,
+                count(*) FILTER(WHERE status_code='EVALUATED_PASS') passed,
+                count(*) FILTER(WHERE status_code='EVALUATED_FAIL') failed
+                FROM analytics.swing_next_research_plan_item_v1
+                WHERE plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)""")
+            progress=dict(cur.fetchone() or {})
+            result.update({"bars": bars, "quality_rows": quality.get("rows", 0), "quality_ready": quality.get("ready", 0),
+                           "plan_status":plan.get("status_code","NOT_RUN"),"plan_items":plan.get("item_count",0),
+                           "heartbeat":plan.get("heartbeat_at"),"last_error":plan.get("last_error_code"),**progress})
     return result
 
 
@@ -1164,16 +1176,18 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>Gross PF ≥ 1,10</span><b>{replay_summary.get('gross_pf_11', 0)}</b></article>
           <article><span>Net ожидание &gt; 0</span><b>{replay_summary.get('net_positive', 0)}</b></article></div>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Семейство</th><th>Кандидаты</th><th>Сделки</th><th>Лучший gross PF</th><th>Лучший net PF</th><th>Gross ожидание</th><th>Net ожидание</th></tr></thead><tbody>{replay_table_rows}</tbody></table></div></details>
-          <details class="mc-table-spoiler"><summary>Swing Research V1 <span>{swing_summary.get('candidates', 0)} гипотез</span></summary>
+          <details class="mc-table-spoiler" open><summary>Swing-поиск <span>{swing_summary.get('plan_status', 'Нет запуска')}</span></summary>
           <div class="mc-oos-kpis mc-funnel-kpis"><article><span>H1 бары</span><b>{swing_summary.get('bars', {}).get('H1', {}).get('bars', 0)}</b></article>
           <article><span>H4 бары</span><b>{swing_summary.get('bars', {}).get('H4', {}).get('bars', 0)}</b></article>
           <article><span>D1 бары</span><b>{swing_summary.get('bars', {}).get('D1', {}).get('bars', 0)}</b></article>
           <article><span>Data Quality</span><b>{swing_summary.get('quality_ready', 0)}/{swing_summary.get('quality_rows', 0)}</b></article>
-          <article><span>Final OOS открыт</span><b>{swing_summary.get('opened', 0)}</b></article></div>
-          <div class="mc-oos-actions"><form method="post" action="/workspace-v2/control-center/edge-oos/swing-timeframes"><button type="submit">Обновить H1/H4/D1</button></form>
-          <form method="post" action="/workspace-v2/control-center/edge-oos/swing-data-quality"><button type="submit">Проверить Swing данные</button></form>
-          <form method="post" action="/workspace-v2/control-center/edge-oos/swing-factory"><button type="submit">Сформировать Swing гипотезы</button></form></div>
-          <p>Nested split 40/20/20/20 · final OOS запечатан commitment-хэшем и не открыт.</p></details>
+          <article><span>План</span><b>{swing_summary.get('plan_items', 0)}</b></article>
+          <article><span>Ожидают</span><b>{swing_summary.get('waiting', 0)}</b></article>
+          <article><span>В работе</span><b>{swing_summary.get('active', 0)}</b></article>
+          <article><span>PASS</span><b>{swing_summary.get('passed', 0)}</b></article>
+          <article><span>FAIL</span><b>{swing_summary.get('failed', 0)}</b></article></div>
+          <progress max="{max(1, int(swing_summary.get('plan_items', 0) or 0))}" value="{int(swing_summary.get('passed', 0) or 0)+int(swing_summary.get('failed', 0) or 0)}"></progress>
+          <p>Система запускает процесс автоматически. Чистый OOS открывается однократно после накопления будущих данных; PASS не ослабляется.</p></details>
           <details class="mc-table-spoiler"><summary>Forward Edge Incubator V1 <span>{forward_summary.get('candidates', 0)} кандидатов</span></summary>
           <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Накапливают</span><b>{forward_summary.get('accumulating', 0)}</b></article>
           <article><span>Watch blocked</span><b>{forward_summary.get('watch_blocked', 0)}</b></article>

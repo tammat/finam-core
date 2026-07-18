@@ -34,6 +34,19 @@ def test_swing_failures_create_future_only_db_plan() -> None:
     assert "CHECK(pass_gates_unchanged)" in migration
 
 
+def test_swing_future_executor_has_full_methodology_and_recovery() -> None:
+    executor=(ROOT/"src/scripts/run_swing_future_execution_v1.py").read_text()
+    monitor=(ROOT/"src/scripts/monitor_swing_process_v1.py").read_text()
+    migration=(ROOT/"sql/analytics/108_swing_future_execution_lifecycle_v1.sql").read_text()
+    for gate in ("statistical","robustness","holdout","execution","capacity","portfolio"):
+        assert f'"{gate}"' in executor
+    for risk in ("max_leverage","margin_reserve","overnight_gap_stress","roll_required"):
+        assert risk in executor
+    assert "holdout_fingerprint" in migration
+    assert "heartbeat_at" in migration and "STALE_HEARTBEAT_RECOVERED" in monitor
+    assert "SWING_FUTURE_EXECUTION_V1" in (ROOT/"src/scripts/run_db_job_scheduler_v1.py").read_text()
+
+
 def test_swing_branch_schema_is_installed_in_postgres() -> None:
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:
