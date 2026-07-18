@@ -37,6 +37,16 @@ class ResearchUniverseItemV1:
     current_step: str
 
 @dataclass(frozen=True, slots=True)
+class InstrumentScoutItemV1:
+    symbol: str
+    category_code: str
+    bars: int
+    research_score: float
+    decision_code: str
+    reason_code: str
+    next_action_code: str
+
+@dataclass(frozen=True, slots=True)
 class FuturesRollItemV1:
     root_symbol: str
     current_symbol: str
@@ -97,6 +107,11 @@ class ResearchSnapshotV2:
     next_plan_variants: int
     edge_auto_queue: int
     edge_auto_status: str
+    scout_discovered: int
+    scout_selected: int
+    scout_backfill: int
+    scout_watch_added: int
+    scout_status: str
     methodology_evaluated: int
     methodology_pass: int
     execution_quote_symbols: int
@@ -105,6 +120,7 @@ class ResearchSnapshotV2:
     execution_spec_status: str
     methodology_failures: tuple[MethodologyGateFailureV1, ...]
     futures_roll_items: tuple[FuturesRollItemV1, ...]
+    scout_items: tuple[InstrumentScoutItemV1, ...]
     universe_items: tuple[ResearchUniverseItemV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]

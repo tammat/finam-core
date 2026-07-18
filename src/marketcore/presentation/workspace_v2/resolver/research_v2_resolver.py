@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
-from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,MethodologyGateFailureV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1
+from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,InstrumentScoutItemV1,MethodologyGateFailureV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1
 
 def _utc(value):
     if value is None: return None
@@ -38,6 +38,21 @@ class ResearchV2Resolver:
                     FROM analytics.edge_search_auto_schedule_state_v1
                     WHERE scheduler_code='EDGE_SEARCH_AUTO'""")
                 edge_auto_status=cursor.fetchone() or {}
+                cursor.execute("""SELECT run_id,status_code,discovered,selected,backfill,watch_added
+                    FROM analytics.instrument_scout_run_v1 ORDER BY started_at DESC LIMIT 1""")
+                scout=cursor.fetchone() or {}
+                cursor.execute("""SELECT symbol,category_code,bars,research_score,decision_code,
+                           coalesce(reason_codes->>0,'NO_REASON') reason_code,next_action_code
+                    FROM analytics.instrument_scout_result_v1
+                    WHERE run_id=%s
+                      AND (decision_code='SELECTED' OR (decision_code='BACKFILL' AND bars>0))
+                    ORDER BY CASE decision_code WHEN 'SELECTED' THEN 1 WHEN 'BACKFILL' THEN 2
+                              WHEN 'RESERVE' THEN 3 ELSE 4 END,research_score DESC,symbol
+                    LIMIT 40""",(scout.get("run_id"),))
+                scout_items=tuple(InstrumentScoutItemV1(
+                    str(row["symbol"]),str(row["category_code"]),int(row["bars"] or 0),
+                    float(row["research_score"] or 0),str(row["decision_code"]),
+                    str(row["reason_code"]),str(row["next_action_code"])) for row in cursor.fetchall()) if scout else ()
                 cursor.execute("""WITH latest AS (
                     SELECT scenario_run_id FROM analytics.edge_methodology_evaluation_v1
                     ORDER BY created_at DESC LIMIT 1)
@@ -172,4 +187,4 @@ class ResearchV2Resolver:
                     str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
                     _utc(row["started_at"] or row["requested_at"]),tuple(dict(item) for item in row["available_actions"]),
                 ) for row in cursor.fetchall())
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),methodology_failures,futures_roll_items,universe_items,algorithms,runs,now)
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,now)

@@ -16,6 +16,7 @@ ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
 EXECUTORS = {
+    "INSTRUMENT_SCOUT_V1": "src/scripts/run_autonomous_instrument_scout_v1.py",
     "CONTRACT_SPEC_SYNC_V1": "src/scripts/sync_market_contract_specs_v1.py",
     "SWING_EDGE_SEARCH_CYCLE_V1": "src/scripts/run_swing_edge_search_cycle_v1.py",
     "SWING_BARS_REFRESH_V1": "src/scripts/build_canonical_swing_timeframes_v1.py",

@@ -380,7 +380,7 @@
                         element.addEventListener("dblclick", (event) => {
                             const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
                             const nodeId = element.getAttribute("data-mc-node-id") || "";
-                            const isUniverseRow = /^research\.universe\.\d+$/.test(nodeId);
+                            const isUniverseRow = /^research\.(?:universe|scout)\.\d+$/.test(nodeId);
                             const isResearchRow = nodeId.startsWith("research.audit.");
                             const isSwingRow = nodeId.startsWith("control.section.swing_lifecycle.row.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
