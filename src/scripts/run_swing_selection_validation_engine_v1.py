@@ -45,7 +45,8 @@ def trade_rows(family, params, timestamps, prices, source_prices=None):
         if family == "MOMENTUM":
             change = prices[i] / prices[i-lookback] - 1.0
             required = 1 if params["direction"] == "LONG" else -1
-            side = required if change * required > 0 else 0
+            threshold = float(params.get("threshold_bps", 0.0)) / 10000.0
+            side = required if change * required >= threshold and threshold >= 0 else 0
         elif family == "BREAKOUT":
             window = prices[i-lookback:i]
             side = 1 if prices[i] > max(window) else (-1 if prices[i] < min(window) else 0)

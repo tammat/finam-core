@@ -1,0 +1,30 @@
+from pathlib import Path
+
+import psycopg2
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_swing_branch_is_db_driven_and_fail_aware() -> None:
+    migration = (ROOT / "sql/analytics/106_swing_edge_search_branch_v1.sql").read_text()
+    runner = (ROOT / "src/scripts/run_swing_edge_search_cycle_v1.py").read_text()
+    factory = (ROOT / "src/scripts/build_swing_hypothesis_factory_v1.py").read_text()
+    scheduler = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert "SWING_EDGE_SEARCH_CYCLE_V1" in scheduler
+    assert "manual_algorithm_start\":false" in migration
+    assert "edge_next_research_plan_v1" in runner
+    assert "source_failure_reasons" in factory
+    assert "NEGATIVE_COST_ADJUSTED_EXPECTANCY" in factory
+    assert '"H1"' in migration and '"H4"' in migration and '"D1"' in migration
+    assert '"pass_gates":"unchanged"' in migration
+    assert '"REAL_TRADING_ENABLED": "0"' in runner
+
+
+def test_swing_branch_schema_is_installed_in_postgres() -> None:
+    with psycopg2.connect("postgresql:///finam_core") as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('analytics.swing_edge_search_run_v1'), to_regclass('analytics.swing_edge_search_step_run_v1')")
+            assert cursor.fetchone() == ("analytics.swing_edge_search_run_v1", "analytics.swing_edge_search_step_run_v1")
+            cursor.execute("SELECT enabled,executor_code FROM analytics.system_job_schedule_v1 WHERE job_code='SWING_EDGE_SEARCH_WEEKEND'")
+            assert cursor.fetchone() == (True, "SWING_EDGE_SEARCH_CYCLE_V1")
