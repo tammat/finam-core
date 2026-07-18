@@ -86,7 +86,7 @@ def _methodology_failure_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.failures.body",children=tuple(rows))))
 
 def _universe_table(items):
-    columns=("selected","symbol","category","bars","rank","reason","status")
+    columns=("selected","symbol","category","bars","rank","reason","status","operator_action")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.universe.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.universe.header.{code}",key=f"research.universe.column.{code}") for code in columns))
     rows=[]
@@ -101,6 +101,8 @@ def _universe_table(items):
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.rank",value=item.category_rank,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.reason",key=f"research.universe.reason.{item.reason_code.lower()}"),
                 _process_status(f"research.universe.{index}.status",item),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.universe.{index}.operator_action",
+                    key="research.operator_actions.open",args={"tooltip_key":"research.operator_actions.open.tooltip"}),
             ),action=RenderActionV2(
                 "research.universe.include_next",ActionKindV2.COMMAND,target_id=item.symbol,
                 command_code="RESEARCH.UNIVERSE_INCLUDE_NEXT",policy_class="RESEARCH_MAINTENANCE",
@@ -111,7 +113,7 @@ def _universe_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.universe.body",children=tuple(rows))))
 
 def _scout_table(items):
-    columns=("decision","symbol","category","score","bars","reason","action")
+    columns=("decision","symbol","category","score","bars","reason","action","operator_action")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.scout.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.scout.header.{code}",key=f"research.scout.column.{code}") for code in columns))
     reasons={"CATEGORY_QUOTA_SELECTED":"Квота категории","CATEGORY_QUOTA_EXCEEDED":"Резерв категории",
@@ -130,6 +132,8 @@ def _scout_table(items):
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.bars",value=item.bars,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.reason",value=reasons.get(item.reason_code,item.reason_code)),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.action",value=actions.get(item.next_action_code,item.next_action_code)),
+            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.operator_action",
+                key="research.operator_actions.open",args={"tooltip_key":"research.operator_actions.open.tooltip"}),
         ),action=RenderActionV2("research.universe.include_next",ActionKindV2.COMMAND,target_id=item.symbol,
             command_code="RESEARCH.UNIVERSE_INCLUDE_NEXT",policy_class="RESEARCH_MAINTENANCE",
             reversible=True,rollback_code="RESEARCH.UNIVERSE_CLEAR_OVERRIDE",idempotency_key="client.request")))
