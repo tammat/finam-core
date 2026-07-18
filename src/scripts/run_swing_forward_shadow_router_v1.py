@@ -127,7 +127,13 @@ def main() -> int:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(DDL)
-            cur.execute("SELECT swing_shadow_cohort_id FROM analytics.swing_shadow_cohort_v1 WHERE cohort_status='ACCUMULATING' ORDER BY created_at DESC LIMIT 1")
+            cur.execute("""SELECT c.swing_shadow_cohort_id
+                FROM analytics.swing_shadow_cohort_v1 c
+                JOIN analytics.swing_candidate_lifecycle_v1 l
+                  ON l.shadow_cohort_id=c.swing_shadow_cohort_id
+                 AND l.stage_code='SHADOW' AND l.status_code='RUNNING'
+                WHERE c.cohort_status='ACCUMULATING'
+                ORDER BY c.created_at DESC LIMIT 1""")
             latest = cur.fetchone()
             if not latest:
                 print("VERDICT=SWING_FORWARD_SHADOW_ROUTER_V1_NO_COHORT")

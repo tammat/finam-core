@@ -40,7 +40,7 @@ def test_swing_future_executor_has_full_methodology_and_recovery() -> None:
     migration=(ROOT/"sql/analytics/108_swing_future_execution_lifecycle_v1.sql").read_text()
     for gate in ("statistical","robustness","holdout","execution","capacity","portfolio"):
         assert f'"{gate}"' in executor
-    for risk in ("max_leverage","margin_reserve","overnight_gap_stress","roll_required"):
+    for risk in ("margin_ready","spec_ready","overnight_gap_stress","roll_required"):
         assert risk in executor
     assert "holdout_fingerprint" in migration
     assert "heartbeat_at" in migration and "STALE_HEARTBEAT_RECOVERED" in monitor
@@ -54,3 +54,34 @@ def test_swing_branch_schema_is_installed_in_postgres() -> None:
             assert cursor.fetchone() == ("analytics.swing_edge_search_run_v1", "analytics.swing_edge_search_step_run_v1")
             cursor.execute("SELECT enabled,executor_code FROM analytics.system_job_schedule_v1 WHERE job_code='SWING_EDGE_SEARCH_WEEKEND'")
             assert cursor.fetchone() == (True, "SWING_EDGE_SEARCH_CYCLE_V1")
+
+
+def test_swing_final_gate_uses_real_execution_and_portfolio_evidence() -> None:
+    script = (ROOT / "src/scripts/run_swing_future_execution_v1.py").read_text()
+    assert "load_execution_context" in script
+    assert "portfolio_daily_pnl" in script
+    assert "portfolio_overlap_days" in script
+    assert "median_gap_bps" in script
+    assert '"margin_ready"' in script and '"roll_ready"' in script
+    assert '"carry_ready"' in script and "execution_symbol" in script
+
+
+def test_swing_lifecycle_is_db_driven_and_live_remains_blocked() -> None:
+    migration = (ROOT / "sql/analytics/109_swing_autonomous_lifecycle_v1.sql").read_text()
+    script = (ROOT / "src/scripts/run_swing_autonomous_lifecycle_v1.py").read_text()
+    scheduler = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert "swing_candidate_lifecycle_v1" in migration
+    assert "SWING_AUTONOMOUS_LIFECYCLE_V1" in scheduler
+    assert "verdict_code='PASS' AND r.promotion_allowed" in script
+    assert "FORWARD" in script and "SHADOW" in script and "PAPER" in script
+    assert "live_allowed=0" in script
+    observer = (ROOT / "src/scripts/run_swing_forward_shadow_router_v1.py").read_text()
+    assert "JOIN analytics.swing_candidate_lifecycle_v1" in observer
+
+
+def test_swing_panel_has_auditable_double_click_details() -> None:
+    page = (ROOT / "src/marketcore/presentation/workspace_v2/edge_oos_control_center_v1.py").read_text()
+    assert "swing_candidate_lifecycle_v1" in page
+    assert "ondblclick" in page
+    assert "Статистика" in page and "Устойчивость" in page
+    assert "Исполнение" in page and "Портфель" in page

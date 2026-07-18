@@ -603,9 +603,23 @@ def _swing_summary() -> dict:
                 FROM analytics.swing_next_research_plan_item_v1
                 WHERE plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)""")
             progress=dict(cur.fetchone() or {})
+            cur.execute("""SELECT i.plan_item_id,i.priority,i.strategy_family,i.symbol,i.timeframe,
+                i.parameter_snapshot,i.source_reason_code,i.adaptation_code,i.status_code,i.rationale_ru,
+                r.trades,r.profit_factor,r.expectancy,r.adjusted_p_value,r.stressed_expectancy,
+                r.capacity_rub,r.portfolio_correlation,r.statistical_pass,r.robustness_pass,
+                r.holdout_pass,r.execution_pass,r.capacity_pass,r.portfolio_pass,r.verdict_code,
+                r.reason_codes,r.execution_policy,l.process_id,l.stage_code,l.status_code lifecycle_status,
+                l.progress_pct,l.gate_evidence,l.paper_allowed
+              FROM analytics.swing_next_research_plan_item_v1 i
+              LEFT JOIN analytics.swing_final_oos_result_v1 r USING(plan_item_id)
+              LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
+              WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
+              ORDER BY i.priority,i.symbol LIMIT 50""")
+            swing_items=[dict(row) for row in cur.fetchall()]
             result.update({"bars": bars, "quality_rows": quality.get("rows", 0), "quality_ready": quality.get("ready", 0),
                            "plan_status":plan.get("status_code","NOT_RUN"),"plan_items":plan.get("item_count",0),
-                           "heartbeat":plan.get("heartbeat_at"),"last_error":plan.get("last_error_code"),**progress})
+                           "heartbeat":plan.get("heartbeat_at"),"last_error":plan.get("last_error_code"),
+                           "items":swing_items,**progress})
     return result
 
 
@@ -883,6 +897,35 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         if relationship_passed == 0 else
         "Проверить найденных кандидатов на строгом OOS"
     )
+    gate_labels = (("statistical_pass", "Статистика"), ("robustness_pass", "Устойчивость"),
+                   ("holdout_pass", "Holdout"), ("execution_pass", "Исполнение"),
+                   ("capacity_pass", "Ёмкость"), ("portfolio_pass", "Портфель"))
+    swing_item_rows = []
+    swing_dialogs = []
+    for item in swing_summary.get("items", []):
+        item_id = str(item["plan_item_id"])
+        dialog_id = f"swing-detail-{item_id}"
+        stage = item.get("stage_code") or "OOS"
+        status = item.get("lifecycle_status") or item.get("verdict_code") or item.get("status_code")
+        progress = int(item.get("progress_pct") or (100 if status in {"PASS", "FAIL", "EVALUATED_PASS", "EVALUATED_FAIL"} else 0))
+        swing_item_rows.append(f"""<tr tabindex="0" title="Двойной клик — подробности"
+          ondblclick="document.getElementById('{dialog_id}').showModal()">
+          <td>{item.get('priority', '')}</td><td>{html.escape(str(item.get('symbol', '')))}</td>
+          <td>{html.escape(str(item.get('strategy_family', '')))}</td><td>{html.escape(str(item.get('timeframe', '')))}</td>
+          <td>{html.escape(stage)}</td><td><progress max="100" value="{progress}"></progress> {progress}%</td>
+          <td>{html.escape(str(status))}</td></tr>""")
+        gates = "".join(f"<li>{label}: <b>{'PASS' if item.get(key) else ('FAIL' if item.get(key) is not None else '—')}</b></li>" for key, label in gate_labels)
+        reasons = ", ".join(item.get("reason_codes") or []) or "Нет"
+        swing_dialogs.append(f"""<dialog id="{dialog_id}" class="mc-action-dialog">
+          <form method="dialog"><button class="mc-dialog-close" aria-label="Закрыть">×</button></form>
+          <h3>{html.escape(str(item.get('symbol')))} · {html.escape(str(item.get('strategy_family')))}</h3>
+          <p><b>Гипотеза:</b> {html.escape(str(item.get('rationale_ru') or '—'))}</p>
+          <p><b>Параметры:</b> {_parameters_ru(item.get('parameter_snapshot'))}</p>
+          <ul>{gates}</ul><p><b>Причина:</b> {html.escape(reasons)}</p>
+          <p><b>Далее:</b> {html.escape(str(item.get('adaptation_code') or stage))}</p>
+          <form method="dialog"><button>Закрыть</button></form></dialog>""")
+    swing_item_table = "".join(swing_item_rows) or '<tr><td colspan="7">Кандидаты ещё не сформированы</td></tr>'
+    swing_detail_dialogs = "".join(swing_dialogs)
 
     table_rows = "".join(
         f"""<tr data-verdict="{html.escape(str(row['verdict_code']))}">
@@ -1187,6 +1230,8 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>PASS</span><b>{swing_summary.get('passed', 0)}</b></article>
           <article><span>FAIL</span><b>{swing_summary.get('failed', 0)}</b></article></div>
           <progress max="{max(1, int(swing_summary.get('plan_items', 0) or 0))}" value="{int(swing_summary.get('passed', 0) or 0)+int(swing_summary.get('failed', 0) or 0)}"></progress>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>№</th><th>Инструмент</th><th>Алгоритм</th><th>ТФ</th><th>Этап</th><th>Прогресс</th><th>Статус</th></tr></thead><tbody>{swing_item_table}</tbody></table></div>
+          {swing_detail_dialogs}
           <p>Система запускает процесс автоматически. Чистый OOS открывается однократно после накопления будущих данных; PASS не ослабляется.</p></details>
           <details class="mc-table-spoiler"><summary>Forward Edge Incubator V1 <span>{forward_summary.get('candidates', 0)} кандидатов</span></summary>
           <div class="mc-oos-kpis mc-funnel-kpis"><article><span>Накапливают</span><b>{forward_summary.get('accumulating', 0)}</b></article>
