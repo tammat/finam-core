@@ -22,20 +22,30 @@
         const endpoint = options.endpoint || "/api/v2/actions/dispatch";
         const onNavigation = typeof options.onNavigation === "function" ? options.onNavigation : () => {};
         const onCommand = typeof options.onCommand === "function" ? options.onCommand : () => {};
-        return async function actionSink(intent) {
-            const requestId = intent.requestId || createRequestId();
-            const response = await globalObject.fetch(endpoint, {
-                method: "POST",
-                headers: {"Content-Type": "application/json", "Accept": "application/json"},
-                credentials: "same-origin",
-                cache: "no-store",
-                body: JSON.stringify({...intent, requestId})
+        const inFlight = new Map();
+        return function actionSink(intent) {
+            const semanticKey = [intent.actionId, intent.commandCode || "", intent.targetId || ""].join("|");
+            if (inFlight.has(semanticKey)) return inFlight.get(semanticKey);
+            const operation = (async () => {
+                const requestId = intent.requestId || createRequestId();
+                const response = await globalObject.fetch(endpoint, {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json", "Accept": "application/json"},
+                    credentials: "same-origin",
+                    cache: "no-store",
+                    body: JSON.stringify({...intent, requestId})
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(`ACTION_DISPATCH_FAILED:${result.reason_code || response.status}`);
+                if (result.status === "NAVIGATED") await onNavigation(result.target_id, result);
+                else await onCommand(result, intent);
+                return result;
+            })();
+            inFlight.set(semanticKey, operation);
+            operation.finally(() => {
+                if (inFlight.get(semanticKey) === operation) inFlight.delete(semanticKey);
             });
-            const result = await response.json();
-            if (!response.ok) throw new Error(`ACTION_DISPATCH_FAILED:${result.reason_code || response.status}`);
-            if (result.status === "NAVIGATED") await onNavigation(result.target_id, result);
-            else await onCommand(result, intent);
-            return result;
+            return operation;
         };
     }
 

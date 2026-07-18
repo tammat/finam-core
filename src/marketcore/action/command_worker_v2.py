@@ -198,6 +198,10 @@ class GovernedCommandWorkerV2:
                         priority = int(priority_text)
                         if priority < 1 or priority > 100:
                             raise ValueError("RESEARCH_UNIVERSE_PRIORITY_INVALID")
+                        cursor.execute("SELECT priority_override FROM analytics.edge_research_universe_override_v1 WHERE symbol=%s AND active", (symbol,))
+                        existing = cursor.fetchone()
+                        if existing is not None and existing[0] == priority:
+                            return self._finish(row, True, f"unchanged:priority:{symbol}:{priority}", None)
                         cursor.execute("""INSERT INTO analytics.edge_research_universe_override_v1
                             (symbol,priority_override,request_id,requested_by) VALUES(%s,%s,%s::uuid,%s)
                             ON CONFLICT(symbol) DO UPDATE SET priority_override=excluded.priority_override,
@@ -207,6 +211,10 @@ class GovernedCommandWorkerV2:
                         result = f"priority:{symbol}:{priority}"
                     else:
                         mode = "FORCE_INCLUDE" if row["request_kind"] == "RESEARCH_UNIVERSE_INCLUDE" else "FORCE_EXCLUDE"
+                        cursor.execute("SELECT inclusion_mode FROM analytics.edge_research_universe_override_v1 WHERE symbol=%s AND active", (symbol,))
+                        existing = cursor.fetchone()
+                        if existing is not None and existing[0] == mode:
+                            return self._finish(row, True, f"unchanged:{mode.lower()}:{symbol}", None)
                         cursor.execute("""INSERT INTO analytics.edge_research_universe_override_v1
                             (symbol,inclusion_mode,request_id,requested_by) VALUES(%s,%s,%s::uuid,%s)
                             ON CONFLICT(symbol) DO UPDATE SET inclusion_mode=excluded.inclusion_mode,

@@ -55,6 +55,7 @@
             hint.textContent = "Выберите процесс. Заявку выполнит системный планировщик.";
             const list = this.documentObject.createElement("div");
             list.className = "mc-action-dialog-list";
+            let submitting = false;
             const recommendationCell = row.querySelector('[data-mc-node-id$=".recommendation"]');
             let options = [];
             try { options = JSON.parse(recommendationCell?.dataset.mcActions || "[]"); }
@@ -121,12 +122,18 @@
                 button.append(strong, span); button.addEventListener("click", handler); list.appendChild(button);
             };
             const submit = async (actionId, commandCode, targetId, label) => {
+                if (submitting) return;
                 if (!globalObject.confirm(`Подтвердить: ${label}?`)) return;
+                submitting = true;
                 dialog.close(); dialog.remove();
-                await this.actionSink({actionId,actionKind:"COMMAND",interactionKind:"DOUBLE_CLICK",targetId,
-                    commandCode,policyClass:"RESEARCH_MAINTENANCE",requiresApproval:false,reversible:true,
-                    rollbackCode:"RESEARCH.UNIVERSE_CLEAR_OVERRIDE",idempotencyKey:"client.request"});
-                this.announce("Заявка применена к следующему циклу", "SUCCESS");
+                try {
+                    await this.actionSink({actionId,actionKind:"COMMAND",interactionKind:"DOUBLE_CLICK",targetId,
+                        commandCode,policyClass:"RESEARCH_MAINTENANCE",requiresApproval:false,reversible:true,
+                        rollbackCode:"RESEARCH.UNIVERSE_CLEAR_OVERRIDE",idempotencyKey:"client.request"});
+                    this.announce("Заявка применена к следующему циклу", "SUCCESS");
+                } catch (error) {
+                    this.announce("Не удалось применить заявку", "ERROR");
+                }
             };
             addButton("Показать объяснение", reason, () => { hint.textContent = `${symbol}: ${reason}`; });
             addButton("Исследовать следующим циклом", "Гарантированно включить инструмент", () =>
