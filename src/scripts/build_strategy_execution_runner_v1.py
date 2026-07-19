@@ -12,6 +12,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
+from marketcore.research.dynamic_exit_v1 import dynamic_exit_v1, entry_allowed_v1
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 LIMIT = int(os.getenv("STRATEGY_EXECUTION_RUNNER_LIMIT", "20"))
@@ -52,6 +53,7 @@ class Trade:
     quote_source: str = "LEGACY"
     capacity_rub: float = 0.0
     contract_spec_source: str = "LEGACY"
+    exit_reason: str = "FIXED_HOLD"
 
 
 def safe_float(v: Any) -> float:
@@ -329,6 +331,8 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     explicit_execution_policy = bool(params.get("execution_policy"))
     execution = {**DEFAULT_EXECUTION_POLICY, **(params.get("execution_policy") or {})}
     latency = max(1, int(execution["signal_latency_bars"]))
+    dynamic_hold = int(params.get("exit_max_holding_bars", max(hold, 20)))
+    maximum_hold = dynamic_hold if str(params.get("exit_policy_code", "FIXED_HOLD")) == "DYNAMIC_EXIT_V1" else hold
     participation_limit = max(0.0, float(execution["max_participation_rate"]))
     minimum_fill = min(1.0, max(0.0, float(execution["minimum_fill_ratio"])))
     equity = max(0.0, float(execution.get("research_equity_rub",0.0)))
@@ -345,10 +349,12 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
     strategy_code = str(run["strategy_code"]).upper()
     family = strategy_family(strategy_code)
     trades: list[Trade] = []
+    closes = [bar.close for bar in bars]
+    volumes = [bar.volume for bar in bars]
     required_history = max(lookback, int(params.get("slow", 0)), int(params.get("vol_lookback", 0)), 20)
     i = required_history
 
-    while i + latency + hold < len(bars):
+    while i + latency + maximum_hold < len(bars):
         window = [b.close for b in bars[i - lookback:i]]
         close = bars[i].close
         side = 0
@@ -376,8 +382,13 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             i += 1
             continue
 
-        entry = bars[i + latency]
-        exit_bar = bars[i + latency + hold]
+        if not entry_allowed_v1(closes, volumes, i, side, params):
+            i += 1
+            continue
+        entry_index = i + latency
+        exit_decision = dynamic_exit_v1(closes, entry_index, side, maximum_hold, params)
+        entry = bars[entry_index]
+        exit_bar = bars[exit_decision.exit_index]
         requested = math.floor((target_notional / (entry.close * multiplier)) / quantity_step) * quantity_step
         initial_margin = max(0.0,float(execution.get("initial_margin_rub",0.0)))
         if initial_margin > 0 and equity > 0:
@@ -438,8 +449,9 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             quote_source=quote_source,
             capacity_rub=available * entry.close * multiplier,
             contract_spec_source=str(execution.get("contract_spec_source", "MISSING_SPEC_FALLBACK")),
+            exit_reason=exit_decision.reason_code,
         ))
-        i += hold
+        i = exit_decision.exit_index
 
     return trades
 

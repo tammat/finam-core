@@ -13,7 +13,7 @@ from marketcore.research_window_guard_v1 import require_off_market_research_wind
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V3_INDEPENDENT_TRADES"
+SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V4_DYNAMIC_ENTRY_EXIT"
 NAMESPACE = uuid.UUID("66ee4a61-5af4-56dd-9f86-d7f77555a207")
 MAX_CANDIDATES = int(os.getenv("SWING_HYPOTHESIS_MAX_CANDIDATES", "360"))
 
@@ -51,11 +51,17 @@ def db_contract_grids(cur, timeframe: str, failure_reasons: list[str]) -> dict[s
         FROM analytics.swing_research_contract_v2
         WHERE enabled AND (%s = '{}'::text[] OR failure_triggers && %s::text[])
         ORDER BY priority,family_code""", (failure_reasons, failure_reasons))
+    contract_rows = cur.fetchall()
     holds = {"H1": [12, 20, 40], "H4": [6, 10, 20], "D1": [4, 8, 12]}[timeframe]
     result = {}
-    for row in cur.fetchall():
+    cur.execute("""SELECT entry_policy,exit_policy FROM analytics.research_entry_exit_contract_v1
+        WHERE scope_code='SWING' AND timeframe=%s AND enabled""", (timeframe,))
+    entry_exit = cur.fetchone() or {}
+    for row in contract_rows:
         grid = dict(row["parameter_grid"])
         grid["holding_bars"] = holds
+        for key, value in {**(entry_exit.get("entry_policy") or {}), **(entry_exit.get("exit_policy") or {})}.items():
+            grid[key] = value if isinstance(value, list) else [value]
         result[str(row["family_code"])] = (grid, str(row["engine_code"]))
     return result
 

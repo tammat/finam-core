@@ -8,12 +8,13 @@ from statistics import NormalDist
 
 import psycopg2
 import psycopg2.extras
+from marketcore.research.dynamic_exit_v1 import dynamic_exit_v1, entry_allowed_v1
 
 from marketcore.research_window_guard_v1 import require_off_market_research_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "SWING_SELECTION_VALIDATION_ENGINE_V3_INDEPENDENT_TRADES"
+SOURCE_VERSION = "SWING_SELECTION_VALIDATION_ENGINE_V4_DYNAMIC_ENTRY_EXIT"
 COST_BPS = 8.0
 
 
@@ -43,6 +44,8 @@ def failure_reason(st, spf, sexp, vt, vpf, vexp, folds, p):
 
 
 def _meta_filter(params, i, side, prices, volumes):
+    if str(params.get("entry_policy_code", "NONE")) == "META_ENTRY_V1":
+        return entry_allowed_v1(prices, volumes, i, side, params)
     trend_lookback = int(params.get("trend_lookback", 40))
     volatility_lookback = int(params.get("volatility_lookback", 20))
     required = max(trend_lookback, volatility_lookback)
@@ -68,8 +71,10 @@ def trade_rows(family, params, timestamps, prices, source_prices=None, volumes=N
     next_entry_index = 0
     lookback = int(params.get("lookback", params.get("impulse_bars", 10)))
     hold = int(params.get("holding_bars", 3))
+    dynamic_hold = int(params.get("exit_max_holding_bars", max(hold, 20)))
+    maximum_hold = dynamic_hold if str(params.get("exit_policy_code", "FIXED_HOLD")) == "DYNAMIC_EXIT_V1" else hold
     lag = int(params.get("lag_bars", 0))
-    for i in range(lookback, len(timestamps)-lag-hold):
+    for i in range(lookback, len(timestamps)-lag-maximum_hold):
         if i < next_entry_index:
             continue
         ts = timestamps[i]
@@ -95,6 +100,8 @@ def trade_rows(family, params, timestamps, prices, source_prices=None, volumes=N
         if family in ("REGIME_MOMENTUM", "META_BREAKOUT") and not _meta_filter(params, i, side, prices, volumes):
             side = 0
         if side:
+            decision = dynamic_exit_v1(prices, entry_i, side, maximum_hold, params)
+            exit_i = decision.exit_index
             pnl = (prices[exit_i] / prices[entry_i] - 1.0) * 10000.0 * side - COST_BPS
             rows.append((timestamps[entry_i], pnl))
             # One strategy instance represents one position. Signals observed

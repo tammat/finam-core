@@ -181,10 +181,10 @@ def test_swing_regime_and_meta_filter_are_db_driven() -> None:
     runner = (ROOT / "src/scripts/run_swing_edge_search_cycle_v1.py").read_text()
     assert "swing_research_contract_v2" in migration and "REGIME_MOMENTUM" in migration
     assert "META_BREAKOUT" in migration and "gates\":\"unchanged" in migration
-    assert "db_contract_grids" in factory and "SWING_HYPOTHESIS_FACTORY_V3_INDEPENDENT_TRADES" in factory
+    assert "db_contract_grids" in factory and "SWING_HYPOTHESIS_FACTORY_V4_DYNAMIC_ENTRY_EXIT" in factory
     assert "_meta_filter" in validation and "trend * side > 0" in validation
-    assert "volume_ratio" in validation and "SWING_SELECTION_VALIDATION_ENGINE_V3_INDEPENDENT_TRADES" in validation
-    assert "SWING_EDGE_SEARCH_V3_INDEPENDENT_TRADES" in runner
+    assert "volume_ratio" in validation and "SWING_SELECTION_VALIDATION_ENGINE_V4_DYNAMIC_ENTRY_EXIT" in validation
+    assert "SWING_EDGE_SEARCH_V4_DYNAMIC_ENTRY_EXIT" in runner
 
 
 def test_swing_significance_uses_non_overlapping_trades() -> None:

@@ -14,7 +14,7 @@ import psycopg2.extras
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
-VERSION = "SWING_EDGE_SEARCH_V3_INDEPENDENT_TRADES"
+VERSION = "SWING_EDGE_SEARCH_V4_DYNAMIC_ENTRY_EXIT"
 NAMESPACE = uuid.UUID("64291888-3215-5a73-9abc-6110d5a38f6b")
 LOCK_ID = 741903136
 STEPS = (

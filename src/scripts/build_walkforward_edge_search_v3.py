@@ -66,6 +66,10 @@ def methodology_evidence(trades, bars) -> dict:
     fills = [float(getattr(t,"fill_ratio",1.0)) for t in trades]
     fallback_quotes = [str(getattr(t,"quote_source","LEGACY")) == "POLICY_FALLBACK" for t in trades]
     missing_specs = [str(getattr(t,"contract_spec_source","LEGACY")) == "MISSING_SPEC_FALLBACK" for t in trades]
+    exit_reasons = {}
+    for trade in trades:
+        reason = str(getattr(trade, "exit_reason", "FIXED_HOLD"))
+        exit_reasons[reason] = exit_reasons.get(reason, 0) + 1
     daily = defaultdict(float)
     for trade in trades:
         day = trade.exit_ts.date().isoformat() if hasattr(trade.exit_ts,"date") else str(trade.exit_ts)
@@ -83,6 +87,7 @@ def methodology_evidence(trades, bars) -> dict:
         "average_spread_cost": round(statistics.fmean(float(getattr(t,"spread_cost",0.0)) for t in trades),8) if trades else 0.0,
         "average_impact_cost": round(statistics.fmean(float(getattr(t,"impact_cost",0.0)) for t in trades),8) if trades else 0.0,
         "signal_latency_bars": min((int(getattr(t,"latency_bars",0)) for t in trades),default=0),
+        "exit_reason_breakdown": exit_reasons,
         "daily_pnl": [{"date":day,"pnl":round(value,8)} for day,value in sorted(daily.items())],
     }
 

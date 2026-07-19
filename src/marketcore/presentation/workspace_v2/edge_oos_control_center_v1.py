@@ -638,10 +638,14 @@ def _swing_summary() -> dict:
               FROM analytics.swing_paper_strategy_v1"""); paper_summary=dict(cur.fetchone() or {})
             cur.execute("""SELECT count(*) trades,coalesce(sum(net_pnl),0) net_pnl,
               coalesce(sum(net_after_tax),0) net_after_tax FROM analytics.swing_paper_trade_v1"""); paper_summary.update(dict(cur.fetchone() or {}))
+            cur.execute("""SELECT scope_code,timeframe,entry_policy,exit_policy,comparison_policy,config_version
+                FROM analytics.research_entry_exit_contract_v1 WHERE enabled
+                ORDER BY CASE scope_code WHEN 'INTRADAY' THEN 1 ELSE 2 END,timeframe""")
+            entry_exit_contracts=[dict(row) for row in cur.fetchall()]
             result.update({"bars": bars, "quality_rows": quality.get("rows", 0), "quality_ready": quality.get("ready", 0),
                            "plan_status":plan.get("status_code","NOT_RUN"),"plan_items":plan.get("item_count",0),
                            "heartbeat":plan.get("heartbeat_at"),"last_error":plan.get("last_error_code"),
-                           "items":swing_items,"paper":paper_summary,**progress})
+                           "items":swing_items,"paper":paper_summary,"entry_exit_contracts":entry_exit_contracts,**progress})
     return result
 
 
@@ -960,6 +964,13 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <form method="dialog"><button>Закрыть</button></form></dialog>""")
     swing_item_table = "".join(swing_item_rows) or '<tr><td colspan="7">Кандидаты ещё не сформированы</td></tr>'
     swing_detail_dialogs = "".join(swing_dialogs)
+    entry_exit_rows = "".join(
+        f"""<tr><td>{'Intraday' if row['scope_code']=='INTRADAY' else 'Swing'}</td>
+        <td>{html.escape(str(row['timeframe']))}</td><td>Тренд · вол. · объём</td>
+        <td>ATR · трейл · режим · лимит</td><td>Фикс. / динамич.</td>
+        <td><span class="mc-oos-badge pass">Активно</span></td></tr>"""
+        for row in swing_summary.get("entry_exit_contracts", [])
+    ) or '<tr><td colspan="6">Контракты ещё не сформированы</td></tr>'
 
     table_rows = "".join(
         f"""<tr data-verdict="{html.escape(str(row['verdict_code']))}">
@@ -1268,6 +1279,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <article><span>Сделки</span><b>{swing_summary.get('paper', {}).get('trades', 0)}</b></article>
           <article><span>Чистый PnL</span><b>{float(swing_summary.get('paper', {}).get('net_pnl', 0) or 0):,.2f} ₽</b></article>
           <article><span>После налога</span><b>{float(swing_summary.get('paper', {}).get('net_after_tax', 0) or 0):,.2f} ₽</b></article></div>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Режим</th><th>ТФ</th><th>Вход</th><th>Выход</th><th>Сравнение</th><th>Статус</th></tr></thead><tbody>{entry_exit_rows}</tbody></table></div>
           <progress max="{max(1, int(swing_summary.get('plan_items', 0) or 0))}" value="{int(swing_summary.get('passed', 0) or 0)+int(swing_summary.get('failed', 0) or 0)}"></progress>
           <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>№</th><th>Инструмент</th><th>Алгоритм</th><th>ТФ</th><th>Этап</th><th>Данные</th><th>Статус</th></tr></thead><tbody>{swing_item_table}</tbody></table></div>
           {swing_detail_dialogs}
