@@ -40,7 +40,17 @@ EXECUTORS = {
     "RESEARCH_QUEUE_GOVERNOR_V2": "src/scripts/govern_research_queues_v2.py",
     "SIGNAL_INTAKE_QUEUE_V2": "src/scripts/process_signal_intake_queue_v2.py",
     "EDGE_STRICT_RULE_BUILD_V2": "src/scripts/build_edge_strict_rules_v2.py",
+    "PAPER_CLOSED_TRADE_MATERIALIZER_V2": "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py",
 }
+
+EXECUTOR_ARGUMENTS = {
+    "PAPER_CLOSED_TRADE_MATERIALIZER_V2": ["--apply"],
+}
+
+# Закрытия Paper влияют на свежий риск и expectancy, поэтому не получают
+# фоновый nice=10. Остальные исследования остаются ограниченными.
+EXECUTOR_NICE = {"PAPER_CLOSED_TRADE_MATERIALIZER_V2": 0}
+EXECUTOR_IONICE = {"PAPER_CLOSED_TRADE_MATERIALIZER_V2": 3}
 
 
 def due(row: dict, now: datetime, last_started: datetime | None) -> bool:
@@ -79,7 +89,13 @@ def main() -> int:
                 env.update({"PYTHONPATH":str(ROOT/"src"),"DATABASE_URL":DB,
                             "RUNTIME_ALLOW_TRADING":"0","EXECUTION_ENABLED":"0","REAL_TRADING_ENABLED":"0",
                             "PYTHONDONTWRITEBYTECODE":"1"})
-                command = ["nice","-n","10","ionice","-c","2","-n","5",str(PYTHON),EXECUTORS[job["executor_code"]]]
+                executor_code = job["executor_code"]
+                command = [
+                    "nice", "-n", str(EXECUTOR_NICE.get(executor_code, 10)),
+                    "ionice", "-c", "2", "-n", str(EXECUTOR_IONICE.get(executor_code, 5)),
+                    str(PYTHON), EXECUTORS[executor_code],
+                    *EXECUTOR_ARGUMENTS.get(executor_code, []),
+                ]
                 try:
                     result = subprocess.run(command,cwd=ROOT,env=env,text=True,capture_output=True,
                                             timeout=job["timeout_seconds"],check=False)

@@ -16,38 +16,7 @@ from psycopg.types.json import Jsonb
 MSK = timezone(timedelta(hours=3))
 
 
-DDL = """
-CREATE TABLE IF NOT EXISTS analytics_closed_trades_v1 (
-    trade_id text PRIMARY KEY,
-    symbol text NOT NULL,
-    strategy text,
-    side text NOT NULL,
-    qty double precision NOT NULL,
-    entry_ts timestamptz NOT NULL,
-    exit_ts timestamptz NOT NULL,
-    entry_price double precision NOT NULL,
-    exit_price double precision NOT NULL,
-    pnl_points double precision NOT NULL,
-    entry_fill_id text,
-    exit_fill_id text,
-    entry_signal_id text,
-    exit_signal_id text,
-    exit_reason text,
-    hour_msk integer,
-    weekday text,
-    session text,
-    source text NOT NULL,
-    raw jsonb NOT NULL DEFAULT '{}'::jsonb,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_analytics_closed_trades_v1_symbol_exit_ts
-ON analytics_closed_trades_v1(symbol, exit_ts);
-
-CREATE INDEX IF NOT EXISTS idx_analytics_closed_trades_v1_symbol_strategy_exit_ts
-ON analytics_closed_trades_v1(symbol, strategy, exit_ts);
-"""
+DDL = "SELECT 1"  # Структура управляется только версионированными миграциями.
 
 
 def session_ru(hour: int | None) -> str:
@@ -71,6 +40,8 @@ def norm_strategy(symbol: str, raw: str | None) -> str:
         return "BR_CONSERVATIVE_BREAKOUT"
     if symbol.startswith("USDRUB"):
         return "USD_INTRADAY_REGIME"
+    if symbol.endswith("@MISX"):
+        return "VWAP_BANDS_MR"
     return raw or "UNKNOWN_STRATEGY"
 
 
@@ -131,9 +102,27 @@ def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
             f.price,
             COALESCE(f.commission, 0) AS commission,
             sf.signal_id,
-            sf.side AS signal_side
+            sf.side AS signal_side,
+            COALESCE(NULLIF(s.strategy,''),NULLIF(t.strategy,''),NULLIF(t.payload->>'strategy','')) AS signal_strategy,
+            COALESCE(NULLIF(s.timeframe,''),NULLIF(t.timeframe,''),NULLIF(t.payload->>'timeframe','')) AS signal_timeframe,
+            COALESCE(NULLIF(s.horizon,''),NULLIF(t.payload->>'horizon','')) AS signal_horizon,
+            COALESCE(NULLIF(s.regime,''),NULLIF(t.payload->>'regime','')) AS signal_regime
         FROM fills f
         LEFT JOIN signal_fills sf ON sf.fill_id = f.fill_id
+        LEFT JOIN LATERAL (
+            SELECT strategy, timeframe, horizon, regime
+            FROM signals
+            WHERE signal_id = sf.signal_id
+            ORDER BY ts DESC, id DESC
+            LIMIT 1
+        ) s ON true
+        LEFT JOIN LATERAL (
+            SELECT strategy, timeframe, payload
+            FROM trades
+            WHERE fill_id = f.fill_id
+            ORDER BY ts DESC, id DESC
+            LIMIT 1
+        ) t ON true
         WHERE {' AND '.join(where)}
         ORDER BY f.ts, f.fill_id
     """
@@ -180,6 +169,11 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
                     "ts": ts,
                     "fill_id": fill_id,
                     "signal_id": signal_id,
+                    "strategy": f.get("signal_strategy"),
+                    "timeframe": f.get("signal_timeframe"),
+                    "horizon": f.get("signal_horizon"),
+                    "regime": f.get("signal_regime"),
+                    "commission_per_unit": float(f.get("commission") or 0.0) / qty,
                 })
 
         elif side == "SELL":
@@ -208,6 +202,11 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
                     "ts": ts,
                     "fill_id": fill_id,
                     "signal_id": signal_id,
+                    "strategy": f.get("signal_strategy"),
+                    "timeframe": f.get("signal_timeframe"),
+                    "horizon": f.get("signal_horizon"),
+                    "regime": f.get("signal_regime"),
+                    "commission_per_unit": float(f.get("commission") or 0.0) / qty,
                 })
 
     batch_sizes: dict[str, int] = {}
@@ -228,7 +227,7 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
 def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill: dict, pnl: float) -> dict:
     exit_ts = exit_fill["ts"]
     exit_msk = exit_ts.astimezone(MSK)
-    strategy = norm_strategy(symbol, None)
+    strategy = norm_strategy(symbol, entry.get("strategy"))
 
     entry_signal_id = entry.get("signal_id")
     exit_signal_id = exit_fill.get("signal_id")
@@ -237,6 +236,10 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         f"{symbol}|{trade_side}|{entry.get('fill_id')}|"
         f"{exit_fill.get('fill_id')}|{qty:.8f}"
     )
+    entry_commission = float(entry.get("commission_per_unit") or 0.0) * qty
+    exit_fill_qty = float(exit_fill.get("qty") or qty)
+    exit_commission = float(exit_fill.get("commission") or 0.0) * qty / exit_fill_qty
+    commission = entry_commission + exit_commission
 
     return {
         "trade_id": trade_id,
@@ -249,11 +252,16 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         "entry_price": float(entry["price"]),
         "exit_price": float(exit_fill["price"]),
         "pnl_points": float(pnl),
+        "commission": commission,
+        "net_pnl": float(pnl) - commission,
         "entry_fill_id": entry.get("fill_id"),
         "exit_fill_id": exit_fill.get("fill_id"),
         "entry_signal_id": entry_signal_id,
         "exit_signal_id": exit_signal_id,
         "exit_reason": None,
+        "timeframe": entry.get("timeframe") or "LIVE",
+        "horizon": entry.get("horizon") or "INTRADAY",
+        "regime": entry.get("regime") or "UNKNOWN",
         "hour_msk": exit_msk.hour,
         "weekday": exit_msk.strftime("%A"),
         "session": session_ru(exit_msk.hour),
@@ -297,6 +305,76 @@ def upsert_trades(conn, trades: list[dict]) -> int:
     return n
 
 
+def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff) -> int:
+    """Записывает тот же факт закрытия в каноническую таблицу без дублей."""
+    written = 0
+    for t in trades:
+        if legacy_cutoff is not None and t["exit_ts"] <= legacy_cutoff:
+            continue
+        result = conn.execute(
+            """
+            WITH claimed AS (
+                INSERT INTO analytics.paper_closed_trade_identity_v2(
+                    materialized_trade_id,entry_fill_id,exit_fill_id
+                )
+                SELECT %(trade_id)s,%(entry_fill_id)s,%(exit_fill_id)s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM closed_trades
+                    WHERE payload->>'materialized_trade_id'=%(trade_id)s
+                       OR (
+                            payload->>'entry_fill_id'=%(entry_fill_id)s
+                        AND payload->>'exit_fill_id'=%(exit_fill_id)s
+                       )
+                )
+                ON CONFLICT(materialized_trade_id) DO NOTHING
+                RETURNING materialized_trade_id
+            )
+            INSERT INTO closed_trades (
+                signal_id, symbol, side, entry_ts, exit_ts, qty,
+                entry_price, exit_price, gross_pnl, commission, net_pnl,
+                horizon, strategy, regime, trade_source, payload,
+                timeframe, source, opened_at, closed_at, holding_seconds
+            )
+            SELECT
+                %(entry_signal_id)s, %(symbol)s, %(side)s, %(entry_ts)s, %(exit_ts)s, %(qty)s,
+                %(entry_price)s, %(exit_price)s, %(pnl_points)s, %(commission)s, %(net_pnl)s,
+                %(horizon)s, %(strategy)s, %(regime)s, 'paper', %(payload)s,
+                %(timeframe)s, 'paper_fill_materializer_v2', %(entry_ts)s, %(exit_ts)s,
+                greatest(0, extract(epoch FROM (%(exit_ts)s - %(entry_ts)s))::integer)
+            WHERE EXISTS (SELECT 1 FROM claimed)
+            RETURNING id
+            """,
+            {**t, "payload": Jsonb({
+                "materialized_trade_id": t["trade_id"],
+                "entry_fill_id": t["entry_fill_id"],
+                "exit_fill_id": t["exit_fill_id"],
+                "exit_signal_id": t["exit_signal_id"],
+                "materializer": "paper_fill_materializer_v2",
+            })},
+        ).fetchone()
+        written += int(result is not None)
+    return written
+
+
+def refresh_canonical_attribution(conn, trades: list[dict]) -> int:
+    updated = 0
+    for t in trades:
+        result = conn.execute(
+            """UPDATE closed_trades
+               SET strategy=%(strategy)s,timeframe=%(timeframe)s,
+                   horizon=%(horizon)s,regime=%(regime)s
+               WHERE source='paper_fill_materializer_v2'
+                 AND payload->>'materialized_trade_id'=%(trade_id)s
+                 AND (strategy IS DISTINCT FROM %(strategy)s
+                   OR timeframe IS DISTINCT FROM %(timeframe)s
+                   OR horizon IS DISTINCT FROM %(horizon)s
+                   OR regime IS DISTINCT FROM %(regime)s)""",
+            t,
+        )
+        updated += result.rowcount
+    return updated
+
+
 def main() -> int:
     args = parse_args()
     db = os.getenv("DATABASE_URL")
@@ -311,6 +389,12 @@ def main() -> int:
 
         symbols = load_symbols(conn, args)
         total_trades = 0
+        total_canonical_written = 0
+        total_attribution_updated = 0
+        legacy_cutoff = conn.execute(
+            """SELECT max(exit_ts) FROM closed_trades
+               WHERE source <> 'paper_fill_materializer_v2'"""
+        ).fetchone()["max"]
 
         print("=== MATERIALIZE CLOSED TRADES FROM FILLS V1 ===")
         print(f"mode={'APPLY' if args.apply else 'DRY_RUN'}")
@@ -336,13 +420,23 @@ def main() -> int:
                         (symbol,),
                     )
                 written = upsert_trades(conn, trades)
-                print(f"SYMBOL_APPLIED symbol={symbol} written={written}")
+                canonical_written = upsert_canonical_trades(conn, trades, legacy_cutoff)
+                attribution_updated = refresh_canonical_attribution(conn, trades)
+                total_canonical_written += canonical_written
+                total_attribution_updated += attribution_updated
+                print(
+                    f"SYMBOL_APPLIED symbol={symbol} analytics_written={written} "
+                    f"canonical_written={canonical_written} "
+                    f"attribution_updated={attribution_updated}"
+                )
 
         if args.apply:
             conn.commit()
 
     print()
     print(f"TOTAL_CLOSED_TRADES={total_trades}")
+    print(f"CANONICAL_WRITTEN={total_canonical_written}")
+    print(f"ATTRIBUTION_UPDATED={total_attribution_updated}")
     print(f"VERDICT={'APPLIED' if args.apply else 'DRY_RUN_ONLY'}")
     return 0
 
