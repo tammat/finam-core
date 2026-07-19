@@ -53,3 +53,7 @@ def test_dashboard_actions_come_from_database() -> None:
     assert 'JSON.parse(recommendationCell?.dataset.mcActions || "[]")' in driver
     assert "const options = [" not in driver
     assert "processProgress" in driver
+def test_monitor_closes_orphan_pending_processes() -> None:
+    source = Path("src/scripts/monitor_research_processes_v1.py").read_text(encoding="utf-8")
+    assert "ORPHAN_PENDING_WITHOUT_REQUEST" in source
+    assert "ORPHAN_PENDING_SKIPPED" in source

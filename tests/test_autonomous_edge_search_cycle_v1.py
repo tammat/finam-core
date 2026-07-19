@@ -50,3 +50,14 @@ def test_cycle_skips_unchanged_market_data_unless_operator_forces_it() -> None:
     assert 'os.getenv("EDGE_SEARCH_FORCE", "0")' in source
     assert "'SKIPPED'" in migration
     assert 'env["EDGE_SEARCH_FORCE"] = "1"' in worker
+def test_cycle_releases_snapshot_transaction_before_executors() -> None:
+    source = Path("src/scripts/run_autonomous_edge_search_cycle_v1.py").read_text(encoding="utf-8")
+    assert "releasing the snapshot transaction" in source
+    assert "lock_connection.commit()" in source
+
+
+def test_cycle_heartbeats_while_executor_is_running() -> None:
+    source = Path("src/scripts/run_autonomous_edge_search_cycle_v1.py").read_text(encoding="utf-8")
+    assert "subprocess.Popen" in source
+    assert "communicate(timeout=15)" in source
+    assert "heartbeat_connection" in source

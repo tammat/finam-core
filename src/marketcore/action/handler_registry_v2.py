@@ -81,6 +81,15 @@ class PostgresCommandRequestHandlerV2:
             with connection.cursor() as cursor:
                 process_id = None
                 if definition.request_kind in {"EDGE_SEARCH_RUN", "RESEARCH_REFRESH"}:
+                    cursor.execute(
+                        """SELECT request_id FROM marketcore_action.command_request_v2
+                           WHERE request_kind=%s AND status IN ('PENDING','RUNNING')
+                           ORDER BY requested_at LIMIT 1""",
+                        (definition.request_kind,),
+                    )
+                    active_request = cursor.fetchone()
+                    if active_request is not None:
+                        return str(active_request[0])
                     try:
                         candidate_process_id = str(UUID(str(intent.target_id)))
                     except (TypeError, ValueError, AttributeError):

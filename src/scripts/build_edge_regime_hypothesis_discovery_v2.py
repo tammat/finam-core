@@ -55,6 +55,9 @@ def main() -> None:
     run_id = uuid.uuid4()
     result_count = pass_count = unverified_count = 0
     with psycopg2.connect(DB) as conn:
+        # Signal calculations dominate this stage. Do not retain an obsolete
+        # transaction snapshot between SQL statements while the CPU is busy.
+        conn.autocommit = True
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             markets=load_research_universe(cur,run_id=str(run_id),stage_code="DISCOVERY",
                 min_bars=MIN_BARS,freshness_minutes=FRESHNESS_MINUTES)

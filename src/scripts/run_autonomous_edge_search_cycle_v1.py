@@ -301,6 +301,10 @@ def main() -> int:
                 print("live_allowed=0")
                 print("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK")
                 return 0
+            # The advisory lock is session-scoped, so committing here keeps the
+            # lock while releasing the snapshot transaction before long-running
+            # executor subprocesses start.
+            lock_connection.commit()
         with psycopg2.connect("postgresql:///finam_core") as status_connection:
             with status_connection.cursor() as status_cursor:
                 status_cursor.execute("""
@@ -330,17 +334,33 @@ def main() -> int:
                       (str(step_run_id),str(run_id),step_config["step_order"],executor_code))
             record_status(cycle_id,current_step=executor_code,progress_pct=int((step_index-1)*100/len(steps)))
             timed_out = False
-            try:
-                result = subprocess.run(
-                    (str(PYTHON), step), cwd=ROOT, env=env,
-                    text=True, capture_output=True, timeout=step_config["timeout_seconds"], check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                timed_out = True
-                stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-                stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-                stderr = f"{stderr}\nSTEP_TIMEOUT_SECONDS={step_config['timeout_seconds']}".strip()
-                result = subprocess.CompletedProcess(exc.cmd,124,stdout,stderr)
+            process = subprocess.Popen(
+                (str(PYTHON), step), cwd=ROOT, env=env,
+                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            while True:
+                try:
+                    stdout, stderr = process.communicate(timeout=15)
+                    result = subprocess.CompletedProcess(process.args,process.returncode,stdout,stderr)
+                    break
+                except subprocess.TimeoutExpired:
+                    elapsed = time.monotonic() - started
+                    if elapsed >= step_config["timeout_seconds"]:
+                        timed_out = True
+                        process.kill()
+                        stdout, stderr = process.communicate()
+                        stderr = f"{stderr}\nSTEP_TIMEOUT_SECONDS={step_config['timeout_seconds']}".strip()
+                        result = subprocess.CompletedProcess(process.args,124,stdout,stderr)
+                        break
+                    record_status(cycle_id,current_step=executor_code)
+                    if process_id:
+                        with psycopg2.connect("postgresql:///finam_core") as heartbeat_connection:
+                            with heartbeat_connection.cursor() as heartbeat_cursor:
+                                heartbeat_cursor.execute(
+                                    "UPDATE marketcore_action.research_process_v1 "
+                                    "SET updated_at=clock_timestamp() WHERE process_id=%s::uuid AND status_code='RUNNING'",
+                                    (process_id,),
+                                )
             print(f"step={step}|returncode={result.returncode}")
             if result.stdout:
                 print(result.stdout.rstrip())
