@@ -147,8 +147,10 @@ class PostgresCommandRequestHandlerV2:
                 row = cursor.fetchone()
                 if row is None:
                     cursor.execute("""SELECT request_id FROM marketcore_action.command_request_v2
-                        WHERE request_kind=%s AND status IN ('PENDING','RUNNING')
-                        ORDER BY requested_at LIMIT 1""",(definition.request_kind,))
+                        WHERE request_kind=%s AND target_id IS NOT DISTINCT FROM %s
+                          AND status IN ('PENDING','RUNNING')
+                        ORDER BY priority,requested_at LIMIT 1""",
+                        (definition.request_kind,intent.target_id))
                     active=cursor.fetchone()
                     if active is None:
                         raise ValueError("COMMAND_REQUEST_DUPLICATE")

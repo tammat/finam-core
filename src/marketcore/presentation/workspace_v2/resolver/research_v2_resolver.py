@@ -30,7 +30,7 @@ class ResearchV2Resolver:
                 runtime=cursor.fetchone() or {}
                 cursor.execute("SELECT research_candidates,oos_pass,paper_ready,refreshed_at FROM marketcore_ui.research_summary_v1 WHERE id=1")
                 summary=cursor.fetchone() or {}
-                cursor.execute("SELECT count(*) total,count(*) FILTER (WHERE status_code NOT IN ('DONE','FAILED')) pending,count(*) FILTER (WHERE status_code='FAILED') failed,max(updated_at) updated_at FROM analytics.research_queue_v1")
+                cursor.execute("SELECT count(*) total,count(*) FILTER (WHERE status_code IN ('QUEUED','RUNNING')) pending,count(*) FILTER (WHERE status_code='FAILED') failed,max(updated_at) updated_at FROM analytics.research_queue_v1")
                 queue=cursor.fetchone()
                 cursor.execute("SELECT count(*) total,count(*) FILTER (WHERE verdict_code='OOS_PASS') passed,max(updated_at) updated_at FROM analytics.edge_oos_result_v1")
                 oos=cursor.fetchone()

@@ -101,7 +101,7 @@ class GovernedCommandWorkerV2:
                     WHERE status='PENDING'
                       AND (%s IS NULL OR request_id=%s)
                       AND (%s IS NULL OR request_kind=%s)
-                    ORDER BY requested_at
+                    ORDER BY priority,requested_at
                     FOR UPDATE SKIP LOCKED LIMIT 1
                     """, (request_id, request_id, request_kind, request_kind),
                 )
