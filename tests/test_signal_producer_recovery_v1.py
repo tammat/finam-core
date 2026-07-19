@@ -4,6 +4,7 @@ from pathlib import Path
 from finam_core.adapters.grpc.market_data import FinamMarketDataClient
 from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.data.runtime_symbol_reload_service import RuntimeSymbolReloadService
+from finam_core.pipelines.paper_pipeline import PaperTradingPipeline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,10 +31,30 @@ def test_market_data_keeps_exchange_timestamp() -> None:
 def test_pipeline_blocks_stale_quote_before_bar_storage() -> None:
     source = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
     assert 'event.get("ts") is None and event.get("timestamp") is None' in source
-    gate = source.index("if market_data_live:")
+    gate = source.index("if market_data_live and self._has_new_trade_progress(event):")
     storage = source.index("self._record_live_quote_to_storage(", gate)
     stale_block = source.index("PIPE_STALE_QUOTE_STORAGE_BLOCK", storage)
     assert gate < storage < stale_block
+
+
+def test_quote_snapshot_requires_real_trade_progress() -> None:
+    pipeline = object.__new__(PaperTradingPipeline)
+    baseline = {"symbol": "BRQ6@RTSX", "last": 70.0, "volume": 100.0}
+
+    assert pipeline._has_new_trade_progress(baseline) is False
+    assert pipeline._has_new_trade_progress(dict(baseline)) is False
+    assert pipeline._has_new_trade_progress(
+        {"symbol": "BRQ6@RTSX", "last": 70.0, "volume": 101.0}
+    ) is True
+    assert pipeline._trade_volume_delta_by_symbol["BRQ6@RTSX"] == 1.0
+
+
+def test_closed_bar_signal_evaluation_is_guarded_by_session() -> None:
+    source = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
+    record = source[source.index("def _record_live_quote_to_storage") :]
+    guard = record.index("if allow_signal_evaluation:")
+    equity = record.index("self._process_equity_closed_bar_for_paper_signal(bar)")
+    assert guard < equity
 
 
 class _Cursor:

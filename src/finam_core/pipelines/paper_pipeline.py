@@ -831,7 +831,15 @@ class PaperTradingPipeline:
         )
         self._regime_last_log_ts = 0.0
 
-    def _record_live_quote_to_storage(self, symbol: str, price: float, volume: float, ts) -> None:
+    def _record_live_quote_to_storage(
+        self,
+        symbol: str,
+        price: float,
+        volume: float,
+        ts,
+        *,
+        allow_signal_evaluation: bool,
+    ) -> None:
         """Русский коммент: сохраняет live tick и закрытые MTF-свечи в PostgreSQL."""
         quote_key = (_coerce_mtf_ts(ts), float(price), float(volume or 0.0))
         last_keys = getattr(self, "_last_recorded_live_quote_key", None)
@@ -870,9 +878,10 @@ class PaperTradingPipeline:
                     close_price=bar.close_price,
                     volume=bar.volume,
                 )
-                self._process_br_closed_bar_for_paper_signal(bar)
-                self._process_ng_m1_closed_bar_for_paper_signal(bar)
-                self._process_equity_closed_bar_for_paper_signal(bar)
+                if allow_signal_evaluation:
+                    self._process_br_closed_bar_for_paper_signal(bar)
+                    self._process_ng_m1_closed_bar_for_paper_signal(bar)
+                    self._process_equity_closed_bar_for_paper_signal(bar)
                 LOG.info(
                     "PIPE_MTF_BAR_CLOSED symbol=%s tf=%s ts=%s close=%s volume=%s",
                     bar.symbol,
@@ -3175,6 +3184,33 @@ class PaperTradingPipeline:
         except Exception:
             return False
 
+    def _has_new_trade_progress(self, event: dict) -> bool:
+        """Snapshot считается сделкой только при движении last или накопленного объёма."""
+        symbol = str(event.get("symbol") or "")
+        if not symbol:
+            return False
+
+        last = _safe_float(event.get("last"), default=0.0)
+        volume = _safe_float(event.get("volume"), default=0.0)
+        snapshots = getattr(self, "_last_trade_snapshot_by_symbol", None)
+        if snapshots is None:
+            snapshots = {}
+            self._last_trade_snapshot_by_symbol = snapshots
+
+        previous = snapshots.get(symbol)
+        snapshots[symbol] = (last, volume)
+        if previous is None:
+            getattr(self, "_trade_volume_delta_by_symbol", {}).pop(symbol, None)
+            return False
+
+        previous_last, previous_volume = previous
+        deltas = getattr(self, "_trade_volume_delta_by_symbol", None)
+        if deltas is None:
+            deltas = {}
+            self._trade_volume_delta_by_symbol = deltas
+        deltas[symbol] = max(volume - previous_volume, 0.0)
+        return last != previous_last or volume > previous_volume
+
     def _on_quote_impl(self, event: dict):
         raw_intent = None
         is_exit_intent = False
@@ -3212,19 +3248,24 @@ class PaperTradingPipeline:
             ts = datetime.now(timezone.utc)
 
         market_data_live = self._is_verified_live_quote_event(event, ts)
+        storage_session = self.session.get_regime(sym, market_data_live=market_data_live)
 
         # Старая snapshot-котировка не должна превращаться в новые M1/M5/M15 свечи.
-        if market_data_live:
+        if market_data_live and self._has_new_trade_progress(event):
             self._record_live_quote_to_storage(
                 symbol=sym,
                 price=price,
-                volume=volume,
+                volume=float(
+                    getattr(self, "_trade_volume_delta_by_symbol", {}).get(sym, 0.0)
+                ),
                 ts=ts,
+                allow_signal_evaluation=bool(storage_session.get("allow_entries", False)),
             )
         else:
+            block_reason = "stale_quote" if not market_data_live else "no_trade_progress"
             self._log_dedup(
                 f"PIPE_STALE_QUOTE_STORAGE_BLOCK:{sym}",
-                f"PIPE_STALE_QUOTE_STORAGE_BLOCK symbol={sym} quote_ts={ts}",
+                f"PIPE_STALE_QUOTE_STORAGE_BLOCK symbol={sym} quote_ts={ts} reason={block_reason}",
                 heartbeat_sec=300,
             )
 
@@ -3242,7 +3283,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
-        session = self.session.get_regime(sym, market_data_live=market_data_live)
+        session = storage_session
         # === FORCE OVERRIDE (DEV MODE) ===
         if os.getenv("SESSION_OVERRIDE", "0") == "1":
             self._log_dedup(
