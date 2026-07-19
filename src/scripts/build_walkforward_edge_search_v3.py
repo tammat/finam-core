@@ -12,6 +12,7 @@ import psycopg2.extras
 from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, load_execution_context, metrics
 from scripts.edge_research_universe_v1 import load_research_universe
+from scripts.market_session_regime_v1 import session_breakdown
 
 
 SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS"
@@ -65,7 +66,7 @@ def passes_economic_gate(values: dict, gate: dict) -> bool:
     )
 
 
-def methodology_evidence(trades, bars) -> dict:
+def methodology_evidence(trades, bars, session_policies=()) -> dict:
     pnls = [float(trade.net_pnl) for trade in trades]
     mean = statistics.fmean(pnls) if pnls else 0.0
     stdev = statistics.pstdev(pnls) if len(pnls) > 1 else 0.0
@@ -109,6 +110,7 @@ def methodology_evidence(trades, bars) -> dict:
         "signal_latency_bars": min((int(getattr(t,"latency_bars",0)) for t in trades),default=0),
         "exit_reason_breakdown": exit_reasons,
         "daily_pnl": [{"date":day,"pnl":round(value,8)} for day,value in sorted(daily.items())],
+        "session_breakdown": session_breakdown(trades,session_policies) if session_policies else {},
     }
 
 
@@ -117,6 +119,9 @@ def main() -> None:
     passed = total = 0
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute("""SELECT session_code,timezone_code,local_start,local_end,weekdays,priority
+                FROM analytics.market_session_research_contract_v1 WHERE enabled ORDER BY priority DESC""")
+            session_policies=tuple(cursor.fetchall())
             markets=load_research_universe(cursor,run_id=str(search_run_id),stage_code="WALKFORWARD",
                 min_bars=6000,freshness_minutes=FRESHNESS_MINUTES,target_symbol=TARGET_SYMBOL)
             configurations = load_search_configuration(cursor)
@@ -181,7 +186,7 @@ def main() -> None:
                             all_trades.extend(trades)
                         aggregate = metrics(all_trades)
                         oos_gross = pnl_metrics(all_trades, "gross_pnl")
-                        evidence = methodology_evidence(all_trades,bars)
+                        evidence = methodology_evidence(all_trades,bars,session_policies)
                         folds_passed = sum(int(row["passed"]) for row in fold_rows)
                         final_holdout = bool(fold_rows[-1]["passed"])
                         in_sample_pass = passes_economic_gate(in_sample_gross, walkforward_gate)
