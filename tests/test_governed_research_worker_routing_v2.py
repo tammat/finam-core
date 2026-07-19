@@ -31,6 +31,7 @@ def test_resource_guard_is_a_safe_terminal_result() -> None:
     assert "VERDICT=AUTONOMOUS_EDGE_SEARCH_RESOURCE_GUARD_OK" in worker
     assert 'print("live_allowed=0")' in runner
     assert 'print("VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK")' in runner
+    assert "VERDICT=AUTONOMOUS_EDGE_SEARCH_CHECKPOINTED" in worker
 
 
 def test_executor_accepts_resource_guard_without_accepting_arbitrary_output(monkeypatch) -> None:
@@ -41,4 +42,15 @@ def test_executor_accepts_resource_guard_without_accepting_arbitrary_output(monk
     ))
     assert SafeSubprocessCommandExecutorV2().execute(COMMANDS["EDGE_SEARCH_RUN"]) == (
         "VERDICT=AUTONOMOUS_EDGE_SEARCH_RESOURCE_GUARD_OK"
+    )
+
+
+def test_executor_accepts_durable_discovery_checkpoint(monkeypatch) -> None:
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=0,
+        stdout="live_allowed=0\nVERDICT=AUTONOMOUS_EDGE_SEARCH_CHECKPOINTED\n",
+        stderr="",
+    ))
+    assert SafeSubprocessCommandExecutorV2().execute(COMMANDS["EDGE_SEARCH_RUN"]) == (
+        "VERDICT=AUTONOMOUS_EDGE_SEARCH_CHECKPOINTED"
     )

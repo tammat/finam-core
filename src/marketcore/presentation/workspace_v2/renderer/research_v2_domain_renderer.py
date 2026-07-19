@@ -303,7 +303,7 @@ def _current_cycle_card(s):
         ))
     status="BLOCKED" if item.status == "FAILED" else "OK" if item.status == "SUCCEEDED" else "WARNING"
     running=item.status in {"PENDING","QUEUED","RUNNING"}
-    return RenderNodeV2(RenderNodeTypeV2.CARD,"research.current",state=RenderNodeStateV2(status_code=status),children=(
+    rows=[
         _leaf(RenderNodeTypeV2.TITLE,"research.current.title",key="research.current.title"),
         RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.status",children=(
             _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.status.label",key="research.current.status"),
@@ -325,7 +325,19 @@ def _current_cycle_card(s):
             _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.next.label",key="research.current.next"),
             _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.next.value",key="research.current.wait") if running else _domain(RenderNodeTypeV2.METRIC_VALUE,"research.current.next.value",item.recommendation),
         )),
-    ))
+    ]
+    if s.regime_tasks_total:
+        rows.extend((
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.regime_tasks",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.regime_tasks.label",key="research.current.regime_tasks"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.regime_tasks.value",key="research.current.regime_tasks.value",args={"completed":s.regime_tasks_completed,"total":s.regime_tasks_total}),
+            )),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.regime_progress",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.regime_progress.label",key="research.current.regime_progress"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.regime_progress.value",value=s.regime_progress_pct,fmt="DECIMAL"),
+            )),
+        ))
+    return RenderNodeV2(RenderNodeTypeV2.CARD,"research.current",state=RenderNodeStateV2(status_code=status),children=tuple(rows))
 
 def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Moscow"):
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
@@ -333,16 +345,21 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
     tiles=(
         _tile("instruments",s.active_symbols,"OK" if s.active_symbols else "WARNING",
               "research.tile.status.ready" if s.active_symbols else "research.tile.status.empty"),
+        _tile("live_signals",s.live_signals_1h,"OK" if s.live_signals_1h else "WARNING",
+              "research.tile.status.found" if s.live_signals_1h else "research.tile.status.empty"),
+        _tile("paper_fills",s.paper_fills_1h,"OK" if s.paper_fills_1h else "WARNING",
+              "research.tile.status.found" if s.paper_fills_1h else "research.tile.status.empty"),
+        _tile("closed_trades",s.closed_trades_1h,"OK" if s.closed_trades_1h else "WARNING",
+              "research.tile.status.found" if s.closed_trades_1h else "research.tile.status.empty"),
         _tile("candidates",s.candidates,"OK" if s.candidates else "WARNING",
               "research.tile.status.found" if s.candidates else "research.tile.status.empty"),
+        _tile("regime_progress",s.regime_progress_pct,
+              "OK" if s.regime_status == "COMPLETE" else "WARNING",
+              "research.tile.status.ready" if s.regime_status == "COMPLETE" else "research.tile.status.running"),
         _tile("oos_pass",s.oos_pass_total,"OK" if s.oos_pass_total else "WARNING",
               "research.tile.status.pass" if s.oos_pass_total else "research.tile.status.no_pass"),
-        _tile("paper_ready",s.paper_ready,"OK" if s.paper_ready else "WARNING",
-              "research.tile.status.ready" if s.paper_ready else "research.tile.status.empty"),
         _tile("queue",s.queue_pending,"WARNING" if s.queue_pending else "OK",
               "research.tile.status.queue" if s.queue_pending else "research.tile.status.empty"),
-        _tile("progress",s.edge_search_progress_pct,"OK" if s.edge_search_progress_pct >= 100 else "WARNING",
-              "research.tile.status.ready" if s.edge_search_progress_pct >= 100 else "research.tile.status.running"),
     )
     governance_tiles=(
         _tile("global_trials",s.global_trials,"OK" if s.global_trials else "WARNING"),

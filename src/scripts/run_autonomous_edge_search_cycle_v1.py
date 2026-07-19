@@ -155,6 +155,11 @@ def output_metric(output: str, name: str) -> int:
     return int(matches[-1]) if matches else 0
 
 
+def output_flag(output: str, name: str) -> bool | None:
+    matches = re.findall(rf"(?m)^{re.escape(name)}=([01])$", output)
+    return bool(int(matches[-1])) if matches else None
+
+
 def record_status(cycle_id: uuid.UUID, **values: object) -> None:
     assignments = ",".join(f"{key}=%s" for key in values)
     with psycopg2.connect("postgresql:///finam_core") as connection:
@@ -380,33 +385,74 @@ def main() -> int:
                                     (process_id,),
                                 )
             print(f"step={step}|returncode={result.returncode}")
+            checkpointed = False
+            campaign_progress = 0
             if result.stdout:
                 print(result.stdout.rstrip())
                 if step.endswith("build_edge_regime_hypothesis_discovery_v2.py"):
                     markets_evaluated = max(markets_evaluated,output_metric(result.stdout,"markets"))
-                    combinations_evaluated += output_metric(result.stdout,"strategy_regime_pairs")
-                    passes += output_metric(result.stdout,"oos_pass")
+                    campaign_progress = output_metric(result.stdout,"campaign_progress_pct")
+                    checkpointed = result.returncode == 0 and output_flag(result.stdout,"stage_complete") is False
+                    if not checkpointed:
+                        combinations_evaluated += output_metric(result.stdout,"strategy_regime_pairs")
+                        passes += output_metric(result.stdout,"oos_pass")
                 elif step.endswith("build_walkforward_edge_search_v3.py"):
                     match = re.findall(r"(?m)^search_run_id=([0-9a-f-]{36})$", result.stdout)
                     if match:
                         env["EDGE_SEARCH_WALKFORWARD_RUN_ID"] = match[-1]
                     combinations_evaluated += output_metric(result.stdout,"candidates_evaluated")
                     passes += output_metric(result.stdout,"oos_pass")
+                overall_progress = (
+                    int(((step_index - 1) + campaign_progress / 100.0) * 100 / len(steps))
+                    if checkpointed else int(step_index*100/len(steps))
+                )
                 record_status(
                     cycle_id,markets_evaluated=markets_evaluated,
                     combinations_evaluated=combinations_evaluated,oos_pass=passes,
-                    progress_pct=int(step_index*100/len(steps)),
+                    progress_pct=overall_progress,
                 )
             metrics = {"markets": output_metric(result.stdout,"markets"),
                        "candidates_evaluated": output_metric(result.stdout,"candidates_evaluated"),
-                       "oos_pass": output_metric(result.stdout,"oos_pass")}
+                       "oos_pass": output_metric(result.stdout,"oos_pass"),
+                       "tasks_total": output_metric(result.stdout,"tasks_total"),
+                       "tasks_completed": output_metric(result.stdout,"tasks_completed"),
+                       "campaign_progress_pct": campaign_progress}
             with psycopg2.connect("postgresql:///finam_core") as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("""UPDATE analytics.edge_search_step_run_v1 SET
                       status_code=%s,finished_at=clock_timestamp(),duration_ms=%s,return_code=%s,
                       metrics=%s::jsonb,stdout_tail=%s,stderr_tail=%s WHERE step_run_id=%s""",
-                      ("SUCCEEDED" if result.returncode == 0 else "FAILED",int((time.monotonic()-started)*1000),
+                      ("SKIPPED" if checkpointed else ("SUCCEEDED" if result.returncode == 0 else "FAILED"),int((time.monotonic()-started)*1000),
                        result.returncode,json.dumps(metrics),result.stdout[-8000:],result.stderr[-8000:],str(step_run_id)))
+            if checkpointed:
+                checkpoint_reason = "EDGE_REGIME_DISCOVERY_CHECKPOINTED"
+                overall_progress = int(((step_index - 1) + campaign_progress / 100.0) * 100 / len(steps))
+                record_status(
+                    cycle_id,status_code="SKIPPED",current_step=executor_code,
+                    reason_code=checkpoint_reason,finished_at=datetime.now(ZoneInfo("Europe/Moscow")),
+                    progress_pct=overall_progress,markets_evaluated=markets_evaluated,
+                    combinations_evaluated=output_metric(result.stdout,"strategy_regime_pairs"),
+                    oos_pass=output_metric(result.stdout,"oos_pass"),
+                )
+                with psycopg2.connect("postgresql:///finam_core") as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE analytics.edge_search_scenario_run_v1 SET status_code='SKIPPED',finished_at=clock_timestamp() WHERE run_id=%s",
+                            (str(run_id),),
+                        )
+                        cursor.execute("""INSERT INTO analytics.edge_search_run_analysis_v1(
+                            run_id,outcome_code,primary_reason_code,evidence,recommendation_code,explanation_ru)
+                            VALUES(%s,'CHECKPOINTED',%s,%s::jsonb,'CONTINUE_ON_NEXT_SYSTEM_SCHEDULE',
+                              'Пакет режимного поиска сохранён. Следующий системный цикл продолжит с контрольной точки.')
+                            ON CONFLICT(run_id) DO NOTHING""",
+                            (str(run_id),checkpoint_reason,json.dumps(metrics)),
+                        )
+                print(f"cycle_id={cycle_id}")
+                print("cycle_status=CHECKPOINTED")
+                print(f"campaign_progress_pct={campaign_progress}")
+                print("live_allowed=0")
+                print("VERDICT=AUTONOMOUS_EDGE_SEARCH_CHECKPOINTED")
+                return 0
             if result.returncode != 0:
                 if result.stderr:
                     print(result.stderr.rstrip())

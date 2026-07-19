@@ -161,4 +161,15 @@ class ResearchSnapshotV2:
     universe_items: tuple[ResearchUniverseItemV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
+    live_signals_1h: int
+    live_signal_symbols_1h: int
+    paper_fills_1h: int
+    paper_fill_symbols_1h: int
+    paper_last_fill_at: datetime | None
+    closed_trades_1h: int
+    closed_pnl_1h: float
+    regime_tasks_completed: int
+    regime_tasks_total: int
+    regime_progress_pct: int
+    regime_status: str
     generated_at: datetime

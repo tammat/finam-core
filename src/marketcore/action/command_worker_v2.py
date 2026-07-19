@@ -56,8 +56,6 @@ class SafeSubprocessCommandExecutorV2:
             "EXECUTION_ENABLED": "0",
             "REAL_TRADING_ENABLED": "0",
         })
-        if command.request_kind == "EDGE_SEARCH_RUN":
-            env["EDGE_SEARCH_FORCE"] = "1"
         result = subprocess.run(command.argv, cwd=ROOT, env=env, text=True, capture_output=True, timeout=command.timeout_seconds, check=False)
         output = f"{result.stdout}\n{result.stderr}"
         if result.returncode != 0:
@@ -66,6 +64,7 @@ class SafeSubprocessCommandExecutorV2:
             verdicts = (
                 "VERDICT=AUTONOMOUS_EDGE_SEARCH_CYCLE_V1_OK",
                 "VERDICT=AUTONOMOUS_EDGE_SEARCH_RESOURCE_GUARD_OK",
+                "VERDICT=AUTONOMOUS_EDGE_SEARCH_CHECKPOINTED",
             )
             missing = ["live_allowed=0"] if "live_allowed=0" not in output else []
             if not any(verdict in output for verdict in verdicts):
@@ -134,6 +133,11 @@ class GovernedCommandWorkerV2:
         try:
             if row["request_kind"] == "EDGE_SEARCH_RUN":
                 os.environ["EDGE_SEARCH_REQUEST_ID"] = str(row["request_id"])
+                # Scheduled research must obey the server resource guard. Only
+                # an explicit operator request may override the low-load window.
+                os.environ["EDGE_SEARCH_FORCE"] = (
+                    "0" if row["actor_id"] == "system.scheduler" else "1"
+                )
             if row["process_id"] is not None:
                 os.environ["MARKETCORE_PROCESS_ID"] = str(row["process_id"])
             result = self._executor.execute(command)
@@ -143,6 +147,7 @@ class GovernedCommandWorkerV2:
         finally:
             if row["request_kind"] == "EDGE_SEARCH_RUN":
                 os.environ.pop("EDGE_SEARCH_REQUEST_ID", None)
+                os.environ.pop("EDGE_SEARCH_FORCE", None)
             os.environ.pop("MARKETCORE_PROCESS_ID", None)
         return self._finish(row, True, result, None)
 

@@ -49,7 +49,8 @@ def test_cycle_skips_unchanged_market_data_unless_operator_forces_it() -> None:
     assert "EDGE_SEARCH_DATA_UNCHANGED" in source
     assert 'os.getenv("EDGE_SEARCH_FORCE", "0")' in source
     assert "'SKIPPED'" in migration
-    assert 'env["EDGE_SEARCH_FORCE"] = "1"' in worker
+    assert 'row["actor_id"] == "system.scheduler"' in worker
+    assert 'os.environ["EDGE_SEARCH_FORCE"]' in worker
 def test_cycle_releases_snapshot_transaction_before_executors() -> None:
     source = Path("src/scripts/run_autonomous_edge_search_cycle_v1.py").read_text(encoding="utf-8")
     assert "releasing the snapshot transaction" in source
