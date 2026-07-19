@@ -174,3 +174,23 @@ def test_swing_monitor_adapts_uuids_and_failures_are_rolled_up() -> None:
     assert "DELETE FROM analytics.system_job_run_v1" in migration
     assert "openSwingDetails" in driver and "isSwingRow" in driver
     assert '"progress_pct"' in domain and "Межрыночное опережение" in domain
+def test_swing_regime_and_meta_filter_are_db_driven() -> None:
+    migration = (ROOT / "sql/analytics/118_swing_regime_meta_contract_v2.sql").read_text()
+    factory = (ROOT / "src/scripts/build_swing_hypothesis_factory_v1.py").read_text()
+    validation = (ROOT / "src/scripts/run_swing_selection_validation_engine_v1.py").read_text()
+    runner = (ROOT / "src/scripts/run_swing_edge_search_cycle_v1.py").read_text()
+    assert "swing_research_contract_v2" in migration and "REGIME_MOMENTUM" in migration
+    assert "META_BREAKOUT" in migration and "gates\":\"unchanged" in migration
+    assert "db_contract_grids" in factory and "SWING_HYPOTHESIS_FACTORY_V3_INDEPENDENT_TRADES" in factory
+    assert "_meta_filter" in validation and "trend * side > 0" in validation
+    assert "volume_ratio" in validation and "SWING_SELECTION_VALIDATION_ENGINE_V3_INDEPENDENT_TRADES" in validation
+    assert "SWING_EDGE_SEARCH_V3_INDEPENDENT_TRADES" in runner
+
+
+def test_swing_significance_uses_non_overlapping_trades() -> None:
+    validation = (ROOT / "src/scripts/run_swing_selection_validation_engine_v1.py").read_text()
+    migration = (ROOT / "sql/analytics/119_swing_independent_trade_contract_v3.sql").read_text()
+    assert "next_entry_index = exit_i" in validation
+    assert 'allow_overlapping_positions", False' in validation
+    assert "OVERLAPPING_TRADE_SAMPLES" in migration
+    assert "promotion_allowed boolean NOT NULL DEFAULT false" in migration

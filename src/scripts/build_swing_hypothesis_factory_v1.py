@@ -13,7 +13,7 @@ from marketcore.research_window_guard_v1 import require_off_market_research_wind
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V1"
+SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V3_INDEPENDENT_TRADES"
 NAMESPACE = uuid.UUID("66ee4a61-5af4-56dd-9f86-d7f77555a207")
 MAX_CANDIDATES = int(os.getenv("SWING_HYPOTHESIS_MAX_CANDIDATES", "360"))
 
@@ -44,6 +44,20 @@ def price_grid(timeframe: str, failure_reasons: list[str]) -> dict[str, tuple[di
         "BREAKOUT": ({"lookback": [10, 20, 40], "holding_bars": holds,
                        "confirmation_bars": [1, 2]}, "SWING_PRICE_V1"),
     }
+
+
+def db_contract_grids(cur, timeframe: str, failure_reasons: list[str]) -> dict[str, tuple[dict, str]]:
+    cur.execute("""SELECT family_code,engine_code,parameter_grid
+        FROM analytics.swing_research_contract_v2
+        WHERE enabled AND (%s = '{}'::text[] OR failure_triggers && %s::text[])
+        ORDER BY priority,family_code""", (failure_reasons, failure_reasons))
+    holds = {"H1": [12, 20, 40], "H4": [6, 10, 20], "D1": [4, 8, 12]}[timeframe]
+    result = {}
+    for row in cur.fetchall():
+        grid = dict(row["parameter_grid"])
+        grid["holding_bars"] = holds
+        result[str(row["family_code"])] = (grid, str(row["engine_code"]))
+    return result
 
 
 def main() -> None:
@@ -77,7 +91,8 @@ def main() -> None:
             """)
             candidates = []
             for symbol, timeframe in markets:
-                price_grids = price_grid(timeframe, failure_reasons)
+                price_grids = {**price_grid(timeframe, failure_reasons),
+                               **db_contract_grids(cur, timeframe, failure_reasons)}
                 for family, (grid, engine) in price_grids.items():
                     keys = list(grid)
                     for values in itertools.product(*(grid[key] for key in keys)):
@@ -94,10 +109,10 @@ def main() -> None:
                                            {"source":source,"impulse_bars":impulse,"lag_bars":lag,"holding_bars":hold}))
             # Deterministic balanced cap: equal quota by family and timeframe, never ranked on outcomes.
             selected = []
-            quota = MAX_CANDIDATES // 12
-            for family in ("MOMENTUM","BREAKOUT","RELATIVE_STRENGTH","INTERMARKET_LEAD_LAG"):
-                for timeframe in ("H1","H4","D1"):
-                    selected.extend([row for row in candidates if row[0] == family and row[3] == timeframe][:quota])
+            groups = sorted({(row[0], row[3]) for row in candidates})
+            quota = max(1, MAX_CANDIDATES // len(groups))
+            for family, timeframe in groups:
+                selected.extend([row for row in candidates if row[0] == family and row[3] == timeframe][:quota])
             for family,engine,symbol,timeframe,params in selected:
                 cur.execute("""SELECT ts FROM analytics.swing_market_bars_v1
                     WHERE symbol=%s AND timeframe=%s ORDER BY ts""", (symbol,timeframe))

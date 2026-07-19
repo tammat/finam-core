@@ -62,12 +62,14 @@ def main():
         active+=1
         q.execute("UPDATE analytics.swing_next_research_plan_item_v1 SET status_code='ACTIVE',activated_at=coalesce(activated_at,clock_timestamp()),updated_at=clock_timestamp() WHERE plan_item_id=%s",(i["plan_item_id"],))
         p=i["parameter_snapshot"]; ref=p.get("benchmark") or p.get("source"); symbols=[i["symbol"]]+([ref] if ref else [])
-        q.execute("SELECT symbol,ts,close FROM analytics.swing_market_bars_v1 WHERE timeframe=%s AND symbol=ANY(%s) AND ts>%s ORDER BY ts",(i["timeframe"],symbols,i["confirmation_after_ts"]))
-        data={s:{} for s in symbols}
-        for r in q.fetchall(): data[r["symbol"]][r["ts"]]=float(r["close"])
+        q.execute("SELECT symbol,ts,close,coalesce(volume,0) volume FROM analytics.swing_market_bars_v1 WHERE timeframe=%s AND symbol=ANY(%s) AND ts>%s ORDER BY ts",(i["timeframe"],symbols,i["confirmation_after_ts"]))
+        data={s:{} for s in symbols}; volume_data={s:{} for s in symbols}
+        for r in q.fetchall():
+          data[r["symbol"]][r["ts"]]=float(r["close"]); volume_data[r["symbol"]][r["ts"]]=float(r["volume"])
         ts=sorted(set(data[i["symbol"]]).intersection(*(set(data[s]) for s in symbols[1:]))) if ref else sorted(data[i["symbol"]])
         prices=[data[i["symbol"]][x] for x in ts]; refs=[data[ref][x] for x in ts] if ref else None
-        rows=trade_rows(i["strategy_family"],p,ts,prices,refs)
+        volumes=[volume_data[i["symbol"]][x] for x in ts]
+        rows=trade_rows(i["strategy_family"],p,ts,prices,refs,volumes)
         execution=execution_evidence(q,i,future)
         incremental_cost=max(0.0,float(execution["total_stress_cost_bps"])-float(COST_BPS))
         rows=[(x,v-incremental_cost) for x,v in rows]; n,pf,exp=metrics(rows); mid=len(rows)//2

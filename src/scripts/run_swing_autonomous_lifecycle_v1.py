@@ -15,14 +15,16 @@ def safe(value): return json.loads(json.dumps(value,default=str))
 def forward_result(q,item,result):
   p=item["parameter_snapshot"]; ref=p.get("benchmark") or p.get("source")
   symbols=[item["symbol"]]+([ref] if ref else [])
-  q.execute("SELECT symbol,ts,close FROM analytics.swing_market_bars_v1 WHERE timeframe=%s AND symbol=ANY(%s) AND ts>%s ORDER BY ts",(item["timeframe"],symbols,result["holdout_end"]))
-  data={s:{} for s in symbols}
-  for row in q.fetchall(): data[row["symbol"]][row["ts"]]=float(row["close"])
+  q.execute("SELECT symbol,ts,close,coalesce(volume,0) volume FROM analytics.swing_market_bars_v1 WHERE timeframe=%s AND symbol=ANY(%s) AND ts>%s ORDER BY ts",(item["timeframe"],symbols,result["holdout_end"]))
+  data={s:{} for s in symbols}; volume_data={s:{} for s in symbols}
+  for row in q.fetchall():
+    data[row["symbol"]][row["ts"]]=float(row["close"]); volume_data[row["symbol"]][row["ts"]]=float(row["volume"])
   timestamps=sorted(set(data[item["symbol"]]).intersection(*(set(data[s]) for s in symbols[1:]))) if ref else sorted(data[item["symbol"]])
   minimum={"H1":120,"H4":40,"D1":20}[item["timeframe"]]
   if len(timestamps)<minimum: return None,{"bars":len(timestamps),"minimum_bars":minimum}
   prices=[data[item["symbol"]][x] for x in timestamps]; refs=[data[ref][x] for x in timestamps] if ref else None
-  rows=trade_rows(item["strategy_family"],p,timestamps,prices,refs)
+  volumes=[volume_data[item["symbol"]][x] for x in timestamps]
+  rows=trade_rows(item["strategy_family"],p,timestamps,prices,refs,volumes)
   contract=load_swing_execution_contract(q,item["symbol"])
   exact_cost=float(cost_bps(prices[-1],1,contract)); incremental=max(0.0,exact_cost-float(COST_BPS))
   rows=[(ts,value-incremental) for ts,value in rows]
