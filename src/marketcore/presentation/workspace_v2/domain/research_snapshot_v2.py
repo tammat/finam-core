@@ -134,6 +134,14 @@ class ResearchSnapshotV2:
     equity_experiments: int
     futures_experiments: int
     portfolio_selected: int
+    validation_funnel_available: bool
+    validation_in_sample: int
+    validation_oos: int
+    validation_after_costs: int
+    validation_stable: int
+    validation_bottleneck_stage: str
+    validation_lost: int
+    validation_recommendation: str
     methodology_failures: tuple[MethodologyGateFailureV1, ...]
     futures_roll_items: tuple[FuturesRollItemV1, ...]
     scout_items: tuple[InstrumentScoutItemV1, ...]

@@ -45,6 +45,26 @@ def failure_reason(aggregate, folds_passed: int, final_holdout: bool, gate: dict
     return "WALKFORWARD_STABILITY_GATE_FAILED"
 
 
+def pnl_metrics(trades, field: str) -> dict:
+    pnls = [float(getattr(trade, field)) for trade in trades]
+    wins = [value for value in pnls if value > 0]
+    losses = [value for value in pnls if value <= 0]
+    gross_loss = abs(sum(losses))
+    return {
+        "trades": len(trades),
+        "profit_factor": sum(wins) / gross_loss if gross_loss else (sum(wins) if wins else 0.0),
+        "expectancy": statistics.fmean(pnls) if pnls else 0.0,
+    }
+
+
+def passes_economic_gate(values: dict, gate: dict) -> bool:
+    return (
+        values["trades"] >= gate["min_trades"]
+        and values["profit_factor"] >= gate["min_profit_factor"]
+        and values["expectancy"] > gate["min_expectancy"]
+    )
+
+
 def methodology_evidence(trades, bars) -> dict:
     pnls = [float(trade.net_pnl) for trade in trades]
     mean = statistics.fmean(pnls) if pnls else 0.0
@@ -129,6 +149,11 @@ def main() -> None:
                             "execution_policy": execution_policy,
                         }
                         lookback = int(params["lookback"])
+                        in_sample_trades = build_trades(
+                            {"strategy_code": strategy_code, "parameter_json": params},
+                            strategy_bars[:evaluation_start],
+                        )
+                        in_sample_gross = pnl_metrics(in_sample_trades, "gross_pnl")
                         fold_rows = []
                         all_trades = []
                         for fold_no in range(FOLDS):
@@ -155,16 +180,24 @@ def main() -> None:
                             })
                             all_trades.extend(trades)
                         aggregate = metrics(all_trades)
+                        oos_gross = pnl_metrics(all_trades, "gross_pnl")
                         evidence = methodology_evidence(all_trades,bars)
                         folds_passed = sum(int(row["passed"]) for row in fold_rows)
                         final_holdout = bool(fold_rows[-1]["passed"])
+                        in_sample_pass = passes_economic_gate(in_sample_gross, walkforward_gate)
+                        oos_gross_pass = in_sample_pass and passes_economic_gate(oos_gross, walkforward_gate)
+                        cost_adjusted_pass = oos_gross_pass and passes_economic_gate(aggregate, walkforward_gate)
                         is_pass = (
-                            aggregate["trades"] >= walkforward_gate["min_trades"]
-                            and aggregate["profit_factor"] >= walkforward_gate["min_profit_factor"]
-                            and aggregate["expectancy"] > walkforward_gate["min_expectancy"]
+                            cost_adjusted_pass
                             and folds_passed >= walkforward_gate["min_folds_passed"]
                             and (final_holdout or not walkforward_gate["final_holdout_required"])
                         )
+                        validation_funnel = {
+                            "in_sample": {**in_sample_gross, "passed": in_sample_pass},
+                            "oos_gross": {**oos_gross, "passed": oos_gross_pass},
+                            "cost_adjusted": {"trades": aggregate["trades"], "profit_factor": aggregate["profit_factor"], "expectancy": aggregate["expectancy"], "passed": cost_adjusted_pass},
+                            "stability": {"folds_passed": folds_passed, "folds_total": FOLDS, "final_holdout_passed": final_holdout, "passed": is_pass},
+                        }
                         reason = "WALKFORWARD_COST_ADJUSTED_PASS" if is_pass else failure_reason(aggregate,folds_passed,final_holdout,walkforward_gate)
                         identity = f"{search_run_id}:{strategy_code}:{market['symbol']}:{market['timeframe']}:{params}"
                         cursor.execute("""
@@ -173,18 +206,52 @@ def main() -> None:
                                 parameter_json,transaction_cost_bps,total_trades,net_profit_factor,
                                 net_expectancy,max_drawdown,folds_total,folds_passed,final_holdout_passed,
                                 fold_metrics,verdict_code,promotion_allowed,reason_code,source_version
-                                ,methodology_evidence
-                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,%s,%s,%s)
+                                ,methodology_evidence,in_sample_passed,oos_gross_passed,
+                                cost_adjusted_passed,stability_passed,validation_funnel
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false,%s,%s,%s,%s,%s,%s,%s,%s)
                         """, (
                             str(uuid.uuid5(NAMESPACE,identity)),str(search_run_id),family,strategy_code,
                             market["symbol"],market["timeframe"],psycopg2.extras.Json(params),
                             cost_bps,aggregate["trades"],aggregate["profit_factor"],aggregate["expectancy"],
                             aggregate["max_drawdown"],FOLDS,folds_passed,final_holdout,
                             psycopg2.extras.Json(fold_rows),"OOS_PASS" if is_pass else "OOS_FAIL",reason,SOURCE_VERSION,
-                            psycopg2.extras.Json(evidence),
+                            psycopg2.extras.Json(evidence),in_sample_pass,oos_gross_pass,
+                            cost_adjusted_pass,is_pass,psycopg2.extras.Json(validation_funnel),
                         ))
                         total += 1
                         passed += int(is_pass)
+            cursor.execute("""
+                WITH counts AS (
+                    SELECT count(*)::int total_variants,
+                        count(*) FILTER (WHERE in_sample_passed)::int in_sample_pass,
+                        count(*) FILTER (WHERE oos_gross_passed)::int oos_pass,
+                        count(*) FILTER (WHERE cost_adjusted_passed)::int after_costs_pass,
+                        count(*) FILTER (WHERE stability_passed)::int stable_pass
+                    FROM analytics.walkforward_edge_search_v3 WHERE search_run_id=%s
+                ), losses AS (
+                    SELECT * FROM counts CROSS JOIN LATERAL (VALUES
+                        ('IN_SAMPLE',total_variants-in_sample_pass),
+                        ('OOS',in_sample_pass-oos_pass),
+                        ('AFTER_COSTS',oos_pass-after_costs_pass),
+                        ('STABILITY',after_costs_pass-stable_pass)
+                    ) AS loss(stage_code,lost_variants)
+                ), bottleneck AS (
+                    SELECT l.*,r.recommendation_code,r.system_scenario_code
+                    FROM losses l JOIN analytics.edge_validation_funnel_remediation_v1 r USING(stage_code)
+                    WHERE r.active ORDER BY l.lost_variants DESC,r.priority DESC LIMIT 1
+                )
+                INSERT INTO analytics.edge_validation_funnel_analysis_v1
+                    (search_run_id,total_variants,in_sample_pass,oos_pass,after_costs_pass,
+                     stable_pass,bottleneck_stage,lost_variants,recommendation_code,system_scenario_code)
+                SELECT %s,total_variants,in_sample_pass,oos_pass,after_costs_pass,stable_pass,
+                    stage_code,lost_variants,recommendation_code,system_scenario_code FROM bottleneck
+                ON CONFLICT(search_run_id) DO UPDATE SET
+                    total_variants=EXCLUDED.total_variants,in_sample_pass=EXCLUDED.in_sample_pass,
+                    oos_pass=EXCLUDED.oos_pass,after_costs_pass=EXCLUDED.after_costs_pass,
+                    stable_pass=EXCLUDED.stable_pass,bottleneck_stage=EXCLUDED.bottleneck_stage,
+                    lost_variants=EXCLUDED.lost_variants,recommendation_code=EXCLUDED.recommendation_code,
+                    system_scenario_code=EXCLUDED.system_scenario_code
+            """,(str(search_run_id),str(search_run_id)))
     print(f"search_run_id={search_run_id}")
     print(f"freshness_minutes={FRESHNESS_MINUTES}")
     print(f"target_symbol={TARGET_SYMBOL or 'ALL'}")
