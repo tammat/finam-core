@@ -77,8 +77,54 @@ def load_symbols(conn, args: argparse.Namespace) -> list[str]:
         ).fetchall()
         return [r["symbol"] for r in rows]
 
-    rows = conn.execute("SELECT DISTINCT symbol FROM fills ORDER BY symbol").fetchall()
+    rows = conn.execute(
+        """
+        WITH current_fill_state AS (
+            SELECT f.symbol,count(*)::bigint AS fill_count,max(f.ts) AS max_fill_ts
+            FROM fills f
+            WHERE f.qty>0 AND f.price>0
+              AND NOT EXISTS (
+                SELECT 1 FROM analytics.paper_fill_anomaly_quarantine_v1 q
+                WHERE q.enabled AND q.symbol=f.symbol
+                  AND (q.side IS NULL OR upper(q.side)=upper(f.side))
+                  AND f.ts>=q.range_start AND f.ts<q.range_end
+              )
+            GROUP BY f.symbol
+        )
+        SELECT s.symbol
+        FROM current_fill_state s
+        LEFT JOIN analytics.paper_closed_trade_materializer_checkpoint_v2 c
+          ON c.symbol=s.symbol
+        WHERE c.symbol IS NULL OR c.fill_count<>s.fill_count
+           OR c.max_fill_ts IS DISTINCT FROM s.max_fill_ts
+        ORDER BY s.symbol
+        """
+    ).fetchall()
     return [r["symbol"] for r in rows]
+
+
+def save_checkpoint(conn, symbol: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO analytics.paper_closed_trade_materializer_checkpoint_v2(
+            symbol,fill_count,max_fill_ts,last_success_at,updated_at
+        )
+        SELECT f.symbol,count(*)::bigint,max(f.ts),clock_timestamp(),clock_timestamp()
+        FROM fills f
+        WHERE f.symbol=%s AND f.qty>0 AND f.price>0
+          AND NOT EXISTS (
+            SELECT 1 FROM analytics.paper_fill_anomaly_quarantine_v1 q
+            WHERE q.enabled AND q.symbol=f.symbol
+              AND (q.side IS NULL OR upper(q.side)=upper(f.side))
+              AND f.ts>=q.range_start AND f.ts<q.range_end
+          )
+        GROUP BY f.symbol
+        ON CONFLICT(symbol) DO UPDATE SET
+          fill_count=excluded.fill_count,max_fill_ts=excluded.max_fill_ts,
+          last_success_at=excluded.last_success_at,updated_at=excluded.updated_at
+        """,
+        (symbol,),
+    )
 
 
 def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
@@ -441,6 +487,8 @@ def main() -> int:
                     f"canonical_written={canonical_written} "
                     f"attribution_updated={attribution_updated}"
                 )
+                if not (args.symbol or args.symbols or args.symbol_pattern or args.from_ts or args.to_ts):
+                    save_checkpoint(conn, symbol)
 
         if args.apply:
             conn.commit()

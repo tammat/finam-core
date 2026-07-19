@@ -57,9 +57,26 @@ def inspect_positions() -> tuple[int, int]:
     return len(rows), breaches
 
 
+def sync_is_fresh() -> bool:
+    max_age = max(30, int(os.getenv("BROKER_POSITION_SYNC_MAX_AGE_SEC", "180")))
+    with psycopg2.connect(DB) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT status_code='HEALTHY'
+                          AND last_success_at>=clock_timestamp()-(%s*interval '1 second')
+                   FROM analytics.broker_position_sync_state_v1
+                   WHERE worker_code='FINAM_POSITION_SYNC'""",
+                (max_age,),
+            )
+            row = cursor.fetchone()
+    return bool(row and row[0])
+
+
 def cycle() -> None:
     record("RUNNING")
-    sync_broker_positions()
+    sync_result = sync_broker_positions()
+    if sync_result != 0 or not sync_is_fresh():
+        raise RuntimeError(f"BROKER_POSITION_SYNC_NOT_FRESH:return_code={sync_result}")
     positions, breaches = inspect_positions()
     status = "ALERT" if breaches else "HEALTHY"
     record(status, positions=positions, breaches=breaches)

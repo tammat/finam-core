@@ -72,22 +72,31 @@ class FuturesContractUniverseRepository:
         и контракты, близкие к экспирации.
         """
         sql = """
-        SELECT contract_symbol
-        FROM futures_contract_universe
-        WHERE root_symbol = %s
-          AND is_active = TRUE
-          AND status <> 'QUARANTINE'
-          AND (
-                expiration_date IS NULL
-             OR expiration_date > CURRENT_DATE + (%s || ' days')::interval
-          )
-        ORDER BY roll_priority, expiration_date NULLS LAST
+        WITH latest_decision AS (
+            SELECT selected_symbol AS contract_symbol,1 AS source_order,created_at
+            FROM analytics.futures_roll_decision_v1
+            WHERE root_symbol=%s AND selected_symbol IS NOT NULL
+              AND created_at>=clock_timestamp()-interval '7 days'
+            ORDER BY created_at DESC
+            LIMIT 1
+        ), calendar_fallback AS (
+            SELECT symbol AS contract_symbol,2 AS source_order,updated_at AS created_at
+            FROM public.futures_contract_calendar
+            WHERE root_symbol=%s
+              AND coalesce(last_trade_date,expiration_date)>CURRENT_DATE+(%s || ' days')::interval
+            ORDER BY coalesce(last_trade_date,expiration_date),updated_at DESC
+            LIMIT 1
+        )
+        SELECT contract_symbol FROM (
+            SELECT * FROM latest_decision UNION ALL SELECT * FROM calendar_fallback
+        ) chosen
+        ORDER BY source_order,created_at DESC
         LIMIT 1
         """
 
         with psycopg.connect(self.dsn) as conn:
             with conn.cursor() as cur:
-                cur.execute(sql, (root_symbol, roll_days))
+                cur.execute(sql, (root_symbol, root_symbol, roll_days))
                 row = cur.fetchone()
 
         return str(row[0]) if row else ""
@@ -104,12 +113,11 @@ class FuturesContractUniverseRepository:
         QUARANTINE исключается.
         """
         sql = """
-        SELECT contract_symbol
-        FROM futures_contract_universe
+        SELECT symbol
+        FROM public.futures_contract_calendar
         WHERE root_symbol = %s
-          AND is_active = TRUE
-          AND status <> 'QUARANTINE'
-        ORDER BY roll_priority, expiration_date NULLS LAST
+          AND coalesce(last_trade_date,expiration_date) >= CURRENT_DATE
+        ORDER BY coalesce(last_trade_date,expiration_date),updated_at DESC
         LIMIT %s
         """
 
@@ -119,4 +127,3 @@ class FuturesContractUniverseRepository:
                 rows = cur.fetchall()
 
         return [str(row[0]) for row in rows]
-

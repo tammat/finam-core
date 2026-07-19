@@ -19,6 +19,8 @@ from finam_core.risk.real_stock_safety_gate import RealStockSafetyGate
 import time
 import argparse
 import signal
+from datetime import datetime, time as wall_time, timedelta
+from zoneinfo import ZoneInfo
 
 # предотвращаем BrokenPipe при использовании grep/pipe
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -50,6 +52,41 @@ from finam_core.reconciliation.startup_recovery_gate import StartupRecoveryGate
 load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
 
 runtime_config = RuntimeConfig()
+MSK = ZoneInfo("Europe/Moscow")
+
+
+def _session_bounds(now: datetime) -> tuple[datetime, datetime] | None:
+    """Return the configured real-feed session containing ``now``."""
+    local = now.astimezone(MSK)
+    weekday = local.weekday()
+    if weekday == 5:  # Saturday
+        return None
+    if weekday == 6:  # Sunday session explicitly confirmed by the operator
+        start_at, end_at = wall_time(10, 0), wall_time(19, 0)
+    else:
+        start_at, end_at = wall_time(7, 0), wall_time(23, 50)
+    return (
+        datetime.combine(local.date(), start_at, tzinfo=MSK),
+        datetime.combine(local.date(), end_at, tzinfo=MSK),
+    )
+
+
+def _wait_for_real_session(args) -> datetime | None:
+    enabled = os.getenv("PAPER_MARKET_CALENDAR_IDLE", "1" if args.feed == "real" else "0") == "1"
+    if not enabled or args.feed != "real" or os.getenv("SIMULATE_MARKET", "0") == "1":
+        return None
+    last_notice = 0.0
+    while True:
+        now = datetime.now(MSK)
+        bounds = _session_bounds(now)
+        if bounds and bounds[0] <= now < bounds[1]:
+            print(f"PAPER_MARKET_SESSION_OPEN closes_at={bounds[1].isoformat()}", flush=True)
+            return bounds[1]
+        monotonic_now = time.monotonic()
+        if monotonic_now - last_notice >= 900 or last_notice == 0:
+            print(f"PAPER_MARKET_SESSION_IDLE now={now.isoformat()}", flush=True)
+            last_notice = monotonic_now
+        time.sleep(60)
 
 
 def parse_args():
@@ -211,6 +248,8 @@ def main() -> None:
     os.environ["QUOTE_LOG_EVERY"] = str(args.quote_log_every)
     os.environ["MD_HEARTBEAT_SEC"] = str(args.md_heartbeat_sec)
     os.environ["MD_FIRST_QUOTE_GRACE_SEC"] = str(args.md_first_quote_grace_sec)
+
+    session_end = _wait_for_real_session(args)
 
     symbol = args.symbol
 
@@ -445,6 +484,9 @@ def main() -> None:
     last_portfolio_refresh_ts = 0.0
 
     deadline = (time.time() + run_secs) if run_secs > 0 else None
+    if session_end is not None:
+        session_deadline = session_end.timestamp()
+        deadline = min(deadline, session_deadline) if deadline is not None else session_deadline
     try:
         while True:
             now = time.time()
@@ -468,7 +510,7 @@ def main() -> None:
                     print(f"PORTFOLIO_REFRESH_FAILED error={e}", flush=True)
 
             if deadline is not None and now >= deadline:
-                print("RUN_SECS reached, exit", flush=True)
+                print("PIPELINE_DEADLINE_REACHED", flush=True)
                 return
             time.sleep(0.2)
     finally:
