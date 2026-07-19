@@ -65,7 +65,7 @@ INSERT INTO analytics.system_job_schedule_v1 VALUES
  ('MARKET_OPEN_READINESS_SUNDAY','MARKET_OPEN_READINESS_V1',true,'Europe/Moscow',
   '[6]'::jsonb,'09:45','11:30',5,45,3,'V1',clock_timestamp()),
  ('HISTORICAL_EDGE_AUDIT_NIGHT','HISTORICAL_EDGE_AUDIT_ENQUEUE_V1',true,'Europe/Moscow',
-  '[0,1,2,3,4,5,6]'::jsonb,'00:10','06:30',1440,60,34,'V1_STRICT',clock_timestamp())
+  '[0,1,2,3,4,5,6]'::jsonb,'00:10','06:30',15,60,34,'V2_CHECKPOINT_CONTINUATION',clock_timestamp())
 ON CONFLICT(job_code) DO UPDATE SET
  executor_code=excluded.executor_code,enabled=true,timezone_code=excluded.timezone_code,
  weekdays=excluded.weekdays,window_start=excluded.window_start,window_end=excluded.window_end,

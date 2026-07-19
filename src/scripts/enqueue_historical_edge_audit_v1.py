@@ -16,11 +16,16 @@ NAMESPACE = uuid.UUID("154f765e-0ca0-4cc7-8ead-85a3c025c6e1")
 
 def main() -> int:
     day = datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat()
-    request_id = str(uuid.uuid5(NAMESPACE, f"{SOURCE}:{day}"))
-    process_id = uuid.UUID(request_id)
     decision = "ALREADY_ENQUEUED"
     with psycopg2.connect(DB) as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute("""SELECT count(*) FILTER(WHERE status_code='COMPLETE') completed,
+                                      count(*) total
+                FROM analytics.edge_regime_discovery_task_v3""")
+            checkpoint = cursor.fetchone()
+            checkpoint_key = f"{int(checkpoint['completed'] or 0)}:{int(checkpoint['total'] or 0)}"
+            request_id = str(uuid.uuid5(NAMESPACE, f"{SOURCE}:{day}:{checkpoint_key}"))
+            process_id = uuid.UUID(request_id)
             cursor.execute("""SELECT EXISTS(SELECT 1 FROM marketcore_action.command_request_v2
                 WHERE request_kind='EDGE_SEARCH_RUN' AND status IN ('PENDING','RUNNING')) active""")
             if cursor.fetchone()["active"]:
