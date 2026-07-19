@@ -172,4 +172,8 @@ class ResearchSnapshotV2:
     regime_tasks_total: int
     regime_progress_pct: int
     regime_status: str
+    operating_phase: str
+    next_session_at: datetime | None
+    live_chain_status: str
+    historical_audit_status: str
     generated_at: datetime

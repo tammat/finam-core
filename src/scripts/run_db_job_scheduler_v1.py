@@ -42,6 +42,8 @@ EXECUTORS = {
     "EDGE_STRICT_RULE_BUILD_V2": "src/scripts/build_edge_strict_rules_v2.py",
     "PAPER_CLOSED_TRADE_MATERIALIZER_V2": "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py",
     "PAPER_FILL_ANOMALY_DETECTOR_V1": "src/scripts/detect_paper_fill_anomalies_v1.py",
+    "MARKET_OPEN_READINESS_V1": "src/scripts/check_market_open_readiness_v1.py",
+    "HISTORICAL_EDGE_AUDIT_ENQUEUE_V1": "src/scripts/enqueue_historical_edge_audit_v1.py",
 }
 
 EXECUTOR_ARGUMENTS = {

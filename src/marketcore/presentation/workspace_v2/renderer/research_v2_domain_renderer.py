@@ -339,6 +339,30 @@ def _current_cycle_card(s):
         ))
     return RenderNodeV2(RenderNodeTypeV2.CARD,"research.current",state=RenderNodeStateV2(status_code=status),children=tuple(rows))
 
+def _operating_cycle_card(s):
+    status="OK" if s.live_chain_status == "HEALTHY" else "WARNING" if s.live_chain_status in {"WAITING","ATTENTION"} else "BLOCKED"
+    return RenderNodeV2(RenderNodeTypeV2.CARD,"research.operating",
+        state=RenderNodeStateV2(status_code=status),children=(
+            _leaf(RenderNodeTypeV2.TITLE,"research.operating.title",key="research.operating.title"),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.operating.phase",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.operating.phase.label",key="research.operating.phase"),
+                _domain(RenderNodeTypeV2.METRIC_VALUE,"research.operating.phase.value",s.operating_phase),
+            )),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.operating.status",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.operating.status.label",key="research.operating.status"),
+                _domain(RenderNodeTypeV2.METRIC_VALUE,"research.operating.status.value",s.live_chain_status),
+            )),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.operating.next",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.operating.next.label",key="research.operating.next"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.operating.next.value",value=s.next_session_at,
+                    fmt="DATETIME",key=None if s.next_session_at else "research.operating.session_open"),
+            )),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.operating.audit",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.operating.audit.label",key="research.operating.audit"),
+                _domain(RenderNodeTypeV2.METRIC_VALUE,"research.operating.audit.value",s.historical_audit_status),
+            )),
+        ))
+
 def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Moscow"):
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
     source_as_of=min(times) if times else s.generated_at
@@ -376,6 +400,7 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         _leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),
         _leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),
         RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),
+        _operating_cycle_card(s),
         _current_cycle_card(s),
     ]
     if s.validation_funnel_available:
