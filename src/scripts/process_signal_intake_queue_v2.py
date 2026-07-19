@@ -18,7 +18,7 @@ TERMINAL_SIGNAL_STATUSES = {
 
 
 def main() -> int:
-    completed = failed = waiting = recovered = 0
+    completed = failed = waiting = recovered = reconciled_fills = 0
     with psycopg2.connect(DB) as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute("SELECT pg_try_advisory_xact_lock(%s) locked", (LOCK_ID,))
@@ -39,6 +39,15 @@ def main() -> int:
                   AND started_at < clock_timestamp()-(%s * interval '1 minute')""",
                 (policy["stale_running_minutes"],))
             recovered = cursor.rowcount
+
+            cursor.execute("""UPDATE public.signals s
+                SET status='FILLED'
+                WHERE s.status IN ('ACCEPTED','RISK_ACCEPTED')
+                  AND EXISTS (
+                      SELECT 1 FROM public.signal_fills sf
+                      WHERE sf.signal_id=s.signal_id
+                  )""")
+            reconciled_fills = cursor.rowcount
 
             cursor.execute("""WITH picked AS (
                   SELECT signal_row_id FROM analytics.signal_intake_queue_v2
@@ -110,6 +119,7 @@ def main() -> int:
     print(f"waiting={waiting}")
     print(f"failed={failed}")
     print(f"recovered={recovered}")
+    print(f"reconciled_fills={reconciled_fills}")
     print("runtime_changed=0")
     print("execution_changed=0")
     print("live_allowed=0")

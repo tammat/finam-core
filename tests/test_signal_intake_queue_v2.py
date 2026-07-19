@@ -16,6 +16,10 @@ def test_signal_queue_is_db_driven_and_safe():
     assert "SIGNAL_LIFECYCLE_TIMEOUT_SECONDS" in worker
     assert "SET status='RISK_REJECTED'" in worker
     assert "signal_lifecycle_timeout" in worker
+    assert "reconciled_fills" in worker
+    assert "EXISTS (" in worker
+    assert "public.signal_fills" in worker
+    assert "SET status='FILLED'" in worker
     assert 'print("execution_changed=0")' in worker
     assert 'print("live_allowed=0")' in worker
 
