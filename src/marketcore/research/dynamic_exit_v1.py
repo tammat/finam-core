@@ -20,7 +20,7 @@ def _realized_volatility_bps(prices: Sequence[float], end: int, lookback: int) -
 def entry_allowed_v1(
     prices: Sequence[float], volumes: Sequence[float], index: int, side: int, policy: dict,
 ) -> bool:
-    if str(policy.get("entry_policy_code", "NONE")) != "META_ENTRY_V1":
+    if str(policy.get("entry_policy_code", "NONE")) not in ("META_ENTRY_V1", "META_ENTRY_V2"):
         return True
     trend_lookback = int(policy.get("entry_trend_lookback", policy.get("trend_lookback", 20)))
     vol_lookback = int(policy.get("entry_volatility_lookback", policy.get("volatility_lookback", 10)))
@@ -31,11 +31,17 @@ def entry_allowed_v1(
     historical_volume = [float(value) for value in volumes[index - vol_lookback:index] if float(value) >= 0]
     average_volume = statistics.fmean(historical_volume) if historical_volume else 0.0
     volume_ratio = float(volumes[index]) / average_volume if average_volume > 0 else 0.0
+    trend_mode = str(policy.get("entry_trend_mode", "WITH_TREND"))
+    trend_allowed = trend_mode == "OBSERVE" or trend * side > 0
+    volume_mode = str(policy.get("entry_volume_mode", "REQUIRE"))
+    volume_allowed = volume_mode == "OBSERVE" or volume_ratio >= float(
+        policy.get("entry_min_volume_ratio", policy.get("min_volume_ratio", 0.0))
+    )
     return (
-        trend * side > 0
+        trend_allowed
         and volatility >= float(policy.get("entry_min_volatility_bps", policy.get("min_volatility_bps", 0.0)))
         and volatility <= float(policy.get("entry_max_volatility_bps", policy.get("max_volatility_bps", 10000.0)))
-        and volume_ratio >= float(policy.get("entry_min_volume_ratio", policy.get("min_volume_ratio", 0.0)))
+        and volume_allowed
     )
 
 

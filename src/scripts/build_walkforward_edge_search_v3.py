@@ -13,6 +13,7 @@ from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, load_execution_context, metrics
 from scripts.edge_research_universe_v1 import load_research_universe
 from scripts.market_session_regime_v1 import session_breakdown
+from scripts.meta_entry_policy_v2 import apply_meta_entry_policy_v2, load_meta_entry_policy_v2
 
 
 SOURCE_VERSION = "WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS"
@@ -134,6 +135,7 @@ def main() -> None:
                     ORDER BY ts
                 """, (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cursor.fetchall()]
+                entry_policy = load_meta_entry_policy_v2(cursor, market["symbol"], market["timeframe"], bars)
                 evaluation_start = int(len(bars) * 0.40)
                 fold_span = max(1, (len(bars)-evaluation_start)//FOLDS)
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
@@ -147,6 +149,7 @@ def main() -> None:
                     strategy_bars = _attach_reference(cursor,bars,reference_symbol,market["timeframe"])
                     walkforward_gate = configuration["gate_policy"]["walkforward"]
                     for base_params in grid:
+                        base_params = apply_meta_entry_policy_v2(dict(base_params), entry_policy)
                         params = {
                             **base_params, "transaction_cost_bps": cost_bps,
                             "commission": roundtrip_cost, "slippage": 0.0,

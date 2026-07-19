@@ -27,6 +27,7 @@ EXECUTORS = {
     "WALKFORWARD": "src/scripts/build_walkforward_edge_search_v3.py",
     "GOVERN_EXPERIMENTS": "src/scripts/govern_research_experiments_v1.py",
     "METHODOLOGY_GATE": "src/scripts/evaluate_edge_methodology_contract_v1.py",
+    "BUILD_DIAGNOSTIC_FUNNELS": "src/scripts/build_edge_diagnostic_funnels_v1.py",
     "PROMOTE_OOS": "src/scripts/promote_regime_oos_to_canonical_v1.py",
     "VALIDATE_EDGE": "src/scripts/build_profit_funnel_validated_edge_v2.py",
     "OOS_FORWARD_HANDOFF": "src/scripts/build_profit_funnel_oos_forward_handoff_v2.py",

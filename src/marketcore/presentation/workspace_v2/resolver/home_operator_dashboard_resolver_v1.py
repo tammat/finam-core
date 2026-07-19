@@ -41,6 +41,7 @@ class HomeOperatorDashboardResolverV1:
             "home.operator.signal_funnel.subtitle",
             ("analytics.signal_funnel_snapshot_v1", "analytics.signal_funnel_reason_snapshot_v1"),
         ),
+        ("diagnostic_funnels","home.operator.diagnostic_funnels.title","home.operator.diagnostic_funnels.subtitle",("analytics.edge_diagnostic_funnel_run_v1",)),
         ("main_loss","home.operator.main_loss.title","home.operator.main_loss.subtitle",("analytics.edge_validation_funnel_analysis_v1","analytics.signal_funnel_snapshot_v1")),
         ("loss_solution","home.operator.loss_solution.title","home.operator.loss_solution.subtitle",("analytics.edge_validation_funnel_remediation_v1",)),
         (
@@ -88,6 +89,8 @@ class HomeOperatorDashboardResolverV1:
             return self._model_health_item(cur, item_code, title_key, subtitle_key)
         if item_code == "signal_funnel":
             return self._signal_funnel_item(cur, item_code, title_key, subtitle_key)
+        if item_code == "diagnostic_funnels":
+            return self._diagnostic_funnels_item(cur,item_code,title_key,subtitle_key)
         if item_code in ("main_loss","loss_solution"):
             return self._loss_item(cur,item_code,title_key,subtitle_key)
         rows_total = sum(self._safe_count(cur, table_name) for table_name in table_names)
@@ -199,6 +202,22 @@ class HomeOperatorDashboardResolverV1:
             rows_total=lost,updated_at=str(row.get("created_at") or ""),
             summary_message_key="home.operator.main_loss.summary" if item_code=="main_loss" else "home.operator.loss_solution.summary",
             summary_message_args={"stage":stage,"lost":lost,"solution":solution})
+
+    def _diagnostic_funnels_item(self,cur: Any,item_code: str,title_key: str,subtitle_key: str) -> HomeOperatorDashboardItemV1:
+        cur.execute("""WITH latest AS (SELECT search_run_id FROM analytics.edge_diagnostic_funnel_run_v1 ORDER BY created_at DESC LIMIT 1)
+            SELECT count(*) funnels,count(*) FILTER(WHERE status_code='PASS') passed,
+              coalesce((array_agg(d.title_ru ORDER BY r.lost_count DESC,d.display_order))[1],'Нет данных') bottleneck,
+              coalesce(max(r.lost_count),0) lost,max(r.created_at) updated_at
+            FROM analytics.edge_diagnostic_funnel_run_v1 r
+            JOIN analytics.edge_diagnostic_funnel_definition_v1 d USING(funnel_code)
+            WHERE r.search_run_id=(SELECT search_run_id FROM latest)""")
+        row=cur.fetchone() or {}
+        funnels=int(row.get("funnels") or 0); passed=int(row.get("passed") or 0)
+        status=UiStatusCode.OK if funnels and passed==funnels else UiStatusCode.WARNING
+        return HomeOperatorDashboardItemV1(item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
+            status_code=status,status_label_key=self._status_label_key(status),rows_total=funnels,
+            updated_at=str(row.get("updated_at") or ""),summary_message_key="home.operator.diagnostic_funnels.summary",
+            summary_message_args={"funnels":funnels,"passed":passed,"bottleneck":str(row.get("bottleneck") or "Нет данных"),"lost":int(row.get("lost") or 0)})
 
     def _updated_at(
         self,

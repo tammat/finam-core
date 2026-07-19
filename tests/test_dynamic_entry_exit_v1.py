@@ -11,6 +11,14 @@ def test_meta_entry_uses_only_history_and_requires_trend_volume() -> None:
     assert not entry_allowed_v1(prices, volumes, 29, -1, policy)
 
 
+def test_meta_entry_v2_can_observe_missing_volume_without_fabricating_it() -> None:
+    prices = [100.0 + index for index in range(30)]
+    policy = {"entry_policy_code":"META_ENTRY_V2","entry_trend_lookback":10,
+              "entry_volatility_lookback":5,"entry_volume_mode":"OBSERVE",
+              "entry_min_volatility_bps":0,"entry_max_volatility_bps":1000}
+    assert entry_allowed_v1(prices, [0.0] * 30, 29, 1, policy)
+
+
 def test_dynamic_exit_stops_before_maximum_when_trend_disappears() -> None:
     prices = [100,101,102,103,104,105,106,107,108,107,106,105,104]
     decision = dynamic_exit_v1(prices, 5, 1, 7, {

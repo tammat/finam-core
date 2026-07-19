@@ -44,7 +44,7 @@ def failure_reason(st, spf, sexp, vt, vpf, vexp, folds, p):
 
 
 def _meta_filter(params, i, side, prices, volumes):
-    if str(params.get("entry_policy_code", "NONE")) == "META_ENTRY_V1":
+    if str(params.get("entry_policy_code", "NONE")) in ("META_ENTRY_V1", "META_ENTRY_V2"):
         return entry_allowed_v1(prices, volumes, i, side, params)
     trend_lookback = int(params.get("trend_lookback", 40))
     volatility_lookback = int(params.get("volatility_lookback", 20))

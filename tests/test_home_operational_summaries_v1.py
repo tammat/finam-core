@@ -23,6 +23,8 @@ def test_home_cards_show_operational_summaries_not_algorithm_dump() -> None:
     solution = nodes["home.operator.loss_solution.primary_value"]
     assert loss.content.message_key == "home.operator.main_loss.summary"
     assert solution.content.message_key == "home.operator.loss_solution.summary"
+    diagnostic = nodes["home.operator.diagnostic_funnels.primary_value"]
+    assert diagnostic.content.message_key == "home.operator.diagnostic_funnels.summary"
 
 
 def test_operator_table_exposes_next_action() -> None:

@@ -10,6 +10,7 @@ import psycopg2
 import psycopg2.extras
 
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
+from scripts.meta_entry_policy_v2 import apply_meta_entry_policy_v2, load_meta_entry_policy_v2
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -118,6 +119,7 @@ def main() -> None:
             for market in markets:
                 cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts", (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
+                entry_policy = load_meta_entry_policy_v2(cur, market["symbol"], market["timeframe"], bars)
                 train_end = int(len(bars) * 0.50)
                 validation_end = int(len(bars) * 0.75)
                 regimes = regime_map(bars, validation_end)
@@ -132,6 +134,7 @@ def main() -> None:
                         continue
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     for base_params in grid:
+                        base_params = apply_meta_entry_policy_v2(dict(base_params), entry_policy)
                         params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0}
                         lookback = int(params["lookback"])
                         run = {"strategy_code": strategy_code, "parameter_json": params}
