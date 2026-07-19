@@ -996,6 +996,48 @@ class PaperTradingPipeline:
         key = f"duplicate_signal:{symbol}:{side}:{source}"
         return self._pipeline_log_throttle_allow(key)
 
+    def _reject_persisted_signal_v1(self, intent: dict, reason: str) -> None:
+        """Завершает сохранённый сигнал явным отказом, чтобы он не зависал в NEW."""
+        signal_id = str((intent or {}).get("signal_id") or "").strip()
+        repository = getattr(self, "signal_repository", None)
+        if not signal_id or repository is None:
+            return
+        try:
+            repository.mark_rejected(signal_id, str(reason or "unspecified_gate_rejection"))
+            print(
+                "PIPE_SIGNAL_LIFECYCLE_REJECTED_V1",
+                f"signal_id={signal_id}",
+                f"reason={reason}",
+                flush=True,
+            )
+        except Exception as exc:
+            LOG.exception(
+                "PIPE_SIGNAL_LIFECYCLE_REJECT_FAILED signal_id=%s reason=%s error=%s",
+                signal_id,
+                reason,
+                exc,
+            )
+
+    def _accept_persisted_signal_v1(self, intent: dict) -> None:
+        """Фиксирует admission перед фактической передачей в execution."""
+        signal_id = str((intent or {}).get("signal_id") or "").strip()
+        repository = getattr(self, "signal_repository", None)
+        if not signal_id or repository is None:
+            return
+        try:
+            repository.mark_accepted(signal_id)
+            print(
+                "PIPE_SIGNAL_LIFECYCLE_ACCEPTED_V1",
+                f"signal_id={signal_id}",
+                flush=True,
+            )
+        except Exception as exc:
+            LOG.exception(
+                "PIPE_SIGNAL_LIFECYCLE_ACCEPT_FAILED signal_id=%s error=%s",
+                signal_id,
+                exc,
+            )
+
     def attach(self):
         # Русский коммент: Pipeline B — подписываемся на QUOTE, а FILL применяем централизованно.
         self.bus.subscribe("QUOTE", self._on_quote)
@@ -2930,6 +2972,7 @@ class PaperTradingPipeline:
             dispatcher = getattr(self, "execution_dispatcher", None)
             if dispatcher is None:
                 print("PIPE_EXECUTION_DISPATCH_LIMIT_SKIP reason=dispatcher_not_configured", flush=True)
+                self._reject_persisted_signal_v1(intent, "limit_dispatcher_not_configured")
                 return True
 
             result = dispatcher.place_limit_order(
@@ -2946,10 +2989,19 @@ class PaperTradingPipeline:
                 f"reason={result.get('reason') if isinstance(result, dict) else getattr(result, 'reason', None)}",
                 flush=True,
             )
+            result_status = str(
+                result.get("status") if isinstance(result, dict) else getattr(result, "status", "")
+            ).upper()
+            if result_status in {"REJECTED", "FAILED", "ERROR"}:
+                result_reason = result.get("reason") if isinstance(result, dict) else getattr(result, "reason", None)
+                self._reject_persisted_signal_v1(intent, f"limit_execution:{result_reason or result_status.lower()}")
+            else:
+                self._accept_persisted_signal_v1(intent)
             return True
 
         if route == "STOP_ORDER":
             print("PIPE_EXECUTION_DISPATCH_STOP_SKIP reason=stop_route_not_enabled_yet", flush=True)
+            self._reject_persisted_signal_v1(intent, "stop_route_not_enabled")
             return True
 
         return False
@@ -4708,6 +4760,7 @@ class PaperTradingPipeline:
                     "paper_only=1",
                     flush=True,
                 )
+                self._reject_persisted_signal_v1(intent, f"runtime_strategy_blocked:{runtime_block_reason}")
                 return
         except Exception as exc:
             if str(sym) == "USDRUBF@RTSX":
@@ -4721,6 +4774,7 @@ class PaperTradingPipeline:
                     "real_trading_enabled=0",
                     flush=True,
                 )
+                self._reject_persisted_signal_v1(intent, f"runtime_strategy_block_check_failed:{type(exc).__name__}")
                 return
 
             print(
@@ -4763,6 +4817,7 @@ class PaperTradingPipeline:
             if prev_trend and prev_trend != regime.trend:
                 if (not is_exit_intent) and abs(regime.atr / price) < 0.01:
                     print("PIPE_TREND_FLIP_BLOCK", flush=True)
+                    self._reject_persisted_signal_v1(intent, "trend_flip_block")
                     return
             st["prev_trend"] = regime.trend
         except Exception:
@@ -4797,6 +4852,7 @@ class PaperTradingPipeline:
                     )
                 else:
                     print(msg, flush=True)
+                self._reject_persisted_signal_v1(intent, f"position_intent_block:{intent_reason}")
                 return
 
             hard_gate_allowed, hard_gate_reason = self._broker_position_hard_gate_allows_order(sym, side, current_qty)
@@ -4813,6 +4869,7 @@ class PaperTradingPipeline:
                     seen.add(block_key)
                     self._broker_position_hard_gate_order_block_seen = seen
 
+                self._reject_persisted_signal_v1(intent, f"broker_position_hard_gate:{hard_gate_reason}")
                 return
 
             protection_allowed, protection_reason = self._broker_protection_gate_allows_order(sym, side, current_qty)
@@ -4829,6 +4886,7 @@ class PaperTradingPipeline:
                     seen.add(block_key)
                     self._broker_protection_missing_seen = seen
 
+                self._reject_persisted_signal_v1(intent, f"broker_protection_gate:{protection_reason}")
                 return
 
             if self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "real":
@@ -4839,6 +4897,7 @@ class PaperTradingPipeline:
                         f"current_qty={current_qty} reason={recon_reason}",
                         flush=True,
                     )
+                    self._reject_persisted_signal_v1(intent, f"reconciliation_gate:{recon_reason}")
                     return
 
             # === PRIMARY TREND ALIGNMENT ===
@@ -4881,6 +4940,7 @@ class PaperTradingPipeline:
                             flush=True,
                         )
                     else:
+                        self._reject_persisted_signal_v1(intent, "trend_alignment_block")
                         return
 
             # === EXTRA IMPULSE FILTER ===
@@ -4902,6 +4962,7 @@ class PaperTradingPipeline:
                         flush=True,
                     )
                 else:
+                    self._reject_persisted_signal_v1(intent, "no_impulse_block")
                     return
 
             # === REMOVE DUPLICATE HARD FILTER (it caused over-blocking & loops) ===
@@ -4928,6 +4989,7 @@ class PaperTradingPipeline:
 
             if last_key == signal_key and (now_ts - last_ts) < dedup_ttl:
                 # duplicate suppressed silently (cooldown will handle)
+                self._reject_persisted_signal_v1(intent, "duplicate_signal")
                 return
 
             self._last_signal_key = signal_key
@@ -4970,9 +5032,11 @@ class PaperTradingPipeline:
 
                 else:
                     print("PIPE_PYRAMID_WAIT not_ready", flush=True)
+                    self._reject_persisted_signal_v1(intent, "pyramiding_not_ready")
                     return
             else:
                 print("PIPE_POSITION_BLOCK opposite_direction", flush=True)
+                self._reject_persisted_signal_v1(intent, "position_opposite_direction")
                 return
 
         # === REMOVE position exists guard (handled by pyramiding logic) ===
@@ -5003,12 +5067,14 @@ class PaperTradingPipeline:
                 f"PIPE_COOLDOWN_BLOCK symbol={sym} reason={cooldown_decision.reason}",
                 heartbeat_sec=60,
             )
+            self._reject_persisted_signal_v1(intent, f"cooldown:{cooldown_decision.reason}")
             return
 
         # === LOSS COOLDOWN CHECK ===
         if sym in self._cooldown_until:
             if time.time() < self._cooldown_until[sym]:
                 print("PIPE_LOSS_COOLDOWN_BLOCK", flush=True)
+                self._reject_persisted_signal_v1(intent, "loss_cooldown")
                 return
 
         limit_decision = trade_gate.trade_limit_allows(sym)
@@ -5017,6 +5083,7 @@ class PaperTradingPipeline:
                 print("PIPE_TRADE_LIMIT_BLOCK_GLOBAL", flush=True)
             else:
                 print(f"PIPE_TRADE_LIMIT_BLOCK_SYMBOL {sym}", flush=True)
+            self._reject_persisted_signal_v1(intent, f"trade_limit:{limit_decision.reason}")
             return
 
         # Русский комментарий:
@@ -5028,6 +5095,7 @@ class PaperTradingPipeline:
         kill_ok, kill_reason = self._portfolio_kill_switch_allows()
         if not kill_ok:
             print(f"PIPE_PORTFOLIO_KILL_SWITCH_BLOCK {kill_reason}", flush=True)
+            self._reject_persisted_signal_v1(intent, f"portfolio_kill_switch:{kill_reason}")
             return
 
         # =========================================================
@@ -5086,6 +5154,7 @@ class PaperTradingPipeline:
                                 flush=True,
                             )
                         else:
+                            self._reject_persisted_signal_v1(intent, f"runtime_governance:{phase2_decision.reason}")
                             return
                 except Exception as exc:
                     print(
@@ -5114,6 +5183,7 @@ class PaperTradingPipeline:
                             flush=True,
                         )
                     else:
+                        self._reject_persisted_signal_v1(intent, "session_side_execution_gate")
                         return
 
                 try:
@@ -5185,6 +5255,7 @@ class PaperTradingPipeline:
                                     "paper_only=1",
                                     flush=True,
                                 )
+                                self._reject_persisted_signal_v1(intent, f"runtime_strategy_blocked:{usdrubf_runtime_block_reason}")
                                 return
 
                         if ng_paper_bypass:
@@ -5194,6 +5265,7 @@ class PaperTradingPipeline:
                         elif usdrubf_paper_bypass:
                             print("USDRUBF_PAPER_ACCUMULATION_BYPASS", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", "runtime_allow=0", "execution_enabled=0", "paper_only=1", flush=True)
                         else:
+                            self._reject_persisted_signal_v1(intent, f"strict_edge_gate:{strict_decision.reason}")
                             return
                 except Exception as exc:
                     print(
@@ -5245,6 +5317,7 @@ class PaperTradingPipeline:
                     regime=regime,
                     price=price,
                 )
+                self._reject_persisted_signal_v1(intent, f"risk_router:{reject_reason}")
                 return
 
 
@@ -5325,6 +5398,10 @@ class PaperTradingPipeline:
                         flush=True,
                     )
                     self._kill_switch_active = True
+                    self._reject_persisted_signal_v1(
+                        intent,
+                        f"portfolio_risk:{getattr(decision, 'reason', 'blocked')}",
+                    )
                     return
 
                 if decision is not None:
@@ -5348,6 +5425,7 @@ class PaperTradingPipeline:
             if not anti_ok:
                 self._anti_reentry_blocked_count = int(getattr(self, "_anti_reentry_blocked_count", 0)) + 1
                 print(f"PIPE_ANTI_REENTRY_BLOCK {anti_reason}", flush=True)
+                self._reject_persisted_signal_v1(intent, f"anti_reentry:{anti_reason}")
                 return
 
             # =========================================================
@@ -5368,6 +5446,7 @@ class PaperTradingPipeline:
 
                 if heat > max_heat:
                     print(f"PIPE_PORTFOLIO_HEAT_BLOCK heat={round(heat,3)}", flush=True)
+                    self._reject_persisted_signal_v1(intent, "portfolio_heat")
                     return
 
                 print(f"PIPE_PORTFOLIO_HEAT_OK heat={round(heat,3)}", flush=True)
@@ -5390,6 +5469,7 @@ class PaperTradingPipeline:
 
                 if symbol_heat > max_symbol_heat:
                     print(f"PIPE_SYMBOL_HEAT_BLOCK heat={round(symbol_heat,3)}", flush=True)
+                    self._reject_persisted_signal_v1(intent, "symbol_heat")
                     return
 
                 print(f"PIPE_SYMBOL_HEAT_OK heat={round(symbol_heat,3)}", flush=True)
@@ -5426,19 +5506,23 @@ class PaperTradingPipeline:
                 # === HARD LOCK (ONCE TRIGGERED) ===
                 if getattr(self, "_kill_switch_active", False):
                     print("PIPE_KILL_SWITCH_ACTIVE", flush=True)
+                    self._reject_persisted_signal_v1(intent, "kill_switch_active")
                     return
 
                 if dd < max_dd:
                     print(f"PIPE_KILL_SWITCH_DD dd={round(dd, 4)}", flush=True)
                     self._kill_switch_active = True
+                    self._reject_persisted_signal_v1(intent, "kill_switch_drawdown")
                     return
 
                 if realized < max_daily_loss * peak:
                     print(f"PIPE_KILL_SWITCH_DAILY pnl={round(realized, 2)}", flush=True)
                     self._kill_switch_active = True
+                    self._reject_persisted_signal_v1(intent, "kill_switch_daily_loss")
                     return
                 if realized < max_daily_loss * peak:
                     print(f"PIPE_KILL_SWITCH_DAILY pnl={round(realized,2)}", flush=True)
+                    self._reject_persisted_signal_v1(intent, "kill_switch_daily_loss")
                     return
 
             except Exception as e:
@@ -5454,6 +5538,7 @@ class PaperTradingPipeline:
 
         except Exception as e:
             print(f"PIPE_RISK_ERROR {e}", flush=True)
+            self._reject_persisted_signal_v1(intent, f"risk_error:{type(e).__name__}")
             return
         # =========================================================
         # === EXECUTION
@@ -5507,6 +5592,7 @@ class PaperTradingPipeline:
                         continue
 
                     print(f"PIPE_CLUSTER_BLOCK {new_cluster}", flush=True)
+                    self._reject_persisted_signal_v1(intent, f"cluster_block:{new_cluster}")
                     return
 
         except Exception:
@@ -5518,11 +5604,14 @@ class PaperTradingPipeline:
                 print(f"DEBUG PRICE FIX BEFORE EXEC {intent['price']}", flush=True)
             else:
                 print("PIPE_EXEC_BLOCK missing_price", flush=True)
+                self._reject_persisted_signal_v1(intent, "execution_missing_price")
                 return
         if intent.get("qty") is None or float(intent.get("qty", 0)) <= 0:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
+            self._reject_persisted_signal_v1(intent, "execution_invalid_qty")
             return
         if not self._usd_paper_pilot_allows_intent_v1(intent):
+            self._reject_persisted_signal_v1(intent, "usd_paper_pilot_gate")
             return
 
         if self._execute_routed_order_if_needed(intent, st):
@@ -5536,10 +5625,19 @@ class PaperTradingPipeline:
                 f"status={getattr(real_result, 'status', None)} order_id={getattr(real_result, 'order_id', None)} reason={getattr(real_result, 'reason', None)}",
                 flush=True,
             )
+            real_status = str(getattr(real_result, "status", "") or "").upper()
+            if real_status in {"REJECTED", "FAILED", "ERROR"}:
+                self._reject_persisted_signal_v1(
+                    intent,
+                    f"real_execution:{getattr(real_result, 'reason', real_status.lower())}",
+                )
+            else:
+                self._accept_persisted_signal_v1(intent)
             return
 
         if not self.runtime_config.get_bool("ENABLE_PAPER_FILLS", True):
             self._log_dedup("PIPE_PAPER_FILL_BLOCKED:main_execution", "PIPE_PAPER_FILL_BLOCKED source=main_execution")
+            self._reject_persisted_signal_v1(intent, "paper_fills_disabled")
             return
 
         # =========================================================
@@ -5548,12 +5646,15 @@ class PaperTradingPipeline:
         self._resolve_execution_symbol_if_enabled(intent, st)
 
         if not self._institutional_execution_gate_if_enabled(intent):
+            self._reject_persisted_signal_v1(intent, "institutional_execution_gate")
             return
 
         if not self._adaptive_regime_filter_if_enabled(intent):
+            self._reject_persisted_signal_v1(intent, "adaptive_regime_filter")
             return
 
         if not self._entry_confidence_gate_if_enabled(intent, st):
+            self._reject_persisted_signal_v1(intent, "entry_confidence_gate")
             return
 
         self._adaptive_position_size_if_enabled(intent, st)
@@ -5612,6 +5713,10 @@ class PaperTradingPipeline:
                                     flush=True,
                                 )
                             else:
+                                self._reject_persisted_signal_v1(
+                                    intent,
+                                    f"entry_gate:{gate_decision.gate}:{gate_decision.reason}",
+                                )
                                 return
 
                     # Русский комментарий:
@@ -5652,8 +5757,10 @@ class PaperTradingPipeline:
 
             except Exception as exc:
                 print(f"PIPE_ENTRY_GATE_COORDINATOR_ERROR {type(exc).__name__}:{exc}", flush=True)
+                self._reject_persisted_signal_v1(intent, f"entry_gate_error:{type(exc).__name__}")
                 return
 
+        self._accept_persisted_signal_v1(intent)
         raw_fill = self.paper.execute(intent, st)
 
         # === NORMALIZE FILL (define raw_qty and side ONCE) ===
@@ -5714,6 +5821,7 @@ class PaperTradingPipeline:
         # SAFETY: гарантируем корректный fill (также qty > 0)
         if not hasattr(fill, "side") or fill.side is None or fill.qty <= 0:
             LOG.error("FILL BUILD ERROR: invalid fill, intent=%s raw_fill=%s", intent, raw_fill)
+            self._reject_persisted_signal_v1(intent, "execution_invalid_fill")
             return
 
         print(

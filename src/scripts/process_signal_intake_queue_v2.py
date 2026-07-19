@@ -8,6 +8,10 @@ import psycopg2.extras
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 LOCK_ID = 941903129
+LIFECYCLE_TIMEOUT_SECONDS = max(
+    60,
+    int(os.getenv("SIGNAL_LIFECYCLE_TIMEOUT_SECONDS", "300")),
+)
 TERMINAL_SIGNAL_STATUSES = {
     "ACCEPTED", "RISK_ACCEPTED", "RISK_REJECTED", "FILLED", "CLOSED", "REJECTED"
 }
@@ -50,7 +54,8 @@ def main() -> int:
             items = cursor.fetchall()
 
             for item in items:
-                cursor.execute("""SELECT symbol,side,strategy,status
+                cursor.execute("""SELECT symbol,side,strategy,status,created_at,
+                        EXTRACT(EPOCH FROM (clock_timestamp()-created_at)) AS age_seconds
                     FROM public.signals WHERE id=%s""", (item["signal_row_id"],))
                 signal = cursor.fetchone()
                 if signal is None:
@@ -77,7 +82,16 @@ def main() -> int:
                         WHERE signal_row_id=%s""",
                         ("SIGNAL_" + signal_status, item["signal_row_id"]))
                     completed += 1
-                elif item["attempts"] >= policy["max_attempts"]:
+                elif (
+                    item["attempts"] >= policy["max_attempts"]
+                    or float(signal["age_seconds"] or 0.0) >= LIFECYCLE_TIMEOUT_SECONDS
+                ):
+                    cursor.execute("""UPDATE public.signals
+                        SET status='RISK_REJECTED',
+                            rejection_reason=COALESCE(rejection_reason,'signal_lifecycle_timeout')
+                        WHERE id=%s AND COALESCE(status,'NEW') NOT IN
+                            ('ACCEPTED','RISK_ACCEPTED','RISK_REJECTED','FILLED','CLOSED','REJECTED')""",
+                        (item["signal_row_id"],))
                     cursor.execute("""UPDATE analytics.signal_intake_queue_v2
                         SET status_code='FAILED',failure_code='SIGNAL_LIFECYCLE_TIMEOUT',
                             finished_at=clock_timestamp(),updated_at=clock_timestamp()

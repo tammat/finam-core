@@ -13,6 +13,9 @@ def test_signal_queue_is_db_driven_and_safe():
     assert "SIGNAL_INTAKE_QUEUE_V2" in scheduler
     assert "FOR UPDATE SKIP LOCKED" in worker
     assert "priority,next_attempt_at,enqueued_at" in worker
+    assert "SIGNAL_LIFECYCLE_TIMEOUT_SECONDS" in worker
+    assert "SET status='RISK_REJECTED'" in worker
+    assert "signal_lifecycle_timeout" in worker
     assert 'print("execution_changed=0")' in worker
     assert 'print("live_allowed=0")' in worker
 

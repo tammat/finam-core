@@ -105,6 +105,10 @@ class SignalRepository:
     def mark_rejected(self, signal_id: str, reason: str) -> None:
         self._update_status(signal_id, "RISK_REJECTED", reason)
 
+    def mark_accepted(self, signal_id: str) -> None:
+        """Фиксирует прохождение всех admission/risk gate до исполнения."""
+        self._update_status(signal_id, "RISK_ACCEPTED", None)
+
     def mark_filled(self, signal_id: str) -> None:
         self._update_status(signal_id, "FILLED", None)
 
