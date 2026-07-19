@@ -3,7 +3,7 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
-from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,InstrumentScoutItemV1,MethodologyGateFailureV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1
+from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,InstrumentScoutItemV1,MethodologyGateFailureV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1,StrategyDegradationV1
 
 def _utc(value):
     if value is None: return None
@@ -153,6 +153,24 @@ class ResearchV2Resolver:
                   ORDER BY created_at DESC LIMIT 1""")
                 validation_funnel=cursor.fetchone() or {}
                 cursor.execute("""WITH latest AS (
+                    SELECT search_run_id FROM analytics.edge_strategy_degradation_v1
+                    ORDER BY created_at DESC LIMIT 1)
+                  SELECT strategy_code,symbol,100*oos_retention AS oos_retention_pct,
+                    100*cost_retention AS cost_retention_pct,
+                    100*stability_retention AS stability_retention_pct,
+                    consecutive_degraded_cycles,degradation_code,promotion_blocked,
+                    research_quarantine_required
+                  FROM analytics.edge_strategy_degradation_v1
+                  WHERE search_run_id=(SELECT search_run_id FROM latest)
+                  ORDER BY research_quarantine_required DESC,consecutive_degraded_cycles DESC,
+                    strategy_code,symbol""")
+                strategy_degradation=tuple(StrategyDegradationV1(
+                    str(row["strategy_code"]),str(row["symbol"]),
+                    float(row["oos_retention_pct"]),float(row["cost_retention_pct"]),
+                    float(row["stability_retention_pct"]),int(row["consecutive_degraded_cycles"]),
+                    str(row["degradation_code"]),bool(row["promotion_blocked"]),
+                    bool(row["research_quarantine_required"])) for row in cursor.fetchall())
+                cursor.execute("""WITH latest AS (
                     SELECT DISTINCT ON(root_symbol) root_symbol,current_symbol,next_symbol,
                       selected_symbol,days_to_expiry,current_median_volume,next_median_volume,
                       decision_code,created_at
@@ -256,4 +274,4 @@ class ResearchV2Resolver:
                     str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
                     _utc(row["started_at"] or row["requested_at"]),tuple(dict(item) for item in row["available_actions"]),
                 ) for row in cursor.fetchall())
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),bool(validation_funnel.get("total")),int(validation_funnel.get("in_sample") or 0),int(validation_funnel.get("oos") or 0),int(validation_funnel.get("after_costs") or 0),int(validation_funnel.get("stable") or 0),str(validation_funnel.get("bottleneck_stage") or "NO_DATA"),int(validation_funnel.get("lost_variants") or 0),str(validation_funnel.get("recommendation_code") or "NO_DATA"),methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,now)
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),bool(validation_funnel.get("total")),int(validation_funnel.get("in_sample") or 0),int(validation_funnel.get("oos") or 0),int(validation_funnel.get("after_costs") or 0),int(validation_funnel.get("stable") or 0),str(validation_funnel.get("bottleneck_stage") or "NO_DATA"),int(validation_funnel.get("lost_variants") or 0),str(validation_funnel.get("recommendation_code") or "NO_DATA"),strategy_degradation,methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,now)

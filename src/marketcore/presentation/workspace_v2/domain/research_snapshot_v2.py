@@ -84,6 +84,18 @@ class EdgeSearchRunAuditV1:
     available_actions: tuple[dict[str, str], ...]
 
 @dataclass(frozen=True, slots=True)
+class StrategyDegradationV1:
+    strategy_code: str
+    symbol: str
+    oos_retention_pct: float
+    cost_retention_pct: float
+    stability_retention_pct: float
+    consecutive_cycles: int
+    degradation_code: str
+    promotion_blocked: bool
+    research_quarantine_required: bool
+
+@dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:
     supervisor_status: str
     active_symbols: int
@@ -142,6 +154,7 @@ class ResearchSnapshotV2:
     validation_bottleneck_stage: str
     validation_lost: int
     validation_recommendation: str
+    strategy_degradation: tuple[StrategyDegradationV1, ...]
     methodology_failures: tuple[MethodologyGateFailureV1, ...]
     futures_roll_items: tuple[FuturesRollItemV1, ...]
     scout_items: tuple[InstrumentScoutItemV1, ...]

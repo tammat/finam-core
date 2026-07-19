@@ -252,6 +252,63 @@ def main() -> None:
                     lost_variants=EXCLUDED.lost_variants,recommendation_code=EXCLUDED.recommendation_code,
                     system_scenario_code=EXCLUDED.system_scenario_code
             """,(str(search_run_id),str(search_run_id)))
+            cursor.execute("""
+                WITH policy AS (
+                    SELECT * FROM analytics.edge_strategy_degradation_policy_v1
+                    WHERE active ORDER BY created_at DESC LIMIT 1
+                ), counts AS (
+                    SELECT strategy_code,strategy_family,symbol,count(*)::int total_variants,
+                        count(*) FILTER (WHERE in_sample_passed)::int in_sample_pass,
+                        count(*) FILTER (WHERE oos_gross_passed)::int oos_pass,
+                        count(*) FILTER (WHERE cost_adjusted_passed)::int after_costs_pass,
+                        count(*) FILTER (WHERE stability_passed)::int stable_pass
+                    FROM analytics.walkforward_edge_search_v3 WHERE search_run_id=%s
+                    GROUP BY strategy_code,strategy_family,symbol
+                ), ratios AS (
+                    SELECT c.*,p.*,
+                        CASE WHEN in_sample_pass>0 THEN oos_pass::numeric/in_sample_pass ELSE 0 END oos_retention,
+                        CASE WHEN oos_pass>0 THEN after_costs_pass::numeric/oos_pass ELSE 0 END cost_retention,
+                        CASE WHEN after_costs_pass>0 THEN stable_pass::numeric/after_costs_pass ELSE 0 END stability_retention
+                    FROM counts c CROSS JOIN policy p
+                ), classified AS (
+                    SELECT r.*,CASE
+                        WHEN in_sample_pass=0 THEN 'NO_IN_SAMPLE_EDGE'
+                        WHEN oos_retention<min_oos_retention THEN 'OOS_COLLAPSE'
+                        WHEN cost_retention<min_cost_retention THEN 'COST_EROSION'
+                        WHEN stability_retention<min_stability_retention THEN 'UNSTABLE'
+                        WHEN stable_pass=0 THEN 'NO_STABLE_PASS'
+                        ELSE 'HEALTHY' END degradation_code
+                    FROM ratios r
+                ), sequenced AS (
+                    SELECT c.*,CASE WHEN degradation_code='HEALTHY' THEN 0 ELSE
+                        1+coalesce((SELECT d.consecutive_degraded_cycles
+                            FROM analytics.edge_strategy_degradation_v1 d
+                            WHERE d.strategy_code=c.strategy_code AND d.symbol=c.symbol
+                            ORDER BY d.created_at DESC LIMIT 1),0) END consecutive_cycles
+                    FROM classified c
+                )
+                INSERT INTO analytics.edge_strategy_degradation_v1
+                    (evaluation_id,search_run_id,strategy_code,strategy_family,symbol,total_variants,
+                     in_sample_pass,oos_pass,after_costs_pass,stable_pass,oos_retention,cost_retention,
+                     stability_retention,consecutive_degraded_cycles,degradation_code,promotion_blocked,
+                     research_quarantine_required,block_scope,policy_code)
+                SELECT gen_random_uuid(),%s,
+                    strategy_code,strategy_family,symbol,total_variants,in_sample_pass,oos_pass,
+                    after_costs_pass,stable_pass,oos_retention,cost_retention,stability_retention,
+                    consecutive_cycles,degradation_code,stable_pass=0,
+                    total_variants>=min_variants AND degradation_code<>'HEALTHY'
+                        AND consecutive_cycles>=quarantine_after_cycles,
+                    'STRATEGY_VERSION_RESEARCH',policy_code
+                FROM sequenced
+                ON CONFLICT(search_run_id,strategy_code,symbol) DO UPDATE SET
+                    total_variants=EXCLUDED.total_variants,in_sample_pass=EXCLUDED.in_sample_pass,
+                    oos_pass=EXCLUDED.oos_pass,after_costs_pass=EXCLUDED.after_costs_pass,
+                    stable_pass=EXCLUDED.stable_pass,oos_retention=EXCLUDED.oos_retention,
+                    cost_retention=EXCLUDED.cost_retention,stability_retention=EXCLUDED.stability_retention,
+                    consecutive_degraded_cycles=EXCLUDED.consecutive_degraded_cycles,
+                    degradation_code=EXCLUDED.degradation_code,promotion_blocked=EXCLUDED.promotion_blocked,
+                    research_quarantine_required=EXCLUDED.research_quarantine_required
+            """,(str(search_run_id),str(search_run_id)))
     print(f"search_run_id={search_run_id}")
     print(f"freshness_minutes={FRESHNESS_MINUTES}")
     print(f"target_symbol={TARGET_SYMBOL or 'ALL'}")

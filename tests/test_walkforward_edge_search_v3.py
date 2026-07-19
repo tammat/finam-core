@@ -39,6 +39,9 @@ def test_walkforward_search_is_cost_adjusted_and_fail_closed() -> None:
     assert "cost_adjusted_passed" in source
     assert "stability_passed" in source
     assert "validation_funnel" in source
+    assert "edge_strategy_degradation_v1" in source
+    assert "consecutive_degraded_cycles" in source
+    assert "research_quarantine_required" in source
 
 
 def test_regime_search_requires_auditable_futures_contract() -> None:

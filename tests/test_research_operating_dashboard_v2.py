@@ -31,6 +31,10 @@ def test_research_shows_auditable_validation_funnel() -> None:
     assert "edge_validation_funnel_analysis_v1" in analytics
     for scenario in ("GENERATE_NEW_ENTRY_HYPOTHESES", "EXPAND_REGIMES_AND_REDUCE_PARAMETERS", "GENERATE_COST_EFFICIENT_VARIANTS", "EXPAND_FOLDS_AND_REGIME_EVIDENCE"):
         assert scenario in analytics
+    assert "edge_strategy_degradation_policy_v1" in analytics
+    assert "quarantine_after_cycles" in analytics
+    assert "research_quarantine_required" in analytics
+    assert '"research.degradation.table"' in renderer
 
 
 def test_recommendation_cell_opens_real_db_backed_process_choices() -> None:
