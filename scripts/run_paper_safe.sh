@@ -16,12 +16,5 @@ USDRUB_CONTRACT="${USDRUB_CONTRACT:-USDRUBF@RTSX}"
 REAL_EXECUTION_SYMBOL_ALLOWLIST="${BR_CONTRACT}"
 export BR_CONTRACT NG_CONTRACT USDRUB_CONTRACT REAL_EXECUTION_SYMBOL_ALLOWLIST
 
-PORTFOLIO_SYMBOLS="${BR_CONTRACT},${USDRUB_CONTRACT},SBERP@MISX,PLZL@MISX,LKOH@MISX,VTBR@MISX,NVTK@MISX,X5@MISX,SFIN@MISX,OZON@MISX,EUTR@MISX,T@MISX,${NG_CONTRACT}"
-
-exec env PYTHONPATH=src venv/bin/python -u src/scripts/run_market_pipeline.py \
-  --symbol "${BR_CONTRACT}" \
-  --symbols "${PORTFOLIO_SYMBOLS}" \
-  --strategy vwap_bands_mr \
-  --run-secs 0 \
-  --quote-log-every 30 \
-  --enable-filter-engine
+exec env PYTHONPATH=src PAPER_SAFETY_MONITOR_INTERVAL_SEC="${PAPER_SAFETY_MONITOR_INTERVAL_SEC:-60}" \
+  venv/bin/python -u src/scripts/run_paper_safety_monitor_v1.py
