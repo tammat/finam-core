@@ -40,3 +40,9 @@ def test_expired_operator_decisions_remain_visible_but_disabled() -> None:
     assert '"EXPIRED" if expired else (' in presenter_source
     assert '"ACKNOWLEDGED" if str(item["selection_status"]) == "ACKNOWLEDGED"' in presenter_source
     assert "acknowledgeable = not expired" in presenter_source
+
+
+def test_operator_table_uses_sequential_display_numbers() -> None:
+    source = Path("src/marketcore/presentation/workspace_v2/renderer/home_v2_domain_renderer.py").read_text()
+    assert "for display_number, card in enumerate(cards, start=1):" in source
+    assert "value=display_number" in source

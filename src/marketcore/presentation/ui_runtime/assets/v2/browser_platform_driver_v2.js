@@ -206,12 +206,13 @@
                 this.openFunnelActions(sourceElement);
                 return;
             }
-            const requiresOperator = (row) => Array.from(row.cells)
-                .some((cell) => cell.textContent.trim() === "Требуется решение оператора");
-            if (!requiresOperator(sourceElement)) return;
-            const rows = Array.from(table.querySelectorAll('tbody tr[data-mc-action-id]:not([disabled])'))
-                .filter(requiresOperator)
-                .sort((left, right) => Number(left.cells[0]?.textContent || 999) - Number(right.cells[0]?.textContent || 999));
+            const requiresOperator = (row) => Boolean(row.dataset.mcActionId)
+                && !row.hasAttribute("disabled");
+            if (!requiresOperator(sourceElement)) {
+                this.announce("Для этой строки сейчас нет доступного действия");
+                return;
+            }
+            const rows = [sourceElement];
             if (!rows.length) return;
 
             this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
@@ -220,7 +221,7 @@
             const title = this.documentObject.createElement("h2");
             title.textContent = "Рекомендуемые действия";
             const hint = this.documentObject.createElement("p");
-            hint.textContent = "Выберите действие. Выполнение начнётся только после подтверждения.";
+            hint.textContent = "Выбранное действие будет поставлено в очередь.";
             const list = this.documentObject.createElement("div");
             list.className = "mc-action-dialog-list";
             rows.forEach((row) => {
@@ -239,9 +240,9 @@
                 itemReason.textContent = `${action}: ${reason}`;
                 item.append(itemTitle, itemReason);
                 item.addEventListener("click", async () => {
-                    if (!globalObject.confirm(`${commandLabel}: «${action}»?`)) return;
                     item.disabled = true;
                     dialog.close();
+                    dialog.remove();
                     try {
                         await this.actionSink({
                             actionId: row.dataset.mcActionId,

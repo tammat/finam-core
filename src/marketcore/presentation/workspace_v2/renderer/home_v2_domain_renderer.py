@@ -314,7 +314,7 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
         ),
     )
     rows = []
-    for card in cards:
+    for display_number, card in enumerate(cards, start=1):
         fields = {
             label_key: (value, format_code)
             for label_key, value, format_code in card.payload.get("operator_fields") or ()
@@ -330,7 +330,7 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
             "home.operator.next.wait"
         )
         values = (
-            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.priority",value=card.priority,format_code="INTEGER"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.priority",value=display_number,format_code="INTEGER"),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.action",message_key=_operator_domain_message_key(action_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.reason",message_key=_operator_domain_message_key(loss_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.effect",message_key=_operator_domain_message_key("NO_DATA" if effect_value is None else effect_value) if effect_value is None else None,value=effect_value,format_code=None if effect_value is None else "MONEY_RUB"),

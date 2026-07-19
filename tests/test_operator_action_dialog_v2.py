@@ -4,13 +4,20 @@ from pathlib import Path
 def test_double_click_opens_prioritized_operator_action_dialog() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert "openRecommendedActions(sourceElement)" in source
-    assert 'cell.textContent.trim() === "Требуется решение оператора"' in source
-    assert ".filter(requiresOperator)" in source
-    assert ".sort((left, right) => Number(left.cells[0]?.textContent" in source
+    assert 'Boolean(row.dataset.mcActionId)' in source
+    assert 'Для этой строки сейчас нет доступного действия' in source
+    assert "const rows = [sourceElement];" in source
     assert 'else this.openRecommendedActions(element);' in source
-    assert "globalObject.confirm" in source
     assert '"Принять рекомендацию"' in source
     assert '"Проверить результат"' in source
+
+
+def test_operator_choice_is_the_confirmation_and_dialog_is_removed() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    handler = source.split('item.addEventListener("click", async () => {', 1)[1].split("list.appendChild(item);", 1)[0]
+    assert "globalObject.confirm" not in handler
+    assert "dialog.close();" in handler
+    assert "dialog.remove();" in handler
 
 
 def test_research_dialog_closes_immediately_after_confirmation() -> None:
