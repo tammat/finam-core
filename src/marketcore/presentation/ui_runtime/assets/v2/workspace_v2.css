@@ -109,11 +109,39 @@ h1[data-mc-node="title"] { font-size: clamp(1.55rem, 2.8vw, 2.25rem); letter-spa
 [data-mc-node="card"] { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 16px; border: 1px solid #1b3a46; border-radius: 13px; background: #0c202a; }
 [data-mc-node="card"] [data-mc-node="text"] { color: #91a6b1; font-size: .78rem; line-height: 1.45; overflow-wrap: anywhere; }
 [data-mc-node-id="research.tiles"] { grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); margin: 18px 0 24px; }
-[data-mc-node-id^="research.tile."] { position: relative; min-height: 96px; padding: 13px 16px; }
-[data-mc-node-id^="research.tile."]::before { content: ""; position: absolute; top: 14px; right: 14px; width: 11px; height: 11px; border-radius: 50%; background: #f0ab42; box-shadow: 0 0 10px rgba(240,171,66,.65); }
-[data-mc-node-id^="research.tile."][data-mc-status="OK"]::before { background: #47d2b5; box-shadow: 0 0 10px rgba(71,210,181,.7); }
-[data-mc-node-id^="research.tile."][data-mc-status="BLOCKED"]::before { background: #ff5d77; box-shadow: 0 0 10px rgba(255,93,119,.72); }
-[data-mc-node-id^="research.tile."] [data-mc-node="metric_value"] { margin-top: auto; text-align: left; font-size: 1.35rem; }
+[data-mc-node="card"][data-mc-node-id^="research.tile."] { position: relative; min-height: 104px; padding: 13px 68px 13px 16px; }
+[data-mc-node="card"][data-mc-node-id^="research.tile."]::before {
+    content: ""; position: absolute; top: 13px; right: 13px; width: 46px; height: 20px;
+    border: 1px solid #31505a; border-radius: 10px;
+    background:
+        radial-gradient(circle at 9px 50%, rgba(255,93,119,.28) 0 4px, transparent 5px),
+        radial-gradient(circle at 23px 50%, #f0ab42 0 4px, transparent 5px),
+        radial-gradient(circle at 37px 50%, rgba(71,210,181,.28) 0 4px, transparent 5px),
+        #07131a;
+    box-shadow: inset 0 1px 4px rgba(0,0,0,.8), 0 0 8px rgba(240,171,66,.28);
+}
+[data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="OK"]::before {
+    background:
+        radial-gradient(circle at 9px 50%, rgba(255,93,119,.28) 0 4px, transparent 5px),
+        radial-gradient(circle at 23px 50%, rgba(240,171,66,.28) 0 4px, transparent 5px),
+        radial-gradient(circle at 37px 50%, #47d2b5 0 4px, transparent 5px),
+        #07131a;
+    box-shadow: inset 0 1px 4px rgba(0,0,0,.8), 0 0 9px rgba(71,210,181,.35);
+}
+[data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="BLOCKED"]::before {
+    background:
+        radial-gradient(circle at 9px 50%, #ff5d77 0 4px, transparent 5px),
+        radial-gradient(circle at 23px 50%, rgba(240,171,66,.28) 0 4px, transparent 5px),
+        radial-gradient(circle at 37px 50%, rgba(71,210,181,.28) 0 4px, transparent 5px),
+        #07131a;
+    box-shadow: inset 0 1px 4px rgba(0,0,0,.8), 0 0 9px rgba(255,93,119,.35);
+}
+[data-mc-node="card"][data-mc-node-id^="research.tile."] [data-mc-node="metric_value"] { margin-top: auto; text-align: left; font-size: 1.35rem; }
+[data-mc-node="card"][data-mc-node-id^="research.tile."] [data-mc-node-id$=".state"] {
+    position: absolute; right: 14px; bottom: 14px; color: #f0ab42; font-size: .69rem; font-weight: 800;
+}
+[data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="OK"] [data-mc-node-id$=".state"] { color: #62dec8; }
+[data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="BLOCKED"] [data-mc-node-id$=".state"] { color: #ff7b8f; }
 
 [data-mc-node="badge"] { display: inline-flex; width: max-content; padding: 4px 8px; border-radius: 999px; background: rgba(63, 210, 184, .11); color: #68e1ca; font-size: .68rem; font-weight: 750; }
 [data-mc-status="OK"], [data-mc-status="VERIFIED"], [data-mc-status="PASS"] { border-color: rgba(71, 210, 181, .42); }

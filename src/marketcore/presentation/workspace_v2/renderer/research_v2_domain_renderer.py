@@ -31,7 +31,11 @@ def _recommendation(node_id, item):
         "actions": list(item.available_actions),
     })
 
-def _tile(code, value, status):
+def _tile(code, value, status, status_key=None):
+    status_key = status_key or {
+        "OK": "research.tile.status.ready",
+        "BLOCKED": "research.tile.status.blocked",
+    }.get(status, "research.tile.status.attention")
     return RenderNodeV2(
         RenderNodeTypeV2.CARD,
         f"research.tile.{code}",
@@ -39,6 +43,8 @@ def _tile(code, value, status):
         children=(
             _leaf(RenderNodeTypeV2.TITLE, f"research.tile.{code}.title", key=f"research.tile.{code}"),
             _leaf(RenderNodeTypeV2.METRIC_VALUE, f"research.tile.{code}.value", value=value, fmt="INTEGER"),
+            _leaf(RenderNodeTypeV2.TEXT, f"research.tile.{code}.state", key=status_key,
+                  args={"tooltip_key": f"{status_key}.tooltip"}),
         ),
     )
 
@@ -325,12 +331,18 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
     source_as_of=min(times) if times else s.generated_at
     tiles=(
-        _tile("instruments",s.active_symbols,"OK" if s.active_symbols else "WARNING"),
-        _tile("candidates",s.candidates,"OK" if s.candidates else "WARNING"),
-        _tile("oos_pass",s.oos_pass_total,"OK" if s.oos_pass_total else "WARNING"),
-        _tile("paper_ready",s.paper_ready,"OK" if s.paper_ready else "WARNING"),
-        _tile("queue",s.queue_pending,"WARNING" if s.queue_pending else "OK"),
-        _tile("progress",s.edge_search_progress_pct,"OK" if s.edge_search_progress_pct >= 100 else "WARNING"),
+        _tile("instruments",s.active_symbols,"OK" if s.active_symbols else "WARNING",
+              "research.tile.status.ready" if s.active_symbols else "research.tile.status.empty"),
+        _tile("candidates",s.candidates,"OK" if s.candidates else "WARNING",
+              "research.tile.status.found" if s.candidates else "research.tile.status.empty"),
+        _tile("oos_pass",s.oos_pass_total,"OK" if s.oos_pass_total else "WARNING",
+              "research.tile.status.pass" if s.oos_pass_total else "research.tile.status.no_pass"),
+        _tile("paper_ready",s.paper_ready,"OK" if s.paper_ready else "WARNING",
+              "research.tile.status.ready" if s.paper_ready else "research.tile.status.empty"),
+        _tile("queue",s.queue_pending,"WARNING" if s.queue_pending else "OK",
+              "research.tile.status.queue" if s.queue_pending else "research.tile.status.empty"),
+        _tile("progress",s.edge_search_progress_pct,"OK" if s.edge_search_progress_pct >= 100 else "WARNING",
+              "research.tile.status.ready" if s.edge_search_progress_pct >= 100 else "research.tile.status.running"),
     )
     governance_tiles=(
         _tile("global_trials",s.global_trials,"OK" if s.global_trials else "WARNING"),

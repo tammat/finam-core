@@ -10,7 +10,12 @@ def test_research_summary_is_compact_traffic_light_tiles() -> None:
     ).read_text()
     assert 'RenderNodeTypeV2.GRID,"research.tiles"' in renderer
     assert 'f"research.tile.{code}"' in renderer
-    assert '[data-mc-node-id^="research.tile."]::before' in css
+    assert '[data-mc-node="card"][data-mc-node-id^="research.tile."]::before' in css
+    assert 'research.tile.status.no_pass' in renderer
+    assert 'research.tile.status.running' in renderer
+    assert 'f"research.tile.{code}.state"' in renderer
+    assert '[data-mc-node-id$=".state"]' in css
+    assert '\n[data-mc-node-id^="research.tile."]::before' not in css
     assert 'RenderNodeTypeV2.METRIC_LIST,"research.metrics"' not in renderer
 
 
