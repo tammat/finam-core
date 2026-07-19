@@ -326,7 +326,7 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
         expires_value, _ = fields.get("home.operator.field.expires_at", (None, "DATETIME"))
         next_key = (
             "home.operator.next.open" if card.payload.get("operator_action_enabled") else
-            "home.operator.next.refresh" if str(verdict_value) == "EXPIRED" else
+            "home.operator.next.view" if str(verdict_value) == "EXPIRED" else
             "home.operator.next.wait"
         )
         values = (

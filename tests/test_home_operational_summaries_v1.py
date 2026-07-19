@@ -35,5 +35,5 @@ def test_operator_table_exposes_next_action() -> None:
     next_cells = [node for node in nodes if node.node_type is RenderNodeTypeV2.TABLE_CELL and node.node_id.endswith(".next")]
     assert next_cells
     assert all(cell.content.message_key in {
-        "home.operator.next.open", "home.operator.next.wait", "home.operator.next.refresh"
+        "home.operator.next.open", "home.operator.next.wait", "home.operator.next.view"
     } for cell in next_cells)

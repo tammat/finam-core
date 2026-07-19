@@ -3135,6 +3135,32 @@ class PaperTradingPipeline:
                 heartbeat_sec=300,
             )
 
+    def _is_verified_live_quote_event(self, event: dict, ts) -> bool:
+        """Выходное окно не должно принимать replay/sim за текущий рынок."""
+        if os.getenv("REPLAY_CAMPAIGN_ID") or os.getenv("REPLAY_ID"):
+            return False
+        if self.runtime_config.get_bool("SIMULATE_MARKET", False):
+            return False
+
+        feed = str(os.getenv("FINAM_CORE_FEED", "live")).strip().lower()
+        source = str(event.get("source") or event.get("feed") or feed).strip().lower()
+        if feed in {"sim", "simulation", "replay", "test"}:
+            return False
+        if source in {"sim", "simulation", "replay", "historical", "test"}:
+            return False
+
+        try:
+            from datetime import datetime, timezone
+
+            quote_ts = _coerce_mtf_ts(ts)
+            if quote_ts.tzinfo is None:
+                quote_ts = quote_ts.replace(tzinfo=timezone.utc)
+            age_seconds = abs((datetime.now(timezone.utc) - quote_ts.astimezone(timezone.utc)).total_seconds())
+            max_age_seconds = float(os.getenv("WEEKEND_LIVE_QUOTE_MAX_AGE_SEC", "120"))
+            return age_seconds <= max_age_seconds
+        except Exception:
+            return False
+
     def _on_quote_impl(self, event: dict):
         raw_intent = None
         is_exit_intent = False
@@ -3171,6 +3197,8 @@ class PaperTradingPipeline:
             from datetime import datetime, timezone
             ts = datetime.now(timezone.utc)
 
+        market_data_live = self._is_verified_live_quote_event(event, ts)
+
         # Русский коммент: рыночные данные сохраняем до session/risk/strategy фильтров.
         self._record_live_quote_to_storage(
             symbol=sym,
@@ -3193,7 +3221,7 @@ class PaperTradingPipeline:
         # =========================================================
         # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
-        session = self.session.get_regime(sym)
+        session = self.session.get_regime(sym, market_data_live=market_data_live)
         # === FORCE OVERRIDE (DEV MODE) ===
         if os.getenv("SESSION_OVERRIDE", "0") == "1":
             self._log_dedup(
@@ -4437,7 +4465,7 @@ class PaperTradingPipeline:
         # === SESSION FILTER (ЕДИНЫЙ ИСТОЧНИК, POST-ROUTER)
         # =========================================================
         try:
-            session = self.session.get_regime(sym)
+            session = self.session.get_regime(sym, market_data_live=market_data_live)
 
             if not session.get("allow_entries", False):
                 if os.getenv("SESSION_OVERRIDE", "0") == "1" or self.runtime_config.get_bool("SIMULATE_MARKET", False):

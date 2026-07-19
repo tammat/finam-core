@@ -5,7 +5,7 @@ def test_double_click_opens_prioritized_operator_action_dialog() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert "openRecommendedActions(sourceElement)" in source
     assert 'Boolean(row.dataset.mcActionId)' in source
-    assert 'Для этой строки сейчас нет доступного действия' in source
+    assert "this.openOperatorDetails(sourceElement)" in source
     assert "const rows = [sourceElement];" in source
     assert 'else this.openRecommendedActions(element);' in source
     assert '"Принять рекомендацию"' in source
@@ -41,3 +41,10 @@ def test_operator_action_dialog_has_runtime_styles() -> None:
     css = Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
     assert 'dialog[data-mc-action-dialog]' in css
     assert 'td[data-mc-node-id$=".status"] progress' in css
+
+
+def test_non_executable_operator_rows_remain_readable() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    assert "openOperatorDetails(row)" in source
+    assert 'node.node_id.startsWith("home.operator.action.")' in source
+    assert 'element.addEventListener("dblclick", () => this.openOperatorDetails(element));' in source

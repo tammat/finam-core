@@ -288,6 +288,39 @@ def _run_audit_table(items):
         )))
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.audit.table",children=(RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.audit.head",children=(header,)),RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.audit.body",children=tuple(rows))))
 
+def _current_cycle_card(s):
+    item=s.edge_search_runs[0] if s.edge_search_runs else None
+    if item is None:
+        return RenderNodeV2(RenderNodeTypeV2.CARD,"research.current",state=RenderNodeStateV2(status_code="WARNING"),children=(
+            _leaf(RenderNodeTypeV2.TITLE,"research.current.title",key="research.current.title"),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.empty",key="research.domain.no_data"),
+        ))
+    status="BLOCKED" if item.status == "FAILED" else "OK" if item.status == "SUCCEEDED" else "WARNING"
+    running=item.status in {"PENDING","QUEUED","RUNNING"}
+    return RenderNodeV2(RenderNodeTypeV2.CARD,"research.current",state=RenderNodeStateV2(status_code=status),children=(
+        _leaf(RenderNodeTypeV2.TITLE,"research.current.title",key="research.current.title"),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.status",children=(
+            _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.status.label",key="research.current.status"),
+            _domain(RenderNodeTypeV2.METRIC_VALUE,"research.current.status.value",item.status),
+        )),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.stage",children=(
+            _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.stage.label",key="research.current.stage"),
+            _domain(RenderNodeTypeV2.METRIC_VALUE,"research.current.stage.value",item.current_step),
+        )),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.progress",children=(
+            _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.progress.label",key="research.current.progress"),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.progress.value",value=item.progress_pct,fmt="DECIMAL"),
+        )),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.reason",children=(
+            _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.reason.label",key="research.current.reason"),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.reason.value",key="research.current.running") if running else _domain(RenderNodeTypeV2.METRIC_VALUE,"research.current.reason.value",item.reason),
+        )),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.next",children=(
+            _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.next.label",key="research.current.next"),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.next.value",key="research.current.wait") if running else _domain(RenderNodeTypeV2.METRIC_VALUE,"research.current.next.value",item.recommendation),
+        )),
+    ))
+
 def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Moscow"):
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
     source_as_of=min(times) if times else s.generated_at
@@ -298,8 +331,6 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         _tile("paper_ready",s.paper_ready,"OK" if s.paper_ready else "WARNING"),
         _tile("queue",s.queue_pending,"WARNING" if s.queue_pending else "OK"),
         _tile("progress",s.edge_search_progress_pct,"OK" if s.edge_search_progress_pct >= 100 else "WARNING"),
-        _tile("discovered",s.scout_discovered,"OK" if s.scout_status == "COMPLETE" else "WARNING"),
-        _tile("new_instruments",s.scout_selected,"OK" if s.scout_selected else "WARNING"),
     )
     governance_tiles=(
         _tile("global_trials",s.global_trials,"OK" if s.global_trials else "WARNING"),
@@ -312,5 +343,18 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
     )
     refresh=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.refresh",content=RenderContentV2(message_key="research.action.request_refresh"),action=RenderActionV2("research.request.refresh",ActionKindV2.COMMAND,command_code="RESEARCH.REQUEST_REFRESH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
     edge_search=RenderNodeV2(RenderNodeTypeV2.ACTION,"research.action.edge_search",content=RenderContentV2(message_key="research.action.run_edge_search"),action=RenderActionV2("research.edge_search.run",ActionKindV2.COMMAND,command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request"))
-    d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=(_leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),_leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),_leaf(RenderNodeTypeV2.TITLE,"research.validation_funnel.title",key="research.validation_funnel.title",level="SECTION"),_validation_funnel_tiles(s),_validation_funnel_recommendation(s),_leaf(RenderNodeTypeV2.TITLE,"research.degradation.title",key="research.degradation.title",level="SECTION"),_strategy_degradation_table(s.strategy_degradation),_leaf(RenderNodeTypeV2.TITLE,"research.governance.title",key="research.governance.title",level="SECTION"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.governance.tiles",children=governance_tiles),_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.scout.title",key="research.scout.title",level="SECTION"),_scout_schedule(s),_scout_table(s.scout_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results))),)))
+    children=[
+        _leaf(RenderNodeTypeV2.TITLE,"research.title",key="research.workspace.title",level="PAGE"),
+        _leaf(RenderNodeTypeV2.SUBTITLE,"research.subtitle",key="research.workspace.subtitle"),
+        RenderNodeV2(RenderNodeTypeV2.GRID,"research.tiles",children=tiles),
+        _current_cycle_card(s),
+    ]
+    if s.validation_funnel_available:
+        children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.validation_funnel.title",key="research.validation_funnel.title",level="SECTION"),_validation_funnel_tiles(s),_validation_funnel_recommendation(s)))
+    if s.strategy_degradation:
+        children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.degradation.title",key="research.degradation.title",level="SECTION"),_strategy_degradation_table(s.strategy_degradation)))
+    if s.global_trials:
+        children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.governance.title",key="research.governance.title",level="SECTION"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.governance.tiles",children=governance_tiles)))
+    children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.scout.title",key="research.scout.title",level="SECTION"),_scout_schedule(s),_scout_table(s.scout_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results)))
+    d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=tuple(children)),)))
     validate_render_document_v2(d); return d

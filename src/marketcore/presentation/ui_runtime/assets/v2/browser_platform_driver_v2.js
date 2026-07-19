@@ -209,7 +209,7 @@
             const requiresOperator = (row) => Boolean(row.dataset.mcActionId)
                 && !row.hasAttribute("disabled");
             if (!requiresOperator(sourceElement)) {
-                this.announce("Для этой строки сейчас нет доступного действия");
+                this.openOperatorDetails(sourceElement);
                 return;
             }
             const rows = [sourceElement];
@@ -266,6 +266,32 @@
             close.type = "button";
             close.className = "mc-action-dialog-close";
             close.textContent = "Отмена";
+            close.addEventListener("click", () => dialog.close());
+            dialog.addEventListener("close", () => dialog.remove());
+            dialog.append(title, hint, list, close);
+            this.documentObject.body.appendChild(dialog);
+            dialog.showModal();
+        }
+
+        openOperatorDetails(row) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const values = Array.from(row.cells).map((cell) => cell.textContent.trim());
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "operator-details");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = values[1] || "Решение оператора";
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = "Строка доступна для просмотра; исполняемого действия сейчас нет.";
+            const list = this.documentObject.createElement("dl");
+            list.className = "mc-v2-values";
+            [["Причина", values[2]], ["Эффект", values[3]], ["Статус", values[4]],
+             ["Срок", values[5]], ["Далее", values[6]]].forEach(([label, value]) => {
+                const key = this.documentObject.createElement("dt"); key.textContent = label;
+                const content = this.documentObject.createElement("dd"); content.textContent = value || "—";
+                list.append(key, content);
+            });
+            const close = this.documentObject.createElement("button");
+            close.type = "button"; close.className = "mc-action-dialog-close"; close.textContent = "Закрыть";
             close.addEventListener("click", () => dialog.close());
             dialog.addEventListener("close", () => dialog.remove());
             dialog.append(title, hint, list, close);
@@ -455,6 +481,17 @@
                         }
                     });
                 }
+            }
+            if (!node.action && node.type === "table_row" && node.node_id.startsWith("home.operator.action.")) {
+                element.setAttribute("role", "button");
+                element.setAttribute("tabindex", "0");
+                element.setAttribute("data-mc-interaction", "double-click");
+                element.setAttribute("title", "Двойной клик — посмотреть решение");
+                element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — посмотреть решение"));
+                element.addEventListener("dblclick", () => this.openOperatorDetails(element));
+                element.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") { event.preventDefault(); this.openOperatorDetails(element); }
+                });
             }
             if (context.displayValue !== null && context.displayValue !== undefined) {
                 element.textContent = String(context.displayValue);

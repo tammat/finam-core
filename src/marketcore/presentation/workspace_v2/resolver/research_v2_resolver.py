@@ -66,7 +66,7 @@ class ResearchV2Resolver:
                     WHERE s.run_id=%s
                     ORDER BY CASE s.decision_code WHEN 'SELECTED' THEN 1 WHEN 'RESERVE' THEN 2
                               WHEN 'BACKFILL' THEN 3 ELSE 4 END,s.research_score DESC,s.symbol
-                    LIMIT 600""",(scout.get("run_id"),))
+                    LIMIT 80""",(scout.get("run_id"),))
                 scout_items=tuple(InstrumentScoutItemV1(
                     str(row["symbol"]),str(row["category_code"]),int(row["bars"] or 0),
                     float(row["research_score"] or 0),str(row["decision_code"]),
@@ -108,8 +108,14 @@ class ResearchV2Resolver:
                     round(100.0*int(gate_counts.get(code) or 0)/gate_total,2) if gate_total else 0.0,
                     "NO_DATA" if not gate_total else ("PASS" if not int(gate_counts.get(code) or 0) else "FAIL")
                 ) for code in ("statistical","robustness","holdout","execution","capacity","portfolio"))
-                cursor.execute("""SELECT quote_symbols,spec_count,quote_status,spec_status
-                    FROM analytics.execution_model_health_v1""")
+                cursor.execute("""WITH quote_health AS (
+                      SELECT count(*) FILTER(WHERE health_status='FRESH' AND signal_allowed) quote_symbols,
+                             bool_or(health_status='FRESH' AND signal_allowed) quote_ready
+                      FROM analytics.microstructure_health_v1)
+                    SELECT q.quote_symbols,s.ready_count spec_count,
+                           CASE WHEN q.quote_ready THEN 'READY' ELSE 'STALE' END quote_status,
+                           s.health_code spec_status
+                    FROM quote_health q CROSS JOIN analytics.contract_spec_sync_health_v1 s""")
                 execution=cursor.fetchone() or {}
                 cursor.execute("""WITH latest AS (
                     SELECT scenario_run_id FROM analytics.research_global_experiment_v1

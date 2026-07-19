@@ -17,9 +17,11 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     assert len({row.node_id for row in rows}) == len(rows)
     assert all(len(row.children) == 7 for row in rows)
     actions = [row.action for row in rows if row.action is not None]
-    assert actions
     assert all(action.action_id in {"operator.decision.acknowledge", "operator.decision.measure"} for action in actions)
     assert all(action.reversible and action.target_id and action.idempotency_key for action in actions)
+    assert all(row.action is not None or row.children[6].content.message_key in {
+        "home.operator.next.view", "home.operator.next.wait"
+    } for row in rows)
     assert all(row.state.status_code in {"WARNING","BLOCKED"} for row in rows)
     assert all(row.state.quality_code == "UNVERIFIED" for row in rows)
     assert not [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]

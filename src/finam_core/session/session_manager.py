@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 class SessionManager:
@@ -10,14 +11,20 @@ class SessionManager:
     def __init__(self, market: str = "FORTS") -> None:
         self.market = str(market or "FORTS").upper()
 
-    def get_regime(self, symbol: str | None = None):
-        now = datetime.now()
+    def get_regime(
+        self,
+        symbol: str | None = None,
+        *,
+        market_data_live: bool = False,
+        now: datetime | None = None,
+    ):
+        now = now or datetime.now(ZoneInfo("Europe/Moscow"))
         h = now.hour
         m = now.minute
 
         # Русский комментарий: на выходных отдельное окно торгов 10:00–19:00 МСК.
-        if self._is_weekend():
-            return self._weekend_session(h, m)
+        if self._is_weekend(now):
+            return self._weekend_session(now, market_data_live=market_data_live)
 
         market = self.market
         if symbol:
@@ -35,19 +42,26 @@ class SessionManager:
     def _minute_of_day(self, h: int, m: int) -> int:
         return int(h) * 60 + int(m)
 
-    def _is_weekend(self) -> bool:
+    def _is_weekend(self, now: datetime | None = None) -> bool:
         """Русский комментарий: суббота/воскресенье для отдельного окна торгов."""
-        return datetime.now().weekday() in (5, 6)
+        current = now or datetime.now(ZoneInfo("Europe/Moscow"))
+        return current.weekday() in (5, 6)
 
-    def _weekend_session(self, h, m):
-        now_min = self._minute_of_day(h, m)
+    def _weekend_session(self, now: datetime, *, market_data_live: bool):
+        # Суббота остаётся закрытой. Воскресное окно работает только на live-потоке.
+        if now.weekday() != 6:
+            return {"phase": "closed", "allow_entries": False, "reason": "weekend_closed"}
+
+        now_min = self._minute_of_day(now.hour, now.minute)
         weekend_start = 10 * 60
         weekend_end = 19 * 60
 
         if weekend_start <= now_min < weekend_end:
-            return {"phase": "weekend", "allow_entries": True}
+            if market_data_live:
+                return {"phase": "weekend_live", "allow_entries": True, "reason": "verified_live_stream"}
+            return {"phase": "weekend_waiting_stream", "allow_entries": False, "reason": "live_stream_required"}
 
-        return {"phase": "closed", "allow_entries": False}
+        return {"phase": "closed", "allow_entries": False, "reason": "outside_sunday_window"}
 
     def _forts_session(self, h, m):
         now_min = self._minute_of_day(h, m)

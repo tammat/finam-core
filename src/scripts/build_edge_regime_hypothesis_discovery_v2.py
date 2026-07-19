@@ -11,6 +11,7 @@ import psycopg2.extras
 from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration, score
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades, metrics
 from scripts.edge_research_universe_v1 import load_research_universe
+from scripts.meta_entry_policy_v2 import apply_meta_entry_policy_v2, load_meta_entry_policy_v2
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -66,6 +67,7 @@ def main() -> None:
             for market in markets:
                 cur.execute("SELECT ts,close,coalesce(volume,0) AS volume FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL AND source NOT IN ('unknown','synthetic_futures_backfill_v1') AND (%s IS NULL OR ts < %s::date + interval '1 day') ORDER BY ts", (market["symbol"], market["timeframe"],market["expiration_date"],market["expiration_date"]))
                 bars = [Bar(row["ts"], float(row["close"]), float(row["volume"])) for row in cur.fetchall()]
+                entry_policy = load_meta_entry_policy_v2(cur, market["symbol"], market["timeframe"], bars)
                 cur.execute("""
                     SELECT DISTINCT ON (ts) ts,regime,confidence,source
                     FROM analytics_regime_snapshots_v2
@@ -92,11 +94,14 @@ def main() -> None:
                     strategy_code, grid = configuration["strategy_code"], configuration["grid"]
                     reference_symbol = configuration["regime_policy"].get("reference_symbol")
                     strategy_bars = _attach_reference(cur,bars,reference_symbol,market["timeframe"])
-                    allowed_regimes = configuration["regime_policy"]["allowed_regimes"]
+                    allowed_regimes = configuration["regime_policy"].get("allowed_regimes")
+                    if not allowed_regimes:
+                        raise RuntimeError(f"REGIME_POLICY_ALLOWED_REGIMES_MISSING:{family}")
                     validation_gate = configuration["gate_policy"]["validation"]
                     oos_gate = configuration["gate_policy"]["oos"]
                     regime_gate = configuration["gate_policy"]["regime"]
                     for base_params in grid:
+                        base_params = apply_meta_entry_policy_v2(dict(base_params), entry_policy)
                         params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0,
                                   "contract_symbol": market["symbol"] if market["expiration_date"] else None,
                                   "contract_root": market["contract_root"],
