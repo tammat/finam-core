@@ -29,6 +29,8 @@ def test_heavy_search_has_session_and_resource_guards() -> None:
     assert "EDGE_SEARCH_OUTSIDE_LOW_LOAD_WINDOW" in source
     assert "EDGE_SEARCH_SERVER_LOAD_HIGH" in source
     assert "EDGE_SEARCH_MEMORY_RESERVE_LOW" in source
+    assert "EDGE_SEARCH_DISK_RESERVE_LOW" in source
+    assert "load_resource_policy" in source
     assert "'RESOURCE_GUARD'" in source
     assert '"paper_shadow_priority_during_market_hours":true' in migration
     assert '"max_load_1m":2.5' in migration

@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import json
+import shutil
 import time
 import uuid
 from datetime import datetime
@@ -117,7 +118,15 @@ def resource_snapshot() -> dict[str, float]:
             if line.startswith("MemAvailable:"):
                 available_kb = int(line.split()[1])
                 break
-    return {"load_1m": load_1m, "memory_available_mb": available_kb / 1024.0}
+    return {"load_1m": load_1m, "memory_available_mb": available_kb / 1024.0,
+            "disk_free_gb": shutil.disk_usage(ROOT).free / (1024.0 ** 3)}
+
+
+def load_resource_policy(connection) -> dict:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT schedule_policy FROM analytics.edge_search_scenario_v1 WHERE scenario_code=%s",(SCENARIO_CODE,))
+        row=cursor.fetchone()
+    return dict(row[0] or {}) if row else {}
 
 
 def heavy_search_window_open(now: datetime | None = None) -> bool:
@@ -125,15 +134,18 @@ def heavy_search_window_open(now: datetime | None = None) -> bool:
     return current.weekday() >= 5 or current.hour < 9
 
 
-def resource_block_reason(snapshot: dict[str, float], now: datetime | None = None) -> str | None:
+def resource_block_reason(snapshot: dict[str, float], now: datetime | None = None, policy: dict | None = None) -> str | None:
+    policy=policy or {}
     if os.getenv("EDGE_SEARCH_FORCE", "0") == "1":
         return None
     if not heavy_search_window_open(now):
         return "EDGE_SEARCH_OUTSIDE_LOW_LOAD_WINDOW"
-    if snapshot["load_1m"] > float(os.getenv("EDGE_SEARCH_MAX_LOAD_1M", "2.5")):
+    if snapshot["load_1m"] > float(policy.get("max_load_1m",2.5)):
         return "EDGE_SEARCH_SERVER_LOAD_HIGH"
-    if snapshot["memory_available_mb"] < float(os.getenv("EDGE_SEARCH_MIN_MEMORY_MB", "3072")):
+    if snapshot["memory_available_mb"] < float(policy.get("min_memory_available_mb",3072)):
         return "EDGE_SEARCH_MEMORY_RESERVE_LOW"
+    if snapshot["disk_free_gb"] < float(policy.get("min_disk_free_gb",20)):
+        return "EDGE_SEARCH_DISK_RESERVE_LOW"
     return None
 
 
@@ -256,7 +268,8 @@ def main() -> int:
             if stale_runs:
                 print(f"stale_runs_reconciled={stale_runs}")
             snapshot = resource_snapshot()
-            block_reason = resource_block_reason(snapshot)
+            resource_policy = load_resource_policy(lock_connection)
+            block_reason = resource_block_reason(snapshot,policy=resource_policy)
             if block_reason:
                 with psycopg2.connect("postgresql:///finam_core") as status_connection:
                     with status_connection.cursor() as status_cursor:
@@ -271,6 +284,7 @@ def main() -> int:
                 print(f"reason={block_reason}")
                 print(f"load_1m={snapshot['load_1m']:.2f}")
                 print(f"memory_available_mb={snapshot['memory_available_mb']:.0f}")
+                print(f"disk_free_gb={snapshot['disk_free_gb']:.1f}")
                 print("live_allowed=0")
                 print("VERDICT=AUTONOMOUS_EDGE_SEARCH_RESOURCE_GUARD_OK")
                 return 0
