@@ -105,3 +105,14 @@ def test_evidence_accumulation_is_paper_only() -> None:
     assert "PIPE_STRICT_GATE_EVIDENCE_ACCUMULATION_V2" in pipeline
     assert 'os.getenv("REAL_TRADING_ENABLED", "0") != "1"' in pipeline
     assert 'os.getenv("EXECUTION_ENABLED", "0") != "1"' in pipeline
+
+
+def test_legacy_br_bypass_cannot_override_confirmed_negative_edge() -> None:
+    pipeline = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
+    block = pipeline[
+        pipeline.index("br_paper_bypass = (") :
+        pipeline.index("evidence_accumulation_bypass = (")
+    ]
+    assert "strict_mode_no_match" in block
+    assert "strict_mode_low_sample" in block
+    assert "strict_mode_non_positive_expectancy" not in block

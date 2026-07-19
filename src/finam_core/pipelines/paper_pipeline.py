@@ -5219,6 +5219,10 @@ class PaperTradingPipeline:
                         br_paper_bypass = (
                             str(sym) == os.getenv("BR_STRICT_EDGE_BYPASS_SYMBOL", "BRN6@RTSX")
                             and self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
+                            and strict_decision.reason in {
+                                "strict_mode_no_match",
+                                "strict_mode_low_sample",
+                            }
                             and os.getenv("ENABLE_BR_STRICT_EDGE_ADVISORY_V1", "0") == "1"
                         )
 
