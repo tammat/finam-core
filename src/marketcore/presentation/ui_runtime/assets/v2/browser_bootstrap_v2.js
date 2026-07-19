@@ -43,17 +43,20 @@
         if (!exportedDriver || typeof exportedDriver.Driver !== "function") fail("BROWSER_BOOTSTRAP_V2_DRIVER_REQUIRED");
 
         const payload = await response.json();
+        const stagingElement = options.documentObject.createElement("div");
         const driver = new exportedDriver.Driver({
             documentObject: options.documentObject,
-            mountElement: options.mountElement,
+            mountElement: stagingElement,
             actionSink: options.actionSink
         });
-        return runtime.execute(payload, {
+        const result = runtime.execute(payload, {
             validator,
             driver,
             translate: options.translate,
             format: options.format
         });
+        options.mountElement.replaceChildren(...stagingElement.childNodes);
+        return result;
     }
 
     globalObject.MarketCoreBrowserBootstrapV2 = Object.freeze({
