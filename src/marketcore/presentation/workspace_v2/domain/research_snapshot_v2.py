@@ -125,6 +125,15 @@ class ResearchSnapshotV2:
     execution_spec_count: int
     execution_quote_status: str
     execution_spec_status: str
+    global_trials: int
+    global_significance_pass: int
+    holdout_opened: int
+    holdout_reuse_blocked: int
+    pnl_units_ready: int
+    pnl_units_blocked: int
+    equity_experiments: int
+    futures_experiments: int
+    portfolio_selected: int
     methodology_failures: tuple[MethodologyGateFailureV1, ...]
     futures_roll_items: tuple[FuturesRollItemV1, ...]
     scout_items: tuple[InstrumentScoutItemV1, ...]

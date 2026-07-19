@@ -112,6 +112,41 @@ class ResearchV2Resolver:
                     FROM analytics.execution_model_health_v1""")
                 execution=cursor.fetchone() or {}
                 cursor.execute("""WITH latest AS (
+                    SELECT scenario_run_id FROM analytics.research_global_experiment_v1
+                    ORDER BY created_at DESC LIMIT 1)
+                  SELECT (SELECT count(*) FROM analytics.research_global_experiment_v1) global_trials,
+                    count(*) FILTER(WHERE verdict_code='PASS') global_pass,
+                    count(*) FILTER(WHERE asset_class='EQUITY') equity_experiments,
+                    count(*) FILTER(WHERE asset_class='FUTURES') futures_experiments
+                  FROM analytics.research_global_experiment_v1
+                  WHERE scenario_run_id=(SELECT scenario_run_id FROM latest)""")
+                governance=cursor.fetchone() or {}
+                cursor.execute("""WITH latest AS (
+                    SELECT scenario_run_id FROM analytics.pnl_unit_audit_v1
+                    ORDER BY audited_at DESC LIMIT 1)
+                  SELECT count(*) FILTER(WHERE status_code='READY') pnl_ready,
+                         count(*) FILTER(WHERE status_code='BLOCKED') pnl_blocked
+                  FROM analytics.pnl_unit_audit_v1
+                  WHERE scenario_run_id=(SELECT scenario_run_id FROM latest)""")
+                pnl_units=cursor.fetchone() or {}
+                cursor.execute("""WITH latest AS (
+                    SELECT search_run_id FROM analytics.research_global_experiment_v1
+                    ORDER BY created_at DESC LIMIT 1)
+                  SELECT count(DISTINCT (symbol,timeframe,holdout_start,holdout_end)) opened,
+                    (SELECT count(*) FROM analytics.walkforward_edge_search_v3
+                     WHERE search_run_id=(SELECT search_run_id FROM latest)
+                       AND methodology_evidence->>'holdout_access_code'='REUSED_BLOCKED') reused
+                  FROM analytics.research_holdout_snapshot_v1
+                  WHERE owner_search_run_id=(SELECT search_run_id FROM latest)""")
+                holdout=cursor.fetchone() or {}
+                cursor.execute("""WITH latest AS (
+                    SELECT scenario_run_id FROM analytics.edge_portfolio_selection_v1
+                    ORDER BY created_at DESC LIMIT 1)
+                  SELECT count(*) FILTER(WHERE selected) selected
+                  FROM analytics.edge_portfolio_selection_v1
+                  WHERE scenario_run_id=(SELECT scenario_run_id FROM latest)""")
+                portfolio_selection=cursor.fetchone() or {}
+                cursor.execute("""WITH latest AS (
                     SELECT DISTINCT ON(root_symbol) root_symbol,current_symbol,next_symbol,
                       selected_symbol,days_to_expiry,current_median_volume,next_median_volume,
                       decision_code,created_at
@@ -215,4 +250,4 @@ class ResearchV2Resolver:
                     str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
                     _utc(row["started_at"] or row["requested_at"]),tuple(dict(item) for item in row["available_actions"]),
                 ) for row in cursor.fetchall())
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,now)
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,now)

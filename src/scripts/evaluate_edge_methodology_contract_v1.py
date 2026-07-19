@@ -121,11 +121,25 @@ def main() -> int:
                     (row["strategy_code"],row["symbol"],row["timeframe"],p_hash,fold5["end"] if fold5 else None,str(evaluation_id)))
                 consumed = bool(cursor.fetchone()["consumed"])
                 evidence = row["methodology_evidence"]
+                cursor.execute("""SELECT experiment_no,adjusted_p_value,verdict_code
+                    FROM analytics.research_global_experiment_v1
+                    WHERE scenario_run_id=%s AND result_id=%s""", (scenario_run_id,row["result_id"]))
+                global_experiment = cursor.fetchone() or {}
+                global_adjusted_p = float(global_experiment.get("adjusted_p_value") or 1.0)
+                holdout_access = str(evidence.get("holdout_access_code") or "MISSING")
+                cursor.execute("""SELECT status_code FROM analytics.pnl_unit_audit_v1
+                    WHERE scenario_run_id=%s AND symbol=%s""", (scenario_run_id,row["symbol"]))
+                pnl_audit = cursor.fetchone() or {}
+                pnl_unit_status = str(pnl_audit.get("status_code") or "BLOCKED")
                 candidate_daily = {item["date"]:float(item["pnl"]) for item in evidence.get("daily_pnl",[])}
                 portfolio_corr,overlap = correlation(candidate_daily,portfolio)
-                statistical = q_values[index] <= float(policy["max_fdr_q"])
+                statistical = (
+                    q_values[index] <= float(policy["max_fdr_q"])
+                    and global_adjusted_p <= float(policy["max_fdr_q"])
+                    and global_experiment.get("verdict_code") == "PASS"
+                )
                 robustness = neighbors >= int(policy["min_robust_neighbors"])
-                holdout = bool(fold5 and fold5["passed"] and not consumed)
+                holdout = bool(fold5 and fold5["passed"] and not consumed and holdout_access == "OPENED")
                 execution = (
                     float(evidence.get("stressed_profit_factor",0)) >= float(policy["stress_min_profit_factor"])
                     and float(evidence.get("stressed_expectancy",0)) > 0
@@ -133,6 +147,7 @@ def main() -> int:
                     and float(evidence.get("average_fill_ratio",0)) >= float(execution_policy["minimum_fill_ratio"])
                     and float(evidence.get("fallback_quote_share",1)) <= float(execution_policy["max_fallback_quote_share"])
                     and float(evidence.get("contract_spec_coverage",0)) >= 1.0
+                    and pnl_unit_status == "READY"
                 )
                 capacity = float(evidence.get("capacity_rub",0)) >= float(policy["min_capacity_rub"])
                 portfolio_pass = (not portfolio_exists) or (overlap >= int(policy["min_portfolio_overlap_days"])
@@ -145,6 +160,8 @@ def main() -> int:
                 reasons = (["BASE_WALKFORWARD_FAILED"] if not base_pass else []) + [key for key,value in gates.items() if not value]
                 audit = {**evidence,"base_walkforward_pass":base_pass,"portfolio_overlap_days":overlap,
                          "empty_portfolio":not portfolio_exists,"contract_policy":policy,
+                         "global_adjusted_p_value":global_adjusted_p,
+                         "holdout_access_code":holdout_access,"pnl_unit_status":pnl_unit_status,
                          "execution_policy_code":execution_contract["policy_code"],
                          "execution_policy":execution_policy}
                 cursor.execute("""INSERT INTO analytics.edge_methodology_evaluation_v1
@@ -152,8 +169,9 @@ def main() -> int:
                    strategy_code,symbol,timeframe,parameter_core,parameter_hash,statistical_pass,
                    robustness_pass,holdout_pass,execution_pass,capacity_pass,portfolio_pass,fdr_q,
                    robust_neighbors,stressed_profit_factor,capacity_rub,portfolio_correlation,evidence,
-                   reason_codes,verdict_code,promotion_allowed)
-                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false)
+                   reason_codes,verdict_code,global_experiment_no,global_adjusted_p,
+                   holdout_access_code,pnl_unit_status,promotion_allowed)
+                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,false)
                   ON CONFLICT(scenario_run_id,result_id) DO UPDATE SET
                     statistical_pass=EXCLUDED.statistical_pass,robustness_pass=EXCLUDED.robustness_pass,
                     holdout_pass=EXCLUDED.holdout_pass,execution_pass=EXCLUDED.execution_pass,
@@ -161,13 +179,35 @@ def main() -> int:
                     fdr_q=EXCLUDED.fdr_q,robust_neighbors=EXCLUDED.robust_neighbors,
                     stressed_profit_factor=EXCLUDED.stressed_profit_factor,capacity_rub=EXCLUDED.capacity_rub,
                     portfolio_correlation=EXCLUDED.portfolio_correlation,evidence=EXCLUDED.evidence,
-                    reason_codes=EXCLUDED.reason_codes,verdict_code=EXCLUDED.verdict_code""",
+                    reason_codes=EXCLUDED.reason_codes,verdict_code=EXCLUDED.verdict_code,
+                    global_experiment_no=EXCLUDED.global_experiment_no,
+                    global_adjusted_p=EXCLUDED.global_adjusted_p,
+                    holdout_access_code=EXCLUDED.holdout_access_code,
+                    pnl_unit_status=EXCLUDED.pnl_unit_status""",
                     (str(evaluation_id),scenario_run_id,search_run_id,str(row["result_id"]),CONTRACT,
                      row["strategy_family"],row["strategy_code"],row["symbol"],row["timeframe"],
                      psycopg2.extras.Json(core),p_hash,statistical,robustness,holdout,execution,capacity,
                      portfolio_pass,q_values[index],neighbors,evidence.get("stressed_profit_factor",0),
                      evidence.get("capacity_rub",0),portfolio_corr,psycopg2.extras.Json(audit),
-                     psycopg2.extras.Json(reasons),verdict))
+                     psycopg2.extras.Json(reasons),verdict,
+                     int(global_experiment["experiment_no"]) if global_experiment else None,
+                     global_adjusted_p,holdout_access,pnl_unit_status))
+                risk_score = 1.0 / max(float(evidence.get("pnl_stdev",0)),1e-9)
+                capacity_score = min(1.0,float(evidence.get("capacity_rub",0))/max(float(policy["min_capacity_rub"]),1.0))
+                selection_id = uuid.uuid5(NAMESPACE,f"PORTFOLIO:{scenario_run_id}:{evaluation_id}")
+                cursor.execute("""INSERT INTO analytics.edge_portfolio_selection_v1
+                    (selection_id,scenario_run_id,evaluation_id,symbol,strategy_code,asset_class,
+                     marginal_correlation,risk_weight,capacity_weight,selected,reason_code,evidence)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT(scenario_run_id,evaluation_id) DO UPDATE SET
+                     marginal_correlation=EXCLUDED.marginal_correlation,risk_weight=EXCLUDED.risk_weight,
+                     capacity_weight=EXCLUDED.capacity_weight,selected=EXCLUDED.selected,
+                     reason_code=EXCLUDED.reason_code,evidence=EXCLUDED.evidence""",
+                    (str(selection_id),scenario_run_id,str(evaluation_id),row["symbol"],row["strategy_code"],
+                     "FUTURES" if str(row["symbol"]).endswith("@RTSX") else "EQUITY" if str(row["symbol"]).endswith("@MISX") else "OTHER",
+                     portfolio_corr,risk_score,capacity_score,verdict == "PASS",
+                     "SELECTED_INDEPENDENT_EDGE" if verdict == "PASS" else "METHODOLOGY_NOT_PASSED",
+                     psycopg2.extras.Json({"portfolio_overlap_days":overlap,"capacity_rub":evidence.get("capacity_rub",0)})))
                 if verdict == "PASS" and fold5:
                     consumption_id=uuid.uuid5(NAMESPACE,f"{evaluation_id}:{fold5['end']}")
                     cursor.execute("""INSERT INTO analytics.edge_holdout_consumption_v1

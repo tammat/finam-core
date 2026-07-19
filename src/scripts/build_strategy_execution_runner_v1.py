@@ -263,6 +263,53 @@ def _ema(values: list[float], period: int) -> float:
 
 def _orthogonal_side(code: str, bars: list[Bar], index: int, params: dict[str, Any]) -> int | None:
     threshold = float(params.get("threshold", 1.0))
+    if code == "FUTURES_CURVE_CARRY_V1":
+        reference = bars[index].reference_close
+        if not reference or reference <= 0 or bars[index].close <= 0:
+            return 0
+        carry_pct = math.log(bars[index].close / reference) * 100.0
+        return 1 if carry_pct >= threshold else (-1 if carry_pct <= -threshold else 0)
+    if code == "CALENDAR_SEASONALITY_V1":
+        lookback = int(params.get("lookback", 240))
+        current_ts = bars[index].ts
+        samples = []
+        for position in range(max(1, index-lookback), index):
+            ts = bars[position].ts
+            if getattr(ts, "weekday", lambda: -1)() == current_ts.weekday() and getattr(ts, "hour", -1) == current_ts.hour:
+                previous = bars[position-1].close
+                if previous > 0:
+                    samples.append((bars[position].close/previous)-1.0)
+        if len(samples) < int(params.get("min_calendar_samples", 4)):
+            return 0
+        expected_bps = statistics.fmean(samples) * 10000.0
+        return 1 if expected_bps >= threshold else (-1 if expected_bps <= -threshold else 0)
+    if code == "LIQUIDITY_SHOCK_REVERSION_V1":
+        lookback = int(params.get("lookback", 40))
+        returns = [
+            (bars[position].close/bars[position-1].close)-1.0
+            for position in range(index-lookback+1,index+1) if bars[position-1].close > 0
+        ]
+        volumes = [max(0.0,bars[position].volume) for position in range(index-lookback,index)]
+        if len(returns) < lookback or not volumes:
+            return 0
+        return_sigma = statistics.pstdev(returns[:-1])
+        median_volume = statistics.median(volumes)
+        if return_sigma <= 0 or median_volume <= 0 or bars[index].volume < median_volume*float(params.get("volume_multiple",2.0)):
+            return 0
+        z_score = returns[-1]/return_sigma
+        return -1 if z_score >= threshold else (1 if z_score <= -threshold else 0)
+    if code == "SESSION_GAP_CONTINUATION_V1":
+        if index < 20:
+            return 0
+        gap_seconds = (bars[index].ts-bars[index-1].ts).total_seconds()
+        if gap_seconds < float(params.get("minimum_gap_hours",6))*3600:
+            return 0
+        changes = [(bars[p].close/bars[p-1].close)-1.0 for p in range(index-19,index) if bars[p-1].close > 0]
+        sigma = statistics.pstdev(changes) if len(changes) > 1 else 0.0
+        gap_return = (bars[index].close/bars[index-1].close)-1.0 if bars[index-1].close > 0 else 0.0
+        if sigma <= 0 or abs(gap_return) < threshold*sigma:
+            return 0
+        return 1 if gap_return > 0 else -1
     if code == "EMA_TREND_FILTER_V1":
         fast = int(params.get("fast", 10))
         slow = int(params.get("slow", 40))
@@ -406,7 +453,7 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
         actual_participation = filled / max(entry.volume, filled)
         participation_fraction = min(1.0, actual_participation / participation_limit) if participation_limit else 1.0
         impact_bps = impact_at_limit * math.sqrt(participation_fraction)
-        gross = (exit_bar.close - entry.close) * side
+        gross_price = (exit_bar.close - entry.close) * side
         has_historical_quote = (
             entry.best_bid is not None and entry.best_ask is not None
             and exit_bar.best_bid is not None and exit_bar.best_ask is not None
@@ -415,21 +462,26 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
         if has_historical_quote:
             crossed_entry = float(entry.best_ask if side > 0 else entry.best_bid)
             crossed_exit = float(exit_bar.best_bid if side > 0 else exit_bar.best_ask)
-            spread_cost = max(0.0, gross - (crossed_exit-crossed_entry)*side)
+            spread_cost_price = max(0.0, gross_price - (crossed_exit-crossed_entry)*side)
             quote_source = "HISTORICAL_BID_ASK"
         else:
             half_spread_bps = spread_bps / 2.0
             crossed_entry = entry.close + side * entry.close * half_spread_bps / 10000.0
             crossed_exit = exit_bar.close - side * exit_bar.close * half_spread_bps / 10000.0
-            spread_cost = (entry.close + exit_bar.close) * half_spread_bps / 10000.0
+            spread_cost_price = (entry.close + exit_bar.close) * half_spread_bps / 10000.0
             quote_source = str(execution.get("quote_source", "POLICY_FALLBACK"))
         entry_impact = entry.close * impact_bps / 10000.0
         exit_impact = exit_bar.close * impact_bps / 10000.0
         executed_entry = crossed_entry + side * entry_impact
         executed_exit = crossed_exit - side * exit_impact
-        impact_cost = (entry.close + exit_bar.close) * impact_bps / 10000.0
-        execution_slippage = spread_cost + impact_cost + slippage
-        net = gross - commission - execution_slippage
+        impact_cost_price = (entry.close + exit_bar.close) * impact_bps / 10000.0
+        monetary_scale = filled * multiplier
+        gross = gross_price * monetary_scale
+        spread_cost = spread_cost_price * monetary_scale
+        impact_cost = impact_cost_price * monetary_scale
+        execution_slippage = spread_cost + impact_cost + slippage * monetary_scale
+        monetary_commission = commission * monetary_scale
+        net = gross - monetary_commission - execution_slippage
         trades.append(Trade(
             no=len(trades) + 1,
             side="BUY" if side > 0 else "SELL",
@@ -438,7 +490,7 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             entry_price=executed_entry,
             exit_price=executed_exit,
             gross_pnl=gross,
-            commission=commission,
+            commission=monetary_commission,
             slippage=execution_slippage,
             net_pnl=net,
             quantity=filled,
