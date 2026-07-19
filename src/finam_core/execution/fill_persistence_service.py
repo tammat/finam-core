@@ -50,6 +50,19 @@ class FillPersistenceService:
                 self._persist_signal_fill_linkage_v1(fill=fill, payload=payload)
             )
 
+        # Любой успешно связанный fill завершает lifecycle исходного сигнала.
+        # Повторный UPDATE безопасен и закрывает fallback-путь прямой записи связи.
+        if result["signal_linked"]:
+            signal_id = (
+                (payload or {}).get("signal_id")
+                or (payload or {}).get("source_signal_id")
+                or getattr(fill, "signal_id", None)
+            )
+            repository = getattr(self.attribution_service, "signal_repository", None)
+            if signal_id and repository is not None:
+                repository.mark_filled(str(signal_id))
+                result["signal_status"] = "FILLED"
+
         return result
 
     def _persist_signal_fill_linkage_v1(self, *, fill: Any, payload: dict | None) -> bool:
