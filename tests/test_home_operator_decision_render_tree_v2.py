@@ -25,10 +25,12 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     assert not [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD and node.node_id.startswith("home.operator.action.")]
     header = next(node for node in _walk(document.root) if node.node_id == "home.operator.actions.table.header")
     assert [cell.content.message_key for cell in header.children] == [
-        "column.operator.number", "column.operator.action", "column.operator.reason",
+        "column.operator.number", "column.operator.task", "column.operator.reason",
         "column.operator.effect", "column.operator.verdict",
-        "column.operator.next", "column.operator.deadline",
+        "column.operator.deadline", "column.operator.action",
     ]
+    assert all(row.children[4].content.message_key.startswith("home.operator.status.") for row in rows)
+    assert all(row.children[6].node_id.endswith(".next") for row in rows)
 
 
 def test_expired_operator_decisions_remain_visible_but_disabled() -> None:

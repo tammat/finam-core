@@ -66,6 +66,19 @@ def _operator_domain_message_key(value: Any) -> str:
     return f"home.operator.domain.{str(value).strip().lower()}"
 
 
+def _operator_compact_status_message_key(value: Any) -> str:
+    status = str(value or "").strip().upper()
+    return {
+        "ACKNOWLEDGED": "home.operator.status.accepted",
+        "EXPIRED": "home.operator.status.expired",
+        "BLOCKED": "home.operator.status.blocked",
+        "MEASURED": "home.operator.status.done",
+        "COMPLETED": "home.operator.status.done",
+        "PENDING": "home.operator.status.waiting",
+        "NEEDS_OPERATOR_DECISION": "home.operator.status.decision",
+    }.get(status, "home.operator.status.waiting")
+
+
 def _content_node(
     node_type: RenderNodeTypeV2,
     node_id: str,
@@ -278,12 +291,12 @@ def _card_node(card: BaseCard) -> RenderNodeV2:
 def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
     columns = (
         ("priority", "column.operator.number"),
-        ("action", "column.operator.action"),
+        ("task", "column.operator.task"),
         ("reason", "column.operator.reason"),
         ("effect", "column.operator.effect"),
         ("status", "column.operator.verdict"),
-        ("next", "column.operator.next"),
         ("expires", "column.operator.deadline"),
+        ("action", "column.operator.action"),
     )
     header = RenderNodeV2(
         RenderNodeTypeV2.TABLE_ROW,
@@ -318,9 +331,9 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.action",message_key=_operator_domain_message_key(action_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.reason",message_key=_operator_domain_message_key(loss_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.effect",message_key=_operator_domain_message_key("NO_DATA" if effect_value is None else effect_value) if effect_value is None else None,value=effect_value,format_code=None if effect_value is None else "MONEY_RUB"),
-            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.status",message_key=_operator_domain_message_key(verdict_value)),
-            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.next",message_key=next_key),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.status",message_key=_operator_compact_status_message_key(verdict_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.expires",value=expires_value,format_code="DATETIME"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.next",message_key=next_key),
         )
         rows.append(RenderNodeV2(
             RenderNodeTypeV2.TABLE_ROW,

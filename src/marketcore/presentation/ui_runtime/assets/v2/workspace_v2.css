@@ -169,21 +169,21 @@ article[role="link"][data-mc-action-id]:focus {
 
 [data-mc-node-id="home.operator.actions.table"] { width: 100%; min-width: 0; table-layout: fixed; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"],
-[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"] { min-width: 0; max-width: none; padding: 10px 8px; }
+[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"] { min-width: 0; max-width: none; padding: 10px 8px; overflow-wrap: anywhere; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(1),
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(1) { width: 4%; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(2),
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(2) { width: 23%; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(3),
-[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(3) { width: 23%; }
+[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(3) { width: 25%; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(4),
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(4) { width: 9%; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(5),
-[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(5) { width: 7%; }
+[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(5) { width: 10%; white-space: nowrap; overflow: hidden; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(6),
-[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(6) { width: 17%; }
+[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(6) { width: 14%; white-space: nowrap; }
 [data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_header_cell"]:nth-child(7),
-[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(7) { width: 17%; white-space: nowrap; }
+[data-mc-node-id="home.operator.actions.table"] [data-mc-node="table_cell"]:nth-child(7) { width: 15%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 [data-mc-node-id="research.audit.table"] { width: 100%; min-width: 0; table-layout: fixed; }
 [data-mc-node-id="research.audit.table"] [data-mc-node="table_header_cell"],
@@ -225,7 +225,7 @@ article[role="link"][data-mc-action-id]:focus {
     [data-mc-node="grid"] { grid-template-columns: 1fr; }
     [data-mc-node="table"] { width: max-content; min-width: 760px; }
     [data-mc-node="table_header_cell"], [data-mc-node="table_cell"] { padding: 10px; }
-    [data-mc-node-id="home.operator.actions.table"] { min-width: 700px; }
+    [data-mc-node-id="home.operator.actions.table"] { min-width: 900px; }
     [data-mc-ux-toast] { left: 16px; right: 16px; bottom: 16px; }
 }
 td.mc-progress-cell { min-width: 9rem; position: relative; }

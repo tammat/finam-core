@@ -5,8 +5,9 @@ def test_operator_table_has_fixed_compact_column_layout() -> None:
     css = Path("src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
     assert '[data-mc-node-id="home.operator.actions.table"] { width: 100%; min-width: 0; table-layout: fixed; }' in css
     assert ":nth-child(1) { width: 4%; }" in css
-    assert ":nth-child(5) { width: 7%; }" in css
-    assert ":nth-child(6) { width: 17%; }" in css
+    assert ":nth-child(5) { width: 10%; white-space: nowrap; overflow: hidden; }" in css
+    assert ":nth-child(6) { width: 14%; white-space: nowrap; }" in css
+    assert ":nth-child(7) { width: 15%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }" in css
 
 
 def test_confidence_header_is_abbreviated() -> None:

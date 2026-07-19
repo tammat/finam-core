@@ -25,7 +25,7 @@ def test_operator_table_exposes_next_action() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     nodes = list(walk(document.root))
     header = next(node for node in nodes if node.node_id == "home.operator.actions.table.header")
-    assert "column.operator.next" in [cell.content.message_key for cell in header.children]
+    assert header.children[-1].content.message_key == "column.operator.action"
     next_cells = [node for node in nodes if node.node_type is RenderNodeTypeV2.TABLE_CELL and node.node_id.endswith(".next")]
     assert next_cells
     assert all(cell.content.message_key in {
