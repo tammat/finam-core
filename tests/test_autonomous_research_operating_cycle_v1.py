@@ -29,3 +29,8 @@ def test_historical_audit_is_enqueued_not_executed_inline() -> None:
     assert "system.historical_audit" in source
     assert "subprocess" not in source
     assert "REAL_TRADING" not in source
+
+
+def test_heavy_edge_search_yields_to_runtime_services() -> None:
+    worker = Path("src/marketcore/action/command_worker_v2.py").read_text()
+    assert '("nice", "-n", "10", "ionice", "-c", "2", "-n", "7", *argv)' in worker

@@ -56,7 +56,12 @@ class SafeSubprocessCommandExecutorV2:
             "EXECUTION_ENABLED": "0",
             "REAL_TRADING_ENABLED": "0",
         })
-        result = subprocess.run(command.argv, cwd=ROOT, env=env, text=True, capture_output=True, timeout=command.timeout_seconds, check=False)
+        argv = command.argv
+        if command.request_kind == "EDGE_SEARCH_RUN":
+            # Research is intentionally best-effort: market data, accounting and
+            # safety processes always keep precedence on the shared server.
+            argv = ("nice", "-n", "10", "ionice", "-c", "2", "-n", "7", *argv)
+        result = subprocess.run(argv, cwd=ROOT, env=env, text=True, capture_output=True, timeout=command.timeout_seconds, check=False)
         output = f"{result.stdout}\n{result.stderr}"
         if result.returncode != 0:
             raise RuntimeError(f"WORKER_COMMAND_FAILED:{command.request_kind}:{result.returncode}")
