@@ -634,10 +634,13 @@ class PaperTradingPipeline:
         self.closed_trade_attribution_service = None
 
         try:
-            conn = getattr(self.pg_logger, "conn", None)
-            if conn is not None:
-                self.signal_repository = SignalRepository(conn)
+            connect = getattr(self.pg_logger, "_connect", None)
+            if callable(connect):
+                self.signal_repository = SignalRepository(connect)
                 self.closed_trade_attribution_service = ClosedTradeAttributionService(self.signal_repository)
+                print("PIPE_SIGNAL_REPOSITORY_READY mode=managed_connection", flush=True)
+            else:
+                print("PIPE_SIGNAL_REPOSITORY_UNAVAILABLE reason=no_connection_factory", flush=True)
         except Exception as exc:
             print(f"PIPE_SIGNAL_REPOSITORY_INIT_FAILED error={exc}", flush=True)
 
@@ -830,6 +833,15 @@ class PaperTradingPipeline:
 
     def _record_live_quote_to_storage(self, symbol: str, price: float, volume: float, ts) -> None:
         """Русский коммент: сохраняет live tick и закрытые MTF-свечи в PostgreSQL."""
+        quote_key = (_coerce_mtf_ts(ts), float(price), float(volume or 0.0))
+        last_keys = getattr(self, "_last_recorded_live_quote_key", None)
+        if last_keys is None:
+            last_keys = {}
+            self._last_recorded_live_quote_key = last_keys
+        if last_keys.get(symbol) == quote_key:
+            return
+        last_keys[symbol] = quote_key
+
         try:
             self.pg_logger.log_market_tick(
                 symbol=symbol,
@@ -3141,6 +3153,8 @@ class PaperTradingPipeline:
             return False
         if self.runtime_config.get_bool("SIMULATE_MARKET", False):
             return False
+        if event.get("ts") is None and event.get("timestamp") is None:
+            return False
 
         feed = str(os.getenv("FINAM_CORE_FEED", "live")).strip().lower()
         source = str(event.get("source") or event.get("feed") or feed).strip().lower()
@@ -3199,13 +3213,20 @@ class PaperTradingPipeline:
 
         market_data_live = self._is_verified_live_quote_event(event, ts)
 
-        # Русский коммент: рыночные данные сохраняем до session/risk/strategy фильтров.
-        self._record_live_quote_to_storage(
-            symbol=sym,
-            price=price,
-            volume=volume,
-            ts=ts,
-        )
+        # Старая snapshot-котировка не должна превращаться в новые M1/M5/M15 свечи.
+        if market_data_live:
+            self._record_live_quote_to_storage(
+                symbol=sym,
+                price=price,
+                volume=volume,
+                ts=ts,
+            )
+        else:
+            self._log_dedup(
+                f"PIPE_STALE_QUOTE_STORAGE_BLOCK:{sym}",
+                f"PIPE_STALE_QUOTE_STORAGE_BLOCK symbol={sym} quote_ts={ts}",
+                heartbeat_sec=300,
+            )
 
         # =========================================================
         # === PORTFOLIO KILL-SWITCH HARD GATE (BEFORE SESSION) ===
@@ -4582,18 +4603,32 @@ class PaperTradingPipeline:
 
                 except Exception as exc:
                     print(f"RUNTIME_GUARD_SOFT_BLOCK_FAILED error={exc}", flush=True)
+            else:
+                self.pg_logger.log_signal(
+                    symbol=intent.get("symbol"),
+                    strategy=intent.get("strategy"),
+                    side=intent.get("side"),
+                    qty=intent.get("qty"),
+                    status=intent.get("status", "NEW"),
+                    payload=intent,
+                )
+                print(
+                    f"PIPE_SIGNAL_PERSISTED_FALLBACK symbol={intent.get('symbol')} "
+                    f"strategy={intent.get('strategy')}",
+                    flush=True,
+                )
 
-                # Русский комментарий: runtime guard observability — только логирование, без блокировки исполнения.
-                try:
-                    hook = getattr(self, "runtime_guard_observability_hook_v1", None)
-                    if hook is None:
-                        from finam_core.analytics.runtime_guard_observability_hook_v1 import RuntimeGuardObservabilityHookV1
-                        hook = RuntimeGuardObservabilityHookV1()
-                        setattr(self, "runtime_guard_observability_hook_v1", hook)
+            # Русский комментарий: runtime guard observability — только логирование, без блокировки исполнения.
+            try:
+                hook = getattr(self, "runtime_guard_observability_hook_v1", None)
+                if hook is None:
+                    from finam_core.analytics.runtime_guard_observability_hook_v1 import RuntimeGuardObservabilityHookV1
+                    hook = RuntimeGuardObservabilityHookV1()
+                    setattr(self, "runtime_guard_observability_hook_v1", hook)
 
-                    hook.observe_signal(intent)
-                except Exception as exc:
-                    print(f"RUNTIME_GUARD_OBSERVABILITY_FAILED error={exc}", flush=True)
+                hook.observe_signal(intent)
+            except Exception as exc:
+                print(f"RUNTIME_GUARD_OBSERVABILITY_FAILED error={exc}", flush=True)
         except Exception as exc:
             LOG.warning("PIPE_SIGNAL_SAVE_FAILED error=%s", exc)
 
@@ -9176,11 +9211,41 @@ class PaperTradingPipeline:
             price = float(getattr(signal, "price", close_price) or close_price)
             reason = str(getattr(signal, "reason", "") or "equity_closed_bar_signal")
 
+            intent = {
+                "symbol": symbol,
+                "side": side,
+                "qty": qty,
+                "price": price,
+                "entry_price": price,
+                "strategy": strategy_name,
+                "timeframe": timeframe,
+                "horizon": "INTRADAY",
+                "status": "NEW",
+                "reason": reason,
+                "ts": getattr(bar, "ts", None),
+                "source": "equity_closed_bar",
+                "origin": "paper",
+            }
+
+            signal_id = None
+            repository = getattr(self, "signal_repository", None)
+            if repository is not None:
+                signal_id = repository.save_signal(intent)
+            else:
+                self.pg_logger.log_signal(
+                    symbol=symbol,
+                    strategy=strategy_name,
+                    side=side,
+                    qty=qty,
+                    status="NEW",
+                    payload=intent,
+                )
+
             print(
                 "PIPE_EQUITY_CLOSED_BAR_SIGNAL "
                 f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
                 f"side={side} qty={qty} price={price} reason={reason} "
-                "execution=disabled_trace_only",
+                f"signal_id={signal_id} persisted=1 execution=disabled_trace_only",
                 flush=True,
             )
 

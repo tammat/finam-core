@@ -39,7 +39,12 @@ def session_is_open(now: datetime, policy: dict) -> bool:
     local = now.astimezone(ZoneInfo(policy["session_timezone"]))
     start = time.fromisoformat(policy["session_start"])
     end = time.fromisoformat(policy["session_end"])
-    return local.weekday() < 5 and start <= local.time().replace(tzinfo=None) <= end
+    local_time = local.time().replace(tzinfo=None)
+    if local.weekday() == 5:
+        return False
+    if local.weekday() == 6:
+        return time(10, 0) <= local_time < time(19, 0)
+    return start <= local_time < end
 
 
 def main() -> int:

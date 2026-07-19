@@ -20,6 +20,7 @@ import os
 from finam_core.config.runtime_config import RuntimeConfig
 import threading
 import time
+from datetime import timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 import grpc
@@ -181,6 +182,17 @@ class FinamMarketDataClient:
                 return float(s)
             return float(v)
         except Exception:
+            return None
+
+    @staticmethod
+    def _quote_timestamp(quote):
+        """Возвращает биржевое время котировки, не время получения сообщения."""
+        value = getattr(quote, "timestamp", None)
+        if value is None:
+            return None
+        try:
+            return value.ToDatetime(tzinfo=timezone.utc)
+        except (AttributeError, TypeError, ValueError):
             return None
 
     def _start_watchdog(self):
@@ -354,6 +366,8 @@ class FinamMarketDataClient:
                 event = {
                     "type": "QUOTE",
                     "symbol": symbol,
+                    "ts": self._quote_timestamp(quote),
+                    "source": "finam_live",
                     "bid": state.get("bid"),
                     "ask": state.get("ask"),
                     "last": state.get("last"),

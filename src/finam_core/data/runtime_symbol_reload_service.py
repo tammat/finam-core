@@ -39,10 +39,12 @@ class RuntimeSymbolReloadService:
         active = list(dict.fromkeys(current + desired))
 
         current_set = set(current)
-        desired_set = set(desired)
-
         added = [s for s in desired if s not in current_set]
-        removed = [s for s in current if s not in desired_set and s != current[0]]
+
+        # Базовая подписка и накопленное состояние стратегий остаются активными.
+        # dynamic_watchlist здесь расширяет universe, но не владеет базовыми символами,
+        # поэтому отсутствие символа в очередной выборке не означает его удаление.
+        removed: list[str] = []
 
         return RuntimeSymbolReloadDecision(
             active_symbols=active,

@@ -18,7 +18,18 @@ from typing import Any, Optional
 
 class SignalRepository:
     def __init__(self, conn: Any):
+        """conn может быть соединением или фабрикой новых соединений."""
         self.conn = conn
+
+    def _acquire_connection(self) -> tuple[Any, bool]:
+        if callable(self.conn):
+            return self.conn(), True
+        return self.conn, False
+
+    @staticmethod
+    def _release_connection(conn: Any, managed: bool) -> None:
+        if managed:
+            conn.close()
 
     def save_signal(self, intent: dict) -> str:
         signal_id = str(intent.get("signal_id") or uuid.uuid4())
@@ -43,8 +54,10 @@ class SignalRepository:
 
         rr = self._calc_rr(entry_price, stop_loss, take_profit)
 
-        with self.conn.cursor() as cur:
-            cur.execute(
+        conn, managed = self._acquire_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
                 """
                 INSERT INTO signals (
                     signal_id,
@@ -83,9 +96,10 @@ class SignalRepository:
                     intent.get("status", "NEW"),
                     json.dumps(intent, ensure_ascii=False, default=str),
                 ),
-            )
-
-        self.conn.commit()
+                )
+            conn.commit()
+        finally:
+            self._release_connection(conn, managed)
         return signal_id
 
     def mark_rejected(self, signal_id: str, reason: str) -> None:
@@ -103,8 +117,10 @@ class SignalRepository:
         qty: float,
         price: float,
     ) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(
+        conn, managed = self._acquire_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
                 """
                 INSERT INTO signal_fills (
                     signal_id, fill_id, symbol, side, qty, price
@@ -112,9 +128,10 @@ class SignalRepository:
                 VALUES (%s,%s,%s,%s,%s,%s)
                 """,
                 (signal_id, fill_id, symbol, side, qty, price),
-            )
-
-        self.conn.commit()
+                )
+            conn.commit()
+        finally:
+            self._release_connection(conn, managed)
 
     def _update_status(
         self,
@@ -122,8 +139,10 @@ class SignalRepository:
         status: str,
         rejection_reason: Optional[str],
     ) -> None:
-        with self.conn.cursor() as cur:
-            cur.execute(
+        conn, managed = self._acquire_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
                 """
                 UPDATE signals
                 SET status = %s,
@@ -131,9 +150,10 @@ class SignalRepository:
                 WHERE signal_id = %s
                 """,
                 (status, rejection_reason, signal_id),
-            )
-
-        self.conn.commit()
+                )
+            conn.commit()
+        finally:
+            self._release_connection(conn, managed)
 
     @staticmethod
     def _calc_rr(entry, stop, take) -> Optional[float]:
