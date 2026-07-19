@@ -281,8 +281,8 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
         ("action", "column.operator.action"),
         ("reason", "column.operator.reason"),
         ("effect", "column.operator.effect"),
-        ("confidence", "column.operator.confidence"),
         ("status", "column.operator.verdict"),
+        ("next", "column.operator.next"),
         ("expires", "column.operator.deadline"),
     )
     header = RenderNodeV2(
@@ -306,16 +306,20 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
         action_value = card.payload.get("v2_value")
         loss_value, _ = fields.get("home.operator.field.loss_source", (None, "DOMAIN_CODE"))
         effect_value, _ = fields.get("home.operator.field.expected_profit_impact", (None, "MONEY_RUB"))
-        confidence_value, _ = fields.get("home.operator.field.confidence", (None, "PERCENT_RATIO"))
         verdict_value, _ = fields.get("home.operator.field.policy_verdict", (None, "DOMAIN_CODE"))
         expires_value, _ = fields.get("home.operator.field.expires_at", (None, "DATETIME"))
+        next_key = (
+            "home.operator.next.open" if card.payload.get("operator_action_enabled") else
+            "home.operator.next.refresh" if str(verdict_value) == "EXPIRED" else
+            "home.operator.next.wait"
+        )
         values = (
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.priority",value=card.priority,format_code="INTEGER"),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.action",message_key=_operator_domain_message_key(action_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.reason",message_key=_operator_domain_message_key(loss_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.effect",message_key=_operator_domain_message_key("NO_DATA" if effect_value is None else effect_value) if effect_value is None else None,value=effect_value,format_code=None if effect_value is None else "MONEY_RUB"),
-            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.confidence",value=confidence_value,format_code="PERCENT_RATIO"),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.status",message_key=_operator_domain_message_key(verdict_value)),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.next",message_key=next_key),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.expires",value=expires_value,format_code="DATETIME"),
         )
         rows.append(RenderNodeV2(

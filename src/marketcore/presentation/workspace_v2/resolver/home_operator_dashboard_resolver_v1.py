@@ -82,6 +82,10 @@ class HomeOperatorDashboardResolverV1:
     ) -> HomeOperatorDashboardItemV1:
         if item_code == "edge_search":
             return self._edge_search_item(cur, item_code, title_key, subtitle_key)
+        if item_code == "model_health":
+            return self._model_health_item(cur, item_code, title_key, subtitle_key)
+        if item_code == "signal_funnel":
+            return self._signal_funnel_item(cur, item_code, title_key, subtitle_key)
         rows_total = sum(self._safe_count(cur, table_name) for table_name in table_names)
         status_code = UiStatusCode.OK if rows_total > 0 else UiStatusCode.WARNING
 
@@ -103,18 +107,20 @@ class HomeOperatorDashboardResolverV1:
             ORDER BY started_at DESC LIMIT 1
         """)
         row = cur.fetchone() or {}
-        cur.execute("""
-            WITH latest AS (SELECT search_run_id FROM analytics.walkforward_edge_search_v3 WHERE source_version='WALKFORWARD_EDGE_SEARCH_V4_TRUSTED_BARS' ORDER BY created_at DESC LIMIT 1)
-            SELECT string_agg(strategy_family||' '||passes, ' · ' ORDER BY rank) AS algorithms
-            FROM (
-                SELECT strategy_family,count(*) FILTER (WHERE verdict_code='OOS_PASS')::text passes,
-                       CASE strategy_family WHEN 'RSI' THEN 1 WHEN 'VWAP' THEN 2 WHEN 'BOLLINGER' THEN 3 WHEN 'MOMENTUM' THEN 4 ELSE 5 END rank
-                FROM analytics.walkforward_edge_search_v3 WHERE search_run_id=(SELECT search_run_id FROM latest)
-                GROUP BY strategy_family
-            ) grouped
-        """)
-        algorithms = str((cur.fetchone() or {}).get("algorithms") or "Нет данных")
         status = str(row.get("status_code") or "NOT_RUN")
+        stage = str(row.get("current_step") or "NOT_RUN")
+        status_ru = {
+            "RUNNING": "В работе", "PASS_FOUND": "Есть PASS", "NO_PASS": "Без PASS",
+            "FAILED": "Ошибка", "NOT_RUN": "Не запускался",
+        }.get(status, status)
+        stage_ru = {
+            "STARTING": "Запуск", "SYNC_CONTRACT_SPECS": "Спецификации",
+            "AUDIT_PNL_UNITS": "Проверка P&L", "RESOLVE_FUTURES_ROLL": "Контракты",
+            "SYNC_ECONOMIC_HYPOTHESES": "Гипотезы", "DISCOVER_REGIME": "Режимы",
+            "WALKFORWARD": "Проверка", "GOVERN_EXPERIMENTS": "Статистика",
+            "METHODOLOGY_GATE": "Методология", "PROMOTE_OOS": "OOS",
+            "COMPLETE": "Завершено", "NOT_RUN": "Нет цикла",
+        }.get(stage, stage.replace("_", " ").title())
         status_code = UiStatusCode.OK if status == "PASS_FOUND" else UiStatusCode.WARNING
         return HomeOperatorDashboardItemV1(
             item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
@@ -123,12 +129,49 @@ class HomeOperatorDashboardResolverV1:
             updated_at=str(row.get("displayed_at") or ""),
             summary_message_key="home.operator.edge_search.summary",
             summary_message_args={
-                "status": status,
+                "status": status_ru,
+                "stage": stage_ru,
                 "progress": int(row.get("progress_pct") or 0),
                 "variants": int(row.get("combinations_evaluated") or 0),
                 "passes": int(row.get("oos_pass") or 0),
-                "algorithms": algorithms,
             },
+        )
+
+    def _model_health_item(self, cur: Any, item_code: str, title_key: str, subtitle_key: str) -> HomeOperatorDashboardItemV1:
+        cur.execute("""SELECT count(*) checks,max(created_at) updated_at
+            FROM analytics.marketcore_model_health_snapshot_v1""")
+        row = cur.fetchone() or {}
+        cur.execute("""SELECT count(*) recommendations
+            FROM analytics.marketcore_model_health_recommendation_v1""")
+        recommendations = int((cur.fetchone() or {}).get("recommendations") or 0)
+        checks = int(row.get("checks") or 0)
+        status = UiStatusCode.OK if checks and not recommendations else UiStatusCode.WARNING
+        return HomeOperatorDashboardItemV1(
+            item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
+            status_code=status,status_label_key=self._status_label_key(status),rows_total=checks,
+            updated_at=str(row.get("updated_at") or ""),summary_message_key="home.operator.model_health.summary",
+            summary_message_args={"checks":checks,"recommendations":recommendations},
+        )
+
+    def _signal_funnel_item(self, cur: Any, item_code: str, title_key: str, subtitle_key: str) -> HomeOperatorDashboardItemV1:
+        cur.execute("""WITH latest AS (
+              SELECT max(signal_funnel_snapshot_id) snapshot_id FROM analytics.signal_funnel_snapshot_v1)
+            SELECT max(stage_count) FILTER(WHERE stage_code='SIGNALS') signals,
+                   max(stage_count) FILTER(WHERE stage_code='ORDERS') orders,
+                   max(stage_count) FILTER(WHERE stage_code='TRADES') trades,
+                   max(pass_rate_pct) FILTER(WHERE stage_code='ORDERS') conversion,
+                   max(created_at) updated_at
+            FROM analytics.signal_funnel_stage_v1
+            WHERE signal_funnel_snapshot_id=(SELECT snapshot_id FROM latest)""")
+        row = cur.fetchone() or {}
+        signals,orders,trades = (int(row.get(code) or 0) for code in ("signals","orders","trades"))
+        status = UiStatusCode.OK if signals and trades else UiStatusCode.WARNING
+        return HomeOperatorDashboardItemV1(
+            item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
+            status_code=status,status_label_key=self._status_label_key(status),rows_total=signals,
+            updated_at=str(row.get("updated_at") or ""),summary_message_key="home.operator.signal_funnel.summary",
+            summary_message_args={"signals":signals,"orders":orders,"trades":trades,
+                                  "conversion":round(float(row.get("conversion") or 0),1)},
         )
 
     def _updated_at(

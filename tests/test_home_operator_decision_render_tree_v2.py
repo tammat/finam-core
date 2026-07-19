@@ -26,8 +26,8 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     header = next(node for node in _walk(document.root) if node.node_id == "home.operator.actions.table.header")
     assert [cell.content.message_key for cell in header.children] == [
         "column.operator.number", "column.operator.action", "column.operator.reason",
-        "column.operator.effect", "column.operator.confidence",
-        "column.operator.verdict", "column.operator.deadline",
+        "column.operator.effect", "column.operator.verdict",
+        "column.operator.next", "column.operator.deadline",
     ]
 
 
