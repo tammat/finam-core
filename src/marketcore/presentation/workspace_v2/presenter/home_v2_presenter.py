@@ -114,7 +114,7 @@ class HomeV2Presenter:
 
         clean_mode = os.getenv("MARKETCORE_HOME_CLEAN_MODE", "1") == "1"
         operator_items = self._operator_resolver.resolve()
-        clean_operator_codes = {"model_health", "edge_search", "signal_funnel"}
+        clean_operator_codes = {"model_health", "edge_search", "signal_funnel", "main_loss", "loss_solution"}
         operator_decisions = OperatorDecisionV2Resolver().resolve()
         operator_actions_section = BaseSection(
             section_id="home.operator.actions",

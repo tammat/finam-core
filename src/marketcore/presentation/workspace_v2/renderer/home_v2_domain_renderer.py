@@ -49,6 +49,8 @@ _HOME_TARGET_BY_WIDGET_ID = {
     "home.operator.recommendations": "container.research",
     "home.operator.edge_search": "container.research",
     "home.operator.signal_funnel": "container.edge",
+    "home.operator.main_loss": "container.research",
+    "home.operator.loss_solution": "container.research",
     "home.operator.risk": "container.risk",
     "home.operator.events": "container.program",
 }

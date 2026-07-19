@@ -41,6 +41,8 @@ class HomeOperatorDashboardResolverV1:
             "home.operator.signal_funnel.subtitle",
             ("analytics.signal_funnel_snapshot_v1", "analytics.signal_funnel_reason_snapshot_v1"),
         ),
+        ("main_loss","home.operator.main_loss.title","home.operator.main_loss.subtitle",("analytics.edge_validation_funnel_analysis_v1","analytics.signal_funnel_snapshot_v1")),
+        ("loss_solution","home.operator.loss_solution.title","home.operator.loss_solution.subtitle",("analytics.edge_validation_funnel_remediation_v1",)),
         (
             "risk",
             "home.operator.risk.title",
@@ -86,6 +88,8 @@ class HomeOperatorDashboardResolverV1:
             return self._model_health_item(cur, item_code, title_key, subtitle_key)
         if item_code == "signal_funnel":
             return self._signal_funnel_item(cur, item_code, title_key, subtitle_key)
+        if item_code in ("main_loss","loss_solution"):
+            return self._loss_item(cur,item_code,title_key,subtitle_key)
         rows_total = sum(self._safe_count(cur, table_name) for table_name in table_names)
         status_code = UiStatusCode.OK if rows_total > 0 else UiStatusCode.WARNING
 
@@ -173,6 +177,28 @@ class HomeOperatorDashboardResolverV1:
             summary_message_args={"signals":signals,"orders":orders,"trades":trades,
                                   "conversion":round(float(row.get("conversion") or 0),1)},
         )
+
+    def _loss_item(self,cur: Any,item_code: str,title_key: str,subtitle_key: str) -> HomeOperatorDashboardItemV1:
+        cur.execute("""SELECT bottleneck_stage,lost_variants,recommendation_code,created_at
+            FROM analytics.edge_validation_funnel_analysis_v1 ORDER BY created_at DESC LIMIT 1""")
+        row=cur.fetchone()
+        if not row:
+            cur.execute("""WITH latest AS (SELECT signal_funnel_snapshot_id FROM analytics.signal_funnel_snapshot_v1 ORDER BY created_at DESC LIMIT 1),
+              losses AS (SELECT stage_code,stage_name,greatest(coalesce(previous_stage_count,stage_count)-stage_count,0) lost,created_at
+                FROM analytics.signal_funnel_stage_v1 WHERE signal_funnel_snapshot_id=(SELECT signal_funnel_snapshot_id FROM latest))
+              SELECT stage_code AS bottleneck_stage,lost AS lost_variants,'REVIEW_ADMISSION_FILTERS' recommendation_code,created_at
+              FROM losses ORDER BY lost DESC LIMIT 1""")
+            row=cur.fetchone() or {}
+        stage_map={"IN_SAMPLE":"Обучение","OOS":"OOS","AFTER_COSTS":"Издержки","STABILITY":"Устойчивость","ORDERS":"Допуск заявок"}
+        solution_map={"REFRAME_ENTRY":"Новые условия входа","REDUCE_OVERFIT":"Снизить переобучение","REDUCE_TURNOVER":"Снизить оборот","EXPAND_EVIDENCE":"Расширить выборку","REVIEW_ADMISSION_FILTERS":"Проверить фильтры допуска"}
+        stage=stage_map.get(str(row.get("bottleneck_stage") or ""),str(row.get("bottleneck_stage") or "Нет данных"))
+        solution=solution_map.get(str(row.get("recommendation_code") or ""),"Дождаться анализа")
+        lost=int(row.get("lost_variants") or 0)
+        return HomeOperatorDashboardItemV1(item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
+            status_code=UiStatusCode.WARNING,status_label_key=self._status_label_key(UiStatusCode.WARNING),
+            rows_total=lost,updated_at=str(row.get("created_at") or ""),
+            summary_message_key="home.operator.main_loss.summary" if item_code=="main_loss" else "home.operator.loss_solution.summary",
+            summary_message_args={"stage":stage,"lost":lost,"solution":solution})
 
     def _updated_at(
         self,

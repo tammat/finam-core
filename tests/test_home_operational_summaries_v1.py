@@ -19,6 +19,10 @@ def test_home_cards_show_operational_summaries_not_algorithm_dump() -> None:
     assert "algorithms" not in edge.content.message_args
     assert model.content.message_key == "home.operator.model_health.summary"
     assert funnel.content.message_key == "home.operator.signal_funnel.summary"
+    loss = nodes["home.operator.main_loss.primary_value"]
+    solution = nodes["home.operator.loss_solution.primary_value"]
+    assert loss.content.message_key == "home.operator.main_loss.summary"
+    assert solution.content.message_key == "home.operator.loss_solution.summary"
 
 
 def test_operator_table_exposes_next_action() -> None:
