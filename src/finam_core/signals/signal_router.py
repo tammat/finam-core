@@ -67,7 +67,12 @@ class SignalRouter:
 
         # --- NORMALIZE INPUT ---
         if isinstance(intent, dict):
-            price = intent.get("price") or intent.get("last") or intent.get("last_price")
+            price = (
+                intent.get("entry_price")
+                or intent.get("price")
+                or intent.get("last")
+                or intent.get("last_price")
+            )
             if price is None:
                 return RoutedSignal(False, "no_price", None)
 
@@ -77,8 +82,26 @@ class SignalRouter:
             features = dict(intent.get("features", {}))
             atr = float(features.get("atr", abs(price * 0.003)))
 
-            stop = price - atr if side == "BUY" else price + atr
-            take = price + atr * 2 if side == "BUY" else price - atr * 2
+            stop = (
+                intent.get("stop_price")
+                or intent.get("stop_loss")
+                or intent.get("stop")
+                or features.get("stop")
+            )
+            if stop is None:
+                stop = price - atr if side == "BUY" else price + atr
+
+            take = (
+                intent.get("take_profit")
+                or intent.get("take_price")
+                or intent.get("take")
+                or features.get("take")
+            )
+            if take is None:
+                take = price + atr * 2 if side == "BUY" else price - atr * 2
+
+            stop = float(stop)
+            take = float(take)
 
             rr = abs(take - price) / max(1e-9, abs(price - stop))
 
@@ -96,17 +119,26 @@ class SignalRouter:
                     features=features,
                 )
 
-            intent = SignalIntent(
-                symbol=intent["symbol"],
-                side=side,
-                qty=float(intent.get("qty", 1.0)),
-                source=str(intent.get("source", "legacy_strategy")),
-                confidence=self.normalize_confidence(
-                    intent.get("confidence", intent.get("score", 1.0))
-                ),
-                reason=str(intent.get("reason", "")),
-                features=features,
+            normalized = dict(intent)
+            normalized.update(
+                {
+                    "entry_price": price,
+                    "price": price,
+                    "stop_price": stop,
+                    "take_profit": take,
+                    "side": side,
+                    "strategy": (
+                        intent.get("strategy")
+                        if intent.get("strategy") not in (None, "", "UNKNOWN_STRATEGY")
+                        else features.get("strategy") or "UNKNOWN_STRATEGY"
+                    ),
+                    "confidence": self.normalize_confidence(
+                        intent.get("confidence", intent.get("score", 1.0))
+                    ),
+                    "features": features,
+                }
             )
+            intent = SignalIntent.from_dict(normalized)
 
         # --- AI FEATURE ENRICHMENT ---
         if self.sentiment_enricher is not None:
