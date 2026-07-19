@@ -83,7 +83,19 @@ def load_symbols(conn, args: argparse.Namespace) -> list[str]:
 
 def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
     params = [symbol]
-    where = ["f.symbol = %s", "f.qty > 0", "f.price > 0"]
+    where = [
+        "f.symbol = %s",
+        "f.qty > 0",
+        "f.price > 0",
+        """NOT EXISTS (
+            SELECT 1
+            FROM analytics.paper_fill_anomaly_quarantine_v1 q
+            WHERE q.enabled
+              AND q.symbol=f.symbol
+              AND (q.side IS NULL OR upper(q.side)=upper(f.side))
+              AND f.ts>=q.range_start AND f.ts<q.range_end
+        )""",
+    ]
 
     if args.from_ts:
         where.append("f.ts >= %s")

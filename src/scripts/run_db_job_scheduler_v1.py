@@ -41,6 +41,7 @@ EXECUTORS = {
     "SIGNAL_INTAKE_QUEUE_V2": "src/scripts/process_signal_intake_queue_v2.py",
     "EDGE_STRICT_RULE_BUILD_V2": "src/scripts/build_edge_strict_rules_v2.py",
     "PAPER_CLOSED_TRADE_MATERIALIZER_V2": "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py",
+    "PAPER_FILL_ANOMALY_DETECTOR_V1": "src/scripts/detect_paper_fill_anomalies_v1.py",
 }
 
 EXECUTOR_ARGUMENTS = {
