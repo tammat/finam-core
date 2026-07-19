@@ -39,6 +39,7 @@ EXECUTORS = {
     "SHADOW_PASS_EVALUATOR_V1": "src/scripts/evaluate_shadow_pass_v1.py",
     "RESEARCH_QUEUE_GOVERNOR_V2": "src/scripts/govern_research_queues_v2.py",
     "SIGNAL_INTAKE_QUEUE_V2": "src/scripts/process_signal_intake_queue_v2.py",
+    "EDGE_STRICT_RULE_BUILD_V2": "src/scripts/build_edge_strict_rules_v2.py",
 }
 
 

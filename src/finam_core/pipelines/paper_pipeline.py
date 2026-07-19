@@ -660,7 +660,8 @@ class PaperTradingPipeline:
         self.risk_router = RiskRouter(self)
 
         self.edge_gate_strict_mode_v1 = EdgeGateStrictModeV1(
-            "runtime/edge_gate_strict_mode_v1.json"
+            "runtime/edge_gate_strict_mode_v1.json",
+            connection_factory=getattr(self.pg_logger, "_connect", None),
         )
 
         self.runtime_edge_governance_soft_block_v1 = RuntimeEdgeGovernanceSoftBlockV1()
@@ -5189,6 +5190,11 @@ class PaperTradingPipeline:
                 try:
                     strict_decision = self.edge_gate_strict_mode_v1.evaluate(
                         symbol=str(sym),
+                        strategy=str(
+                            intent.get("strategy")
+                            or (intent.get("features") or {}).get("strategy")
+                            or ""
+                        ),
                         side=str(gate_side),
                     )
                     print(
@@ -5214,6 +5220,17 @@ class PaperTradingPipeline:
                             str(sym) == os.getenv("BR_STRICT_EDGE_BYPASS_SYMBOL", "BRN6@RTSX")
                             and self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
                             and os.getenv("ENABLE_BR_STRICT_EDGE_ADVISORY_V1", "0") == "1"
+                        )
+
+                        evidence_accumulation_bypass = (
+                            self.runtime_config.get("EXECUTION_MODE", "paper").lower() == "paper"
+                            and strict_decision.reason in {
+                                "strict_mode_no_match",
+                                "strict_mode_low_sample",
+                            }
+                            and os.getenv("ENABLE_STRICT_GATE_EVIDENCE_ACCUMULATION_V2", "1") == "1"
+                            and os.getenv("EXECUTION_ENABLED", "0") != "1"
+                            and os.getenv("REAL_TRADING_ENABLED", "0") != "1"
                         )
 
                         # Русский комментарий: USDRUBF bypass нужен только для research paper accumulation.
@@ -5264,6 +5281,20 @@ class PaperTradingPipeline:
                             print("PIPE_BR_STRICT_EDGE_ADVISORY_CONTINUE", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", "paper_only=1", flush=True)
                         elif usdrubf_paper_bypass:
                             print("USDRUBF_PAPER_ACCUMULATION_BYPASS", f"symbol={sym}", f"side={gate_side}", f"reason={strict_decision.reason}", "runtime_allow=0", "execution_enabled=0", "paper_only=1", flush=True)
+                        elif evidence_accumulation_bypass:
+                            print(
+                                "PIPE_STRICT_GATE_EVIDENCE_ACCUMULATION_V2",
+                                f"symbol={sym}",
+                                f"strategy={intent.get('strategy')}",
+                                f"side={gate_side}",
+                                f"session={strict_decision.session_name}",
+                                f"reason={strict_decision.reason}",
+                                "runtime_allow=0",
+                                "execution_enabled=0",
+                                "real_trading_enabled=0",
+                                "paper_only=1",
+                                flush=True,
+                            )
                         else:
                             self._reject_persisted_signal_v1(intent, f"strict_edge_gate:{strict_decision.reason}")
                             return
@@ -5548,8 +5579,19 @@ class PaperTradingPipeline:
         try:
             current_positions = getattr(self.pm, "positions", {}) or {}
 
-            active_symbols = list(current_positions.keys())
-            active_symbols = self._runtime_symbol_reload_if_due(active_symbols)
+            active_symbols = []
+            for position_symbol, position in current_positions.items():
+                if isinstance(position, dict):
+                    position_qty = float(position.get("qty", 0.0) or 0.0)
+                else:
+                    position_qty = float(getattr(position, "qty", 0.0) or 0.0)
+                if abs(position_qty) <= 1e-12:
+                    continue
+                if str(position_symbol) == str(intent.get("symbol") or ""):
+                    continue
+                active_symbols.append(str(position_symbol))
+            # Портфельный cluster gate проверяет только реальные позиции.
+            # Исследовательская вселенная не является портфелем и сюда не добавляется.
 
             def get_cluster(sym):
                 base = sym.split("@")[0][:2]
