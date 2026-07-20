@@ -25,7 +25,7 @@ def test_v3_schedule_runs_intraday_and_registers_split_panel_i18n() -> None:
 def test_scheduler_uses_resource_limited_v2_executor() -> None:
     source = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
     assert '"SESSION_EXECUTION_EDGE_V2": "src/scripts/build_session_execution_edge_v1.py"' in source
-    assert '"SESSION_EDGE_MAX_MARKETS": "8"' in source
+    assert '"SESSION_EDGE_MAX_MARKETS": "4"' in source
     assert '"MICROSTRUCTURE_MIN_COVERAGE": "0.80"' in source
 
 
@@ -36,8 +36,9 @@ def test_builder_waits_for_fresh_depth_before_heavy_rebuild() -> None:
     assert "MICROSTRUCTURE_MIN_FRESH_SYMBOLS" in source
     assert 'configuration["regime_policy"].get("allowed_regimes")' in source
     assert "ALLOWED_REGIMES[family]" not in source
-    assert "status_code='WAITING_FUTURE_DATA'" in source
-    assert "active_oos_symbols" in source
+    assert "analytics.microstructure_research_priority_v1" in source
+    assert "selected_for_analysis" in source
+    assert "priority_symbols" in source
 
 
 def test_builder_requires_real_quote_coverage_and_fixed_cursor() -> None:

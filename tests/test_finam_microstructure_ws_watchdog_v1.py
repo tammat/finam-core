@@ -34,9 +34,11 @@ def test_merge_symbols_applies_subscription_limit() -> None:
 def test_active_oos_has_priority_and_eight_detail_slots() -> None:
     source = SCRIPT.read_text()
     assert 'MAX_DETAIL_SYMBOLS", "8"' in source
-    assert 'query("ACTIVE_OOS"' in source
-    assert "merge_symbols(active_oos, recent_fills" in source
-    assert "status_code='WAITING_FUTURE_DATA'" in source
+    assert 'query("DYNAMIC_PRIORITY"' in source
+    assert "merge_symbols(dynamic_priority, recent_fills" in source
+    assert "analytics.microstructure_research_priority_v1" in source
+    assert "selected_for_detail" in source
+    assert 'PRIORITY_REFRESH_SECONDS' in source
 
 
 def test_user_service_keeps_collector_autonomous() -> None:

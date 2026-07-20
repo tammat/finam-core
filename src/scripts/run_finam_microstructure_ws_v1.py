@@ -29,6 +29,7 @@ SOURCE = "FINAM_MICROSTRUCTURE_WS_V1"
 DATA_STALE_AFTER_SEC = float(os.getenv("MARKETCORE_MICROSTRUCTURE_DATA_STALE_AFTER_SEC", "90"))
 MAX_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_SYMBOLS", "10"))
 MAX_DETAIL_SYMBOLS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_MAX_DETAIL_SYMBOLS", "8"))
+PRIORITY_REFRESH_SECONDS = int(os.getenv("MARKETCORE_MICROSTRUCTURE_PRIORITY_REFRESH_SECONDS", "300"))
 FUTURES_MONTH = {code: month for month, code in enumerate("FGHJKMNQUVXZ", start=1)}
 FUTURES_RE = re.compile(r"^[A-Z]+([FGHJKMNQUVXZ])(\d)@RTSX$")
 
@@ -162,28 +163,16 @@ class Collector:
             SELECT DISTINCT symbol FROM public.signal_fills
             WHERE created_at >= current_date-1
         """)
-        active_oos = query("ACTIVE_OOS", """
-            WITH active AS (
-                SELECT symbol, max(updated_at) AS priority_at
-                FROM analytics.oos_remediation_candidate_v1
-                WHERE status_code='WAITING_FUTURE_DATA'
-                GROUP BY symbol
-                UNION ALL
-                SELECT symbol, max(updated_at) AS priority_at
-                FROM analytics.edge_oos_result_v1
-                WHERE updated_at >= now()-interval '7 days'
-                GROUP BY symbol
-            )
+        dynamic_priority = query("DYNAMIC_PRIORITY", """
             SELECT symbol
-            FROM active
-            GROUP BY symbol
-            ORDER BY max(priority_at) DESC, symbol
-            LIMIT 8
+            FROM analytics.microstructure_research_priority_v1
+            WHERE selected_for_detail
+            ORDER BY priority_rank
         """)
         # The first symbols receive ORDER_BOOK and trade-tape subscriptions.
         # Keep active OOS instruments ahead of opportunistic Paper traffic so a
         # busy signal stream cannot evict the cohort that must be validated.
-        return merge_symbols(active_oos, recent_fills, shadow, SYMBOLS, watched)
+        return merge_symbols(dynamic_priority, recent_fills, shadow, SYMBOLS, watched)
 
     def close(self) -> None:
         self.token_manager.close()
@@ -346,7 +335,7 @@ class Collector:
                     connected_at = time.monotonic()
                     self.last_persisted_at = connected_at
                     backoff = 2
-                    while not self.stop.is_set() and time.monotonic()-connected_at < 540:
+                    while not self.stop.is_set() and time.monotonic()-connected_at < PRIORITY_REFRESH_SECONDS:
                         message = await asyncio.wait_for(ws.recv(),timeout=60)
                         envelope = json.loads(message)
                         self.process(object_value(envelope))

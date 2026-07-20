@@ -113,6 +113,7 @@ class ControlCenterV2Presenter:
             shadow_summary=data["shadow"],
             execution_quality=tuple(data["execution_quality"]),
             execution_variants=tuple(data["execution_variants"]),
+            microstructure_priorities=tuple(data["microstructure_priorities"]),
             volatility_analysis=tuple(data["volatility_analysis"]),
             risk_analysis=tuple(data["risk_analysis"]),
             entry_analysis=tuple(data["entry_analysis"]),

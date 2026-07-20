@@ -231,21 +231,21 @@ def main() -> None:
                 print("VERDICT=WAITING_FOR_FRESH_MICROSTRUCTURE")
                 return
             cur.execute("""
-                SELECT DISTINCT symbol
-                FROM analytics.oos_remediation_candidate_v1
-                WHERE status_code='WAITING_FUTURE_DATA'
-                ORDER BY symbol
+                SELECT symbol
+                FROM analytics.microstructure_research_priority_v1
+                WHERE selected_for_analysis
+                ORDER BY priority_rank
                 LIMIT %s
             """, (MAX_MARKETS,))
-            active_oos_symbols = [str(row["symbol"]) for row in cur.fetchall()]
-            if active_oos_symbols:
+            priority_symbols = [str(row["symbol"]) for row in cur.fetchall()]
+            if priority_symbols:
                 cur.execute("""
                     SELECT symbol,timeframe,count(*) AS bars
                     FROM public.market_bars
                     WHERE timeframe=%s AND symbol=ANY(%s)
                     GROUP BY symbol,timeframe HAVING count(*) >= %s
                     ORDER BY count(*) DESC LIMIT %s
-                """, (config["timeframe"], active_oos_symbols, MIN_BARS, MAX_MARKETS))
+                """, (config["timeframe"], priority_symbols, MIN_BARS, MAX_MARKETS))
             else:
                 cur.execute("""
                     SELECT symbol,timeframe,count(*) AS bars FROM public.market_bars
@@ -253,7 +253,7 @@ def main() -> None:
                     ORDER BY count(*) DESC LIMIT %s
                 """, (config["timeframe"], MIN_BARS, MAX_MARKETS))
             markets = cur.fetchall()
-            print(f"active_oos_symbols={','.join(active_oos_symbols) or 'fallback'}")
+            print(f"priority_symbols={','.join(priority_symbols) or 'fallback'}")
             for market in markets:
                 quote_cache: dict[Any, VerifiedQuote | None] = {}
                 cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts",

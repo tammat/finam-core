@@ -412,6 +412,7 @@ def render_control_center_domain_v2(
         ("risk", tuple(view_model.risk_analysis)),
         ("entry", tuple(view_model.entry_analysis)),
         ("execution", tuple(view_model.execution_quality)),
+        ("microstructure_priorities", tuple(view_model.microstructure_priorities)),
         ("execution_microstructure", tuple(
             row for row in view_model.execution_variants
             if row.get("cohort_code") == "MICROSTRUCTURE_ONLY"

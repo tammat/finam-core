@@ -50,6 +50,7 @@ EXECUTORS = {
     "CHECKPOINTED_WALKFORWARD_V4": "src/scripts/run_checkpointed_walkforward_v4.py",
     "SESSION_EXECUTION_EDGE_V2": "src/scripts/build_session_execution_edge_v1.py",
     "OOS_REMEDIATION_BRANCH_GENERATOR_V1": "src/scripts/generate_oos_remediation_branches_v1.py",
+    "MICROSTRUCTURE_PRIORITY_REFRESH_V1": "src/scripts/refresh_microstructure_priority_v1.py",
 }
 
 EXECUTOR_ARGUMENTS = {
@@ -69,7 +70,7 @@ EXECUTOR_ENV = {
     # Короткие возобновляемые пакеты не монополизируют четырёхъядерный сервер.
     "CHECKPOINTED_WALKFORWARD_V4": {"WALKFORWARD_BATCH_SECONDS": "45"},
     "SESSION_EXECUTION_EDGE_V2": {
-        "SESSION_EDGE_MAX_MARKETS": "8",
+        "SESSION_EDGE_MAX_MARKETS": "4",
         "SESSION_EDGE_MIN_BARS": "6000",
         "MICROSTRUCTURE_MIN_COVERAGE": "0.80",
         "MICROSTRUCTURE_MAX_QUOTE_DISTANCE_SECONDS": "5",

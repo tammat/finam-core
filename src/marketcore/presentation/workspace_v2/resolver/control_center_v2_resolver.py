@@ -25,6 +25,7 @@ class ControlCenterV2Resolver:
                 execution = self._execution(cur)
                 execution_quality = self._execution_quality(cur)
                 execution_variants = self._execution_variants(cur)
+                microstructure_priorities = self._microstructure_priorities(cur)
                 volatility_analysis = self._volatility_analysis(cur)
                 risk_analysis = self._risk_analysis(cur)
                 entry_analysis = self._entry_analysis(cur)
@@ -51,6 +52,7 @@ class ControlCenterV2Resolver:
             "execution": execution,
             "execution_quality": execution_quality,
             "execution_variants": execution_variants,
+            "microstructure_priorities": microstructure_priorities,
             "volatility_analysis": volatility_analysis,
             "risk_analysis": risk_analysis,
             "entry_analysis": entry_analysis,
@@ -71,6 +73,19 @@ class ControlCenterV2Resolver:
             "edge_search_results": edge_search_results,
             "swing_summary": swing_summary,
         }
+
+    @staticmethod
+    def _microstructure_priorities(cur) -> list[dict[str, Any]]:
+        cur.execute("""
+            SELECT priority_rank,symbol,round(priority_score,1) AS priority_score,
+                   CASE WHEN selected_for_detail THEN 'DETAIL' ELSE 'RESERVE' END AS detail_status,
+                   CASE WHEN selected_for_analysis THEN 'ANALYSIS' ELSE 'WAITING' END AS analysis_status,
+                   reason_code,waiting_candidates,coverage_pct,fills_1h,last_quote_at
+            FROM analytics.microstructure_research_priority_v1
+            ORDER BY priority_rank
+            LIMIT 12
+        """)
+        return [dict(row) for row in cur.fetchall()]
 
     @staticmethod
     def _swing_summary(cur) -> dict[str, Any]:
