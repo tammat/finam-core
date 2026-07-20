@@ -8,7 +8,7 @@ def test_workspace_has_visible_back_navigation() -> None:
     assert 'id="marketcore-workspace-back"' in shell
     assert "navigationStack.push(currentTargetId)" in bootstrap
     assert 'backButton.addEventListener("click"' in bootstrap
-    assert "await render(ENDPOINT_BY_TARGET[currentTargetId])" in bootstrap
+    assert "await render(ENDPOINT_BY_TARGET[currentTargetId], {restoreStored: true})" in bootstrap
     assert "#marketcore-workspace-back:hover" in css
 
 

@@ -51,7 +51,104 @@
         let currentEndpoint = ENDPOINT_BY_TARGET[currentTargetId];
         const navigationStack = [];
         let refreshInFlight = false;
-        let researchRefreshTimer = null;
+
+        const panelStateStorageKey = () => `marketcore.workspace-v2.state:${currentTargetId}`;
+
+        const stableElementKey = (element) => {
+            if (!element || !element.getAttribute) return null;
+            const nodeId = element.getAttribute("data-mc-node-id");
+            if (nodeId) return `node:${nodeId}`;
+            const sectionGroup = element.getAttribute("data-mc-section-group");
+            if (sectionGroup) return `group:${sectionGroup}`;
+            if (element.id) return `id:${element.id}`;
+            return null;
+        };
+
+        const findStableElement = (key) => {
+            if (!key) return null;
+            const candidates = mountElement.querySelectorAll(
+                "[data-mc-node-id], [data-mc-section-group], [id]"
+            );
+            return Array.from(candidates).find((element) => stableElementKey(element) === key) || null;
+        };
+
+        const capturePanelState = () => {
+            const elements = {};
+            mountElement.querySelectorAll("[data-mc-node-id], details[data-mc-section-group], [id]")
+                .forEach((element) => {
+                    const key = stableElementKey(element);
+                    if (!key) return;
+                    const state = {};
+                    if (element.tagName === "DETAILS") state.open = Boolean(element.open);
+                    if (element.hasAttribute("aria-expanded")) {
+                        state.ariaExpanded = element.getAttribute("aria-expanded");
+                    }
+                    if (element.hasAttribute("aria-pressed")) {
+                        state.ariaPressed = element.getAttribute("aria-pressed");
+                    }
+                    if (element.getAttribute("data-mc-selected") === "true") state.selected = true;
+                    if (element.scrollTop || element.scrollLeft) {
+                        state.scrollTop = element.scrollTop;
+                        state.scrollLeft = element.scrollLeft;
+                    }
+                    if (Object.keys(state).length) elements[key] = state;
+                });
+            const scoutFilters = Array.from(mountElement.querySelectorAll("table[data-mc-scout-filter]"))
+                .map((table) => ({key: stableElementKey(table), filter: table.dataset.mcScoutFilter}))
+                .filter((item) => item.key && item.filter);
+            const activeElement = globalObject.document.activeElement;
+            return {
+                scrollX: globalObject.scrollX || 0,
+                scrollY: globalObject.scrollY || 0,
+                mountScrollTop: mountElement.scrollTop || 0,
+                mountScrollLeft: mountElement.scrollLeft || 0,
+                focused: mountElement.contains(activeElement) ? stableElementKey(activeElement) : null,
+                elements,
+                scoutFilters
+            };
+        };
+
+        const persistPanelState = (state = capturePanelState()) => {
+            try { globalObject.sessionStorage.setItem(panelStateStorageKey(), JSON.stringify(state)); }
+            catch (error) { globalObject.console.warn("MARKETCORE_PANEL_STATE_SAVE_FAILED", error); }
+            return state;
+        };
+
+        const storedPanelState = () => {
+            try {
+                const raw = globalObject.sessionStorage.getItem(panelStateStorageKey());
+                return raw ? JSON.parse(raw) : null;
+            } catch (error) {
+                globalObject.console.warn("MARKETCORE_PANEL_STATE_LOAD_FAILED", error);
+                return null;
+            }
+        };
+
+        const restorePanelState = (state) => {
+            if (!state) return;
+            Object.entries(state.elements || {}).forEach(([key, value]) => {
+                const element = findStableElement(key);
+                if (!element) return;
+                if (element.tagName === "DETAILS" && typeof value.open === "boolean") element.open = value.open;
+                if (value.ariaExpanded != null) element.setAttribute("aria-expanded", value.ariaExpanded);
+                if (value.ariaPressed != null) element.setAttribute("aria-pressed", value.ariaPressed);
+                if (value.selected) element.setAttribute("data-mc-selected", "true");
+                if (Number.isFinite(value.scrollTop)) element.scrollTop = value.scrollTop;
+                if (Number.isFinite(value.scrollLeft)) element.scrollLeft = value.scrollLeft;
+            });
+            (state.scoutFilters || []).forEach(({key, filter}) => {
+                const table = findStableElement(key);
+                const toolbar = table && table.previousElementSibling;
+                const button = toolbar && Array.from(toolbar.querySelectorAll("button[data-filter]"))
+                    .find((candidate) => candidate.dataset.filter === filter);
+                if (button) button.click();
+            });
+            mountElement.scrollTop = state.mountScrollTop || 0;
+            mountElement.scrollLeft = state.mountScrollLeft || 0;
+            const focused = findStableElement(state.focused);
+            if (focused && typeof focused.focus === "function") focused.focus({preventScroll: true});
+            globalObject.scrollTo(state.scrollX || 0, state.scrollY || 0);
+        };
 
         const syncRoute = (targetId, replace = false) => {
             const route = ROUTE_BY_TARGET[targetId];
@@ -70,7 +167,10 @@
             if (homeButton) homeButton.disabled = false;
         };
 
-        const render = async (endpoint) => {
+        const render = async (endpoint, options = {}) => {
+            const panelState = options.preserveState
+                ? persistPanelState()
+                : (options.restoreStored ? storedPanelState() : null);
             currentEndpoint = endpoint;
             mountElement.setAttribute("data-runtime-status", "LOADING");
             mountElement.setAttribute("aria-busy", "true");
@@ -85,6 +185,11 @@
                     actionSink
                 });
                 mountElement.setAttribute("data-runtime-status", "READY");
+                if (panelState) {
+                    globalObject.requestAnimationFrame(() => globalObject.requestAnimationFrame(() => {
+                        restorePanelState(panelState);
+                    }));
+                }
             } catch (error) {
                 mountElement.setAttribute("data-runtime-status", "FAILED");
                 mountElement.setAttribute("data-runtime-error", error && error.message ? error.message : String(error));
@@ -92,14 +197,6 @@
             } finally {
                 mountElement.removeAttribute("aria-busy");
             }
-            if (researchRefreshTimer) globalObject.clearInterval(researchRefreshTimer);
-            researchRefreshTimer = currentTargetId === "container.research"
-                ? globalObject.setInterval(() => {
-                    if (refreshInFlight) return;
-                    refreshInFlight = true;
-                    render(currentEndpoint).finally(() => { refreshInFlight = false; });
-                }, 10000)
-                : null;
             return result;
         };
 
@@ -108,32 +205,35 @@
                 const endpoint = ENDPOINT_BY_TARGET[targetId];
                 if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
                 if (targetId === currentTargetId) return;
+                persistPanelState();
                 navigationStack.push(currentTargetId);
                 currentTargetId = targetId;
-                await render(endpoint);
+                await render(endpoint, {restoreStored: true});
                 syncRoute(targetId);
                 updateBackButton();
             },
             onCommand: async () => {
                 await new Promise((resolve) => globalObject.setTimeout(resolve, 800));
-                await render(currentEndpoint);
-                globalObject.setTimeout(() => render(currentEndpoint), 2200);
+                await render(currentEndpoint, {preserveState: true});
+                globalObject.setTimeout(() => render(currentEndpoint, {preserveState: true}), 2200);
             },
         });
 
         if (backButton) backButton.addEventListener("click", async () => {
             const previousTargetId = navigationStack.pop();
             if (!previousTargetId && currentTargetId === "container.home") return updateBackButton();
+            persistPanelState();
             currentTargetId = previousTargetId || "container.home";
-            await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            await render(ENDPOINT_BY_TARGET[currentTargetId], {restoreStored: true});
             syncRoute(currentTargetId);
             updateBackButton();
         });
 
         if (homeButton) homeButton.addEventListener("click", async () => {
+            persistPanelState();
             navigationStack.length = 0;
             currentTargetId = "container.home";
-            await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            await render(ENDPOINT_BY_TARGET[currentTargetId], {restoreStored: true});
             syncRoute(currentTargetId);
             updateBackButton();
         });
@@ -141,13 +241,16 @@
         globalObject.addEventListener("popstate", async () => {
             const targetId = initialTarget(globalObject.location.pathname);
             if (targetId === currentTargetId) return;
+            persistPanelState();
             navigationStack.length = 0;
             currentTargetId = targetId;
-            await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            await render(ENDPOINT_BY_TARGET[currentTargetId], {restoreStored: true});
             updateBackButton();
         });
 
-        await render(currentEndpoint);
+        globalObject.addEventListener("pagehide", () => persistPanelState());
+
+        await render(currentEndpoint, {restoreStored: true});
         syncRoute(currentTargetId, true);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
@@ -156,7 +259,7 @@
             if (!currentTargetId || !["container.edge", "container.research"].includes(currentTargetId)) return;
             if (globalObject.document.querySelector("[role='dialog']")) return;
             refreshInFlight = true;
-            try { await render(currentEndpoint); }
+            try { await render(currentEndpoint, {preserveState: true}); }
             catch (error) { globalObject.console.error("MARKETCORE_AUTO_REFRESH_FAILED", error); }
             finally { refreshInFlight = false; }
         }, 5000);

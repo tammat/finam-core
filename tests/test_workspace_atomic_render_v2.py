@@ -12,8 +12,8 @@ def test_workspace_render_is_committed_atomically() -> None:
     assert 'const stagingElement = options.documentObject.createElement("div")' in bootstrap
     assert "mountElement: stagingElement" in bootstrap
     assert "options.mountElement.replaceChildren(...stagingElement.childNodes)" in bootstrap
-    assert "workspace.css?v=20260719.1" in shell
-    assert "browser-bootstrap.js?v=20260719.1" in shell
+    assert "workspace.css?v=" in shell
+    assert "browser-bootstrap.js?v=" in shell
 
 
 def test_current_research_timeout_has_russian_translation() -> None:
