@@ -9,6 +9,12 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def test_quote_size_parser_accepts_finam_camel_case_values() -> None:
+    quote = {"bidSize": {"value": "201.0"}, "askSize": {"value": "5.0"}}
+    assert MODULE.first_number(quote, "bidSize", "bid_size") == MODULE.Decimal("201.0")
+    assert MODULE.first_number(quote, "askSize", "ask_size") == MODULE.Decimal("5.0")
+
+
 def test_data_watchdog_trips_at_threshold() -> None:
     assert MODULE.data_is_stale(100.0, 189.9, 90.0) is False
     assert MODULE.data_is_stale(100.0, 190.0, 90.0) is True

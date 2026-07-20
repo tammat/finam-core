@@ -119,6 +119,17 @@ def _table_row_action(section_code: str, row: dict[str, Any]) -> RenderActionV2 
             action_kind=ActionKindV2.NAVIGATE,
             target_id="container.edge",
         )
+    if section_code == "block":
+        return RenderActionV2(
+            action_id="research.edge_search.run",
+            action_kind=ActionKindV2.COMMAND,
+            target_id=str(row.get("blocking_rule") or "block-review"),
+            command_code="RESEARCH.RUN_EDGE_SEARCH",
+            policy_class="RESEARCH_MAINTENANCE",
+            reversible=True,
+            rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
+            idempotency_key="client.request",
+        )
     if section_code != "funnel":
         return None
     stage_code = str(row.get("stage_code") or "").strip().upper()

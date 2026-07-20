@@ -5,6 +5,7 @@ import math
 import os
 import statistics
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -19,9 +20,11 @@ from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades,
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = Path(os.getenv("SESSION_EXECUTION_EDGE_CONFIG", ROOT / "config/research/session_execution_edge_v1.json"))
-SOURCE_VERSION = "SESSION_EXECUTION_EDGE_ENGINE_V1"
+SOURCE_VERSION = "SESSION_EXECUTION_EDGE_ENGINE_V2_MICROSTRUCTURE_COHORT"
 MIN_BARS = int(os.getenv("SESSION_EDGE_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("SESSION_EDGE_MAX_MARKETS", "12"))
+MIN_MICROSTRUCTURE_COVERAGE = float(os.getenv("MICROSTRUCTURE_MIN_COVERAGE", "0.80"))
+MAX_QUOTE_DISTANCE_SECONDS = int(os.getenv("MICROSTRUCTURE_MAX_QUOTE_DISTANCE_SECONDS", "5"))
 
 ALLOWED_REGIMES = {
     "MOMENTUM": ("trend_up", "trend_down", "trend_up_expansion", "trend_down_expansion"),
@@ -66,6 +69,100 @@ def fold_passes(trades: list[Trade], bars: list[Bar], start: int) -> int:
     return passed
 
 
+def trade_fold_passes(trades: list[Trade]) -> int:
+    """Evaluate only the independently quote-matched execution cohort."""
+    ordered = sorted(trades, key=lambda trade: trade.entry_ts)
+    if not ordered:
+        return 0
+    passed = 0
+    for fold in range(3):
+        left = len(ordered) * fold // 3
+        right = len(ordered) * (fold + 1) // 3
+        item = metrics(ordered[left:right])
+        passed += int(item["trades"] >= 6 and item["profit_factor"] >= 1.0 and item["expectancy"] > 0)
+    return passed
+
+
+@dataclass(frozen=True)
+class VerifiedQuote:
+    bid: float
+    ask: float
+    bid_levels: int
+    ask_levels: int
+    exchange_ts: Any
+
+
+def load_verified_quotes(
+    cur: Any, symbol: str, timestamps: list[Any], cache: dict[Any, VerifiedQuote | None]
+) -> None:
+    """Match every trade boundary to a real, sufficiently deep exchange quote."""
+    missing = sorted({timestamp for timestamp in timestamps if timestamp not in cache})
+    for offset in range(0, len(missing), 500):
+        chunk = missing[offset:offset + 500]
+        cur.execute(
+            """
+            WITH events AS (
+                SELECT unnest(%s::timestamptz[]) AS event_ts
+            )
+            SELECT events.event_ts, quote.best_bid, quote.best_ask,
+                   quote.bid_levels, quote.ask_levels, quote.quote_ts
+            FROM events
+            LEFT JOIN LATERAL (
+                SELECT best_bid, best_ask, bid_levels, ask_levels,
+                       coalesce(exchange_ts, observed_at) AS quote_ts
+                FROM analytics.market_microstructure_snapshot_v1
+                WHERE symbol=%s
+                  AND observed_at BETWEEN events.event_ts - (%s * interval '1 second')
+                                      AND events.event_ts + (%s * interval '1 second')
+                  AND best_bid > 0 AND best_ask > best_bid
+                  AND bid_levels > 0 AND ask_levels > 0
+                  AND bid_depth > 0 AND ask_depth > 0
+                  AND abs(extract(epoch FROM
+                      (coalesce(exchange_ts, observed_at) - events.event_ts))) <= %s
+                ORDER BY abs(extract(epoch FROM
+                         (coalesce(exchange_ts, observed_at) - events.event_ts))),
+                         snapshot_id DESC
+                LIMIT 1
+            ) quote ON true
+            """,
+            (chunk, symbol, MAX_QUOTE_DISTANCE_SECONDS,
+             MAX_QUOTE_DISTANCE_SECONDS, MAX_QUOTE_DISTANCE_SECONDS),
+        )
+        for row in cur.fetchall():
+            if row["best_bid"] is None:
+                cache[row["event_ts"]] = None
+            else:
+                cache[row["event_ts"]] = VerifiedQuote(
+                    bid=float(row["best_bid"]), ask=float(row["best_ask"]),
+                    bid_levels=int(row["bid_levels"]), ask_levels=int(row["ask_levels"]),
+                    exchange_ts=row["quote_ts"],
+                )
+
+
+def apply_microstructure_execution(
+    trades: list[Trade], quotes: dict[Any, VerifiedQuote | None]
+) -> list[Trade]:
+    """Price BUY at ask/bid and SELL at bid/ask; reject unmatched trades."""
+    verified: list[Trade] = []
+    for trade in trades:
+        entry = quotes.get(trade.entry_ts)
+        exit_quote = quotes.get(trade.exit_ts)
+        if entry is None or exit_quote is None:
+            continue
+        if trade.side == "BUY":
+            entry_price, exit_price, side = entry.ask, exit_quote.bid, 1
+        else:
+            entry_price, exit_price, side = entry.bid, exit_quote.ask, -1
+        gross = (exit_price - entry_price) * side
+        net = gross - trade.commission - trade.slippage
+        verified.append(Trade(
+            len(verified) + 1, trade.side, trade.entry_ts, trade.exit_ts,
+            entry_price, exit_price, gross, trade.commission, trade.slippage, net,
+            quote_source="MICROSTRUCTURE_SNAPSHOT_V1",
+        ))
+    return verified
+
+
 def reprice(
     trades: list[Trade], bars: list[Bar], regime_by_ts: dict[Any, str], policy: dict[str, Any],
     session_by_ts: dict[Any, str], base_hold: int,
@@ -96,20 +193,6 @@ def reprice(
     return result
 
 
-def microstructure_quality(cur: Any, symbol: str) -> str:
-    cur.execute(
-        """
-        SELECT market_data_quality
-        FROM analytics.market_microstructure_quality_v1
-        WHERE symbol=%s
-        """,
-        (symbol,),
-    )
-    row = cur.fetchone()
-    quality = str(row["market_data_quality"]) if row else "COLLECTING"
-    return "QUOTE_VERIFIED" if quality == "QUOTE_VERIFIED" else "BAR_ONLY"
-
-
 def main() -> None:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     run_id = uuid.uuid4()
@@ -124,7 +207,7 @@ def main() -> None:
             """, (config["timeframe"], MIN_BARS, MAX_MARKETS))
             markets = cur.fetchall()
             for market in markets:
-                quote_quality = microstructure_quality(cur, str(market["symbol"]))
+                quote_cache: dict[Any, VerifiedQuote | None] = {}
                 cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts",
                             (market["symbol"], market["timeframe"]))
                 bars = [Bar(row["ts"], float(row["close"])) for row in cur.fetchall()]
@@ -142,7 +225,7 @@ def main() -> None:
                 validation_start, oos_start = bars[train_end].ts, bars[validation_end].ts
                 cost_bps = 20.0 if str(market["symbol"]).endswith("USD") else 8.0
                 cost = statistics.median(bar.close for bar in bars) * cost_bps / 10000.0
-                configurations = load_search_configuration(cursor)
+                configurations = load_search_configuration(cur)
                 for family, configuration in configurations:
                     targets = configuration["regime_policy"].get("target_symbols", [])
                     if targets and market["symbol"] not in targets:
@@ -164,17 +247,34 @@ def main() -> None:
                                     "params": base_params, "regime": regime, "session": session, "coverage": coverage,
                                     "validation": vm, "oos": om, "folds": fold_passes(oos, bars, validation_end),
                                     "raw_p": one_sided_p([t.net_pnl for t in oos])})
-                                baseline = oos
-                                baseline_metrics = om
                                 for policy in config["execution_policies"]:
                                     repriced = reprice(oos, bars, regime_by_ts, policy, session_by_ts, hold)
-                                    item_metrics = metrics(repriced)
+                                    boundaries = [timestamp for trade in repriced for timestamp in (trade.entry_ts, trade.exit_ts)]
+                                    load_verified_quotes(cur, str(market["symbol"]), boundaries, quote_cache)
+                                    verified_trades = apply_microstructure_execution(repriced, quote_cache)
+                                    eligible = len(repriced)
+                                    matched = len(verified_trades)
+                                    if matched == 0:
+                                        continue
+                                    microstructure_coverage = matched / eligible if eligible else 0.0
+                                    item_metrics = metrics(verified_trades)
+                                    baseline_repriced = reprice(oos, bars, regime_by_ts,
+                                                                {"kind": "BASELINE", "hold_multiplier": 1.0},
+                                                                session_by_ts, hold)
+                                    load_verified_quotes(cur, str(market["symbol"]),
+                                                         [timestamp for trade in baseline_repriced
+                                                          for timestamp in (trade.entry_ts, trade.exit_ts)], quote_cache)
+                                    baseline_metrics = metrics(apply_microstructure_execution(baseline_repriced, quote_cache))
                                     execution_candidates.append({"family": family, "strategy": strategy_code, "market": market,
                                         "params": base_params, "regime": regime, "session": session, "coverage": coverage,
                                         "policy": policy["code"], "oos": item_metrics, "baseline": baseline_metrics,
-                                        "folds": fold_passes(repriced, bars, validation_end),
-                                        "market_data_quality": quote_quality,
-                                        "raw_p": one_sided_p([t.net_pnl for t in repriced])})
+                                        "folds": trade_fold_passes(verified_trades),
+                                        "market_data_quality": "MICROSTRUCTURE_VERIFIED",
+                                        "eligible": eligible, "matched": matched,
+                                        "microstructure_coverage": microstructure_coverage,
+                                        "microstructure_start": min(t.entry_ts for t in verified_trades),
+                                        "microstructure_end": max(t.exit_ts for t in verified_trades),
+                                        "raw_p": one_sided_p([t.net_pnl for t in verified_trades])})
 
             session_trials = len(session_candidates)
             for item in session_candidates:
@@ -201,7 +301,7 @@ def main() -> None:
                 om, baseline = item["oos"], item["baseline"]
                 delta_pf, delta_exp = om["profit_factor"] - baseline["profit_factor"], om["expectancy"] - baseline["expectancy"]
                 regime_verified = item["coverage"] >= config["minimum_regime_coverage"]
-                quote_verified = item["market_data_quality"] == "QUOTE_VERIFIED"
+                quote_verified = item["microstructure_coverage"] >= MIN_MICROSTRUCTURE_COVERAGE
                 verified = regime_verified and quote_verified
                 passed = verified and item["policy"] != "BASELINE" and om["trades"] >= config["minimum_oos_trades"] and om["profit_factor"] >= 1.15 and delta_pf > 0 and delta_exp > 0 and item["folds"] >= 2 and adjusted <= 0.05
                 verdict = "OOS_PASS" if passed else ("OOS_FAIL" if verified else "UNVERIFIED")
@@ -210,20 +310,25 @@ def main() -> None:
                     (discovery_run_id,strategy_family,strategy_code,symbol,timeframe,parameter_json,regime_code,session_code,
                      policy_code,oos_trades,oos_profit_factor,oos_expectancy,baseline_oos_profit_factor,baseline_oos_expectancy,
                      delta_profit_factor,delta_expectancy,folds_passed,folds_total,raw_p_value,adjusted_p_value,market_data_quality,
-                     trust_status,verdict_code,reason_code,promotion_allowed,source_version)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,3,%s,%s,%s,%s,%s,%s,false,%s)""",
+                     trust_status,verdict_code,reason_code,promotion_allowed,source_version,cohort_code,
+                     eligible_oos_trades,microstructure_matched_trades,microstructure_coverage_ratio,
+                     microstructure_start,microstructure_end)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,3,%s,%s,%s,%s,%s,%s,false,%s,
+                            'MICROSTRUCTURE_ONLY',%s,%s,%s,%s,%s)""",
                     (str(run_id),item["family"],item["strategy"],item["market"]["symbol"],item["market"]["timeframe"],
                      psycopg2.extras.Json(item["params"]),item["regime"],item["session"],item["policy"],om["trades"],
                      om["profit_factor"],om["expectancy"],baseline["profit_factor"],baseline["expectancy"],delta_pf,delta_exp,
                      item["folds"],item["raw_p"],adjusted,item["market_data_quality"],
-                     "VERIFIED" if verified else "UNVERIFIED",verdict,reason,SOURCE_VERSION))
+                     "VERIFIED" if verified else "UNVERIFIED",verdict,reason,SOURCE_VERSION,
+                     item["eligible"],item["matched"],item["microstructure_coverage"],
+                     item["microstructure_start"],item["microstructure_end"]))
 
     print(f"discovery_run_id={run_id}")
     print(f"strategy_regime_session_trials={len(session_candidates)}")
     print(f"execution_policy_trials={len(execution_candidates)}")
-    print("liquidity_edge_status=CONTROLLED_BY_MARKET_MICROSTRUCTURE_QUALITY_V1")
+    print("execution_cohort=MICROSTRUCTURE_ONLY")
     print("promotion_allowed=0")
-    print("VERDICT=SESSION_EXECUTION_EDGE_ENGINE_V1_READY")
+    print("VERDICT=SESSION_EXECUTION_EDGE_ENGINE_V2_MICROSTRUCTURE_READY")
 
 
 if __name__ == "__main__":

@@ -84,6 +84,16 @@ def number(value: Any) -> Decimal | None:
         return None
 
 
+def first_number(payload: dict[str, Any], *names: str) -> Decimal | None:
+    """Accept Finam camelCase and legacy snake_case payloads."""
+    for name in names:
+        if name in payload:
+            parsed = number(payload.get(name))
+            if parsed is not None:
+                return parsed
+    return None
+
+
 def timestamp(value: Any) -> datetime | None:
     if not value:
         return None
@@ -212,7 +222,8 @@ class Collector:
         bid, ask = number(quote.get("bid")), number(quote.get("ask"))
         if not symbol or bid is None or ask is None:
             return
-        bid_size, ask_size = number(quote.get("bid_size")), number(quote.get("ask_size"))
+        bid_size = first_number(quote, "bidSize", "bid_size")
+        ask_size = first_number(quote, "askSize", "ask_size")
         self.insert_snapshot(
             symbol, timestamp(quote.get("timestamp")), bid, ask,
             bid_size, ask_size, bid_size or Decimal(0), ask_size or Decimal(0),

@@ -183,7 +183,7 @@ class ControlCenterV2Resolver:
     def _execution(cur) -> dict[str, Any]:
         cur.execute("""
             SELECT count(*) AS trials,
-                   count(*) FILTER (WHERE market_data_quality='QUOTE_VERIFIED') AS quote_verified
+                   count(*) FILTER (WHERE market_data_quality IN ('QUOTE_VERIFIED','MICROSTRUCTURE_VERIFIED')) AS quote_verified
             FROM analytics.execution_edge_result_v1
             WHERE discovery_run_id=(
                 SELECT discovery_run_id FROM analytics.execution_edge_result_v1
@@ -279,16 +279,33 @@ class ControlCenterV2Resolver:
     @staticmethod
     def _execution_variants(cur) -> list[dict[str, Any]]:
         cur.execute("""
-            SELECT policy_code, parameter_json, oos_trades, folds_passed, folds_total,
-                   delta_profit_factor, delta_expectancy, market_data_quality,
-                   verdict_code, reason_code, promotion_allowed
-            FROM analytics.execution_edge_result_v1
-            WHERE discovery_run_id=(
+            SELECT result.symbol, result.policy_code,
+                   result.parameter_json::text AS parameters, result.oos_trades,
+                   result.eligible_oos_trades, result.microstructure_matched_trades,
+                   round(100 * result.microstructure_coverage_ratio, 1) AS microstructure_coverage_pct,
+                   result.cohort_code, result.microstructure_start, result.microstructure_end,
+                   quote.best_bid, quote.best_ask, quote.bid_depth, quote.ask_depth,
+                   quote.exchange_ts,
+                   result.folds_passed, result.folds_total,
+                   result.delta_profit_factor, result.delta_expectancy,
+                   result.market_data_quality, result.verdict_code,
+                   result.reason_code, result.promotion_allowed
+            FROM analytics.execution_edge_result_v1 result
+            LEFT JOIN LATERAL (
+                SELECT best_bid,best_ask,bid_depth,ask_depth,
+                       coalesce(exchange_ts,observed_at) AS exchange_ts
+                FROM analytics.market_microstructure_snapshot_v1 snapshot
+                WHERE snapshot.symbol=result.symbol
+                  AND snapshot.best_bid > 0 AND snapshot.best_ask > snapshot.best_bid
+                  AND snapshot.bid_levels > 0 AND snapshot.ask_levels > 0
+                ORDER BY snapshot.observed_at DESC LIMIT 1
+            ) quote ON true
+            WHERE result.discovery_run_id=(
                 SELECT discovery_run_id FROM analytics.execution_edge_result_v1
-                ORDER BY created_at DESC LIMIT 1
+                ORDER BY (cohort_code='MICROSTRUCTURE_ONLY') DESC, created_at DESC LIMIT 1
             )
-            ORDER BY promotion_allowed DESC, adjusted_p_value,
-                     folds_passed DESC, delta_expectancy DESC
+            ORDER BY result.promotion_allowed DESC, result.adjusted_p_value,
+                     result.folds_passed DESC, result.delta_expectancy DESC
             LIMIT 8
         """)
         return [dict(row) for row in cur.fetchall()]
@@ -399,7 +416,22 @@ class ControlCenterV2Resolver:
     @staticmethod
     def _block_analysis(cur) -> list[dict[str, Any]]:
         cur.execute("""
-            SELECT reason_value,rows_total,source_table,reason_column,evidence_json
+            SELECT
+                CASE
+                    WHEN reason_value LIKE 'runtime_strategy_blocked:%%' THEN 'Стратегия'
+                    WHEN reason_value LIKE 'cluster_block:%%' THEN 'Кластер'
+                    WHEN reason_value='trend_flip_block' THEN 'Смена тренда'
+                    ELSE reason_value
+                END AS blocking_rule,
+                rows_total AS lost_signals,
+                round(100.0 * rows_total / nullif(sum(rows_total) OVER (),0),1) AS loss_share_pct,
+                coalesce(evidence_json->>'sample_symbols','—') AS instruments,
+                CASE
+                    WHEN reason_value LIKE 'runtime_strategy_blocked:%%' THEN 'Пересчитать правила'
+                    WHEN reason_value LIKE 'cluster_block:%%' THEN 'Проверить позиции'
+                    WHEN reason_value='trend_flip_block' THEN 'Проверить режим'
+                    ELSE 'Разобрать причину'
+                END AS next_action
             FROM analytics.signal_funnel_reason_v1
             WHERE signal_funnel_reason_snapshot_id=(SELECT signal_funnel_reason_snapshot_id FROM analytics.signal_funnel_reason_snapshot_v1 ORDER BY created_at DESC LIMIT 1)
               AND reason_group='BLOCK'
@@ -685,12 +717,22 @@ class ControlCenterV2Resolver:
         latest=cur.fetchone()
         run_id=latest["run_id"] if latest and latest["status"] not in ('PENDING','CANCELLED') else None
         cur.execute("""SELECT p.step_order,p.title_ru step,
-                   coalesce(r.status_code,'PENDING') status_code,
-                   CASE coalesce(r.status_code,'PENDING') WHEN 'SUCCEEDED' THEN 100 WHEN 'RUNNING' THEN 50 ELSE 0 END progress_pct,
+                   coalesce(r.status_code,'NOT_STARTED') status_code,
+                   CASE coalesce(r.status_code,'NOT_STARTED')
+                     WHEN 'SUCCEEDED' THEN 100 WHEN 'SKIPPED' THEN 100
+                     WHEN 'RUNNING' THEN 50 ELSE 0 END progress_pct,
                    r.duration_ms,
-                   coalesce((r.metrics->>'markets')::integer,0) markets_evaluated,
-                   coalesce((r.metrics->>'candidates_evaluated')::integer,0) combinations_evaluated,
-                   coalesce((r.metrics->>'oos_pass')::integer,0) oos_pass
+                   CASE WHEN r.metrics ? 'markets' THEN (r.metrics->>'markets')::integer END markets_evaluated,
+                   CASE WHEN r.metrics ? 'candidates_evaluated' THEN (r.metrics->>'candidates_evaluated')::integer END combinations_evaluated,
+                   CASE WHEN r.metrics ? 'oos_pass' THEN (r.metrics->>'oos_pass')::integer END oos_pass,
+                   CASE
+                     WHEN r.status_code='SKIPPED' THEN 'Контрольная точка сохранена'
+                     WHEN r.status_code='SUCCEEDED' THEN 'Этап завершён'
+                     WHEN r.status_code='RUNNING' THEN 'Выполняется системой'
+                     WHEN r.status_code='FAILED' THEN 'Ошибка этапа'
+                     WHEN r.step_run_id IS NULL THEN 'Нет OOS PASS предыдущего этапа'
+                     ELSE '—'
+                   END AS detail
             FROM analytics.edge_search_scenario_step_v1 p
             LEFT JOIN analytics.edge_search_step_run_v1 r ON r.run_id=%s AND r.step_order=p.step_order
             WHERE p.scenario_code='AUTONOMOUS_EDGE_SEARCH' AND p.enabled ORDER BY p.step_order""",(run_id,))

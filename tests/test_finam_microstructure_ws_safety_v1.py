@@ -5,6 +5,12 @@ from pathlib import Path
 SOURCE = Path("src/scripts/run_finam_microstructure_ws_v1.py")
 
 
+def test_finam_quote_sizes_support_actual_camel_case_payload() -> None:
+    source = SOURCE.read_text()
+    assert 'first_number(quote, "bidSize", "bid_size")' in source
+    assert 'first_number(quote, "askSize", "ask_size")' in source
+
+
 def _function(name: str):
     tree = ast.parse(SOURCE.read_text())
     return next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name)

@@ -58,3 +58,13 @@ def test_command_buttons_require_confirmed_double_click() -> None:
     assert 'isTableRow || isContainer || isCommandButton' in source
     assert 'globalObject.confirm("Подтвердить выполнение действия?")' in source
     assert 'activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…")' in source
+
+
+def test_control_center_tables_are_grouped_under_collapsible_sections() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    assert "groupControlCenterSections" in source
+    assert 'code:"process"' in source
+    assert 'code:"funnel"' in source
+    assert 'code:"execution"' in source
+    assert 'code:"methodology"' in source
+    assert 'details.className = "mc-control-section-group"' in source

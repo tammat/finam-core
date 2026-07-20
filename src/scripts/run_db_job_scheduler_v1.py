@@ -48,6 +48,7 @@ EXECUTORS = {
     "SIGNAL_FUNNEL_REASON_ANALYTICS_V1": "src/scripts/signal_funnel_reason_analytics_v1.py",
     "MODEL_HEALTH_ENGINE_V1": "src/scripts/marketcore_model_health_engine_v1.py",
     "CHECKPOINTED_WALKFORWARD_V4": "src/scripts/run_checkpointed_walkforward_v4.py",
+    "SESSION_EXECUTION_EDGE_V2": "src/scripts/build_session_execution_edge_v1.py",
 }
 
 EXECUTOR_ARGUMENTS = {
@@ -66,6 +67,12 @@ EXECUTOR_ENV = {
     },
     # Короткие возобновляемые пакеты не монополизируют четырёхъядерный сервер.
     "CHECKPOINTED_WALKFORWARD_V4": {"WALKFORWARD_BATCH_SECONDS": "45"},
+    "SESSION_EXECUTION_EDGE_V2": {
+        "SESSION_EDGE_MAX_MARKETS": "8",
+        "SESSION_EDGE_MIN_BARS": "6000",
+        "MICROSTRUCTURE_MIN_COVERAGE": "0.80",
+        "MICROSTRUCTURE_MAX_QUOTE_DISTANCE_SECONDS": "5",
+    },
 }
 
 

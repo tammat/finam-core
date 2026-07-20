@@ -275,6 +275,49 @@
             dialog.showModal();
         }
 
+        openBlockActions(row) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const values = Array.from(row.cells).map((cell) => cell.textContent.trim());
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "block-remediation");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = `Блокировка: ${values[0] || "неизвестна"}`;
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = "Прямой обход риск-контроля запрещён. Система перепроверит доказательства и снимет блок только при PASS.";
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const add = (label, detail, handler, disabled=false) => {
+                const button=this.documentObject.createElement("button");
+                button.type="button"; button.className="mc-action-dialog-item"; button.disabled=disabled;
+                const strong=this.documentObject.createElement("strong"); strong.textContent=label;
+                const span=this.documentObject.createElement("span"); span.textContent=detail;
+                button.append(strong,span); button.addEventListener("click",handler); list.appendChild(button);
+            };
+            add("Проверить и снять блок", "Поставить аудируемую перепроверку в системную очередь", async () => {
+                dialog.close(); dialog.remove();
+                await this.actionSink({
+                    actionId:row.dataset.mcActionId,actionKind:row.dataset.mcActionKind,
+                    interactionKind:"DOUBLE_CLICK",targetId:row.dataset.mcTargetId || null,
+                    commandCode:row.dataset.mcCommandCode,policyClass:row.dataset.mcPolicyClass,
+                    requiresApproval:false,reversible:true,
+                    rollbackCode:row.dataset.mcRollbackCode,idempotencyKey:"client.request"
+                });
+                this.announce("Перепроверка блока поставлена в очередь", "SUCCESS");
+            });
+            add("Оставить блок", "Не менять ограничение до появления новых доказательств", () => {
+                dialog.close(); dialog.remove();
+            });
+            add("Другое решение", "Открыть поиск edge и изменить исследовательский сценарий", () => {
+                dialog.close(); dialog.remove();
+                globalObject.location.href="/workspace-v2/research";
+            });
+            const close=this.documentObject.createElement("button");
+            close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
+            close.addEventListener("click",()=>dialog.close());
+            dialog.addEventListener("close",()=>dialog.remove());
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+        }
+
         openOperatorDetails(row) {
             this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
             const values = Array.from(row.cells).map((cell) => cell.textContent.trim());
@@ -441,6 +484,43 @@
             this.nodesRendered = 0;
         }
 
+        groupControlCenterSections() {
+            const groups = [
+                {code:"process",ru:"Автономные процессы",en:"Autonomous processes",open:true,sections:[
+                    "swing_lifecycle","edge_search_process","edge_search_results","forward_pass_process",
+                    "forward_readiness","shadow_process","shadow_alerts","forward_blockers","shadow"]},
+                {code:"funnel",ru:"Воронка",en:"Funnel",open:false,sections:["funnel","loss_reasons"]},
+                {code:"execution",ru:"Исполнение",en:"Execution",open:true,sections:[
+                    "execution","execution_variants","market","shadow_requirements"]},
+                {code:"methodology",ru:"Методология",en:"Methodology",open:false,sections:[
+                    "volatility","risk","entry","exit","block","relationships"]}
+            ];
+            const isRussian = !String(this.documentObject.documentElement.lang || "ru").toLowerCase().startsWith("en");
+            groups.forEach((group) => {
+                const sections = group.sections.map((code) =>
+                    this.mountElement.querySelector(`[data-mc-node-id="control.section.${code}"]`)
+                ).filter(Boolean);
+                if (!sections.length) return;
+                const parent = sections[0].parentElement;
+                if (!parent) return;
+                const details = this.documentObject.createElement("details");
+                details.className = "mc-control-section-group";
+                details.dataset.mcSectionGroup = group.code;
+                details.open = group.open;
+                const summary = this.documentObject.createElement("summary");
+                const label = this.documentObject.createElement("strong");
+                label.textContent = isRussian ? group.ru : group.en;
+                const count = this.documentObject.createElement("span");
+                count.textContent = isRussian
+                    ? `${sections.length} разделов`
+                    : `${sections.length} sections`;
+                summary.append(label,count);
+                parent.insertBefore(details,sections[0]);
+                details.appendChild(summary);
+                sections.forEach((section) => details.appendChild(section));
+            });
+        }
+
         renderNode(node, context) {
             let tagName = ELEMENT_BY_NODE_TYPE[node.type];
             if (node.type === "title" && node.content && node.content.level_code === "PAGE") tagName = "h1";
@@ -506,7 +586,9 @@
                             const isResearchRow = nodeId.startsWith("research.audit.");
                             const isSwingRow = nodeId.startsWith("control.section.swing_lifecycle.row.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
-                            if (isSwingRow) this.openSwingDetails(element);
+                            const isBlockRow = nodeId.startsWith("control.section.block.row.");
+                            if (isBlockRow) this.openBlockActions(element);
+                            else if (isSwingRow) this.openSwingDetails(element);
                             else if (isUniverseRow) this.openUniverseActions(element);
                             else if (isResearchRow && isRecommendation) this.openResearchActions(element);
                             else if (isResearchRow) this.announce("Запуск доступен двойным кликом в колонке «Далее»");
@@ -632,6 +714,7 @@
                     return;
                 }
             });
+            this.groupControlCenterSections();
             return Object.freeze({driverVersion: DRIVER_VERSION, nodesRendered: this.nodesRendered});
         }
     }

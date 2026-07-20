@@ -274,3 +274,10 @@ td.mc-progress-cell span { position: absolute; inset: 50% auto auto 50%; transfo
     box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
     font-weight: 700;
 }
+[data-mc-section-group] { margin: 16px 0; border: 1px solid #2d6f69; border-radius: 13px; overflow: clip; background: rgba(8,31,41,.72); }
+[data-mc-section-group] > summary { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; cursor:pointer; color:#e6f2f5; background:#0b2833; list-style:none; }
+[data-mc-section-group] > summary::-webkit-details-marker { display:none; }
+[data-mc-section-group] > summary::after { content:"＋"; color:#55dec9; font-size:20px; line-height:1; }
+[data-mc-section-group][open] > summary::after { content:"−"; }
+[data-mc-section-group] > summary span { color:#91a8b2; font-size:13px; font-weight:650; }
+[data-mc-section-group] > [data-mc-node="section"] { margin:12px; }

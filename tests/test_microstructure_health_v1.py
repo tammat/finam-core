@@ -12,7 +12,9 @@ SPEC.loader.exec_module(MODULE)
 POLICY = {"session_timezone": "Europe/Moscow", "session_start": "06:50", "session_end": "23:50"}
 
 
-def test_session_window_is_weekday_and_timezone_aware() -> None:
+def test_session_window_is_exchange_calendar_and_timezone_aware() -> None:
     tz = ZoneInfo("Europe/Moscow")
     assert MODULE.session_is_open(datetime(2026, 7, 14, 10, 0, tzinfo=tz), POLICY) is True
-    assert MODULE.session_is_open(datetime(2026, 7, 12, 10, 0, tzinfo=tz), POLICY) is False
+    assert MODULE.session_is_open(datetime(2026, 7, 12, 10, 0, tzinfo=tz), POLICY) is True
+    assert MODULE.session_is_open(datetime(2026, 7, 12, 9, 59, tzinfo=tz), POLICY) is False
+    assert MODULE.session_is_open(datetime(2026, 7, 12, 19, 0, tzinfo=tz), POLICY) is False
