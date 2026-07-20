@@ -42,6 +42,8 @@ class InstrumentScoutItemV1:
     category_code: str
     bars: int
     research_score: float
+    capacity_rub: float
+    max_abs_correlation: float
     decision_code: str
     reason_code: str
     next_action_code: str
@@ -128,6 +130,10 @@ class ResearchSnapshotV2:
     scout_backfill: int
     scout_watch_added: int
     scout_status: str
+    scout_specification_pass: int
+    scout_liquidity_pass: int
+    scout_information_ranked: int
+    scout_coarse_queued: int
     scout_last_run_at: datetime | None
     scout_next_run_at: datetime | None
     scout_scheduler_status: str

@@ -44,6 +44,9 @@ EXECUTORS = {
     "PAPER_FILL_ANOMALY_DETECTOR_V1": "src/scripts/detect_paper_fill_anomalies_v1.py",
     "MARKET_OPEN_READINESS_V1": "src/scripts/check_market_open_readiness_v1.py",
     "HISTORICAL_EDGE_AUDIT_ENQUEUE_V1": "src/scripts/enqueue_historical_edge_audit_v1.py",
+    "SIGNAL_FUNNEL_ANALYTICS_V1": "src/scripts/signal_funnel_analytics_v1.py",
+    "SIGNAL_FUNNEL_REASON_ANALYTICS_V1": "src/scripts/signal_funnel_reason_analytics_v1.py",
+    "MODEL_HEALTH_ENGINE_V1": "src/scripts/marketcore_model_health_engine_v1.py",
 }
 
 EXECUTOR_ARGUMENTS = {

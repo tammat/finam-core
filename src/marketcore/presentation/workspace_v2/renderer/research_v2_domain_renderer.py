@@ -177,7 +177,7 @@ def _universe_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.universe.body",children=tuple(rows))))
 
 def _scout_table(items):
-    columns=("decision","symbol","category","score","bars","reason","action","status","operator_action")
+    columns=("decision","symbol","category","score","capacity","correlation","bars","reason","action","status","operator_action")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.scout.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.scout.header.{code}",key=f"research.scout.column.{code}") for code in columns))
     reasons={"CATEGORY_QUOTA_SELECTED":"Квота категории","CATEGORY_QUOTA_EXCEEDED":"Резерв категории",
@@ -193,6 +193,8 @@ def _scout_table(items):
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.symbol",value=item.symbol),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.category",key=f"research.universe.category.{item.category_code.lower()}"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.score",value=item.research_score,fmt="DECIMAL"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.capacity",value=item.capacity_rub,fmt="DECIMAL"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.correlation",value=item.max_abs_correlation,fmt="DECIMAL"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.bars",value=item.bars,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.reason",value=reasons.get(item.reason_code,item.reason_code)),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.scout.{index}.action",value=actions.get(item.next_action_code,item.next_action_code)),
@@ -205,6 +207,17 @@ def _scout_table(items):
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.scout.table",children=(
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.scout.head",children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.scout.body",children=tuple(rows))))
+
+def _instrument_funnel(s):
+    stages=(("discovered",s.scout_discovered),("data_spec",s.scout_specification_pass),
+            ("liquidity",s.scout_liquidity_pass),("information",s.scout_information_ranked),
+            ("quota",s.scout_selected),("coarse",s.scout_coarse_queued))
+    return RenderNodeV2(RenderNodeTypeV2.GRID,"research.scout.funnel",children=tuple(
+        RenderNodeV2(RenderNodeTypeV2.CARD,f"research.scout.funnel.{code}",
+          state=RenderNodeStateV2(status_code="OK" if value else "WARNING"),children=(
+            _leaf(RenderNodeTypeV2.TITLE,f"research.scout.funnel.{code}.title",key=f"research.scout.funnel.{code}"),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE,f"research.scout.funnel.{code}.value",value=value,fmt="INTEGER"),
+        )) for code,value in stages))
 
 def _scout_schedule(s):
     return RenderNodeV2(RenderNodeTypeV2.CARD,"research.scout.schedule",state=RenderNodeStateV2(
@@ -409,6 +422,6 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.degradation.title",key="research.degradation.title",level="SECTION"),_strategy_degradation_table(s.strategy_degradation)))
     if s.global_trials:
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.governance.title",key="research.governance.title",level="SECTION"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.governance.tiles",children=governance_tiles)))
-    children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.scout.title",key="research.scout.title",level="SECTION"),_scout_schedule(s),_scout_table(s.scout_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results)))
+    children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.scout.title",key="research.scout.title",level="SECTION"),_scout_schedule(s),_leaf(RenderNodeTypeV2.TITLE,"research.scout.funnel.title",key="research.scout.funnel.title",level="SECTION"),_instrument_funnel(s),_scout_table(s.scout_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results)))
     d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=tuple(children)),)))
     validate_render_document_v2(d); return d

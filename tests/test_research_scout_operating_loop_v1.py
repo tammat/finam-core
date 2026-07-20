@@ -10,7 +10,7 @@ def test_scout_full_catalog_filters_and_single_click_are_wired():
     renderer=(ROOT/"src/marketcore/presentation/workspace_v2/renderer/research_v2_domain_renderer.py").read_text()
     browser=(ROOT/"src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert "LIMIT 80" in resolver
-    assert 'columns=("decision","symbol","category","score","bars","reason","action","status","operator_action")' in renderer
+    assert 'columns=("decision","symbol","category","score","capacity","correlation","bars","reason","action","status","operator_action")' in renderer
     assert "ensureScoutFilters" in browser and "applyScoutFilter" in browser
     assert '["all","Все"]' in browser
     assert 'endsWith(".operator_action")' in browser

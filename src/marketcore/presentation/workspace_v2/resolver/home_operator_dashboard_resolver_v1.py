@@ -118,7 +118,7 @@ class HomeOperatorDashboardResolverV1:
         stage = str(row.get("current_step") or "NOT_RUN")
         status_ru = {
             "RUNNING": "В работе", "PASS_FOUND": "Есть PASS", "NO_PASS": "Без PASS",
-            "FAILED": "Ошибка", "NOT_RUN": "Не запускался",
+            "FAILED": "Ошибка", "SKIPPED": "Продолжится", "NOT_RUN": "Не запускался",
         }.get(status, status)
         stage_ru = {
             "STARTING": "Запуск", "SYNC_CONTRACT_SPECS": "Спецификации",
@@ -145,11 +145,12 @@ class HomeOperatorDashboardResolverV1:
         )
 
     def _model_health_item(self, cur: Any, item_code: str, title_key: str, subtitle_key: str) -> HomeOperatorDashboardItemV1:
-        cur.execute("""SELECT count(*) checks,max(created_at) updated_at
-            FROM analytics.marketcore_model_health_snapshot_v1""")
+        cur.execute("""SELECT model_health_snapshot_id,1 checks,created_at updated_at
+            FROM analytics.marketcore_model_health_snapshot_v1 ORDER BY created_at DESC LIMIT 1""")
         row = cur.fetchone() or {}
         cur.execute("""SELECT count(*) recommendations
-            FROM analytics.marketcore_model_health_recommendation_v1""")
+            FROM analytics.marketcore_model_health_recommendation_v1
+            WHERE model_health_snapshot_id=%s""",(row.get("model_health_snapshot_id") or -1,))
         recommendations = int((cur.fetchone() or {}).get("recommendations") or 0)
         checks = int(row.get("checks") or 0)
         status = UiStatusCode.OK if checks and not recommendations else UiStatusCode.WARNING
@@ -214,10 +215,11 @@ class HomeOperatorDashboardResolverV1:
         row=cur.fetchone() or {}
         funnels=int(row.get("funnels") or 0); passed=int(row.get("passed") or 0)
         status=UiStatusCode.OK if funnels and passed==funnels else UiStatusCode.WARNING
+        bottleneck=(str(row.get("bottleneck") or "Нет данных") if funnels else "Ожидается walk-forward")
         return HomeOperatorDashboardItemV1(item_code=item_code,title_key=title_key,subtitle_key=subtitle_key,
             status_code=status,status_label_key=self._status_label_key(status),rows_total=funnels,
             updated_at=str(row.get("updated_at") or ""),summary_message_key="home.operator.diagnostic_funnels.summary",
-            summary_message_args={"funnels":funnels,"passed":passed,"bottleneck":str(row.get("bottleneck") or "Нет данных"),"lost":int(row.get("lost") or 0)})
+            summary_message_args={"funnels":funnels,"passed":passed,"bottleneck":bottleneck,"lost":int(row.get("lost") or 0)})
 
     def _updated_at(
         self,
