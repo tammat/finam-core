@@ -185,6 +185,7 @@
                     documentObject: globalObject.document,
                     mountElement,
                     translate: services.translate,
+                    localeCode: services.localeCode,
                     format: services.format,
                     actionSink
                 });

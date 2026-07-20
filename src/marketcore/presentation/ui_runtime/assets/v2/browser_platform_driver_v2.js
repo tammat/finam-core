@@ -21,6 +21,8 @@
             this.stack = [];
             this.nodesRendered = 0;
             this.actionSink = typeof options.actionSink === "function" ? options.actionSink : null;
+            this.translate = typeof options.translate === "function" ? options.translate : null;
+            this.localeCode = options.localeCode || "ru-RU";
         }
 
         announce(message, state = "INFO") {
@@ -532,16 +534,19 @@
 
         groupControlCenterSections() {
             const groups = [
-                {code:"process",ru:"Автономные процессы",en:"Autonomous processes",open:true,sections:[
+                {code:"process",labelKey:"control.view.group.process",open:false,sections:[
                     "swing_lifecycle","edge_search_process","edge_search_results","forward_pass_process",
                     "forward_readiness","shadow_process","shadow_alerts","forward_blockers","shadow"]},
-                {code:"funnel",ru:"Воронка",en:"Funnel",open:false,sections:["funnel","loss_reasons"]},
-                {code:"execution",ru:"Исполнение",en:"Execution",open:true,sections:[
-                    "execution","execution_variants","market","shadow_requirements"]},
-                {code:"methodology",ru:"Методология",en:"Methodology",open:false,sections:[
+                {code:"funnel",labelKey:"control.view.group.funnel",open:false,sections:["funnel","loss_reasons"]},
+                {code:"execution",labelKey:"control.view.group.execution",open:false,sections:[
+                    "execution","microstructure_priorities","execution_microstructure",
+                    "execution_historical","market","shadow_requirements"]},
+                {code:"methodology",labelKey:"control.view.group.methodology",open:false,sections:[
                     "volatility","risk","entry","exit","block","relationships"]}
             ];
-            const isRussian = !String(this.documentObject.documentElement.lang || "ru").toLowerCase().startsWith("en");
+            if (!this.translate) throw new Error("BROWSER_PLATFORM_DRIVER_V2_TRANSLATOR_REQUIRED");
+            const t = (key,args={}) => this.translate(key,args,this.localeCode);
+            const renderedGroups = [];
             groups.forEach((group) => {
                 const sections = group.sections.map((code) =>
                     this.mountElement.querySelector(`[data-mc-node-id="control.section.${code}"]`)
@@ -555,16 +560,39 @@
                 details.open = group.open;
                 const summary = this.documentObject.createElement("summary");
                 const label = this.documentObject.createElement("strong");
-                label.textContent = isRussian ? group.ru : group.en;
+                label.textContent = t(group.labelKey);
                 const count = this.documentObject.createElement("span");
-                count.textContent = isRussian
-                    ? `${sections.length} разделов`
-                    : `${sections.length} sections`;
+                const blocked = sections.reduce((total, section) =>
+                    total + section.querySelectorAll('[data-mc-status="BLOCKED"]').length, 0);
+                count.textContent = t("control.view.group.count", {sections:sections.length, blocked});
                 summary.append(label,count);
                 parent.insertBefore(details,sections[0]);
                 details.appendChild(summary);
                 sections.forEach((section) => details.appendChild(section));
+                renderedGroups.push({details,blocked});
             });
+            if (!renderedGroups.length) return;
+            const toolbar = this.documentObject.createElement("div");
+            toolbar.className = "mc-control-view-toolbar";
+            toolbar.setAttribute("role", "toolbar");
+            toolbar.setAttribute("aria-label", t("control.view.toolbar.aria"));
+            const addView = (code,labelKey,apply) => {
+                const button = this.documentObject.createElement("button");
+                button.type = "button";
+                button.dataset.mcControlView = code;
+                button.textContent = t(labelKey);
+                button.addEventListener("click", () => {
+                    apply();
+                    toolbar.querySelectorAll("button").forEach((item) =>
+                        item.setAttribute("aria-pressed", String(item === button)));
+                });
+                toolbar.appendChild(button);
+            };
+            addView("summary","control.view.summary",() => renderedGroups.forEach(({details}) => { details.open=false; }));
+            addView("blocked","control.view.blocked",() => renderedGroups.forEach(({details,blocked}) => { details.open=blocked>0; }));
+            addView("all","control.view.all",() => renderedGroups.forEach(({details}) => { details.open=true; }));
+            toolbar.querySelector('[data-mc-control-view="summary"]').setAttribute("aria-pressed", "true");
+            renderedGroups[0].details.parentElement.insertBefore(toolbar,renderedGroups[0].details);
         }
 
         renderNode(node, context) {

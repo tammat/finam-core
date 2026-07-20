@@ -68,3 +68,11 @@ def test_control_center_tables_are_grouped_under_collapsible_sections() -> None:
     assert 'code:"execution"' in source
     assert 'code:"methodology"' in source
     assert 'details.className = "mc-control-section-group"' in source
+    assert 'code:"process",labelKey:"control.view.group.process",open:false' in source
+    assert '"microstructure_priorities","execution_microstructure"' in source
+    assert 'addView("summary","control.view.summary"' in source
+    assert 'addView("blocked","control.view.blocked"' in source
+    assert 'addView("all","control.view.all"' in source
+    assert 'labelKey:"control.view.group.process"' in source
+    assert 't("control.view.group.count"' in source
+    assert 'data-mc-control-view="summary"' in source

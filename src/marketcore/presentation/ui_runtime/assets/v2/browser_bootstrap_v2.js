@@ -47,7 +47,9 @@
         const driver = new exportedDriver.Driver({
             documentObject: options.documentObject,
             mountElement: stagingElement,
-            actionSink: options.actionSink
+            actionSink: options.actionSink,
+            translate: options.translate,
+            localeCode: options.localeCode || "ru-RU"
         });
         const result = runtime.execute(payload, {
             validator,
