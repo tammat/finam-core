@@ -433,15 +433,49 @@ class ControlCenterV2Resolver:
     @staticmethod
     def _exit_analysis(cur) -> list[dict[str, Any]]:
         cur.execute("""
-            SELECT policy_code,count(*) AS variants,
-                   count(*) FILTER (WHERE variant_status='CLOSED') AS closed,
-                   round(avg(extract(epoch FROM (exit_ts-entry_ts))/60) FILTER (WHERE exit_ts IS NOT NULL),1) AS avg_hold_minutes,
-                   coalesce(sum(net_pnl) FILTER (WHERE variant_status='CLOSED'),0) AS net_pnl,
-                   count(*) FILTER (WHERE exit_reason='TRAILING_STOP') AS trailing_exits,
-                   count(*) FILTER (WHERE broker_order_sent OR runtime_allowed OR execution_enabled) AS unsafe
-            FROM analytics.forward_edge_shadow_exit_variant_v1
-            WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
-            GROUP BY policy_code ORDER BY net_pnl DESC
+            WITH contracts AS (
+                SELECT scope_code,timeframe,
+                       coalesce(
+                           exit_policy->'exit_policy_code'->>1,
+                           exit_policy->'exit_policy_code'->>0,
+                           exit_policy->>'exit_policy_code'
+                       ) AS policy_code,
+                       coalesce(
+                           exit_policy->'exit_policy_code'->>0,
+                           'FIXED_HOLD'
+                       ) AS comparison_policy_code,
+                       (exit_policy->>'exit_max_holding_bars')::integer AS max_holding_bars,
+                       (exit_policy->>'exit_minimum_bars')::integer AS minimum_bars,
+                       (exit_policy->>'exit_stop_atr')::numeric AS stop_atr,
+                       (exit_policy->>'exit_trail_atr')::numeric AS trail_atr,
+                       (exit_policy->>'exit_trend_lookback')::integer AS trend_lookback,
+                       updated_at
+                FROM analytics.research_entry_exit_contract_v1
+                WHERE enabled
+            ), current_observations AS (
+                SELECT timeframe,
+                       count(*) AS variants,
+                       count(*) FILTER (WHERE variant_status='CLOSED') AS closed
+                FROM analytics.forward_edge_shadow_exit_variant_v1
+                WHERE cohort_id=analytics.forward_edge_baseline_cohort_id_v1()
+                GROUP BY timeframe
+            )
+            SELECT c.scope_code,c.timeframe,c.policy_code,
+                   c.comparison_policy_code,c.max_holding_bars,c.minimum_bars,
+                   c.stop_atr,c.trail_atr,c.trend_lookback,
+                   coalesce(o.variants,0)::integer AS variants,
+                   coalesce(o.closed,0)::integer AS closed,
+                   CASE
+                       WHEN coalesce(o.variants,0)=0 THEN 'AWAITING_OOS_EXIT_OBSERVATIONS'
+                       WHEN coalesce(o.closed,0)=0 THEN 'AWAITING_CLOSED_TRADES'
+                       ELSE 'EVALUATED'
+                   END AS evaluation_status,
+                   c.updated_at
+            FROM contracts c
+            LEFT JOIN current_observations o USING (timeframe)
+            ORDER BY CASE c.scope_code WHEN 'INTRADAY' THEN 1 ELSE 2 END,
+                     CASE c.timeframe WHEN 'M5' THEN 1 WHEN 'M15' THEN 2
+                          WHEN 'H1' THEN 3 WHEN 'H4' THEN 4 ELSE 5 END
         """)
         return [dict(row) for row in cur.fetchall()]
 

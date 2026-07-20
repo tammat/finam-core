@@ -183,6 +183,7 @@ def _table_section(
                 or normalized_column in {
                     "freshness_code", "quality_code", "verdict_code",
                     "market_data_quality", "mode", "cohort_code",
+                    "scope_code",
                 }
                 or any(
                     marker in normalized_column
