@@ -164,6 +164,39 @@ def _methodology_failure_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.failures.head",children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.failures.body",children=tuple(rows))))
 
+def _remediation_branch_table(items):
+    columns=("branch","sources","created","pruned","queued","evaluated","pass","status","action")
+    header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.remediation.header",children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.remediation.header.{code}",
+              key=f"research.remediation.column.{code}") for code in columns))
+    rows=[]
+    for index,item in enumerate(items,start=1):
+        state="OK" if item.oos_pass else "WARNING" if item.status != "FAILED" else "BLOCKED"
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.remediation.{index}",
+            state=RenderNodeStateV2(status_code=state),children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.branch",
+                      key=f"research.remediation.branch.{item.branch_code.lower()}"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.sources",value=item.source_failures,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.created",value=item.created_variants,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.pruned",value=item.pruned_variants,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.queued",value=item.queued_variants,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.evaluated",value=item.evaluated_variants,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.pass",value=item.oos_pass,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.status",
+                      key=_domain_key(item.status),args={"progress_pct":item.progress_pct,
+                      "current_step":item.current_step,"updated_at":item.updated_at.isoformat() if item.updated_at else None}),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.action",
+                      key="research.remediation.action",args={"tooltip_key":"research.remediation.column.action"}),
+            ),action=RenderActionV2(
+                "research.edge_search.run",ActionKindV2.COMMAND,
+                target_id=f"{item.process_id}|{item.branch_code}",command_code="RESEARCH.RUN_EDGE_SEARCH",
+                policy_class="RESEARCH_MAINTENANCE",reversible=True,
+                rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request",
+            )))
+    return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.remediation.table",children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.remediation.head",children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.remediation.body",children=tuple(rows))))
+
 def _universe_table(items):
     columns=("selected","symbol","category","bars","rank","reason","status","operator_action")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.universe.header",children=tuple(
@@ -431,6 +464,10 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         _operating_cycle_card(s),
         _current_cycle_card(s),
     ]
+    if s.remediation_branches:
+        children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.remediation.title",
+                               key="research.remediation.title",level="SECTION"),
+                         _remediation_branch_table(s.remediation_branches)))
     if s.validation_funnel_available:
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.validation_funnel.title",key="research.validation_funnel.title",level="SECTION"),_validation_funnel_tiles(s),_validation_funnel_recommendation(s)))
     if s.strategy_degradation:

@@ -49,6 +49,7 @@ EXECUTORS = {
     "MODEL_HEALTH_ENGINE_V1": "src/scripts/marketcore_model_health_engine_v1.py",
     "CHECKPOINTED_WALKFORWARD_V4": "src/scripts/run_checkpointed_walkforward_v4.py",
     "SESSION_EXECUTION_EDGE_V2": "src/scripts/build_session_execution_edge_v1.py",
+    "OOS_REMEDIATION_BRANCH_GENERATOR_V1": "src/scripts/generate_oos_remediation_branches_v1.py",
 }
 
 EXECUTOR_ARGUMENTS = {

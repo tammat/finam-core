@@ -13,6 +13,17 @@
         "container.program": "/api/v2/domain-render-tree/program",
         "container.settings": "/api/v2/domain-render-tree/settings"
     });
+    const ROUTE_BY_TARGET = Object.freeze({
+        "container.home": "/workspace-v2",
+        "container.capital": "/workspace-v2/capital",
+        "container.edge": "/workspace-v2/control-center/edge-oos",
+        "container.research": "/workspace-v2/research",
+        "container.intraday": "/workspace-v2/intraday",
+        "container.portfolio": "/workspace-v2/portfolio",
+        "container.risk": "/workspace-v2/risk",
+        "container.program": "/workspace-v2/program",
+        "container.settings": "/workspace-v2/settings"
+    });
 
     function initialTarget(pathname) {
         const path = String(pathname || "").toLowerCase();
@@ -41,6 +52,13 @@
         const navigationStack = [];
         let refreshInFlight = false;
         let researchRefreshTimer = null;
+
+        const syncRoute = (targetId, replace = false) => {
+            const route = ROUTE_BY_TARGET[targetId];
+            if (!route || !globalObject.history || globalObject.location.pathname === route) return;
+            const method = replace ? "replaceState" : "pushState";
+            globalObject.history[method]({marketcoreTargetId: targetId}, "", route);
+        };
 
         const updateBackButton = () => {
             if (!backButton) return;
@@ -93,6 +111,7 @@
                 navigationStack.push(currentTargetId);
                 currentTargetId = targetId;
                 await render(endpoint);
+                syncRoute(targetId);
                 updateBackButton();
             },
             onCommand: async () => {
@@ -107,6 +126,7 @@
             if (!previousTargetId && currentTargetId === "container.home") return updateBackButton();
             currentTargetId = previousTargetId || "container.home";
             await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            syncRoute(currentTargetId);
             updateBackButton();
         });
 
@@ -114,10 +134,21 @@
             navigationStack.length = 0;
             currentTargetId = "container.home";
             await render(ENDPOINT_BY_TARGET[currentTargetId]);
+            syncRoute(currentTargetId);
+            updateBackButton();
+        });
+
+        globalObject.addEventListener("popstate", async () => {
+            const targetId = initialTarget(globalObject.location.pathname);
+            if (targetId === currentTargetId) return;
+            navigationStack.length = 0;
+            currentTargetId = targetId;
+            await render(ENDPOINT_BY_TARGET[currentTargetId]);
             updateBackButton();
         });
 
         await render(currentEndpoint);
+        syncRoute(currentTargetId, true);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
         globalObject.setInterval(async () => {

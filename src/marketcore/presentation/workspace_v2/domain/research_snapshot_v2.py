@@ -101,6 +101,21 @@ class StrategyDegradationV1:
     research_quarantine_required: bool
 
 @dataclass(frozen=True, slots=True)
+class OosRemediationBranchV1:
+    process_id: str
+    branch_code: str
+    source_failures: int
+    created_variants: int
+    pruned_variants: int
+    queued_variants: int
+    evaluated_variants: int
+    oos_pass: int
+    status: str
+    progress_pct: float
+    current_step: str
+    updated_at: datetime | None
+
+@dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:
     supervisor_status: str
     active_symbols: int
@@ -170,6 +185,7 @@ class ResearchSnapshotV2:
     universe_items: tuple[ResearchUniverseItemV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
+    remediation_branches: tuple[OosRemediationBranchV1, ...]
     live_signals_1h: int
     live_signal_symbols_1h: int
     paper_fills_1h: int
