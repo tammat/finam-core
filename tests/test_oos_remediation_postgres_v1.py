@@ -15,8 +15,8 @@ def test_latest_oos_remediation_process_is_bounded_and_auditable() -> None:
         rows = cursor.fetchall()
         assert [row[0] for row in rows] == ["COST_REMEDIATION", "SAMPLE_EXPANSION"]
         active = {row[0]: row[3] for row in rows}
-        assert active["COST_REMEDIATION"] <= 32
-        assert active["SAMPLE_EXPANSION"] <= 16
+        assert active["COST_REMEDIATION"] <= 34
+        assert active["SAMPLE_EXPANSION"] <= 10
         assert all(row[1] == row[2] + row[3] + row[4] for row in rows)
 
 

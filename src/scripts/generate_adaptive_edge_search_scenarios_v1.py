@@ -95,7 +95,12 @@ def adapted_grid(base_grid: list[dict], reason: str, algorithm_code: str = "", b
                                   "entry_trend_mode": "WITH_TREND",
                                   "entry_min_volatility_bps": 1.0,
                                   "entry_max_volatility_bps": 120.0,
-                                  "session_analysis": "MARKET_SESSION_CONTRACT_V1"})
+                                  "entry_volume_mode": "REQUIRE",
+                                  "session_analysis": "MARKET_SESSION_CONTRACT_V1",
+                                  "exit_policy_code": "DYNAMIC_EXIT_V1",
+                                  "exit_max_holding_bars": 20,
+                                  "exit_trend_lookback": 5,
+                                  "exit_volatility_risk_multiplier": 2.0})
             if candidate not in output:
                 output.append(candidate)
             if len(output) >= min(MAX_VARIANTS_PER_ITEM, budget):

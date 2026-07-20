@@ -17,8 +17,8 @@ VERSION = "OOS_REMEDIATION_BRANCHES_V1"
 NAMESPACE = uuid.UUID("4e589952-d68d-4b29-a1cf-f10f6fd80da8")
 MIN_FUTURE_BARS = int(os.getenv("OOS_REMEDIATION_MIN_FUTURE_BARS", "500"))
 BRANCH_POLICY = {
-    "COST_REMEDIATION": {"reason": "NEGATIVE_COST_ADJUSTED_EXPECTANCY", "sources": 4, "budget": 32},
-    "SAMPLE_EXPANSION": {"reason": "INSUFFICIENT_TRADES", "sources": 2, "budget": 16},
+    "COST_REMEDIATION": {"reason": "NEGATIVE_COST_ADJUSTED_EXPECTANCY", "sources": 4, "budget": 34},
+    "SAMPLE_EXPANSION": {"reason": "INSUFFICIENT_TRADES", "sources": 2, "budget": 10},
 }
 
 
@@ -109,6 +109,34 @@ def reconcile(cursor) -> None:
       WHERE c.adaptive_scenario_id=s.adaptive_scenario_id
         AND c.status_code='WAITING_FUTURE_DATA' AND s.status_code='ACTIVE'
     """)
+
+
+def enforce_policy_budgets(cursor, process_id: str) -> None:
+    for branch, policy in BRANCH_POLICY.items():
+        cursor.execute("""
+          WITH ranked AS (
+            SELECT candidate_id,row_number() OVER(ORDER BY generated_at,candidate_id) AS position
+            FROM analytics.oos_remediation_candidate_v1
+            WHERE process_id=%s AND branch_code=%s
+              AND status_code IN ('WAITING_FUTURE_DATA','QUEUED')
+          )
+          UPDATE analytics.oos_remediation_candidate_v1 c
+          SET status_code='PRUNED_BUDGET',reason_code='RESOURCE_ALLOCATION_70_20_10',
+              updated_at=clock_timestamp()
+          FROM ranked r WHERE c.candidate_id=r.candidate_id AND r.position>%s
+        """, (process_id, branch, int(policy["budget"])))
+    cursor.execute("""
+      WITH kept AS (
+        SELECT adaptive_scenario_id,jsonb_agg(parameter_json ORDER BY fingerprint) parameter_grid
+        FROM analytics.oos_remediation_candidate_v1
+        WHERE process_id=%s AND adaptive_scenario_id IS NOT NULL
+          AND status_code NOT LIKE 'PRUNED_%%'
+        GROUP BY adaptive_scenario_id
+      )
+      UPDATE analytics.edge_search_adaptive_scenario_v1 s
+      SET parameter_grid=k.parameter_grid,updated_at=clock_timestamp()
+      FROM kept k WHERE s.adaptive_scenario_id=k.adaptive_scenario_id
+    """, (process_id,))
     cursor.execute("""
       WITH outcome AS (
         SELECT c.candidate_id,bool_or(w.verdict_code='OOS_PASS') passed
@@ -180,6 +208,7 @@ def main() -> int:
             """, (process_id, str(cohort["scenario_run_id"]), str(cohort["search_run_id"]),
                   int(cohort["evaluations"]), VERSION))
             reconcile(cursor)
+            enforce_policy_budgets(cursor, process_id)
             existing_global: set[str] = set()
             cursor.execute("""SELECT fingerprint FROM analytics.oos_remediation_candidate_v1
                                WHERE process_id<>%s AND status_code NOT LIKE 'PRUNED_%%'""", (process_id,))
@@ -250,6 +279,7 @@ def main() -> int:
                           scenario_id if fp in accepted_fps else None, str(row["algorithm_code"]),
                           str(row["strategy_code"]), str(row["symbol"]), psycopg2.extras.Json(params),
                           fp, status, reason))
+            enforce_policy_budgets(cursor, process_id)
             update_process(cursor, process_id)
             cursor.execute("""
               SELECT branch_code,count(*) created,

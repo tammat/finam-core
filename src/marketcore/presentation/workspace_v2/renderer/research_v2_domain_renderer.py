@@ -165,7 +165,7 @@ def _methodology_failure_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.failures.body",children=tuple(rows))))
 
 def _remediation_branch_table(items):
-    columns=("branch","sources","created","pruned","queued","evaluated","pass","status","action")
+    columns=("branch","sources","created","pruned","queued","evaluated","gross","net","lost","pass","status","action")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.remediation.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.remediation.header.{code}",
               key=f"research.remediation.column.{code}") for code in columns))
@@ -181,15 +181,20 @@ def _remediation_branch_table(items):
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.pruned",value=item.pruned_variants,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.queued",value=item.queued_variants,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.evaluated",value=item.evaluated_variants,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.gross",value=item.gross_pass,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.net",value=item.after_costs_pass,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.lost",value=item.cost_lost,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.pass",value=item.oos_pass,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.status",
                       key=_domain_key(item.status),args={"progress_pct":item.progress_pct,
                       "current_step":item.current_step,"updated_at":item.updated_at.isoformat() if item.updated_at else None}),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.action",
-                      key="research.remediation.action",args={"tooltip_key":"research.remediation.column.action"}),
+                      key="research.remediation.diagnostic" if item.diagnostic_only else "research.remediation.action",
+                      args={"tooltip_key":"research.remediation.column.action"}),
             ),action=RenderActionV2(
-                "research.edge_search.run",ActionKindV2.COMMAND,
-                target_id=f"{item.process_id}|{item.branch_code}",command_code="RESEARCH.RUN_EDGE_SEARCH",
+                "research.request.refresh" if item.diagnostic_only else "research.edge_search.run",ActionKindV2.COMMAND,
+                target_id=f"{item.process_id}|{item.branch_code}",
+                command_code="RESEARCH.REQUEST_REFRESH" if item.diagnostic_only else "RESEARCH.RUN_EDGE_SEARCH",
                 policy_class="RESEARCH_MAINTENANCE",reversible=True,
                 rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",idempotency_key="client.request",
             )))

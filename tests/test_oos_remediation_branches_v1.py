@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_branch_budgets_are_bounded_and_costs_get_priority() -> None:
-    assert BRANCH_POLICY["COST_REMEDIATION"]["budget"] == 32
-    assert BRANCH_POLICY["SAMPLE_EXPANSION"]["budget"] == 16
-    assert sum(item["budget"] for item in BRANCH_POLICY.values()) == 48
+    assert BRANCH_POLICY["COST_REMEDIATION"]["budget"] == 34
+    assert BRANCH_POLICY["SAMPLE_EXPANSION"]["budget"] == 10
+    assert sum(item["budget"] for item in BRANCH_POLICY.values()) == 44
 
 
 def test_fingerprint_ignores_runtime_scenario_identity() -> None:
@@ -34,9 +34,30 @@ def test_panel_exposes_created_pruned_and_oos_pass() -> None:
     resolver = (ROOT / "src/marketcore/presentation/workspace_v2/resolver/research_v2_resolver.py").read_text()
     renderer = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/research_v2_domain_renderer.py").read_text()
     assert "OosRemediationBranchV1" in snapshot
-    assert "oos_remediation_branch_summary_v1" in resolver
+    assert "oos_remediation_branch_panel_v1" in resolver
     for metric in ("created", "pruned", "pass"):
         assert f'research.remediation.{{index}}.{metric}' in renderer
+
+
+def test_zero_cost_diagnostic_is_visible_but_cannot_promote() -> None:
+    migration = (ROOT / "sql/analytics/159_zero_cost_diagnostic_v1.sql").read_text()
+    runner = (ROOT / "src/scripts/run_checkpointed_walkforward_v4.py").read_text()
+    renderer = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/research_v2_domain_renderer.py").read_text()
+    assert "ZERO_COST_DIAGNOSTIC" in migration
+    assert "diagnostic_only" in migration
+    assert '"promotion_allowed":False' in runner
+    assert '"runtime_allowed":False' in runner
+    assert "RESEARCH.REQUEST_REFRESH" in renderer
+
+
+def test_resource_policy_keeps_70_20_10_and_dynamic_exit() -> None:
+    migration = (ROOT / "sql/analytics/159_zero_cost_diagnostic_v1.sql").read_text()
+    adaptive = (ROOT / "src/scripts/generate_adaptive_edge_search_scenarios_v1.py").read_text()
+    assert "('COST_REMEDIATION',70,34" in migration
+    assert "('SAMPLE_EXPANSION',20,10" in migration
+    assert "('NEW_INSTRUMENT_EXPLORATION',10,4" in migration
+    assert adaptive.count('"exit_max_holding_bars": 20') >= 2
+    assert '"entry_volume_mode": "REQUIRE"' in adaptive
 
 
 def test_workspace_navigation_updates_browser_url() -> None:

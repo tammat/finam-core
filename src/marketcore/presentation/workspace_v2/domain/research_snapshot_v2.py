@@ -110,6 +110,10 @@ class OosRemediationBranchV1:
     queued_variants: int
     evaluated_variants: int
     oos_pass: int
+    gross_pass: int
+    after_costs_pass: int
+    cost_lost: int
+    diagnostic_only: bool
     status: str
     progress_pct: float
     current_step: str

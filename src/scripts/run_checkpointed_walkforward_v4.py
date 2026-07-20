@@ -187,7 +187,20 @@ def _finalize_results(cur,campaign_id) -> int:
       final_holdout=fold_rows[-1]["passed"]
       passed=in_pass and oos_gross and after_cost and folds_passed>=int(gate["min_folds_passed"]) and (final_holdout or not gate["final_holdout_required"])
       reason="WALKFORWARD_COST_ADJUSTED_PASS" if passed else ("INSUFFICIENT_TRADES" if len(all_net)<int(gate["min_trades"]) else "NEGATIVE_COST_ADJUSTED_EXPECTANCY" if (sum(all_net)/len(all_net) if all_net else 0)<=float(gate["min_expectancy"]) else "WALKFORWARD_FOLDS_UNSTABLE")
-      funnel={"in_sample":{"passed":in_pass},"oos_gross":{"passed":oos_gross},"cost_adjusted":{"passed":after_cost},"stability":{"passed":passed,"folds_passed":folds_passed}}
+      gross_pf=_pf(all_gross); gross_expectancy=sum(all_gross)/len(all_gross) if all_gross else 0
+      net_pf=_pf(all_net); net_expectancy=sum(all_net)/len(all_net) if all_net else 0
+      funnel={
+        "in_sample":{"passed":in_pass},
+        "oos_gross":{"trades":len(all_gross),"profit_factor":gross_pf,
+                     "expectancy":gross_expectancy,"passed":oos_gross},
+        "cost_adjusted":{"trades":len(all_net),"profit_factor":net_pf,
+                         "expectancy":net_expectancy,"passed":after_cost},
+        "cost_waterfall":{"transaction_cost_bps":20 if row["symbol"].endswith("USD") else 8,
+                          "gross_expectancy":gross_expectancy,"net_expectancy":net_expectancy,
+                          "expectancy_lost":gross_expectancy-net_expectancy,
+                          "diagnostic_only":True,"promotion_allowed":False,
+                          "runtime_allowed":False},
+        "stability":{"passed":passed,"folds_passed":folds_passed}}
       cur.execute("""INSERT INTO analytics.walkforward_edge_search_v3
        (result_id,search_run_id,strategy_family,strategy_code,symbol,timeframe,parameter_json,
         transaction_cost_bps,total_trades,net_profit_factor,net_expectancy,max_drawdown,folds_total,
