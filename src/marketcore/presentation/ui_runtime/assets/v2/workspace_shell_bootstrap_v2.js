@@ -122,7 +122,10 @@
     const launch = () => start().catch((error) => {
         globalObject.console.error("MARKETCORE_WORKSPACE_SHELL_V2_FAILED", error);
         const mountElement = globalObject.document.getElementById(ROOT_ID);
-        if (mountElement) mountElement.setAttribute("data-runtime-status", "FAILED");
+        if (mountElement) {
+            mountElement.setAttribute("data-runtime-status", "FAILED");
+            mountElement.setAttribute("data-runtime-error", error && error.message ? error.message : String(error));
+        }
     });
     if (globalObject.document.readyState === "loading") {
         globalObject.document.addEventListener("DOMContentLoaded", launch, {once: true});

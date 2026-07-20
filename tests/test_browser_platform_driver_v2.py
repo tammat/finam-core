@@ -22,7 +22,8 @@ def test_rows_and_clickable_containers_require_double_click() -> None:
 def test_action_controller_can_create_uuid_on_insecure_http_origin() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_action_controller_v2.js").read_text()
     assert 'typeof globalObject.crypto.randomUUID === "function"' in source
-    assert "globalObject.crypto.getRandomValues(new Uint8Array(16))" in source
+    assert "globalObject.crypto.getRandomValues(bytes)" in source
+    assert "globalObject.Math.random()" in source
     assert "bytes[6] = (bytes[6] & 0x0f) | 0x40" in source
     assert "bytes[8] = (bytes[8] & 0x3f) | 0x80" in source
 

@@ -23,9 +23,9 @@ from marketcore.presentation.workspace_v2.viewmodel.home_v2_viewmodel import (
 _HOME_TARGET_BY_WIDGET_ID = {
     "home.traffic.data": "container.research",
     "home.traffic.edge": "container.edge",
-    "home.traffic.forward": "container.edge",
-    "home.traffic.execution": "container.risk",
-    "home.traffic.live": "container.risk",
+    "home.traffic.forward": "container.intraday",
+    "home.traffic.execution": "container.intraday",
+    "home.traffic.live": "container.edge",
     "home.profit_factory.decision": "container.capital",
     "home.profit_factory.expected": "container.capital",
     "home.profit_factory.realized": "container.capital",

@@ -7,10 +7,17 @@
         if (globalObject.crypto && typeof globalObject.crypto.randomUUID === "function") {
             return globalObject.crypto.randomUUID();
         }
-        if (!globalObject.crypto || typeof globalObject.crypto.getRandomValues !== "function") {
-            throw new Error("ACTION_REQUEST_ID_GENERATOR_UNAVAILABLE");
+        const bytes = new Uint8Array(16);
+        if (globalObject.crypto && typeof globalObject.crypto.getRandomValues === "function") {
+            globalObject.crypto.getRandomValues(bytes);
+        } else {
+            // Safari does not expose Web Crypto on a plain HTTP origin.  A
+            // request UUID is an idempotency/correlation key, not a secret, so
+            // a locally generated RFC 4122 v4 identifier is sufficient here.
+            for (let index = 0; index < bytes.length; index += 1) {
+                bytes[index] = Math.floor(globalObject.Math.random() * 256);
+            }
         }
-        const bytes = globalObject.crypto.getRandomValues(new Uint8Array(16));
         bytes[6] = (bytes[6] & 0x0f) | 0x40;
         bytes[8] = (bytes[8] & 0x3f) | 0x80;
         const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
