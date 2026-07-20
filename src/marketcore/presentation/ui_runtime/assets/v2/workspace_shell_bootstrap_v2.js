@@ -124,8 +124,9 @@
             }
         };
 
-        const restorePanelState = (state) => {
+        const restorePanelState = (state, options = {}) => {
             if (!state) return;
+            const restorePageScroll = options.restorePageScroll !== false;
             Object.entries(state.elements || {}).forEach(([key, value]) => {
                 const element = findStableElement(key);
                 if (!element) return;
@@ -147,7 +148,10 @@
             mountElement.scrollLeft = state.mountScrollLeft || 0;
             const focused = findStableElement(state.focused);
             if (focused && typeof focused.focus === "function") focused.focus({preventScroll: true});
-            globalObject.scrollTo(state.scrollX || 0, state.scrollY || 0);
+            globalObject.scrollTo(
+                restorePageScroll ? (state.scrollX || 0) : 0,
+                restorePageScroll ? (state.scrollY || 0) : 0
+            );
         };
 
         const syncRoute = (targetId, replace = false) => {
@@ -187,7 +191,9 @@
                 mountElement.setAttribute("data-runtime-status", "READY");
                 if (panelState) {
                     globalObject.requestAnimationFrame(() => globalObject.requestAnimationFrame(() => {
-                        restorePanelState(panelState);
+                        restorePanelState(panelState, {
+                            restorePageScroll: options.restorePageScroll !== false
+                        });
                     }));
                 }
             } catch (error) {
@@ -250,7 +256,10 @@
 
         globalObject.addEventListener("pagehide", () => persistPanelState());
 
-        await render(currentEndpoint, {restoreStored: true});
+        if (globalObject.history && "scrollRestoration" in globalObject.history) {
+            globalObject.history.scrollRestoration = "manual";
+        }
+        await render(currentEndpoint, {restoreStored: true, restorePageScroll: false});
         syncRoute(currentTargetId, true);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");

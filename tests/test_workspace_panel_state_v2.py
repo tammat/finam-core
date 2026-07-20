@@ -25,6 +25,13 @@ def test_panel_state_survives_full_page_reload_and_navigation() -> None:
     assert "{restoreStored: true}" in source
 
 
+def test_manual_reload_starts_at_top_without_losing_panel_controls() -> None:
+    source = BOOTSTRAP.read_text(encoding="utf-8")
+    assert 'history.scrollRestoration = "manual"' in source
+    assert "{restoreStored: true, restorePageScroll: false}" in source
+    assert "restorePageScroll: options.restorePageScroll !== false" in source
+
+
 def test_refresh_timer_is_single_and_does_not_reset_research_twice() -> None:
     source = BOOTSTRAP.read_text(encoding="utf-8")
     assert "researchRefreshTimer" not in source
