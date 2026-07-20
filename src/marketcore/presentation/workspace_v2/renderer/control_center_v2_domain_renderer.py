@@ -182,7 +182,7 @@ def _table_section(
                 or normalized_column.endswith("_status")
                 or normalized_column in {
                     "freshness_code", "quality_code", "verdict_code",
-                    "market_data_quality", "mode",
+                    "market_data_quality", "mode", "cohort_code",
                 }
                 or any(
                     marker in normalized_column
@@ -412,7 +412,14 @@ def render_control_center_domain_v2(
         ("risk", tuple(view_model.risk_analysis)),
         ("entry", tuple(view_model.entry_analysis)),
         ("execution", tuple(view_model.execution_quality)),
-        ("execution_variants", tuple(view_model.execution_variants)),
+        ("execution_microstructure", tuple(
+            row for row in view_model.execution_variants
+            if row.get("cohort_code") == "MICROSTRUCTURE_ONLY"
+        )),
+        ("execution_historical", tuple(
+            row for row in view_model.execution_variants
+            if row.get("cohort_code") == "HISTORICAL_BAR_ONLY"
+        )),
         ("market", tuple(view_model.market_prerequisites)),
         ("exit", tuple(view_model.exit_analysis)),
         ("block", tuple(view_model.block_analysis)),

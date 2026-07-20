@@ -1,0 +1,19 @@
+[Unit]
+Description=MarketCore Finam WebSocket Microstructure Collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=-/opt/finam-core/.env
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MARKETCORE_MICROSTRUCTURE_MAX_DETAIL_SYMBOLS=8
+ExecStart=/opt/finam-core/deploy/run-finam-microstructure-ws.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

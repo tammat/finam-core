@@ -29,3 +29,18 @@ def test_merge_symbols_normalizes_shadow_indices_and_deduplicates() -> None:
 
 def test_merge_symbols_applies_subscription_limit() -> None:
     assert MODULE.merge_symbols(("A", "B", "C"), limit=2) == ("A", "B")
+
+
+def test_active_oos_has_priority_and_eight_detail_slots() -> None:
+    source = SCRIPT.read_text()
+    assert 'MAX_DETAIL_SYMBOLS", "8"' in source
+    assert 'query("ACTIVE_OOS"' in source
+    assert "merge_symbols(active_oos, recent_fills" in source
+    assert "status_code='WAITING_FUTURE_DATA'" in source
+
+
+def test_user_service_keeps_collector_autonomous() -> None:
+    unit = SCRIPT.parents[2] / "deploy/systemd/user/finam-microstructure-ws.service"
+    source = unit.read_text()
+    assert "MARKETCORE_MICROSTRUCTURE_MAX_DETAIL_SYMBOLS=8" in source
+    assert "Restart=always" in source

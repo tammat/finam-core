@@ -279,6 +279,11 @@ class ControlCenterV2Resolver:
     @staticmethod
     def _execution_variants(cur) -> list[dict[str, Any]]:
         cur.execute("""
+            WITH latest_runs AS (
+                SELECT DISTINCT ON (cohort_code) cohort_code, discovery_run_id
+                FROM analytics.execution_edge_result_v1
+                ORDER BY cohort_code, created_at DESC
+            ), ranked AS (
             SELECT result.symbol, result.policy_code,
                    result.parameter_json::text AS parameters, result.oos_trades,
                    result.eligible_oos_trades, result.microstructure_matched_trades,
@@ -289,8 +294,16 @@ class ControlCenterV2Resolver:
                    result.folds_passed, result.folds_total,
                    result.delta_profit_factor, result.delta_expectancy,
                    result.market_data_quality, result.verdict_code,
-                   result.reason_code, result.promotion_allowed
+                   result.reason_code, result.promotion_allowed,
+                   row_number() OVER (
+                       PARTITION BY result.cohort_code
+                       ORDER BY result.promotion_allowed DESC, result.adjusted_p_value,
+                                result.folds_passed DESC, result.delta_expectancy DESC
+                   ) AS cohort_rank
             FROM analytics.execution_edge_result_v1 result
+            JOIN latest_runs latest
+              ON latest.cohort_code=result.cohort_code
+             AND latest.discovery_run_id=result.discovery_run_id
             LEFT JOIN LATERAL (
                 SELECT best_bid,best_ask,bid_depth,ask_depth,
                        coalesce(exchange_ts,observed_at) AS exchange_ts
@@ -300,13 +313,17 @@ class ControlCenterV2Resolver:
                   AND snapshot.bid_levels > 0 AND snapshot.ask_levels > 0
                 ORDER BY snapshot.observed_at DESC LIMIT 1
             ) quote ON true
-            WHERE result.discovery_run_id=(
-                SELECT discovery_run_id FROM analytics.execution_edge_result_v1
-                ORDER BY (cohort_code='MICROSTRUCTURE_ONLY') DESC, created_at DESC LIMIT 1
             )
-            ORDER BY result.promotion_allowed DESC, result.adjusted_p_value,
-                     result.folds_passed DESC, result.delta_expectancy DESC
-            LIMIT 8
+            SELECT symbol,policy_code,parameters,oos_trades,eligible_oos_trades,
+                   microstructure_matched_trades,microstructure_coverage_pct,
+                   cohort_code,microstructure_start,microstructure_end,best_bid,best_ask,
+                   bid_depth,ask_depth,exchange_ts,folds_passed,folds_total,
+                   delta_profit_factor,delta_expectancy,market_data_quality,verdict_code,
+                   reason_code,promotion_allowed
+            FROM ranked
+            WHERE cohort_rank <= 8
+            ORDER BY CASE cohort_code WHEN 'MICROSTRUCTURE_ONLY' THEN 1 ELSE 2 END,
+                     cohort_rank
         """)
         return [dict(row) for row in cur.fetchall()]
 

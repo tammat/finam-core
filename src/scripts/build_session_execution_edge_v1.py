@@ -25,6 +25,9 @@ MIN_BARS = int(os.getenv("SESSION_EDGE_MIN_BARS", "6000"))
 MAX_MARKETS = int(os.getenv("SESSION_EDGE_MAX_MARKETS", "12"))
 MIN_MICROSTRUCTURE_COVERAGE = float(os.getenv("MICROSTRUCTURE_MIN_COVERAGE", "0.80"))
 MAX_QUOTE_DISTANCE_SECONDS = int(os.getenv("MICROSTRUCTURE_MAX_QUOTE_DISTANCE_SECONDS", "5"))
+MIN_FRESH_MICROSTRUCTURE_SYMBOLS = int(os.getenv("MICROSTRUCTURE_MIN_FRESH_SYMBOLS", "2"))
+MIN_FRESH_SNAPSHOTS_PER_SYMBOL = int(os.getenv("MICROSTRUCTURE_MIN_FRESH_SNAPSHOTS", "30"))
+FRESH_WINDOW_MINUTES = int(os.getenv("MICROSTRUCTURE_FRESH_WINDOW_MINUTES", "15"))
 
 ALLOWED_REGIMES = {
     "MOMENTUM": ("trend_up", "trend_down", "trend_up_expansion", "trend_down_expansion"),
@@ -90,6 +93,28 @@ class VerifiedQuote:
     bid_levels: int
     ask_levels: int
     exchange_ts: Any
+
+
+def fresh_microstructure_symbols(cur: Any) -> int:
+    """Return symbols with enough recent, executable order-book evidence."""
+    cur.execute(
+        """
+        SELECT count(*) AS ready_symbols
+        FROM (
+            SELECT symbol
+            FROM analytics.market_microstructure_snapshot_v1
+            WHERE observed_at >= now()-(%s * interval '1 minute')
+              AND best_bid > 0 AND best_ask > best_bid
+              AND bid_levels > 0 AND ask_levels > 0
+              AND bid_depth > 0 AND ask_depth > 0
+            GROUP BY symbol
+            HAVING count(*) >= %s
+        ) ready
+        """,
+        (FRESH_WINDOW_MINUTES, MIN_FRESH_SNAPSHOTS_PER_SYMBOL),
+    )
+    row = cur.fetchone()
+    return int((row or {}).get("ready_symbols") or 0)
 
 
 def load_verified_quotes(
@@ -200,12 +225,35 @@ def main() -> None:
     execution_candidates: list[dict[str, Any]] = []
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            ready_symbols = fresh_microstructure_symbols(cur)
+            if ready_symbols < MIN_FRESH_MICROSTRUCTURE_SYMBOLS:
+                print(f"fresh_microstructure_symbols={ready_symbols}")
+                print("VERDICT=WAITING_FOR_FRESH_MICROSTRUCTURE")
+                return
             cur.execute("""
-                SELECT symbol,timeframe,count(*) AS bars FROM public.market_bars
-                WHERE timeframe=%s GROUP BY symbol,timeframe HAVING count(*) >= %s
-                ORDER BY count(*) DESC LIMIT %s
-            """, (config["timeframe"], MIN_BARS, MAX_MARKETS))
+                SELECT DISTINCT symbol
+                FROM analytics.oos_remediation_candidate_v1
+                WHERE status_code='WAITING_FUTURE_DATA'
+                ORDER BY symbol
+                LIMIT %s
+            """, (MAX_MARKETS,))
+            active_oos_symbols = [str(row["symbol"]) for row in cur.fetchall()]
+            if active_oos_symbols:
+                cur.execute("""
+                    SELECT symbol,timeframe,count(*) AS bars
+                    FROM public.market_bars
+                    WHERE timeframe=%s AND symbol=ANY(%s)
+                    GROUP BY symbol,timeframe HAVING count(*) >= %s
+                    ORDER BY count(*) DESC LIMIT %s
+                """, (config["timeframe"], active_oos_symbols, MIN_BARS, MAX_MARKETS))
+            else:
+                cur.execute("""
+                    SELECT symbol,timeframe,count(*) AS bars FROM public.market_bars
+                    WHERE timeframe=%s GROUP BY symbol,timeframe HAVING count(*) >= %s
+                    ORDER BY count(*) DESC LIMIT %s
+                """, (config["timeframe"], MIN_BARS, MAX_MARKETS))
             markets = cur.fetchall()
+            print(f"active_oos_symbols={','.join(active_oos_symbols) or 'fallback'}")
             for market in markets:
                 quote_cache: dict[Any, VerifiedQuote | None] = {}
                 cur.execute("SELECT ts,close FROM public.market_bars WHERE symbol=%s AND timeframe=%s AND close IS NOT NULL ORDER BY ts",
@@ -238,7 +286,12 @@ def main() -> None:
                         run = {"strategy_code": strategy_code, "parameter_json": params}
                         validation_all = [t for t in build_trades(run, bars[train_end - lookback:validation_end]) if t.entry_ts >= validation_start]
                         oos_all = [t for t in build_trades(run, bars[validation_end - lookback:]) if t.entry_ts >= oos_start]
-                        for regime in ALLOWED_REGIMES[family]:
+                        allowed_regimes = tuple(
+                            configuration["regime_policy"].get("allowed_regimes")
+                            or ALLOWED_REGIMES.get(family)
+                            or ALLOWED_REGIMES["MOMENTUM"]
+                        )
+                        for regime in allowed_regimes:
                             for session in [item["code"] for item in config["sessions"]]:
                                 validation = [t for t in validation_all if regime_by_ts.get(t.entry_ts) == regime and session_by_ts.get(t.entry_ts) == session]
                                 oos = [t for t in oos_all if regime_by_ts.get(t.entry_ts) == regime and session_by_ts.get(t.entry_ts) == session]
