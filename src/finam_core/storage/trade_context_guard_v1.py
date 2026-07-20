@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from finam_core.runtime.research_contract_key_v1 import normalize_research_contract_key_v1
+
 
 # Русский комментарий:
 # TradeContextGuardV1 — обязательный guard перед записью trades.
@@ -24,7 +26,8 @@ class TradeContextGuardV1:
         "USDRUBF@RTSX": ("USDRUB_REGIME", "LIVE", "USDRUB_CONT"),
         "NGM6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "LIVE", "NG_CONT"),
         "NGN6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "LIVE", "NG_CONT"),
-        "BRN6@RTSX": ("BR_CONSERVATIVE_BREAKOUT", "LIVE", "BR_CONT"),
+        "BRN6@RTSX": ("BR_CONSERVATIVE_BREAKOUT", "M5", "BR_CONT"),
+        "BRQ6@RTSX": ("BR_CONSERVATIVE_BREAKOUT", "M5", "BR_CONT"),
     }
 
     def normalize(
@@ -45,12 +48,16 @@ class TradeContextGuardV1:
         if strategy and strategy not in {"UNKNOWN", "UNKNOWN_STRATEGY"}:
             if timeframe and timeframe not in {"UNKNOWN", "UNKNOWN_TIMEFRAME"}:
                 if continuous_symbol:
+                    key = normalize_research_contract_key_v1(
+                        symbol=symbol,strategy=strategy,timeframe=timeframe,side="UNKNOWN",
+                        session_name="UNKNOWN",regime="UNKNOWN",
+                    )
                     return TradeContextDecisionV1(
                         allowed=True,
-                        strategy=strategy,
-                        timeframe=timeframe,
-                        continuous_symbol=continuous_symbol,
-                        reason="context_already_complete",
+                        strategy=key.strategy,
+                        timeframe=key.timeframe,
+                        continuous_symbol=key.normalized_symbol,
+                        reason="context_canonicalized",
                     )
 
         payload_strategy, payload_timeframe, payload_continuous = self._from_payload(payload)
@@ -66,11 +73,15 @@ class TradeContextGuardV1:
 
         if strategy and timeframe and continuous_symbol:
             if strategy not in {"UNKNOWN", "UNKNOWN_STRATEGY"} and timeframe not in {"UNKNOWN", "UNKNOWN_TIMEFRAME"}:
+                key = normalize_research_contract_key_v1(
+                    symbol=symbol,strategy=strategy,timeframe=timeframe,side="UNKNOWN",
+                    session_name="UNKNOWN",regime="UNKNOWN",
+                )
                 return TradeContextDecisionV1(
                     allowed=True,
-                    strategy=strategy,
-                    timeframe=timeframe,
-                    continuous_symbol=continuous_symbol,
+                    strategy=key.strategy,
+                    timeframe=key.timeframe,
+                    continuous_symbol=key.normalized_symbol,
                     reason="context_restored_from_payload",
                 )
 

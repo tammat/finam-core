@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from finam_core.runtime.research_contract_key_v1 import normalize_research_contract_key_v1
+
 
 @dataclass(frozen=True)
 class EdgeGateStrictDecisionV1:
@@ -18,6 +20,9 @@ class EdgeGateStrictDecisionV1:
     matched_strategy: str | None = None
     session_name: str | None = None
     hour_msk: int | None = None
+    timeframe: str | None = None
+    regime_code: str | None = None
+    microstructure_coverage_ratio: float | None = None
 
 
 class EdgeGateStrictModeV1:
@@ -40,6 +45,7 @@ class EdgeGateStrictModeV1:
         self.enabled = bool(self.config.get("enabled", False))
         self.threshold = float(self.config.get("strict_expectancy_threshold", 0.0))
         self.min_closed_trades = int(self.config.get("strict_min_closed_trades", 30))
+        self.min_microstructure_coverage = float(self.config.get("min_microstructure_coverage", 0.80))
         self.connection_factory = connection_factory
         self.reload_seconds = max(5.0, float(reload_seconds))
         self._last_db_load_monotonic = 0.0
@@ -60,15 +66,33 @@ class EdgeGateStrictModeV1:
 
     @staticmethod
     def session_name_for_hour(hour_msk: int) -> str:
-        if 0 <= hour_msk <= 5:
-            return "азиатская_сессия"
-        if 6 <= hour_msk <= 11:
-            return "утро_мск"
-        if 12 <= hour_msk <= 15:
-            return "московская_середина"
-        if 16 <= hour_msk <= 20:
-            return "вечерняя_сессия"
-        return "ночь"
+        if hour_msk == 10:
+            return "MOEX_OPEN"
+        if 11 <= hour_msk <= 15:
+            return "EUROPE_OVERLAP"
+        if 16 <= hour_msk <= 17:
+            return "US_OPEN"
+        if 18 <= hour_msk <= 23:
+            return "EVENING"
+        return "OUTSIDE_SESSION"
+
+    @staticmethod
+    def current_session_name() -> str:
+        local = datetime.now(tz=ZoneInfo("Europe/Moscow"))
+        minute = local.hour * 60 + local.minute
+        if 600 <= minute < 630:
+            return "MOEX_OPEN"
+        if 630 <= minute < 660:
+            return "MOEX_FIRST_HOUR"
+        if 660 <= minute < 990:
+            return "EUROPE_OVERLAP"
+        if 990 <= minute < 1080:
+            return "US_OPEN"
+        if 1080 <= minute < 1420:
+            return "EVENING"
+        if 1420 <= minute < 1430:
+            return "MOEX_CLOSE"
+        return "OUTSIDE_SESSION"
 
     def _load_db_rows_if_due(self) -> None:
         if not callable(self.connection_factory):
@@ -81,16 +105,17 @@ class EdgeGateStrictModeV1:
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT normalized_symbol,strategy,entry_side,session_name,
+                    """SELECT normalized_symbol,strategy,timeframe,entry_side,session_name,regime_code,
                               closed_trades,expectancy_after_costs AS expectancy_points,
-                              rule_action
+                              microstructure_coverage_ratio,evidence_cohort_code,rule_action
                        FROM analytics.edge_strict_rule_v2
                        WHERE enabled"""
                 )
                 columns = [item[0] for item in cur.description]
                 self._db_rows = [dict(zip(columns, row)) for row in cur.fetchall()]
                 cur.execute(
-                    """SELECT min_closed_trades,min_expectancy_after_costs,reload_seconds
+                    """SELECT min_closed_trades,min_expectancy_after_costs,reload_seconds,
+                              min_microstructure_coverage
                        FROM analytics.edge_strict_rule_policy_v2
                        WHERE enabled ORDER BY updated_at DESC LIMIT 1"""
                 )
@@ -99,6 +124,7 @@ class EdgeGateStrictModeV1:
                     self.min_closed_trades = int(policy[0])
                     self.threshold = float(policy[1])
                     self.reload_seconds = max(5.0, float(policy[2]))
+                    self.min_microstructure_coverage = float(policy[3])
         except Exception:
             # Таблица появляется миграцией; до неё остаётся безопасный JSON fallback.
             self._db_rows = []
@@ -134,6 +160,8 @@ class EdgeGateStrictModeV1:
         side: str,
         session_name: str | None = None,
         hour_msk: int | None = None,
+        timeframe: str | None = None,
+        regime: str | None = None,
     ) -> EdgeGateStrictDecisionV1:
         if hour_msk is None:
             hour_msk = self._current_hour_msk()
@@ -147,9 +175,13 @@ class EdgeGateStrictModeV1:
                 hour_msk=hour_msk,
             )
 
-        side_norm = str(side or "").upper().strip()
-        strategy_norm = str(strategy or "").upper().strip()
-        session_norm = str(session_name or self.session_name_for_hour(hour_msk)).strip()
+        session_norm = str(session_name or self.current_session_name()).strip()
+        key = normalize_research_contract_key_v1(
+            symbol=symbol,strategy=strategy,timeframe=timeframe,side=side,
+            session_name=session_norm,regime=regime,execution_mode="PAPER",
+        )
+        side_norm = key.side
+        strategy_norm = key.strategy
         self._load_db_rows_if_due()
 
         matched: dict | None = None
@@ -161,6 +193,8 @@ class EdgeGateStrictModeV1:
             row_strategy = str(row.get("strategy") or "").upper().strip()
             row_side = str(row.get("entry_side") or "").upper().strip()
             row_session = str(row.get("session_name") or "").strip()
+            row_timeframe = str(row.get("timeframe") or key.timeframe).upper().strip()
+            row_regime = str(row.get("regime_code") or key.regime_code).lower().strip()
             row_hour = int(row.get("hour_msk") or -1)
 
             strategy_ok = not strategy_norm or row_strategy == strategy_norm
@@ -171,6 +205,8 @@ class EdgeGateStrictModeV1:
                 and strategy_ok
                 and row_side == side_norm
                 and session_ok
+                and row_timeframe == key.timeframe
+                and row_regime == key.regime_code
             ):
                 matched = row
                 break
@@ -191,6 +227,7 @@ class EdgeGateStrictModeV1:
         if using_db_rows:
             matched_symbol = str(matched.get("normalized_symbol") or "")
         matched_strategy = str(matched.get("strategy") or "")
+        micro_coverage = float(matched.get("microstructure_coverage_ratio") or 0.0)
 
         if closed_trades < self.min_closed_trades:
             return EdgeGateStrictDecisionV1(
@@ -202,6 +239,24 @@ class EdgeGateStrictModeV1:
                 matched_strategy=matched_strategy,
                 session_name=session_norm,
                 hour_msk=hour_msk,
+                timeframe=key.timeframe,
+                regime_code=key.regime_code,
+                microstructure_coverage_ratio=micro_coverage,
+            )
+
+        if micro_coverage < self.min_microstructure_coverage:
+            return EdgeGateStrictDecisionV1(
+                allowed=False,
+                reason="strict_mode_microstructure_coverage_low",
+                expectancy_points=expectancy,
+                closed_trades=closed_trades,
+                matched_symbol=matched_symbol,
+                matched_strategy=matched_strategy,
+                session_name=session_norm,
+                hour_msk=hour_msk,
+                timeframe=key.timeframe,
+                regime_code=key.regime_code,
+                microstructure_coverage_ratio=micro_coverage,
             )
 
         if expectancy <= self.threshold:
@@ -214,6 +269,9 @@ class EdgeGateStrictModeV1:
                 matched_strategy=matched_strategy,
                 session_name=session_norm,
                 hour_msk=hour_msk,
+                timeframe=key.timeframe,
+                regime_code=key.regime_code,
+                microstructure_coverage_ratio=micro_coverage,
             )
 
         return EdgeGateStrictDecisionV1(
@@ -225,4 +283,7 @@ class EdgeGateStrictModeV1:
             matched_strategy=matched_strategy,
             session_name=session_norm,
             hour_msk=hour_msk,
+            timeframe=key.timeframe,
+            regime_code=key.regime_code,
+            microstructure_coverage_ratio=micro_coverage,
         )

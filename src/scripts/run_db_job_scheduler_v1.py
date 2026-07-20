@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -51,7 +52,19 @@ EXECUTORS = {
     "SESSION_EXECUTION_EDGE_V2": "src/scripts/build_session_execution_edge_v1.py",
     "OOS_REMEDIATION_BRANCH_GENERATOR_V1": "src/scripts/generate_oos_remediation_branches_v1.py",
     "MICROSTRUCTURE_PRIORITY_REFRESH_V1": "src/scripts/refresh_microstructure_priority_v1.py",
+    "M15_REBUILD_FROM_M5_V1": "src/scripts/rebuild_m15_from_m5_v1.py",
 }
+
+
+def research_cpu_limit(now: datetime) -> int:
+    """Один CPU во время торгов, не более двух вне рынка."""
+    local = now.astimezone(ZoneInfo("Europe/Moscow"))
+    minute = local.hour * 60 + local.minute
+    market_open = (
+        (local.weekday() < 5 and 7 * 60 <= minute < 23 * 60 + 50)
+        or (local.weekday() == 6 and 10 * 60 <= minute < 19 * 60)
+    )
+    return 1 if market_open else 2
 
 EXECUTOR_ARGUMENTS = {
     "PAPER_CLOSED_TRADE_MATERIALIZER_V2": ["--apply"],
@@ -116,12 +129,22 @@ def main() -> int:
                             "PYTHONDONTWRITEBYTECODE":"1"})
                 executor_code = job["executor_code"]
                 env.update(EXECUTOR_ENV.get(executor_code, {}))
+                cpu_limit = research_cpu_limit(now)
+                env.update({
+                    "OMP_NUM_THREADS": str(cpu_limit),
+                    "OPENBLAS_NUM_THREADS": str(cpu_limit),
+                    "MKL_NUM_THREADS": str(cpu_limit),
+                    "NUMEXPR_NUM_THREADS": str(cpu_limit),
+                    "PGOPTIONS": f"-c max_parallel_workers_per_gather={max(0,cpu_limit-1)}",
+                })
                 command = [
                     "nice", "-n", str(EXECUTOR_NICE.get(executor_code, 10)),
                     "ionice", "-c", "2", "-n", str(EXECUTOR_IONICE.get(executor_code, 5)),
                     str(PYTHON), EXECUTORS[executor_code],
                     *EXECUTOR_ARGUMENTS.get(executor_code, []),
                 ]
+                if shutil.which("taskset"):
+                    command = ["taskset","--cpu-list","0" if cpu_limit == 1 else "0,1",*command]
                 try:
                     result = subprocess.run(command,cwd=ROOT,env=env,text=True,capture_output=True,
                                             timeout=job["timeout_seconds"],check=False)

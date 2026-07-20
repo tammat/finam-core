@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from finam_core.runtime.research_contract_key_v1 import (
+    normalize_research_contract_key_v1,
+)
+
 
 DEFAULT_PATH = Path("config/generated/guard_decisions_v1.json")
 
@@ -82,13 +86,21 @@ class RuntimeGuardConfigLoaderV1:
         volatility_regime: Any,
         session_type: Any,
     ) -> tuple:
+        contract_key = normalize_research_contract_key_v1(
+            symbol=str(symbol or "UNKNOWN"),
+            strategy=str(strategy or "UNKNOWN"),
+            timeframe=str(timeframe or "UNKNOWN"),
+            side="UNKNOWN",
+            session_name=str(session_type or "UNKNOWN"),
+            regime=str(regime or "UNKNOWN"),
+        )
         return (
-            self._normalize(symbol),
-            self._normalize(strategy),
-            self._normalize(timeframe),
-            self._normalize(regime),
+            self._normalize(contract_key.normalized_symbol),
+            self._normalize(contract_key.strategy),
+            self._normalize(contract_key.timeframe),
+            self._normalize(contract_key.regime_code),
             self._normalize(volatility_regime),
-            self._normalize(session_type),
+            self._normalize(contract_key.session_name),
         )
 
     def lookup(
@@ -115,11 +127,19 @@ class RuntimeGuardConfigLoaderV1:
 
         result = self._index.get(key)
 
+        canonical = normalize_research_contract_key_v1(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+            side="UNKNOWN",
+            session_name=session_type,
+            regime=regime,
+        )
         print(
             f"RUNTIME_GUARD_LOOKUP "
-            f"symbol={symbol} "
-            f"strategy={strategy} "
-            f"timeframe={timeframe} "
+            f"symbol={canonical.normalized_symbol} "
+            f"strategy={canonical.strategy} "
+            f"timeframe={canonical.timeframe} "
             f"decision={result.get('guard_decision') if result else 'NONE'}",
             flush=True,
         )

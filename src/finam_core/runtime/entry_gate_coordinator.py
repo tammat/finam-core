@@ -53,6 +53,9 @@ class EntryGateCoordinator:
         price: float,
         atr: float | None = None,
         regime: str | None = None,
+        timeframe: str | None = None,
+        session_name: str | None = None,
+        execution_mode: str = "PAPER",
     ) -> EntryGateDecision:
         trend = self.trend_gate_service.allow_entry(
             symbol=symbol,
@@ -72,7 +75,15 @@ class EntryGateCoordinator:
         if not cooldown.allowed:
             return EntryGateDecision(False, 0.0, cooldown.reason, "trade_cooldown")
 
-        limit = self.trade_gate_service.trade_limit_allows(symbol)
+        limit = self.trade_gate_service.trade_limit_allows(
+            symbol,
+            strategy=strategy,
+            regime=str(regime or "UNKNOWN"),
+            timeframe=str(timeframe or "UNKNOWN"),
+            side=strategy_side,
+            session_name=str(session_name or "UNKNOWN"),
+            execution_mode=execution_mode,
+        )
 
         if not limit.allowed:
             return EntryGateDecision(False, 0.0, limit.reason, "trade_limit")
@@ -99,7 +110,5 @@ class EntryGateCoordinator:
 
             adjusted_qty = regime_qty
             runtime_reason = f"{runtime_reason}|{regime_reason}"
-
-        self.trade_gate_service.account_trade(symbol)
 
         return EntryGateDecision(True, float(adjusted_qty), runtime_reason, "allow")

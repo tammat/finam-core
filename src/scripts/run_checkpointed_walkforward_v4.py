@@ -23,6 +23,7 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 FOLDS = 5
 NAMESPACE = uuid.UUID("af257269-62c0-4dd3-b283-bf75c387cb4c")
 FEATURE_VERSION = "SESSION_REGIME_FEATURE_CACHE_V1"
+CPU_LIMIT = min(2,max(1,int(os.getenv("OMP_NUM_THREADS","1"))))
 
 
 def _hash(value: dict) -> str:
@@ -49,7 +50,7 @@ def _create_campaign(cur) -> dict:
     campaign_id = uuid.uuid5(NAMESPACE, cutoff)
     cur.execute("""INSERT INTO analytics.walkforward_campaign_v4
       (campaign_id,data_cutoff_ts,status_code,phase_code,top_share,cpu_limit)
-      VALUES(%s,%s,'RUNNING','COARSE',.10,2) ON CONFLICT DO NOTHING""", (str(campaign_id), cutoff))
+      VALUES(%s,%s,'RUNNING','COARSE',.10,%s) ON CONFLICT DO NOTHING""", (str(campaign_id), cutoff,CPU_LIMIT))
     markets = load_research_universe(cur, run_id=str(campaign_id), stage_code="WALKFORWARD_V4",
                                      min_bars=6000, freshness_minutes=FRESHNESS_MINUTES)
     configs = load_search_configuration(cur)
@@ -147,13 +148,41 @@ def _promote(cur, campaign_id) -> None:
       coarse_score=r.pf FROM ranked r WHERE v.variant_task_id=r.variant_task_id""", (campaign_id,))
     cur.execute("""INSERT INTO analytics.walkforward_fold_checkpoint_v4(variant_task_id,fold_no)
       SELECT variant_task_id,g FROM analytics.walkforward_variant_task_v4 v
-      JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id),generate_series(3,5) g
+      JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id),generate_series(3,4) g
       WHERE a.campaign_id=%s AND v.phase_code='FULL_OOS' ON CONFLICT DO NOTHING""", (campaign_id,))
     cur.execute("UPDATE analytics.walkforward_campaign_v4 SET phase_code='FULL_OOS' WHERE campaign_id=%s",(campaign_id,))
     cur.execute("""INSERT INTO analytics.walkforward_fold_checkpoint_v4(variant_task_id,fold_no)
       SELECT variant_task_id,0 FROM analytics.walkforward_variant_task_v4 v
       JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
       WHERE a.campaign_id=%s AND v.phase_code='FULL_OOS' ON CONFLICT DO NOTHING""",(campaign_id,))
+
+
+def _select_clean_holdout(cur,campaign_id) -> None:
+    """Замораживает один fingerprint до первого чтения последнего фолда."""
+    cur.execute("""WITH scored AS (
+      SELECT v.variant_task_id,v.algorithm_task_id,v.symbol,v.timeframe,
+        sum(coalesce((f.metrics->>'trades')::int,0)) trades,
+        avg(coalesce((f.metrics->>'expectancy')::numeric,0)) expectancy,
+        avg(coalesce((f.metrics->>'profit_factor')::numeric,0)) pf
+      FROM analytics.walkforward_variant_task_v4 v
+      JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
+      JOIN analytics.walkforward_fold_checkpoint_v4 f USING(variant_task_id)
+      WHERE a.campaign_id=%s AND v.phase_code='FULL_OOS' AND f.fold_no BETWEEN 1 AND 4
+      GROUP BY v.variant_task_id,v.algorithm_task_id,v.symbol,v.timeframe
+    ), ranked AS (
+      SELECT s.*,row_number() OVER(PARTITION BY algorithm_task_id,symbol,timeframe
+        ORDER BY (expectancy>0) DESC,pf DESC,expectancy DESC,trades DESC,variant_task_id) AS selection_rank
+      FROM scored s
+    ) UPDATE analytics.walkforward_variant_task_v4 v SET
+      phase_code=CASE WHEN r.selection_rank=1 THEN 'HOLDOUT' ELSE 'REJECTED' END,
+      status_code=CASE WHEN r.selection_rank=1 THEN 'PENDING' ELSE 'REJECTED' END,
+      rejection_code=CASE WHEN r.selection_rank<>1 THEN 'NOT_SELECTED_FOR_CLEAN_HOLDOUT' END
+      FROM ranked r WHERE v.variant_task_id=r.variant_task_id""",(campaign_id,))
+    cur.execute("""INSERT INTO analytics.walkforward_fold_checkpoint_v4(variant_task_id,fold_no)
+      SELECT variant_task_id,5 FROM analytics.walkforward_variant_task_v4 v
+      JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
+      WHERE a.campaign_id=%s AND v.phase_code='HOLDOUT' ON CONFLICT DO NOTHING""",(campaign_id,))
+    cur.execute("UPDATE analytics.walkforward_campaign_v4 SET phase_code='HOLDOUT' WHERE campaign_id=%s",(campaign_id,))
 
 
 def _pf(pnls: list[float]) -> float:
@@ -168,7 +197,7 @@ def _finalize_results(cur,campaign_id) -> int:
       JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
       JOIN analytics.edge_search_algorithm_registry_v1 r ON r.algorithm_code=a.algorithm_code
       JOIN analytics.walkforward_fold_checkpoint_v4 f USING(variant_task_id)
-      WHERE a.campaign_id=%s AND v.phase_code='FULL_OOS'
+      WHERE a.campaign_id=%s AND v.phase_code='HOLDOUT'
       GROUP BY v.variant_task_id,a.algorithm_code,r.gate_policy""",(campaign_id,))
     written=0
     for row in cur.fetchall():
@@ -238,7 +267,9 @@ def _refresh(cur,campaign_id) -> dict:
     row=dict(cur.fetchone()); total=int(row["total"]); complete=int(row["complete"])
     if row["phase_code"]=='COARSE' and total and total==complete:
         _promote(cur,campaign_id); return _refresh(cur,campaign_id)
-    done=row["phase_code"]=='FULL_OOS' and total and total==complete
+    if row["phase_code"]=='FULL_OOS' and total and total==complete:
+        _select_clean_holdout(cur,campaign_id); return _refresh(cur,campaign_id)
+    done=row["phase_code"]=='HOLDOUT' and total and total==complete
     if done:
         _finalize_results(cur,campaign_id)
     progress=100 if done else int(complete*100/max(1,total))
@@ -291,7 +322,7 @@ def main() -> None:
     print(f"tasks_processed={processed}")
     print(f"campaign_progress_pct={totals['progress']}")
     print(f"stage_complete={int(totals['done'])}")
-    print("cpu_limit=2")
+    print(f"cpu_limit={CPU_LIMIT}")
     print("promotion_allowed=0")
     print("VERDICT=CHECKPOINTED_WALKFORWARD_V4")
 

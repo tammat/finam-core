@@ -5,6 +5,7 @@ import math
 import os
 import statistics
 import uuid
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,12 @@ ALLOWED_REGIMES = {
     "MEAN_REVERSION": ("range_normal", "range_compression", "compression"),
     "BREAKOUT": ("compression", "trend_up_expansion", "trend_down_expansion"),
 }
+
+
+def normalized_symbol(symbol: str) -> str:
+    value = str(symbol or "").upper()
+    match = re.match(r"^([A-Z]+)[FGHJKMNQUVXZ][0-9]*@RTSX$", value)
+    return f"{match.group(1)}_CONT" if match else value
 
 
 def minute_of_day(value: str) -> int:
@@ -225,6 +232,9 @@ def main() -> None:
     execution_candidates: list[dict[str, Any]] = []
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT * FROM analytics.microstructure_clean_cohort_policy_v4
+                           WHERE enabled""")
+            clean_policies = {str(row["normalized_symbol"]): dict(row) for row in cur.fetchall()}
             ready_symbols = fresh_microstructure_symbols(cur)
             if ready_symbols < MIN_FRESH_MICROSTRUCTURE_SYMBOLS:
                 print(f"fresh_microstructure_symbols={ready_symbols}")
@@ -302,6 +312,13 @@ def main() -> None:
                                     "raw_p": one_sided_p([t.net_pnl for t in oos])})
                                 for policy in config["execution_policies"]:
                                     repriced = reprice(oos, bars, regime_by_ts, policy, session_by_ts, hold)
+                                    clean_policy = clean_policies.get(normalized_symbol(str(market["symbol"])))
+                                    cohort_code = "MICROSTRUCTURE_ONLY"
+                                    if clean_policy is not None:
+                                        cohort_start = clean_policy["cohort_started_at"]
+                                        repriced = [trade for trade in repriced
+                                                    if trade.entry_ts >= cohort_start and trade.exit_ts >= cohort_start]
+                                        cohort_code = "MICROSTRUCTURE_CLEAN_V4"
                                     boundaries = [timestamp for trade in repriced for timestamp in (trade.entry_ts, trade.exit_ts)]
                                     load_verified_quotes(cur, str(market["symbol"]), boundaries, quote_cache)
                                     verified_trades = apply_microstructure_execution(repriced, quote_cache)
@@ -322,7 +339,14 @@ def main() -> None:
                                         "params": base_params, "regime": regime, "session": session, "coverage": coverage,
                                         "policy": policy["code"], "oos": item_metrics, "baseline": baseline_metrics,
                                         "folds": trade_fold_passes(verified_trades),
-                                        "market_data_quality": "MICROSTRUCTURE_VERIFIED",
+                                        "market_data_quality": "QUOTE_MATCHED",
+                                        "cohort_code": cohort_code,
+                                        "required_microstructure_coverage": float(
+                                            clean_policy["min_coverage_ratio"] if clean_policy else MIN_MICROSTRUCTURE_COVERAGE
+                                        ),
+                                        "required_matched_trades": int(
+                                            clean_policy["min_matched_trades"] if clean_policy else config["minimum_oos_trades"]
+                                        ),
                                         "eligible": eligible, "matched": matched,
                                         "microstructure_coverage": microstructure_coverage,
                                         "microstructure_start": min(t.entry_ts for t in verified_trades),
@@ -354,8 +378,14 @@ def main() -> None:
                 om, baseline = item["oos"], item["baseline"]
                 delta_pf, delta_exp = om["profit_factor"] - baseline["profit_factor"], om["expectancy"] - baseline["expectancy"]
                 regime_verified = item["coverage"] >= config["minimum_regime_coverage"]
-                quote_verified = item["microstructure_coverage"] >= MIN_MICROSTRUCTURE_COVERAGE
+                quote_verified = (
+                    item["microstructure_coverage"] >= item["required_microstructure_coverage"]
+                    and item["matched"] >= item["required_matched_trades"]
+                )
                 verified = regime_verified and quote_verified
+                item["market_data_quality"] = (
+                    "MICROSTRUCTURE_COHORT_VERIFIED" if verified else "QUOTE_MATCHED"
+                )
                 passed = verified and item["policy"] != "BASELINE" and om["trades"] >= config["minimum_oos_trades"] and om["profit_factor"] >= 1.15 and delta_pf > 0 and delta_exp > 0 and item["folds"] >= 2 and adjusted <= 0.05
                 verdict = "OOS_PASS" if passed else ("OOS_FAIL" if verified else "UNVERIFIED")
                 reason = "PASS" if passed else ("INSUFFICIENT_REGIME_COVERAGE" if not regime_verified else ("MICROSTRUCTURE_DATA_UNVERIFIED" if not quote_verified else "EXECUTION_OOS_GATE_FAILED"))
@@ -367,12 +397,12 @@ def main() -> None:
                      eligible_oos_trades,microstructure_matched_trades,microstructure_coverage_ratio,
                      microstructure_start,microstructure_end)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,3,%s,%s,%s,%s,%s,%s,false,%s,
-                            'MICROSTRUCTURE_ONLY',%s,%s,%s,%s,%s)""",
+                            %s,%s,%s,%s,%s,%s)""",
                     (str(run_id),item["family"],item["strategy"],item["market"]["symbol"],item["market"]["timeframe"],
                      psycopg2.extras.Json(item["params"]),item["regime"],item["session"],item["policy"],om["trades"],
                      om["profit_factor"],om["expectancy"],baseline["profit_factor"],baseline["expectancy"],delta_pf,delta_exp,
                      item["folds"],item["raw_p"],adjusted,item["market_data_quality"],
-                     "VERIFIED" if verified else "UNVERIFIED",verdict,reason,SOURCE_VERSION,
+                     "VERIFIED" if verified else "UNVERIFIED",verdict,reason,SOURCE_VERSION,item["cohort_code"],
                      item["eligible"],item["matched"],item["microstructure_coverage"],
                      item["microstructure_start"],item["microstructure_end"]))
 

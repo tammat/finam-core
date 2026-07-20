@@ -15,62 +15,52 @@ BUILD_SQL = """
 WITH base AS (
     SELECT
         id,
-        coalesce(nullif(continuous_symbol,''),symbol) AS normalized_symbol,
-        upper(strategy) AS strategy,
-        upper(side) AS side,
-        qty,
-        price,
-        coalesce(commission,0) AS commission,
-        ts,
-        coalesce(nullif(payload->>'run_id',''),'live') AS run_key,
-        lower(coalesce(payload#>>'{features,is_exit}','false')) IN ('true','1','yes') AS is_exit
-    FROM public.trades
-    WHERE trade_source='paper'
-      AND NOT coalesce(is_invalid,false)
-      AND nullif(strategy,'') IS NOT NULL
-      AND upper(side) IN ('BUY','SELL')
-      AND qty > 0 AND price > 0
-      AND ts >= clock_timestamp()-(%s * interval '1 day')
-), ordered AS (
-    SELECT *,
-        lead(side) OVER w AS exit_side,
-        lead(qty) OVER w AS exit_qty,
-        lead(price) OVER w AS exit_price,
-        lead(commission) OVER w AS exit_commission,
-        lead(ts) OVER w AS exit_ts,
-        lead(is_exit) OVER w AS next_is_exit
-    FROM base
-    WINDOW w AS (
-        PARTITION BY run_key,normalized_symbol,strategy
-        ORDER BY ts,id
-    )
-), pairs AS (
-    SELECT
-        normalized_symbol,
-        strategy,
-        side AS entry_side,
         CASE
-            WHEN extract(hour FROM ts AT TIME ZONE 'Europe/Moscow') BETWEEN 0 AND 5 THEN 'азиатская_сессия'
-            WHEN extract(hour FROM ts AT TIME ZONE 'Europe/Moscow') BETWEEN 6 AND 11 THEN 'утро_мск'
-            WHEN extract(hour FROM ts AT TIME ZONE 'Europe/Moscow') BETWEEN 12 AND 15 THEN 'московская_середина'
-            WHEN extract(hour FROM ts AT TIME ZONE 'Europe/Moscow') BETWEEN 16 AND 20 THEN 'вечерняя_сессия'
-            ELSE 'ночь'
-        END AS session_name,
-        ts AS entry_ts,
-        exit_ts,
-        CASE WHEN side='BUY' THEN exit_price-price ELSE price-exit_price END AS pnl_points,
-        (
-            CASE WHEN side='BUY' THEN exit_price-price ELSE price-exit_price END
-        ) * least(qty,exit_qty) - commission - exit_commission AS pnl_after_costs
-    FROM ordered
-    WHERE NOT is_exit
-      AND next_is_exit
-      AND exit_side IS NOT NULL
-      AND exit_side <> side
-      AND exit_price > 0
+          WHEN symbol ~ '^BR[FGHJKMNQUVXZ][0-9]*@RTSX$' THEN 'BR_CONT'
+          WHEN symbol ~ '^NG[FGHJKMNQUVXZ][0-9]*@RTSX$' THEN 'NG_CONT'
+          WHEN symbol LIKE 'USDRUB%%@RTSX' THEN 'USDRUB_CONT'
+          ELSE coalesce(nullif(root_symbol,''),symbol)
+        END AS normalized_symbol,
+        upper(strategy) AS strategy,
+        CASE upper(side) WHEN 'LONG' THEN 'BUY' WHEN 'SHORT' THEN 'SELL' ELSE upper(side) END AS entry_side,
+        CASE WHEN upper(strategy)='BR_CONSERVATIVE_BREAKOUT' AND upper(coalesce(timeframe,'')) IN ('','LIVE','UNKNOWN')
+             THEN 'M5' ELSE upper(coalesce(nullif(timeframe,''),'UNKNOWN')) END AS timeframe,
+        lower(coalesce(
+          nullif(nullif(upper(coalesce(entry_regime,'')),'UNKNOWN'),''),
+          nullif(nullif(upper(coalesce(regime,'')),'UNKNOWN'),''),
+          'UNKNOWN'
+        )) AS regime_code,
+        entry_ts,exit_ts,
+        coalesce(gross_pnl,net_pnl+coalesce(commission,0)) AS pnl_points,
+        net_pnl AS pnl_after_costs
+    FROM public.closed_trades
+    WHERE trade_source='paper'
+      AND nullif(strategy,'') IS NOT NULL
+      AND upper(side) IN ('BUY','SELL','LONG','SHORT')
+      AND entry_ts IS NOT NULL AND exit_ts IS NOT NULL
+      AND net_pnl IS NOT NULL
+      AND exit_ts >= clock_timestamp()-(%s * interval '1 day')
+), classified AS (
+    SELECT *,
+        CASE
+            WHEN extract(hour FROM entry_ts AT TIME ZONE 'Europe/Moscow')*60
+               + extract(minute FROM entry_ts AT TIME ZONE 'Europe/Moscow') BETWEEN 600 AND 629 THEN 'MOEX_OPEN'
+            WHEN extract(hour FROM entry_ts AT TIME ZONE 'Europe/Moscow')*60
+               + extract(minute FROM entry_ts AT TIME ZONE 'Europe/Moscow') BETWEEN 630 AND 659 THEN 'MOEX_FIRST_HOUR'
+            WHEN extract(hour FROM entry_ts AT TIME ZONE 'Europe/Moscow')*60
+               + extract(minute FROM entry_ts AT TIME ZONE 'Europe/Moscow') BETWEEN 660 AND 989 THEN 'EUROPE_OVERLAP'
+            WHEN extract(hour FROM entry_ts AT TIME ZONE 'Europe/Moscow')*60
+               + extract(minute FROM entry_ts AT TIME ZONE 'Europe/Moscow') BETWEEN 990 AND 1079 THEN 'US_OPEN'
+            WHEN extract(hour FROM entry_ts AT TIME ZONE 'Europe/Moscow')*60
+               + extract(minute FROM entry_ts AT TIME ZONE 'Europe/Moscow') BETWEEN 1080 AND 1419 THEN 'EVENING'
+            WHEN extract(hour FROM entry_ts AT TIME ZONE 'Europe/Moscow')*60
+               + extract(minute FROM entry_ts AT TIME ZONE 'Europe/Moscow') BETWEEN 1420 AND 1429 THEN 'MOEX_CLOSE'
+            ELSE 'OUTSIDE_SESSION'
+        END AS session_name
+    FROM base
 ), aggregated AS (
     SELECT
-        normalized_symbol,strategy,entry_side,session_name,
+        normalized_symbol,strategy,timeframe,entry_side,session_name,regime_code,
         count(*)::integer AS closed_trades,
         count(*) FILTER(WHERE pnl_after_costs > 0)::integer AS wins,
         count(*) FILTER(WHERE pnl_after_costs <= 0)::integer AS losses,
@@ -80,23 +70,45 @@ WITH base AS (
         avg(pnl_after_costs) AS expectancy_after_costs,
         min(entry_ts) AS evidence_started_at,
         max(exit_ts) AS evidence_finished_at
-    FROM pairs
-    GROUP BY normalized_symbol,strategy,entry_side,session_name
+    FROM classified
+    GROUP BY normalized_symbol,strategy,timeframe,entry_side,session_name,regime_code
+), coverage AS (
+    SELECT DISTINCT ON (normalized_symbol,strategy_code,timeframe,regime_code,session_code)
+        normalized_symbol,strategy_code AS strategy,timeframe,regime_code,session_code,
+        microstructure_coverage_ratio,cohort_code
+    FROM (
+      SELECT e.*,
+        CASE
+          WHEN symbol ~ '^BR[FGHJKMNQUVXZ][0-9]*@RTSX$' THEN 'BR_CONT'
+          WHEN symbol ~ '^NG[FGHJKMNQUVXZ][0-9]*@RTSX$' THEN 'NG_CONT'
+          ELSE symbol
+        END AS normalized_symbol
+      FROM analytics.execution_edge_result_v1 e
+      WHERE cohort_code='MICROSTRUCTURE_CLEAN_V4'
+    ) e
+    ORDER BY normalized_symbol,strategy_code,timeframe,regime_code,session_code,created_at DESC
 )
 INSERT INTO analytics.edge_strict_rule_v2(
-    normalized_symbol,strategy,entry_side,session_name,closed_trades,wins,losses,
+    normalized_symbol,strategy,timeframe,entry_side,session_name,regime_code,closed_trades,wins,losses,
     pnl_points,expectancy_points,pnl_after_costs,expectancy_after_costs,
-    rule_action,evidence_started_at,evidence_finished_at,built_at)
+    microstructure_coverage_ratio,evidence_cohort_code,rule_action,
+    evidence_started_at,evidence_finished_at,built_at)
 SELECT
-    normalized_symbol,strategy,entry_side,session_name,closed_trades,wins,losses,
+    a.normalized_symbol,a.strategy,a.timeframe,a.entry_side,a.session_name,a.regime_code,
+    a.closed_trades,a.wins,a.losses,
     pnl_points,expectancy_points,pnl_after_costs,expectancy_after_costs,
+    coalesce(c.microstructure_coverage_ratio,0),coalesce(c.cohort_code,'UNVERIFIED'),
     CASE
         WHEN closed_trades < %s THEN 'INSUFFICIENT_DATA'
+        WHEN coalesce(c.microstructure_coverage_ratio,0) < %s THEN 'INSUFFICIENT_DATA'
         WHEN expectancy_after_costs > %s THEN 'ALLOW'
         ELSE 'BLOCK'
     END,
     evidence_started_at,evidence_finished_at,clock_timestamp()
-FROM aggregated;
+FROM aggregated a
+LEFT JOIN coverage c ON c.normalized_symbol=a.normalized_symbol
+ AND c.strategy=a.strategy AND c.timeframe=a.timeframe
+ AND c.regime_code=a.regime_code AND c.session_code=a.session_name;
 """
 
 
@@ -110,7 +122,8 @@ def main() -> int:
                     print("VERDICT=EDGE_STRICT_RULE_BUILD_ALREADY_RUNNING")
                     return 0
                 cursor.execute(
-                    """SELECT lookback_days,min_closed_trades,min_expectancy_after_costs
+                    """SELECT lookback_days,min_closed_trades,min_expectancy_after_costs,
+                              min_microstructure_coverage
                        FROM analytics.edge_strict_rule_policy_v2
                        WHERE enabled ORDER BY updated_at DESC LIMIT 1"""
                 )
@@ -128,6 +141,7 @@ def main() -> int:
                     (
                         policy["lookback_days"],
                         policy["min_closed_trades"],
+                        policy["min_microstructure_coverage"],
                         policy["min_expectancy_after_costs"],
                     ),
                 )

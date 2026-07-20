@@ -594,6 +594,7 @@ class PaperTradingPipeline:
                 base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
                 max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
                 max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
+                connection_factory=getattr(self.pg_logger, "_connect", None),
             )
 
         if not hasattr(self, "trend_gate_service"):
@@ -610,24 +611,6 @@ class PaperTradingPipeline:
             runtime_control_service=self.strategy_runtime_control_service,
             trend_gate_service=self.trend_gate_service,
             regime_runtime_control_service=self.regime_runtime_control_service,
-        )
-        self.trade_gate_service = TradeGateService(
-            base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
-            max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
-            max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
-        )
-        self.strategy_runtime_control_service = StrategyRuntimeControlService(self.pg_logger)
-        self.regime_runtime_control_service = RegimeRuntimeControlService(self.pg_logger)
-        self.entry_gate_coordinator = EntryGateCoordinator(
-            trade_gate_service=self.trade_gate_service,
-            runtime_control_service=self.strategy_runtime_control_service,
-            trend_gate_service=self.trend_gate_service,
-            regime_runtime_control_service=self.regime_runtime_control_service,
-        )
-        self.trade_gate_service = TradeGateService(
-            base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
-            max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
-            max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
         )
         # Русский комментарий: fill persistence должен работать даже если SignalRepository недоступен.
         self.signal_repository = None
@@ -2440,7 +2423,7 @@ class PaperTradingPipeline:
             self._last_reconciliation_mismatch_key = mismatch_key
         return False, self._trading_halt_reason
 
-    def _account_trade_after_fill_v1(self, symbol: str) -> None:
+    def _account_trade_after_fill_v1(self, intent: dict) -> None:
         """
         Русский комментарий:
         Учитывает сделку в runtime trade limit только после успешного создания FILL.
@@ -2451,7 +2434,17 @@ class PaperTradingPipeline:
             if trade_gate is None:
                 return
 
-            accounted_decision = trade_gate.account_trade(str(symbol))
+            features = intent.get("features") or {}
+            symbol = str(intent.get("symbol") or "")
+            accounted_decision = trade_gate.account_trade(
+                symbol,
+                strategy=str(intent.get("strategy") or features.get("strategy") or "UNKNOWN"),
+                regime=str(intent.get("regime") or features.get("regime_label") or "UNKNOWN"),
+                timeframe=str(intent.get("timeframe") or features.get("timeframe") or "UNKNOWN"),
+                side=str(intent.get("side") or "UNKNOWN"),
+                session_name=self.edge_gate_strict_mode_v1.current_session_name(),
+                execution_mode=str(self.runtime_config.get("EXECUTION_MODE", "paper")),
+            )
             print(f"PIPE_TRADE_LIMIT_ACCOUNTED {accounted_decision.reason}", flush=True)
         except Exception as exc:
             print(
@@ -5054,6 +5047,7 @@ class PaperTradingPipeline:
                 base_cooldown_sec=float(os.getenv("TRADE_COOLDOWN_SEC", "45")),
                 max_trades_per_hour=int(os.getenv("MAX_TRADES_PER_HOUR", "5")),
                 max_trades_per_symbol=int(os.getenv("MAX_TRADES_PER_SYMBOL", "2")),
+                connection_factory=getattr(self.pg_logger, "_connect", None),
             )
             self.trade_gate_service = trade_gate
 
@@ -5078,7 +5072,16 @@ class PaperTradingPipeline:
                 self._reject_persisted_signal_v1(intent, "loss_cooldown")
                 return
 
-        limit_decision = trade_gate.trade_limit_allows(sym)
+        intent_features = intent.get("features") or {}
+        limit_decision = trade_gate.trade_limit_allows(
+            sym,
+            strategy=str(intent.get("strategy") or intent_features.get("strategy") or "UNKNOWN"),
+            regime=str(intent.get("regime") or intent_features.get("regime_label") or "UNKNOWN"),
+            timeframe=str(intent.get("timeframe") or intent_features.get("timeframe") or "UNKNOWN"),
+            side=str(intent.get("side") or "UNKNOWN"),
+            session_name=self.edge_gate_strict_mode_v1.current_session_name(),
+            execution_mode=str(self.runtime_config.get("EXECUTION_MODE", "paper")),
+        )
         if not limit_decision.allowed:
             if "global" in limit_decision.reason:
                 print("PIPE_TRADE_LIMIT_BLOCK_GLOBAL", flush=True)
@@ -5196,6 +5199,16 @@ class PaperTradingPipeline:
                             or ""
                         ),
                         side=str(gate_side),
+                        timeframe=str(
+                            intent.get("timeframe")
+                            or (intent.get("features") or {}).get("timeframe")
+                            or "UNKNOWN"
+                        ),
+                        regime=str(
+                            intent.get("regime")
+                            or (intent.get("features") or {}).get("regime_label")
+                            or "UNKNOWN"
+                        ),
                     )
                     print(
                         "PIPE_EDGE_GATE_STRICT_MODE",
@@ -5721,6 +5734,9 @@ class PaperTradingPipeline:
                         price=float(intent.get("price") or st.get("last") or st.get("price") or 0.0),
                         atr=float(st.get("atr", 0.0) or 0.0),
                         regime=str(intent.get("regime") or (intent.get("features") or {}).get("regime_label") or "UNKNOWN"),
+                        timeframe=str(intent.get("timeframe") or (intent.get("features") or {}).get("timeframe") or "UNKNOWN"),
+                        session_name=self.edge_gate_strict_mode_v1.current_session_name(),
+                        execution_mode=str(self.runtime_config.get("EXECUTION_MODE", "paper")),
                     )
 
                     replay_accumulation_mode = (
@@ -5877,7 +5893,7 @@ class PaperTradingPipeline:
         print(f"PIPE_TRADE_EXEC symbol={intent.get('symbol')} side={intent.get('side')}", flush=True)
 
         self.bus.publish({"type": "FILL", "fill": fill})
-        self._account_trade_after_fill_v1(intent.get("symbol"))
+        self._account_trade_after_fill_v1(intent)
 
     def generate(self, state, regime=None):
 

@@ -9,9 +9,13 @@ def test_worker_is_fold_checkpointed_and_early_prunes() -> None:
     assert "EARLY_NEGATIVE_EXPECTANCY" in source
     assert "COARSE_NOT_TOP_10_PERCENT" in source
     assert "rank_pct<=.10" in source
-    assert "cpu_limit=2" in source
+    assert "cpu_limit={CPU_LIMIT}" in source
     assert "attempts=attempts+1" in source
     assert "variants_complete" in source
+    assert "def _select_clean_holdout" in source
+    assert "NOT_SELECTED_FOR_CLEAN_HOLDOUT" in source
+    assert "generate_series(3,4)" in source
+    assert "SELECT variant_task_id,5" in source
 
 
 def test_autonomous_cycle_uses_checkpointed_worker() -> None:
