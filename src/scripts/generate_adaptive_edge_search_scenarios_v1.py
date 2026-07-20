@@ -62,7 +62,7 @@ def _number_set(value: float, ratios: tuple[float, ...], minimum: float, integer
     return sorted({int(round(item)) if integer else round(item, 4) for item in values})
 
 
-def adapted_grid(base_grid: list[dict], reason: str) -> list[dict]:
+def adapted_grid(base_grid: list[dict], reason: str, algorithm_code: str = "", budget: int = MAX_VARIANTS_PER_ITEM) -> list[dict]:
     """Change hypotheses, never validation/OOS/walk-forward gates or cost inputs."""
     output: list[dict] = []
     for base in base_grid:
@@ -85,9 +85,20 @@ def adapted_grid(base_grid: list[dict], reason: str) -> list[dict]:
             lookbacks, holds, thresholds = _number_set(lookback, (.75, 1, 1.25), 10, True), _number_set(hold, (.75, 1, 1.25), 2, True), _number_set(threshold, (.9, 1, 1.15), 0)
         for lb, hd, th in itertools.product(lookbacks, holds, thresholds):
             candidate = {**clean, "lookback": lb, "hold": hd, "threshold": th}
+            if algorithm_code == "DONCHIAN_VOL_BREAKOUT":
+                candidate.update({"exit_policy_code": "DYNAMIC_EXIT_V1", "exit_max_holding_bars": 20,
+                                  "exit_trend_lookback": 5, "exit_volatility_risk_multiplier": 2.0,
+                                  "entry_policy_code": "META_ENTRY_V2", "entry_trend_mode": "WITH_TREND",
+                                  "entry_volume_mode": "REQUIRE"})
+            elif algorithm_code == "EMA_TREND":
+                candidate.update({"entry_policy_code": "META_ENTRY_V2",
+                                  "entry_trend_mode": "WITH_TREND",
+                                  "entry_min_volatility_bps": 1.0,
+                                  "entry_max_volatility_bps": 120.0,
+                                  "session_analysis": "MARKET_SESSION_CONTRACT_V1"})
             if candidate not in output:
                 output.append(candidate)
-            if len(output) >= MAX_VARIANTS_PER_ITEM:
+            if len(output) >= min(MAX_VARIANTS_PER_ITEM, budget):
                 return output
     return output
 
@@ -95,7 +106,8 @@ def adapted_grid(base_grid: list[dict], reason: str) -> list[dict]:
 def priority_score(row: dict) -> tuple:
     metrics = row["best_metrics"] or {}
     reason_rank = REASON_POLICY.get(row["primary_reason_code"], ("RESEARCH_NEW_FAMILY", 9, ""))[1]
-    return (reason_rank, -int(metrics.get("folds", 0)), -float(metrics.get("profit_factor", 0)),
+    return (int(row.get("compute_priority_rank", 100)), reason_rank,
+            -int(metrics.get("folds", 0)), -float(metrics.get("profit_factor", 0)),
             -float(metrics.get("expectancy", 0)), row["algorithm_code"])
 
 
@@ -104,6 +116,9 @@ def methodology_failures(cursor, parent_run_id: str) -> list[dict]:
         SELECT m.evaluation_id AS methodology_evaluation_id,m.result_id,m.algorithm_code,
                m.strategy_code,m.symbol,m.parameter_core AS parameter_json,w.fold_metrics,
                r.parameter_grid,r.regime_policy,r.gate_policy,
+               coalesce(p.priority_rank,100) compute_priority_rank,
+               coalesce(p.coarse_budget,4) compute_budget,
+               coalesce(p.promotion_blocked,false) promotion_blocked,
                jsonb_build_object('folds',w.folds_passed,'profit_factor',w.net_profit_factor,
                                   'expectancy',w.net_expectancy) AS best_metrics,
                CASE
@@ -117,7 +132,9 @@ def methodology_failures(cursor, parent_run_id: str) -> list[dict]:
         FROM analytics.edge_methodology_evaluation_v1 m
         JOIN analytics.walkforward_edge_search_v3 w ON w.result_id=m.result_id
         JOIN analytics.edge_search_algorithm_registry_v1 r ON r.algorithm_code=m.algorithm_code
+        LEFT JOIN analytics.edge_algorithm_compute_policy_v1 p ON p.algorithm_code=m.algorithm_code
         WHERE m.scenario_run_id=%s AND m.verdict_code='FAIL' AND r.enabled
+          AND NOT coalesce(p.promotion_blocked,false) AND coalesce(p.coarse_budget,4)>0
           AND coalesce((m.evidence->>'base_walkforward_pass')::boolean,false)
         ORDER BY m.created_at,m.evaluation_id
     """, (parent_run_id,))
@@ -212,9 +229,13 @@ def main() -> None:
             activated = activate_ready(cursor)
             cursor.execute("""
                 SELECT a.*,r.strategy_code,r.parameter_grid,r.regime_policy,r.gate_policy,
+                       coalesce(p.priority_rank,100) compute_priority_rank,
+                       coalesce(p.coarse_budget,4) compute_budget,
+                       coalesce(p.promotion_blocked,false) promotion_blocked,
                        w.result_id,w.symbol,w.parameter_json,w.fold_metrics
                 FROM analytics.edge_search_algorithm_analysis_v1 a
                 JOIN analytics.edge_search_algorithm_registry_v1 r USING (algorithm_code)
+                LEFT JOIN analytics.edge_algorithm_compute_policy_v1 p USING (algorithm_code)
                 JOIN LATERAL (
                   SELECT x.* FROM analytics.walkforward_edge_search_v3 x
                   WHERE x.search_run_id=a.search_run_id AND x.strategy_family=a.algorithm_code
@@ -223,6 +244,7 @@ def main() -> None:
                   LIMIT 1
                 ) w ON true
                 WHERE a.run_id=%s AND a.verdict_code='FAIL' AND r.enabled
+                  AND NOT coalesce(p.promotion_blocked,false) AND coalesce(p.coarse_budget,4)>0
             """, (parent_run_id,))
             algorithm_failures = [dict(row) for row in cursor.fetchall()]
             method_failures = methodology_failures(cursor,parent_run_id)
@@ -245,7 +267,7 @@ def main() -> None:
                 adaptation, _, rationale = REASON_POLICY.get(row["primary_reason_code"],
                     ("RESEARCH_NEW_FAMILY", 9, "Сформировать новую проверяемую гипотезу."))
                 source_grid = ([row["parameter_json"]] if row.get("methodology_evaluation_id") else row["parameter_grid"])
-                grid = adapted_grid(source_grid, row["primary_reason_code"])
+                grid = adapted_grid(source_grid, row["primary_reason_code"], row["algorithm_code"], int(row["compute_budget"]))
                 fold5 = next(item for item in row["fold_metrics"] if int(item["fold"]) == 5)
                 plan_item_id = uuid.uuid5(NAMESPACE, f"{plan_id}:{row['algorithm_code']}")
                 scenario_id = uuid.uuid5(NAMESPACE, f"{plan_item_id}:adaptive")

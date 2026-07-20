@@ -21,9 +21,14 @@ MAX_MARKETS = int(os.getenv("EDGE_HYPOTHESIS_MAX_MARKETS", "12"))
 
 def load_search_configuration(cursor):
     cursor.execute("""
-        SELECT algorithm_code,strategy_code,parameter_grid,regime_policy,gate_policy,config_version
-        FROM analytics.edge_search_algorithm_registry_v1
-        WHERE enabled ORDER BY algorithm_code
+        SELECT r.algorithm_code,r.strategy_code,r.parameter_grid,r.regime_policy,r.gate_policy,r.config_version,
+               coalesce(p.priority_rank,100) priority_rank,coalesce(p.coarse_budget,4) coarse_budget,
+               coalesce(p.promotion_blocked,false) promotion_blocked,
+               coalesce(p.research_policy,'{}'::jsonb) compute_policy
+        FROM analytics.edge_search_algorithm_registry_v1 r
+        LEFT JOIN analytics.edge_algorithm_compute_policy_v1 p USING(algorithm_code)
+        WHERE r.enabled AND coalesce(p.coarse_budget,4)>0
+        ORDER BY coalesce(p.priority_rank,100),r.algorithm_code
     """)
     rows = cursor.fetchall()
     if not rows:
@@ -31,13 +36,14 @@ def load_search_configuration(cursor):
     result = []
     for row in rows:
         family = row["algorithm_code"]
-        grid = row["parameter_grid"]
+        grid = list(row["parameter_grid"][:int(row["coarse_budget"])])
         if not grid:
             raise RuntimeError(f"EDGE_SEARCH_PARAMETER_GRID_EMPTY:{family}")
         result.append((family, {
             "strategy_code": row["strategy_code"], "grid": grid,
             "regime_policy": row["regime_policy"], "gate_policy": row["gate_policy"],
-            "config_version": row["config_version"],
+            "config_version": row["config_version"], "priority_rank": row["priority_rank"],
+            "promotion_blocked": row["promotion_blocked"], "compute_policy": row["compute_policy"],
         }))
     cursor.execute("""
         SELECT adaptive_scenario_id,algorithm_code,strategy_code,parameter_grid,

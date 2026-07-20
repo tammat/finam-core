@@ -24,7 +24,7 @@ EXECUTORS = {
     "RESOLVE_FUTURES_ROLL": "src/scripts/build_futures_roll_decision_v1.py",
     "SYNC_ECONOMIC_HYPOTHESES": "src/scripts/sync_economic_hypothesis_algorithms_v1.py",
     "DISCOVER_REGIME": "src/scripts/build_edge_regime_hypothesis_discovery_v2.py",
-    "WALKFORWARD": "src/scripts/build_walkforward_edge_search_v3.py",
+    "WALKFORWARD": "src/scripts/run_checkpointed_walkforward_v4.py",
     "GOVERN_EXPERIMENTS": "src/scripts/govern_research_experiments_v1.py",
     "METHODOLOGY_GATE": "src/scripts/evaluate_edge_methodology_contract_v1.py",
     "BUILD_DIAGNOSTIC_FUNNELS": "src/scripts/build_edge_diagnostic_funnels_v1.py",
@@ -396,12 +396,14 @@ def main() -> int:
                     if not checkpointed:
                         combinations_evaluated += output_metric(result.stdout,"strategy_regime_pairs")
                         passes += output_metric(result.stdout,"oos_pass")
-                elif step.endswith("build_walkforward_edge_search_v3.py"):
+                elif step.endswith("run_checkpointed_walkforward_v4.py"):
                     match = re.findall(r"(?m)^search_run_id=([0-9a-f-]{36})$", result.stdout)
                     if match:
                         env["EDGE_SEARCH_WALKFORWARD_RUN_ID"] = match[-1]
                     combinations_evaluated += output_metric(result.stdout,"candidates_evaluated")
                     passes += output_metric(result.stdout,"oos_pass")
+                    campaign_progress = output_metric(result.stdout,"campaign_progress_pct")
+                    checkpointed = result.returncode == 0 and output_flag(result.stdout,"stage_complete") is False
                 overall_progress = (
                     int(((step_index - 1) + campaign_progress / 100.0) * 100 / len(steps))
                     if checkpointed else int(step_index*100/len(steps))
@@ -425,7 +427,11 @@ def main() -> int:
                       ("SKIPPED" if checkpointed else ("SUCCEEDED" if result.returncode == 0 else "FAILED"),int((time.monotonic()-started)*1000),
                        result.returncode,json.dumps(metrics),result.stdout[-8000:],result.stderr[-8000:],str(step_run_id)))
             if checkpointed:
-                checkpoint_reason = "EDGE_REGIME_DISCOVERY_CHECKPOINTED"
+                checkpoint_reason = (
+                    "WALKFORWARD_CHECKPOINTED"
+                    if executor_code == "WALKFORWARD"
+                    else "EDGE_REGIME_DISCOVERY_CHECKPOINTED"
+                )
                 overall_progress = int(((step_index - 1) + campaign_progress / 100.0) * 100 / len(steps))
                 record_status(
                     cycle_id,status_code="SKIPPED",current_step=executor_code,

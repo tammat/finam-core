@@ -9,7 +9,7 @@ def test_autonomous_cycle_searches_and_promotes_only_to_forward() -> None:
     source = Path("src/scripts/run_autonomous_edge_search_cycle_v1.py").read_text()
     assert "pg_try_advisory_lock" in source
     assert "build_edge_regime_hypothesis_discovery_v2.py" in source
-    assert "build_walkforward_edge_search_v3.py" in source
+    assert "run_checkpointed_walkforward_v4.py" in source
     assert "promote_regime_oos_to_canonical_v1.py" in source
     assert "admit_oos_forward_clean_cohort_v1.py" in source
     assert "build_profit_funnel_shadow_paper_admission_v2.py" in source
