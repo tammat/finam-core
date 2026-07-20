@@ -16,6 +16,14 @@ def test_materializer_writes_both_canonical_and_analytics_tables() -> None:
     assert "refresh_canonical_attribution" in text
 
 
+def test_materializer_does_not_inherit_trading_symbol_scope() -> None:
+    text = (ROOT / "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py").read_text()
+    assert 'os.getenv("SYMBOL")' not in text
+    assert 'os.getenv("SYMBOLS")' not in text
+    assert 'os.getenv("PAPER_MATERIALIZER_SYMBOL")' in text
+    assert 'os.getenv("PAPER_MATERIALIZER_SYMBOLS")' in text
+
+
 def test_scheduler_runs_materializer_with_apply_and_foreground_priority() -> None:
     text = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
     assert '"PAPER_CLOSED_TRADE_MATERIALIZER_V2"' in text

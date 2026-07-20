@@ -20,8 +20,11 @@ class MethodologyGateFailureV1:
     total: int
     failed: int
     passed: int
+    not_evaluated: int
     fail_pct: float
     status: str
+    cost_failures: int = 0
+    sample_failures: int = 0
 
 @dataclass(frozen=True, slots=True)
 class ResearchUniverseItemV1:

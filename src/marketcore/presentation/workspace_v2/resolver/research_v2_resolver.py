@@ -118,23 +118,59 @@ class ResearchV2Resolver:
                 cursor.execute("""WITH latest AS (
                     SELECT scenario_run_id FROM analytics.edge_methodology_evaluation_v1
                     ORDER BY created_at DESC LIMIT 1)
-                    SELECT count(*) AS total,
-                      count(*) FILTER(WHERE NOT statistical_pass) AS statistical,
-                      count(*) FILTER(WHERE NOT robustness_pass) AS robustness,
-                      count(*) FILTER(WHERE NOT holdout_pass) AS holdout,
-                      count(*) FILTER(WHERE NOT execution_pass) AS execution,
-                      count(*) FILTER(WHERE NOT capacity_pass) AS capacity,
-                      count(*) FILTER(WHERE NOT portfolio_pass) AS portfolio
+                    SELECT statistical_pass,robustness_pass,holdout_pass,execution_pass,
+                           capacity_pass,portfolio_pass,evidence
                     FROM analytics.edge_methodology_evaluation_v1
                     WHERE scenario_run_id=(SELECT scenario_run_id FROM latest)""")
-                gate_counts=cursor.fetchone() or {}
-                gate_total=int(gate_counts.get("total") or 0)
-                methodology_failures=tuple(MethodologyGateFailureV1(
-                    code,gate_total,int(gate_counts.get(code) or 0),
-                    gate_total-int(gate_counts.get(code) or 0),
-                    round(100.0*int(gate_counts.get(code) or 0)/gate_total,2) if gate_total else 0.0,
-                    "NO_DATA" if not gate_total else ("PASS" if not int(gate_counts.get(code) or 0) else "FAIL")
-                ) for code in ("statistical","robustness","holdout","execution","capacity","portfolio"))
+                gate_rows=cursor.fetchall()
+                cursor.execute("""WITH latest AS (
+                    SELECT search_run_id FROM analytics.edge_methodology_evaluation_v1
+                    ORDER BY created_at DESC LIMIT 1)
+                    SELECT
+                      count(*) FILTER(WHERE reason_code='NEGATIVE_COST_ADJUSTED_EXPECTANCY') AS costs,
+                      count(*) FILTER(WHERE reason_code='INSUFFICIENT_TRADES') AS sample
+                    FROM analytics.walkforward_edge_search_v3
+                    WHERE search_run_id=(SELECT search_run_id FROM latest)""")
+                base_reasons=cursor.fetchone() or {}
+                gate_order=(
+                    ("statistical","STATISTICAL_SIGNIFICANCE","statistical_pass"),
+                    ("robustness","PARAMETER_ROBUSTNESS","robustness_pass"),
+                    ("holdout","INDEPENDENT_HOLDOUT","holdout_pass"),
+                    ("execution","REALISTIC_EXECUTION","execution_pass"),
+                    ("capacity","CAPACITY","capacity_pass"),
+                    ("portfolio","PORTFOLIO_CONTRIBUTION","portfolio_pass"),
+                )
+                gate_counts={code:{"PASS":0,"FAIL":0,"NOT_EVALUATED":0}
+                             for code,_,_ in gate_order}
+                for row in gate_rows:
+                    evidence=row.get("evidence") or {}
+                    stored=evidence.get("gate_statuses") or {}
+                    prerequisite=bool(evidence.get("base_walkforward_pass"))
+                    for code,contract_code,column in gate_order:
+                        status=stored.get(contract_code)
+                        if status not in ("PASS","FAIL","NOT_EVALUATED"):
+                            status=("PASS" if bool(row.get(column)) else "FAIL") if prerequisite else "NOT_EVALUATED"
+                        gate_counts[code][status]+=1
+                        prerequisite=prerequisite and status == "PASS"
+                gate_total=len(gate_rows)
+                base_passed=sum(1 for row in gate_rows
+                                if bool((row.get("evidence") or {}).get("base_walkforward_pass")))
+                methodology_failures=[MethodologyGateFailureV1(
+                    "base",gate_total,gate_total-base_passed,base_passed,0,
+                    round(100.0*(gate_total-base_passed)/gate_total,2) if gate_total else 0.0,
+                    "NO_DATA" if not gate_total else ("PASS" if base_passed == gate_total else "NOT_PASSED"),
+                    int(base_reasons.get("costs") or 0),int(base_reasons.get("sample") or 0)
+                )]
+                for code,_,_ in gate_order:
+                    counts=gate_counts[code]
+                    evaluated=counts["PASS"]+counts["FAIL"]
+                    status=("NO_DATA" if not gate_total else "NOT_EVALUATED" if not evaluated else
+                            ("PASS" if not counts["FAIL"] else "NOT_PASSED"))
+                    methodology_failures.append(MethodologyGateFailureV1(
+                        code,gate_total,counts["FAIL"],counts["PASS"],counts["NOT_EVALUATED"],
+                        round(100.0*counts["FAIL"]/evaluated,2) if evaluated else 0.0,status,0,0
+                    ))
+                methodology_failures=tuple(methodology_failures)
                 cursor.execute("""WITH quote_health AS (
                       SELECT count(*) FILTER(WHERE health_status='FRESH' AND signal_allowed) quote_symbols,
                              bool_or(health_status='FRESH' AND signal_allowed) quote_ready

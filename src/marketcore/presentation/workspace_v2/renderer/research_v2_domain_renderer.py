@@ -132,18 +132,33 @@ def _algorithm_table(items):
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.algorithms.table",children=(RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.algorithms.head",children=(header,)),RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.algorithms.body",children=tuple(rows))))
 
 def _methodology_failure_table(items):
-    columns=("gate","failed","passed","fail_pct","status")
+    columns=("gate","failed","passed","not_evaluated","fail_pct","detail","status")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.failures.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.failures.header.{code}",key=f"research.failures.column.{code}") for code in columns))
     rows=[]
     for index,item in enumerate(items,start=1):
-        status="WARNING" if item.status == "NO_DATA" else ("OK" if item.status == "PASS" else "BLOCKED")
+        status="WARNING" if item.status in ("NO_DATA","NOT_EVALUATED") else ("OK" if item.status == "PASS" else "BLOCKED")
+        detail=(_leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.detail",
+                      key="research.failures.detail.base",
+                      args={"costs":item.cost_failures,"sample":item.sample_failures})
+                if item.gate_code == "base" else
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.detail",
+                      key="research.failures.detail.not_evaluated"
+                          if item.not_evaluated == item.total else "research.failures.detail.evaluated",
+                      args={"failed":item.failed,"passed":item.passed}))
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.failures.{index}",state=RenderNodeStateV2(status_code=status),children=(
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.gate",key=f"research.failures.gate.{item.gate_code}"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.failed",value=item.failed,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.passed",value=item.passed,fmt="INTEGER"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.not_evaluated",value=item.not_evaluated,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.fail_pct",value=item.fail_pct,fmt="DECIMAL"),
+            detail,
             _domain(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.status",item.status),
+        ),action=RenderActionV2(
+            "research.methodology.recheck",ActionKindV2.COMMAND,target_id=item.gate_code,
+            command_code="RESEARCH.RUN_EDGE_SEARCH",policy_class="RESEARCH_MAINTENANCE",
+            reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
+            idempotency_key="client.request",
         )))
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.failures.table",children=(
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.failures.head",children=(header,)),

@@ -84,3 +84,10 @@ def test_holdout_consumption_is_unique_and_promotion_remains_false() -> None:
     assert "all_gates_required=1" in evaluator
     assert "promotion_allowed=0" in evaluator
     assert "stressed_profit_factor" in evaluator
+
+
+def test_only_first_actionable_methodology_failure_drives_next_scenario() -> None:
+    evaluator=(ROOT/"src/scripts/evaluate_edge_methodology_contract_v1.py").read_text()
+    assert "first_gate_failure" in evaluator
+    assert '([first_gate_failure] if first_gate_failure else [])' in evaluator
+    assert 'gate_statuses[gate_code] = "NOT_EVALUATED"' in evaluator

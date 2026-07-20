@@ -156,9 +156,26 @@ def main() -> int:
                 gates = {"STATISTICAL_SIGNIFICANCE":statistical,"PARAMETER_ROBUSTNESS":robustness,
                          "INDEPENDENT_HOLDOUT":holdout,"REALISTIC_EXECUTION":execution,
                          "CAPACITY":capacity,"PORTFOLIO_CONTRIBUTION":portfolio_pass}
+                # Русский комментарий: контракт является последовательной воронкой.
+                # После первого отказа последующие ворота не считаются проваленными:
+                # они ещё не проверялись и не должны искажать анализ причин или
+                # порождать бессмысленные сценарии исправления сразу для всех ворот.
+                gate_statuses = {}
+                prerequisite_passed = base_pass
+                for gate_code,gate_passed in gates.items():
+                    if not prerequisite_passed:
+                        gate_statuses[gate_code] = "NOT_EVALUATED"
+                        continue
+                    gate_statuses[gate_code] = "PASS" if gate_passed else "FAIL"
+                    prerequisite_passed = bool(gate_passed)
                 verdict = "PASS" if base_pass and all(gates.values()) else "FAIL"
-                reasons = (["BASE_WALKFORWARD_FAILED"] if not base_pass else []) + [key for key,value in gates.items() if not value]
-                audit = {**evidence,"base_walkforward_pass":base_pass,"portfolio_overlap_days":overlap,
+                first_gate_failure = next(
+                    (key for key,value in gate_statuses.items() if value == "FAIL"),None
+                )
+                reasons = (["BASE_WALKFORWARD_FAILED"] if not base_pass else
+                           ([first_gate_failure] if first_gate_failure else []))
+                audit = {**evidence,"base_walkforward_pass":base_pass,"gate_statuses":gate_statuses,
+                         "portfolio_overlap_days":overlap,
                          "empty_portfolio":not portfolio_exists,"contract_policy":policy,
                          "global_adjusted_p_value":global_adjusted_p,
                          "holdout_access_code":holdout_access,"pnl_unit_status":pnl_unit_status,

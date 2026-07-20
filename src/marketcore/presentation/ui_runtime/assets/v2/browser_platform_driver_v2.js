@@ -135,6 +135,52 @@
             dialog.showModal();
         }
 
+        openMethodologyActions(row) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const cells = row.cells;
+            const gate = cells[0]?.textContent?.trim() || "Методологическая проверка";
+            const failed = cells[1]?.textContent?.trim() || "0";
+            const passed = cells[2]?.textContent?.trim() || "0";
+            const skipped = cells[3]?.textContent?.trim() || "0";
+            const failPct = cells[4]?.textContent?.trim() || "0";
+            const reason = cells[5]?.textContent?.trim() || "Нет пояснения";
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "methodology");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = gate;
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = `Провалено: ${failed}; пройдено: ${passed}; не проверялось: ${skipped}; отказов среди проверенных: ${failPct}%. ${reason}`;
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const add = (label, detail, handler) => {
+                const button = this.documentObject.createElement("button");
+                button.type = "button"; button.className = "mc-action-dialog-item";
+                const strong = this.documentObject.createElement("strong"); strong.textContent = label;
+                const span = this.documentObject.createElement("span"); span.textContent = detail;
+                button.append(strong, span); button.addEventListener("click", handler); list.appendChild(button);
+            };
+            add("Показать доказательства", "Открыть подробную методологическую раскладку", () => {
+                hint.textContent = `${gate}. ${hint.textContent} Последующие ворота учитываются только после прохождения предыдущих.`;
+            });
+            add("Повторить адресно", "Система создаст новый сценарий по первой реальной причине отказа", async () => {
+                dialog.close(); dialog.remove();
+                try {
+                    await this.actionSink({
+                        actionId:"research.methodology.recheck", actionKind:"COMMAND", interactionKind:"DOUBLE_CLICK",
+                        targetId:row.dataset.mcTargetId || gate, commandCode:"RESEARCH.RUN_EDGE_SEARCH",
+                        policyClass:"RESEARCH_MAINTENANCE", requiresApproval:false, reversible:true,
+                        rollbackCode:"RESEARCH.CANCEL_PENDING_REQUEST", idempotencyKey:"client.request"
+                    });
+                    this.announce("Адресная проверка поставлена в системную очередь", "SUCCESS");
+                } catch (error) { this.announce("Не удалось поставить проверку в очередь", "ERROR"); }
+            });
+            add("Оставить блокировку", "Критерии PASS не изменяются", () => { dialog.close(); dialog.remove(); });
+            const close = this.documentObject.createElement("button");
+            close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
+            close.addEventListener("click",()=>{dialog.close();dialog.remove();});
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+        }
+
         openUniverseActions(row) {
             this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
             const symbol = row.cells[1]?.textContent?.trim() || "";
@@ -584,10 +630,12 @@
                         element.addEventListener("dblclick", (event) => {
                             const cell = event.target.closest && event.target.closest('[data-mc-node="table_cell"]');
                             const isResearchRow = nodeId.startsWith("research.audit.");
+                            const isMethodologyRow = nodeId.startsWith("research.failures.");
                             const isSwingRow = nodeId.startsWith("control.section.swing_lifecycle.row.");
                             const isRecommendation = cell?.getAttribute("data-mc-node-id")?.endsWith(".recommendation");
                             const isBlockRow = nodeId.startsWith("control.section.block.row.");
                             if (isBlockRow) this.openBlockActions(element);
+                            else if (isMethodologyRow) this.openMethodologyActions(element);
                             else if (isSwingRow) this.openSwingDetails(element);
                             else if (isUniverseRow) this.openUniverseActions(element);
                             else if (isResearchRow && isRecommendation) this.openResearchActions(element);

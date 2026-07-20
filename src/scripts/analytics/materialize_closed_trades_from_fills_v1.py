@@ -47,11 +47,15 @@ def norm_strategy(symbol: str, raw: str | None) -> str:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--symbol", default=os.getenv("SYMBOL"))
-    p.add_argument("--symbols", default=os.getenv("SYMBOLS"))
-    p.add_argument("--symbol-pattern", default=os.getenv("SYMBOL_PATTERN"))
-    p.add_argument("--from-ts", default=os.getenv("FROM_TS"))
-    p.add_argument("--to-ts", default=os.getenv("TO_TS"))
+    # Русский комментарий: общие SYMBOL/SYMBOLS принадлежат торговому контуру.
+    # Планировщик материализации не должен случайно наследовать их и вечно
+    # пересчитывать только один инструмент. Для ручного ограничения оставляем
+    # CLI и отдельное, явно именованное окружение этого задания.
+    p.add_argument("--symbol", default=os.getenv("PAPER_MATERIALIZER_SYMBOL"))
+    p.add_argument("--symbols", default=os.getenv("PAPER_MATERIALIZER_SYMBOLS"))
+    p.add_argument("--symbol-pattern", default=os.getenv("PAPER_MATERIALIZER_SYMBOL_PATTERN"))
+    p.add_argument("--from-ts", default=os.getenv("PAPER_MATERIALIZER_FROM_TS"))
+    p.add_argument("--to-ts", default=os.getenv("PAPER_MATERIALIZER_TO_TS"))
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--replace", action="store_true")
