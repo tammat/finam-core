@@ -259,3 +259,18 @@ article[role="link"][data-mc-action-id]:focus {
 td.mc-progress-cell { min-width: 9rem; position: relative; }
 td.mc-progress-cell progress { width: 100%; height: 1.15rem; }
 td.mc-progress-cell span { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%); color: var(--mc-text-primary); font-weight: 700; }
+[data-marketcore-ui-runtime="v2"] { position: relative; }
+[data-marketcore-ui-runtime="v2"][data-runtime-status="LOADING"]::after {
+    content: attr(data-loading-label);
+    position: fixed;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    z-index: 900;
+    padding: 14px 22px;
+    border: 1px solid #d69b35;
+    border-radius: 12px;
+    color: #eef7fa;
+    background: #0b2530;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+    font-weight: 700;
+}

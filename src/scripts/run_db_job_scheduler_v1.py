@@ -47,6 +47,7 @@ EXECUTORS = {
     "SIGNAL_FUNNEL_ANALYTICS_V1": "src/scripts/signal_funnel_analytics_v1.py",
     "SIGNAL_FUNNEL_REASON_ANALYTICS_V1": "src/scripts/signal_funnel_reason_analytics_v1.py",
     "MODEL_HEALTH_ENGINE_V1": "src/scripts/marketcore_model_health_engine_v1.py",
+    "CHECKPOINTED_WALKFORWARD_V4": "src/scripts/run_checkpointed_walkforward_v4.py",
 }
 
 EXECUTOR_ARGUMENTS = {
@@ -57,6 +58,15 @@ EXECUTOR_ARGUMENTS = {
 # фоновый nice=10. Остальные исследования остаются ограниченными.
 EXECUTOR_NICE = {"PAPER_CLOSED_TRADE_MATERIALIZER_V2": 0}
 EXECUTOR_IONICE = {"PAPER_CLOSED_TRADE_MATERIALIZER_V2": 3}
+EXECUTOR_ENV = {
+    # Сам планировщик остаётся на ограниченной peer-роли alex. Только
+    # идемпотентный материализатор получает прикладную DB-роль для checkpoint.
+    "PAPER_CLOSED_TRADE_MATERIALIZER_V2": {
+        "DATABASE_URL": os.getenv("FINAM_DATABASE_URL", DB),
+    },
+    # Короткие возобновляемые пакеты не монополизируют четырёхъядерный сервер.
+    "CHECKPOINTED_WALKFORWARD_V4": {"WALKFORWARD_BATCH_SECONDS": "45"},
+}
 
 
 def due(row: dict, now: datetime, last_started: datetime | None) -> bool:
@@ -96,6 +106,7 @@ def main() -> int:
                             "RUNTIME_ALLOW_TRADING":"0","EXECUTION_ENABLED":"0","REAL_TRADING_ENABLED":"0",
                             "PYTHONDONTWRITEBYTECODE":"1"})
                 executor_code = job["executor_code"]
+                env.update(EXECUTOR_ENV.get(executor_code, {}))
                 command = [
                     "nice", "-n", str(EXECUTOR_NICE.get(executor_code, 10)),
                     "ionice", "-c", "2", "-n", str(EXECUTOR_IONICE.get(executor_code, 5)),

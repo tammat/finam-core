@@ -9,7 +9,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
 
-SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V2_I18N"
+SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V3_ADMISSION_COHORT"
 
 TARGET_TABLES = [
     ("public", "runtime_guard_signal_registry_v1"),
@@ -57,7 +57,7 @@ def reason_group(value: str) -> str:
         return "VOLATILITY"
     if any(token in v for token in ("LIQUID", "SPREAD", "SLIPPAGE")):
         return "LIQUIDITY"
-    if "RISK" in v or "LIMIT" in v or "EXPOSURE" in v:
+    if "RISK" in v or "LIMIT" in v or "EXPOSURE" in v or "PYRAMID" in v:
         return "RISK"
     if "EDGE" in v or "EXPECTANCY" in v or "PROFIT" in v:
         return "EDGE"
@@ -82,6 +82,46 @@ def reason_group(value: str) -> str:
     if v in {"ACTIVE", "INACTIVE", "PENDING"}:
         return "LIFECYCLE"
     return "OTHER"
+
+
+def collect_admission_losses(cur) -> list[dict[str, Any]]:
+    """Считает только сигналы сопоставимой когорты, не дошедшие до заявки."""
+    cur.execute("""
+        WITH signal_cohort AS (
+            SELECT COALESCE(NULLIF(signal_id,''),id::text) AS signal_key,
+                   COALESCE(NULLIF(status,''),'UNKNOWN') AS signal_status,
+                   NULLIF(trim(rejection_reason),'') AS rejection_reason,
+                   symbol
+            FROM public.signals
+        ), admission_losses AS (
+            SELECT s.*,
+                   COALESCE(s.rejection_reason,
+                       CASE upper(s.signal_status)
+                         WHEN 'ACCEPTED' THEN 'ACCEPTED_WITHOUT_ORDER'
+                         WHEN 'RISK_ACCEPTED' THEN 'RISK_ACCEPTED_WITHOUT_ORDER'
+                         WHEN 'NEW' THEN 'NEW_NOT_PROCESSED'
+                         ELSE upper(s.signal_status)
+                       END) AS reason_value
+            FROM signal_cohort s
+            WHERE NOT EXISTS (SELECT 1 FROM public.orders o WHERE o.signal_event_id=s.signal_key)
+              AND NOT EXISTS (SELECT 1 FROM public.signal_fills sf WHERE sf.signal_id=s.signal_key)
+        )
+        SELECT reason_value,count(*)::numeric AS rows_total,
+               jsonb_build_object(
+                   'cohort','linked_signal_order_execution_v3_paper_aware',
+                   'boundary','RESEARCH_TO_EXECUTION',
+                   'count_unit','distinct_origin_signal',
+                   'sample_symbols',(
+                       SELECT jsonb_agg(x.symbol ORDER BY x.rows_total DESC,x.symbol)
+                       FROM (SELECT symbol,count(*) rows_total FROM admission_losses a2
+                             WHERE a2.reason_value=a.reason_value
+                             GROUP BY symbol ORDER BY count(*) DESC,symbol LIMIT 5) x
+                   )) AS evidence_json
+        FROM admission_losses a
+        GROUP BY reason_value
+        ORDER BY rows_total DESC,reason_value
+    """)
+    return [dict(row) for row in cur.fetchall()]
 
 
 def table_exists(cur, schema_name: str, table_name: str) -> bool:
@@ -147,30 +187,22 @@ def main() -> None:
                 RETURNING signal_funnel_reason_snapshot_id
             """, (
                 SOURCE_VERSION,
-                json.dumps({"mode": "read_only_reason_analytics"}, ensure_ascii=False),
+                json.dumps({
+                    "mode": "linked_admission_loss_cohort",
+                    "boundary": "RESEARCH_TO_EXECUTION",
+                }, ensure_ascii=False),
             ))
             snapshot_id = int(cur.fetchone()["signal_funnel_reason_snapshot_id"])
 
             inserted = 0
-            scanned_tables = 0
-            scanned_columns = 0
+            scanned_tables = 3
+            scanned_columns = 2
 
-            for schema_name, table_name in TARGET_TABLES:
-                if not table_exists(cur, schema_name, table_name):
-                    continue
+            for row in collect_admission_losses(cur):
+                value = str(row["reason_value"])
+                count = Decimal(str(row["rows_total"] or 0))
 
-                scanned_tables += 1
-                cols = reason_columns(cur, schema_name, table_name)
-
-                for col in cols:
-                    scanned_columns += 1
-                    rows = collect_column_values(cur, schema_name, table_name, col)
-
-                    for row in rows:
-                        value = str(row["reason_value"])
-                        count = Decimal(str(row["rows_total"] or 0))
-
-                        cur.execute("""
+                cur.execute("""
                             INSERT INTO analytics.signal_funnel_reason_v1
                             (
                                 signal_funnel_reason_snapshot_id,
@@ -184,31 +216,25 @@ def main() -> None:
                                 source_version
                             )
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
-                        """, (
-                            snapshot_id,
-                            schema_name,
-                            table_name,
-                            col,
-                            value,
-                            count,
-                            reason_group(value),
-                            json.dumps(
-                                {
-                                    "source": f"{schema_name}.{table_name}.{col}",
-                                    "method": "distinct_value_count",
-                                },
-                                ensure_ascii=False,
-                            ),
-                            SOURCE_VERSION,
-                        ))
-                        inserted += 1
+                """, (
+                    snapshot_id,
+                    "analytics",
+                    "signal_admission_loss_cohort_v3",
+                    "rejection_reason_or_status",
+                    value,
+                    count,
+                    reason_group(value),
+                    json.dumps(row["evidence_json"], ensure_ascii=False),
+                    SOURCE_VERSION,
+                ))
+                inserted += 1
 
     print("=== SIGNAL_FUNNEL_REASON_ANALYTICS_V1 ===")
     print(f"signal_funnel_reason_snapshot_id={snapshot_id}")
     print(f"scanned_tables={scanned_tables}")
     print(f"scanned_columns={scanned_columns}")
     print(f"reason_rows_inserted={inserted}")
-    print("mode=read_only_reason_analytics")
+    print("mode=linked_admission_loss_cohort")
     print("runtime_changed=0")
     print("execution_changed=0")
     print("orders_changed=0")

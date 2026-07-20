@@ -33,6 +33,7 @@
         const backButton = globalObject.document.getElementById("marketcore-workspace-back");
         const homeButton = globalObject.document.getElementById("marketcore-workspace-home");
         const services = await globalObject.MarketCoreBrowserPresentationServicesV2.load({localeCode: "ru-RU"});
+        mountElement.setAttribute("data-loading-label", services.translate("workspace.loading", {}, services.localeCode));
         let actionSink;
         const initialTargetId = initialTarget(globalObject.location && globalObject.location.pathname);
         let currentTargetId = initialTargetId;
@@ -53,15 +54,26 @@
 
         const render = async (endpoint) => {
             currentEndpoint = endpoint;
-            const result = await globalObject.MarketCoreBrowserBootstrapV2.start({
-            endpoint: currentEndpoint,
-            documentObject: globalObject.document,
-            mountElement,
-            translate: services.translate,
-            format: services.format,
-            actionSink
-            });
-            mountElement.setAttribute("data-runtime-status", "READY");
+            mountElement.setAttribute("data-runtime-status", "LOADING");
+            mountElement.setAttribute("aria-busy", "true");
+            let result;
+            try {
+                result = await globalObject.MarketCoreBrowserBootstrapV2.start({
+                    endpoint: currentEndpoint,
+                    documentObject: globalObject.document,
+                    mountElement,
+                    translate: services.translate,
+                    format: services.format,
+                    actionSink
+                });
+                mountElement.setAttribute("data-runtime-status", "READY");
+            } catch (error) {
+                mountElement.setAttribute("data-runtime-status", "FAILED");
+                mountElement.setAttribute("data-runtime-error", error && error.message ? error.message : String(error));
+                throw error;
+            } finally {
+                mountElement.removeAttribute("aria-busy");
+            }
             if (researchRefreshTimer) globalObject.clearInterval(researchRefreshTimer);
             researchRefreshTimer = currentTargetId === "container.research"
                 ? globalObject.setInterval(() => {
