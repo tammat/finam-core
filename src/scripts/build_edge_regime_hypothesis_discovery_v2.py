@@ -24,6 +24,9 @@ FRESHNESS_MINUTES = int(os.getenv("EDGE_SEARCH_FRESHNESS_MINUTES", "15"))
 MIN_CONFIDENCE = float(os.getenv("EDGE_REGIME_MIN_CONFIDENCE", "0.60"))
 MIN_COVERAGE = float(os.getenv("EDGE_REGIME_MIN_COVERAGE", "0.80"))
 BATCH_SECONDS = max(30, int(os.getenv("EDGE_REGIME_BATCH_SECONDS", "600")))
+PROGRESS_HEARTBEAT_SECONDS = max(
+    5, int(os.getenv("EDGE_REGIME_PROGRESS_HEARTBEAT_SECONDS", "15"))
+)
 MAX_TASK_ATTEMPTS = max(1, int(os.getenv("EDGE_REGIME_MAX_TASK_ATTEMPTS", "3")))
 
 
@@ -362,6 +365,7 @@ def _refresh_campaign_totals(cur, discovery_run_id: str) -> dict:
 
 def main() -> None:
     started = time.monotonic()
+    last_progress_refresh = started
     processed_this_batch = 0
     unverified_this_batch = 0
     conn = psycopg2.connect(DB)
@@ -433,6 +437,9 @@ def main() -> None:
                             (str(exc)[:4000], discovery_run_id),
                         )
                         raise
+                if time.monotonic() - last_progress_refresh >= PROGRESS_HEARTBEAT_SECONDS:
+                    _refresh_campaign_totals(cur, discovery_run_id)
+                    last_progress_refresh = time.monotonic()
             totals = _refresh_campaign_totals(cur, discovery_run_id)
             cur.execute("SELECT pg_advisory_unlock(%s)", (741903127,))
     finally:

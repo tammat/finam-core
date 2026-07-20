@@ -10,6 +10,9 @@ def test_regime_discovery_is_resumable_and_time_bounded() -> None:
     assert "edge_regime_discovery_run_v3" in source
     assert "edge_regime_discovery_task_v3" in source
     assert "EDGE_REGIME_BATCH_SECONDS" in source
+    assert "EDGE_REGIME_PROGRESS_HEARTBEAT_SECONDS" in source
+    assert "time.monotonic() - last_progress_refresh" in source
+    assert "_refresh_campaign_totals(cur, discovery_run_id)" in source
     assert "RECOVERED_AFTER_PROCESS_STOP" in source
     assert "discovery_task_id" in source
     assert "stage_complete=" in source
