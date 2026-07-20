@@ -204,6 +204,17 @@ def _finalize_results(cur,campaign_id) -> int:
 
 
 def _refresh(cur,campaign_id) -> dict:
+    cur.execute("""UPDATE analytics.walkforward_variant_task_v4 v SET status_code='COMPLETE'
+      WHERE v.phase_code='FULL_OOS' AND v.status_code<>'COMPLETE'
+        AND NOT EXISTS(SELECT 1 FROM analytics.walkforward_fold_checkpoint_v4 f
+          WHERE f.variant_task_id=v.variant_task_id AND f.status_code<>'COMPLETE')""")
+    cur.execute("""UPDATE analytics.walkforward_algorithm_task_v4 a SET
+      variants_complete=(SELECT count(*) FROM analytics.walkforward_variant_task_v4 v
+        WHERE v.algorithm_task_id=a.algorithm_task_id AND v.status_code IN ('COMPLETE','REJECTED')),
+      status_code=CASE WHEN NOT EXISTS(SELECT 1 FROM analytics.walkforward_variant_task_v4 v
+        WHERE v.algorithm_task_id=a.algorithm_task_id AND v.status_code NOT IN ('COMPLETE','REJECTED'))
+        THEN 'COMPLETE' ELSE 'RUNNING' END,heartbeat_at=clock_timestamp()
+      WHERE a.campaign_id=%s""",(campaign_id,))
     cur.execute("""SELECT c.phase_code,
       count(f.*) total,count(f.*) FILTER(WHERE f.status_code='COMPLETE') complete
       FROM analytics.walkforward_campaign_v4 c
@@ -246,10 +257,18 @@ def main() -> None:
             ORDER BY a.priority_rank,v.coarse_score DESC NULLS LAST,f.fold_no LIMIT 1""",(campaign_id,))
           task=cur.fetchone()
           if not task: break
-          cur.execute("UPDATE analytics.walkforward_fold_checkpoint_v4 SET status_code='RUNNING',started_at=coalesce(started_at,clock_timestamp()) WHERE variant_task_id=%s AND fold_no=%s",(task["variant_task_id"],task["fold_no"]))
+          cur.execute("UPDATE analytics.walkforward_fold_checkpoint_v4 SET status_code='RUNNING',attempts=attempts+1,started_at=coalesce(started_at,clock_timestamp()) WHERE variant_task_id=%s AND fold_no=%s",(task["variant_task_id"],task["fold_no"]))
           try: _execute_fold(cur,task,cutoff,cache); processed+=1
           except Exception as exc:
-            cur.execute("UPDATE analytics.walkforward_fold_checkpoint_v4 SET status_code='FAILED',error_text=%s,finished_at=clock_timestamp() WHERE variant_task_id=%s AND fold_no=%s",(str(exc)[:4000],task["variant_task_id"],task["fold_no"]))
+            terminal=int(task.get("attempts",0))+1>=3
+            cur.execute("""UPDATE analytics.walkforward_fold_checkpoint_v4 SET status_code=%s,error_text=%s,
+              finished_at=CASE WHEN %s THEN clock_timestamp() ELSE NULL END
+              WHERE variant_task_id=%s AND fold_no=%s""",
+              ('FAILED' if terminal else 'PENDING',str(exc)[:4000],terminal,task["variant_task_id"],task["fold_no"]))
+            if terminal:
+              cur.execute("""UPDATE analytics.walkforward_campaign_v4 SET status_code='FAILED',
+                error_text=%s,finished_at=clock_timestamp() WHERE campaign_id=%s""",(str(exc)[:4000],campaign_id))
+              break
         totals=_refresh(cur,campaign_id)
         cur.execute("SELECT pg_advisory_unlock(%s)",(741903128,))
     finally: conn.close()

@@ -10,6 +10,8 @@ def test_worker_is_fold_checkpointed_and_early_prunes() -> None:
     assert "COARSE_NOT_TOP_10_PERCENT" in source
     assert "rank_pct<=.10" in source
     assert "cpu_limit=2" in source
+    assert "attempts=attempts+1" in source
+    assert "variants_complete" in source
 
 
 def test_autonomous_cycle_uses_checkpointed_worker() -> None:

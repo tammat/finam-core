@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS analytics.walkforward_fold_checkpoint_v4(
  PRIMARY KEY(variant_task_id,fold_no)
 );
 
+ALTER TABLE analytics.walkforward_fold_checkpoint_v4
+ ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0 CHECK(attempts >= 0);
+
 CREATE TABLE IF NOT EXISTS analytics.walkforward_feature_cache_v4(
  symbol text NOT NULL,timeframe text NOT NULL,data_cutoff_ts timestamptz NOT NULL,
  feature_version text NOT NULL,feature_payload jsonb NOT NULL,
