@@ -534,14 +534,14 @@
 
         groupControlCenterSections() {
             const groups = [
-                {code:"process",labelKey:"control.view.group.process",open:false,sections:[
+                {code:"process",labelKey:"control.view.group.process",descriptionKey:"control.view.group.process.description",open:false,sections:[
                     "swing_lifecycle","edge_search_process","edge_search_results","forward_pass_process",
                     "forward_readiness","shadow_process","shadow_alerts","forward_blockers","shadow"]},
-                {code:"funnel",labelKey:"control.view.group.funnel",open:false,sections:["funnel","loss_reasons"]},
-                {code:"execution",labelKey:"control.view.group.execution",open:false,sections:[
+                {code:"funnel",labelKey:"control.view.group.funnel",descriptionKey:"control.view.group.funnel.description",open:false,sections:["funnel","loss_reasons"]},
+                {code:"execution",labelKey:"control.view.group.execution",descriptionKey:"control.view.group.execution.description",open:false,sections:[
                     "execution","microstructure_priorities","execution_microstructure",
                     "execution_historical","market","shadow_requirements"]},
-                {code:"methodology",labelKey:"control.view.group.methodology",open:false,sections:[
+                {code:"methodology",labelKey:"control.view.group.methodology",descriptionKey:"control.view.group.methodology.description",open:false,sections:[
                     "volatility","risk","entry","exit","block","relationships"]}
             ];
             if (!this.translate) throw new Error("BROWSER_PLATFORM_DRIVER_V2_TRANSLATOR_REQUIRED");
@@ -559,40 +559,70 @@
                 details.dataset.mcSectionGroup = group.code;
                 details.open = group.open;
                 const summary = this.documentObject.createElement("summary");
+                const heading = this.documentObject.createElement("span");
+                heading.className = "mc-control-group-heading";
                 const label = this.documentObject.createElement("strong");
                 label.textContent = t(group.labelKey);
+                const description = this.documentObject.createElement("span");
+                description.className = "mc-control-group-description";
+                description.textContent = t(group.descriptionKey);
                 const count = this.documentObject.createElement("span");
-                const blocked = sections.reduce((total, section) =>
-                    total + section.querySelectorAll('[data-mc-status="BLOCKED"]').length, 0);
+                count.className = "mc-control-group-count";
+                const blocked = sections.reduce((total, section) => {
+                    const explicit = section.querySelectorAll(
+                        '[data-mc-status="BLOCKED"], [data-mc-status="FAIL"]'
+                    ).length;
+                    const restrictions = section.matches('[data-mc-node-id="control.section.block"]')
+                        ? section.querySelectorAll('[data-mc-node="table_row"]').length
+                        : 0;
+                    return total + Math.max(explicit, restrictions);
+                }, 0);
                 count.textContent = t("control.view.group.count", {sections:sections.length, blocked});
-                summary.append(label,count);
+                heading.append(label,description);
+                summary.append(heading,count);
                 parent.insertBefore(details,sections[0]);
                 details.appendChild(summary);
                 sections.forEach((section) => details.appendChild(section));
                 renderedGroups.push({details,blocked});
             });
             if (!renderedGroups.length) return;
+            const groupGrid = this.documentObject.createElement("div");
+            groupGrid.className = "mc-control-group-grid";
+            const groupParent = renderedGroups[0].details.parentElement;
+            groupParent.insertBefore(groupGrid,renderedGroups[0].details);
+            renderedGroups.forEach(({details}) => groupGrid.appendChild(details));
+            let allowMultiple = false;
+            renderedGroups.forEach(({details}) => {
+                details.querySelector("summary").addEventListener("click", () => { allowMultiple=false; });
+                details.addEventListener("toggle", () => {
+                    if (!details.open || allowMultiple) return;
+                    renderedGroups.forEach(({details:other}) => {
+                        if (other !== details) other.open=false;
+                    });
+                });
+            });
             const toolbar = this.documentObject.createElement("div");
             toolbar.className = "mc-control-view-toolbar";
             toolbar.setAttribute("role", "toolbar");
             toolbar.setAttribute("aria-label", t("control.view.toolbar.aria"));
-            const addView = (code,labelKey,apply) => {
+            const addView = (code,labelKey,multiple,apply) => {
                 const button = this.documentObject.createElement("button");
                 button.type = "button";
                 button.dataset.mcControlView = code;
                 button.textContent = t(labelKey);
                 button.addEventListener("click", () => {
+                    allowMultiple = multiple;
                     apply();
                     toolbar.querySelectorAll("button").forEach((item) =>
                         item.setAttribute("aria-pressed", String(item === button)));
                 });
                 toolbar.appendChild(button);
             };
-            addView("summary","control.view.summary",() => renderedGroups.forEach(({details}) => { details.open=false; }));
-            addView("blocked","control.view.blocked",() => renderedGroups.forEach(({details,blocked}) => { details.open=blocked>0; }));
-            addView("all","control.view.all",() => renderedGroups.forEach(({details}) => { details.open=true; }));
+            addView("summary","control.view.summary",false,() => renderedGroups.forEach(({details}) => { details.open=false; }));
+            addView("blocked","control.view.blocked",true,() => renderedGroups.forEach(({details,blocked}) => { details.open=blocked>0; }));
+            addView("all","control.view.all",true,() => renderedGroups.forEach(({details}) => { details.open=true; }));
             toolbar.querySelector('[data-mc-control-view="summary"]').setAttribute("aria-pressed", "true");
-            renderedGroups[0].details.parentElement.insertBefore(toolbar,renderedGroups[0].details);
+            groupParent.insertBefore(toolbar,groupGrid);
         }
 
         renderNode(node, context) {

@@ -32,3 +32,11 @@ def test_wide_home_layout_is_readable_without_reintroducing_metric_noise() -> No
     assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in css
     assert '[data-mc-node-id="home.section.operating_traffic.grid"]' in css
 
+
+def test_control_center_uses_large_progressive_disclosure_cards() -> None:
+    css = CSS_PATH.read_text(encoding="utf-8")
+    assert ".mc-control-group-grid" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
+    assert '[data-mc-section-group][open] { grid-column: 1 / -1; }' in css
+    assert "min-height: 142px" in css
+    assert "@media (max-width: 900px)" in css

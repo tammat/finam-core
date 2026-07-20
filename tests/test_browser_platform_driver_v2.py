@@ -68,7 +68,9 @@ def test_control_center_tables_are_grouped_under_collapsible_sections() -> None:
     assert 'code:"execution"' in source
     assert 'code:"methodology"' in source
     assert 'details.className = "mc-control-section-group"' in source
-    assert 'code:"process",labelKey:"control.view.group.process",open:false' in source
+    assert 'descriptionKey:"control.view.group.process.description"' in source
+    assert 'groupGrid.className = "mc-control-group-grid"' in source
+    assert 'section.matches(\'[data-mc-node-id="control.section.block"]\')' in source
     assert '"microstructure_priorities","execution_microstructure"' in source
     assert 'addView("summary","control.view.summary"' in source
     assert 'addView("blocked","control.view.blocked"' in source
@@ -76,3 +78,14 @@ def test_control_center_tables_are_grouped_under_collapsible_sections() -> None:
     assert 'labelKey:"control.view.group.process"' in source
     assert 't("control.view.group.count"' in source
     assert 'data-mc-control-view="summary"' in source
+
+
+def test_control_center_group_state_survives_auto_refresh_races() -> None:
+    source = Path(
+        "src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_bootstrap_v2.js"
+    ).read_text()
+    assert 'mountElement.addEventListener("toggle"' in source
+    assert "storedPanelState() || panelState" in source
+    assert 'details[data-mc-section-group]' in source
+    assert "const backgroundRefresh = Boolean(options.preserveState" in source
+    assert 'if (!backgroundRefresh) {' in source

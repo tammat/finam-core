@@ -175,9 +175,12 @@
             const panelState = options.preserveState
                 ? persistPanelState()
                 : (options.restoreStored ? storedPanelState() : null);
+            const backgroundRefresh = Boolean(options.preserveState && mountElement.childElementCount);
             currentEndpoint = endpoint;
-            mountElement.setAttribute("data-runtime-status", "LOADING");
-            mountElement.setAttribute("aria-busy", "true");
+            if (!backgroundRefresh) {
+                mountElement.setAttribute("data-runtime-status", "LOADING");
+                mountElement.setAttribute("aria-busy", "true");
+            }
             let result;
             try {
                 result = await globalObject.MarketCoreBrowserBootstrapV2.start({
@@ -190,9 +193,12 @@
                     actionSink
                 });
                 mountElement.setAttribute("data-runtime-status", "READY");
-                if (panelState) {
+                const stateToRestore = options.preserveState
+                    ? (storedPanelState() || panelState)
+                    : panelState;
+                if (stateToRestore) {
                     globalObject.requestAnimationFrame(() => globalObject.requestAnimationFrame(() => {
-                        restorePanelState(panelState, {
+                        restorePanelState(stateToRestore, {
                             restorePageScroll: options.restorePageScroll !== false
                         });
                     }));
@@ -202,7 +208,7 @@
                 mountElement.setAttribute("data-runtime-error", error && error.message ? error.message : String(error));
                 throw error;
             } finally {
-                mountElement.removeAttribute("aria-busy");
+                if (!backgroundRefresh) mountElement.removeAttribute("aria-busy");
             }
             return result;
         };
@@ -256,6 +262,11 @@
         });
 
         globalObject.addEventListener("pagehide", () => persistPanelState());
+        mountElement.addEventListener("toggle", (event) => {
+            if (event.target && event.target.matches("details[data-mc-section-group]")) {
+                persistPanelState();
+            }
+        }, true);
 
         if (globalObject.history && "scrollRestoration" in globalObject.history) {
             globalObject.history.scrollRestoration = "manual";
