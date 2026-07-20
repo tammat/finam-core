@@ -317,10 +317,14 @@ class GovernedCommandWorkerV2:
                     cursor.execute("""UPDATE marketcore_action.research_process_v1
                         SET status_code=%s,progress_pct=100,current_step_code='COMPLETE',
                             outcome_code=coalesce(outcome_code,%s),reason_code=coalesce(reason_code,%s),
+                            recommendation_code=CASE
+                                WHEN %s AND recommendation_code='WAIT_FOR_SYSTEM_ANALYSIS'
+                                THEN 'NO_ACTION_REQUIRED'
+                                ELSE recommendation_code END,
                             explanation_ru=coalesce(explanation_ru,%s),finished_at=clock_timestamp(),
                             updated_at=clock_timestamp()
                         WHERE process_id=%s""",
-                        (process_status,"COMPLETED" if success else "FAILED",failure,
+                        (process_status,"COMPLETED" if success else "FAILED",failure,success,
                          "Процесс завершён" if success else "Процесс завершился с ошибкой",
                          row["process_id"]))
                     cursor.execute("""INSERT INTO marketcore_action.research_process_event_v1

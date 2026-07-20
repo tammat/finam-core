@@ -43,10 +43,18 @@ def status(request_id):
         with c.cursor() as x:x.execute("SELECT status FROM marketcore_action.command_request_v2 WHERE request_id=%s",(request_id,));return x.fetchone()[0]
 
 
+def process_recommendation(request_id):
+    with psycopg2.connect("postgresql:///finam_core") as c:
+        with c.cursor() as x:
+            x.execute("SELECT recommendation_code FROM marketcore_action.research_process_v1 WHERE process_id=%s::uuid",(request_id,))
+            return x.fetchone()[0]
+
+
 def test_worker_completes_claimed_request() -> None:
     request_id=insert_request(); executor=Executor()
     assert GovernedCommandWorkerV2(executor).run_once(request_id=request_id)=="COMPLETED"
     assert status(request_id)=="COMPLETED" and executor.calls==["RESEARCH_REFRESH"]
+    assert process_recommendation(request_id)=="NO_ACTION_REQUIRED"
 
 
 def test_worker_records_failure() -> None:
