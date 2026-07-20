@@ -12,10 +12,20 @@ import psycopg2.extras
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 MSK = ZoneInfo("Europe/Moscow")
 SOURCE = "MARKET_OPEN_READINESS_V1"
+M1_MAX_AGE_SECONDS = int(os.getenv("MARKET_READINESS_M1_MAX_AGE_SECONDS", "180"))
+M5_MAX_AGE_SECONDS = int(os.getenv("MARKET_READINESS_M5_MAX_AGE_SECONDS", "480"))
 
 
 def _age(now: datetime, value: datetime | None) -> int | None:
     return max(0, int((now - value).total_seconds())) if value else None
+
+
+def quotes_are_fresh(m1_age: int | None, m5_age: int | None) -> bool:
+    """M5 includes its five-minute bar duration; M1 is the fast liveness probe."""
+    return bool(
+        (m1_age is not None and m1_age <= M1_MAX_AGE_SECONDS)
+        or (m5_age is not None and m5_age <= M5_MAX_AGE_SECONDS)
+    )
 
 
 def _next_session(cursor, now: datetime) -> datetime | None:
@@ -41,15 +51,20 @@ def main() -> int:
             policy = cursor.fetchone() or {}
             opened = bool(policy.get("enabled") and policy["opens_at"] <= now.time().replace(tzinfo=None) < policy["closes_at"])
             cursor.execute("""SELECT
-                (SELECT max(ts) FROM public.market_bars WHERE timeframe='M5') quote_ts,
+                (SELECT max(ts) FROM public.market_bars WHERE timeframe='M1') quote_m1_ts,
+                (SELECT max(ts) FROM public.market_bars WHERE timeframe='M5') quote_m5_ts,
                 (SELECT max(created_at) FROM public.runtime_guard_signal_registry_v1) signal_ts,
                 (SELECT max(ts) FROM public.fills) fill_ts,
                 (SELECT count(*) FROM analytics.signal_intake_queue_v2 WHERE status_code IN ('PENDING','RUNNING')) pending""")
             data = cursor.fetchone()
-            quote_age, signal_age, fill_age = (_age(now, data[key]) for key in ("quote_ts","signal_ts","fill_ts"))
+            quote_m1_age = _age(now, data["quote_m1_ts"])
+            quote_m5_age = _age(now, data["quote_m5_ts"])
+            quote_ages = [age for age in (quote_m1_age, quote_m5_age) if age is not None]
+            quote_age = min(quote_ages) if quote_ages else None
+            signal_age, fill_age = (_age(now, data[key]) for key in ("signal_ts","fill_ts"))
             if not opened:
                 phase, status, reason = "WAITING", "WAITING", "MARKET_SESSION_CLOSED"
-            elif quote_age is None or quote_age > 180:
+            elif not quotes_are_fresh(quote_m1_age, quote_m5_age):
                 phase, status, reason = "QUOTES", "FAILED", "QUOTES_NOT_FRESH"
             elif signal_age is None or signal_age > 1800:
                 phase, status, reason = "SIGNALS", "ATTENTION", "SIGNALS_NOT_CREATED_YET"

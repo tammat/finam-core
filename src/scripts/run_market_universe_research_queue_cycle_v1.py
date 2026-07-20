@@ -11,6 +11,11 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 
 STEPS = [
     (
+        "db_job_scheduler",
+        "src/scripts/run_db_job_scheduler_v1.py",
+        "VERDICT=DB_JOB_SCHEDULER_",
+    ),
+    (
         "market_universe_candidates",
         "src/scripts/build_paper_edge_market_universe_candidates_v1.py",
         "VERDICT=PAPER_EDGE_DISCOVERY_MARKET_UNIVERSE_CANDIDATES_V1_READY",

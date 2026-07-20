@@ -30,6 +30,107 @@ def _hash(value: dict) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _enqueue_remediation_variants(cur, campaign_id: str) -> int:
+    """Attach DB-approved remediation candidates to the resumable coarse search."""
+    cur.execute("SELECT phase_code FROM analytics.walkforward_campaign_v4 WHERE campaign_id=%s", (campaign_id,))
+    campaign = cur.fetchone()
+    if not campaign or campaign["phase_code"] != "COARSE":
+        return 0
+    cur.execute("""
+      SELECT c.candidate_id,c.branch_code,c.algorithm_code,c.strategy_code,c.symbol,
+             c.parameter_json,c.adaptive_scenario_id,w.timeframe,p.priority
+      FROM analytics.oos_remediation_candidate_v1 c
+      JOIN analytics.edge_search_adaptive_scenario_v1 s
+        ON s.adaptive_scenario_id=c.adaptive_scenario_id AND s.status_code='ACTIVE'
+      JOIN analytics.walkforward_edge_search_v3 w ON w.result_id=c.parent_result_id
+      JOIN analytics.edge_search_resource_policy_v1 p
+        ON p.branch_code=c.branch_code AND p.enabled
+      WHERE c.status_code='QUEUED'
+      ORDER BY p.priority,c.generated_at,c.candidate_id
+    """)
+    queued = [dict(row) for row in cur.fetchall()]
+    inserted = 0
+    for row in queued:
+        algorithm_task_id = uuid.uuid5(NAMESPACE, f"{campaign_id}:{row['algorithm_code']}")
+        cur.execute("""INSERT INTO analytics.walkforward_algorithm_task_v4
+          (algorithm_task_id,campaign_id,algorithm_code,priority_rank,status_code)
+          VALUES(%s,%s,%s,%s,'RUNNING')
+          ON CONFLICT(campaign_id,algorithm_code) DO UPDATE SET
+            priority_rank=least(analytics.walkforward_algorithm_task_v4.priority_rank,excluded.priority_rank),
+            status_code='RUNNING',heartbeat_at=clock_timestamp()""",
+          (str(algorithm_task_id),campaign_id,row["algorithm_code"],int(row["priority"])))
+        parameters = dict(row["parameter_json"])
+        parameters["adaptive_scenario_id"] = str(row["adaptive_scenario_id"])
+        parameter_hash = _hash(parameters)
+        variant_id = uuid.uuid5(NAMESPACE, f"{algorithm_task_id}:{row['symbol']}:{row['timeframe']}:{parameter_hash}")
+        cur.execute("""INSERT INTO analytics.walkforward_variant_task_v4
+          (variant_task_id,algorithm_task_id,symbol,timeframe,strategy_code,parameter_json,parameter_hash)
+          VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+          (str(variant_id),str(algorithm_task_id),row["symbol"],row["timeframe"],row["strategy_code"],
+           psycopg2.extras.Json(parameters),parameter_hash))
+        inserted += cur.rowcount
+        for fold in (1,2):
+            cur.execute("""INSERT INTO analytics.walkforward_fold_checkpoint_v4(variant_task_id,fold_no)
+              VALUES(%s,%s) ON CONFLICT DO NOTHING""", (str(variant_id),fold))
+    cur.execute("""UPDATE analytics.walkforward_algorithm_task_v4 a SET variants_total=(
+      SELECT count(*) FROM analytics.walkforward_variant_task_v4 v WHERE v.algorithm_task_id=a.algorithm_task_id)
+      WHERE campaign_id=%s""", (campaign_id,))
+    return inserted
+
+
+def _reconcile_remediation_results(cur, campaign_id: str) -> None:
+    """Every queued candidate ends as an audited coarse reject, OOS fail, or OOS PASS."""
+    cur.execute("""
+      UPDATE analytics.oos_remediation_candidate_v1 c SET
+        status_code='EVALUATED_FAIL',reason_code=coalesce(v.rejection_code,'COARSE_SEARCH_REJECTED'),
+        evaluated_at=clock_timestamp(),updated_at=clock_timestamp()
+      FROM analytics.walkforward_variant_task_v4 v
+      JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
+      WHERE a.campaign_id=%s AND v.status_code='REJECTED'
+        AND v.parameter_json->>'adaptive_scenario_id'=c.adaptive_scenario_id::text
+        AND (v.parameter_json-'adaptive_scenario_id')=c.parameter_json
+        AND c.status_code='QUEUED'
+    """, (campaign_id,))
+    cur.execute("""
+      UPDATE analytics.oos_remediation_candidate_v1 c SET
+        status_code=CASE WHEN w.verdict_code='OOS_PASS' THEN 'OOS_PASS' ELSE 'EVALUATED_FAIL' END,
+        reason_code=CASE WHEN w.verdict_code='OOS_PASS' THEN 'UNCHANGED_GATES_PASS' ELSE w.reason_code END,
+        evaluated_at=clock_timestamp(),updated_at=clock_timestamp()
+      FROM analytics.walkforward_edge_search_v3 w
+      WHERE w.search_run_id=%s
+        AND w.parameter_json->>'adaptive_scenario_id'=c.adaptive_scenario_id::text
+        AND (w.parameter_json-'adaptive_scenario_id')=c.parameter_json
+        AND c.status_code='QUEUED'
+    """, (campaign_id,))
+    cur.execute("""
+      WITH outcome AS (
+        SELECT adaptive_scenario_id,bool_or(status_code='OOS_PASS') passed
+        FROM analytics.oos_remediation_candidate_v1
+        WHERE adaptive_scenario_id IS NOT NULL
+        GROUP BY adaptive_scenario_id
+        HAVING count(*) FILTER(WHERE status_code IN ('WAITING_FUTURE_DATA','QUEUED'))=0
+      ) UPDATE analytics.edge_search_adaptive_scenario_v1 s SET
+        status_code=CASE WHEN o.passed THEN 'EVALUATED_PASS' ELSE 'EVALUATED_FAIL' END,
+        reason_code=CASE WHEN o.passed THEN 'FUTURE_DATA_PASS' ELSE 'FUTURE_DATA_NO_PASS' END,
+        evaluated_at=clock_timestamp(),updated_at=clock_timestamp()
+      FROM outcome o WHERE s.adaptive_scenario_id=o.adaptive_scenario_id AND s.status_code='ACTIVE'
+    """)
+    cur.execute("""
+      WITH stats AS (
+        SELECT process_id,count(*) total,
+          count(*) FILTER(WHERE status_code LIKE 'PRUNED_%%' OR status_code IN ('EVALUATED_FAIL','OOS_PASS')) done,
+          count(*) FILTER(WHERE status_code IN ('WAITING_FUTURE_DATA','QUEUED')) active
+        FROM analytics.oos_remediation_candidate_v1 GROUP BY process_id
+      ) UPDATE analytics.oos_remediation_process_v1 p SET
+        status_code=CASE WHEN s.active=0 THEN 'COMPLETE' ELSE 'MONITORING' END,
+        current_step_code=CASE WHEN s.active=0 THEN 'OOS_RESULTS_READY' ELSE 'WAITING_OOS_EVALUATION' END,
+        progress_pct=round(100.0*s.done/greatest(1,s.total),2),
+        finished_at=CASE WHEN s.active=0 THEN coalesce(p.finished_at,clock_timestamp()) ELSE NULL END,
+        updated_at=clock_timestamp()
+      FROM stats s WHERE p.process_id=s.process_id
+    """)
+
+
 def _fold_bounds(size: int, fold_no: int) -> tuple[int, int, int]:
     evaluation_start = int(size * .40)
     span = max(1, (size - evaluation_start) // FOLDS)
@@ -42,7 +143,26 @@ def _summary(trades) -> dict:
     value = metrics(trades)
     pnls = [float(t.net_pnl) for t in trades]
     gross = [float(t.gross_pnl) for t in trades]
-    return {**value, "net_pnls": pnls, "gross_pnls": gross}
+    daily: dict[str, float] = {}
+    for trade in trades:
+        day = trade.exit_ts.date().isoformat()
+        daily[day] = daily.get(day, 0.0) + float(trade.net_pnl)
+    quote_verified = sum(t.quote_source == "HISTORICAL_BID_ASK" for t in trades)
+    return {
+        **value,
+        "net_pnls": pnls,
+        "gross_pnls": gross,
+        "daily_pnl": [{"date": day, "pnl": pnl} for day, pnl in sorted(daily.items())],
+        "average_fill_ratio": statistics.mean(t.fill_ratio for t in trades) if trades else 0.0,
+        "fallback_quote_share": 1.0 - quote_verified / len(trades) if trades else 1.0,
+        "microstructure_coverage": quote_verified / len(trades) if trades else 0.0,
+        "signal_latency_bars": min((t.latency_bars for t in trades), default=0),
+        "capacity_rub": min((t.capacity_rub for t in trades), default=0.0),
+        "contract_spec_coverage": (
+            sum(t.contract_spec_source != "MISSING_SPEC_FALLBACK" for t in trades) / len(trades)
+            if trades else 0.0
+        ),
+    }
 
 
 def _create_campaign(cur) -> dict:
@@ -104,6 +224,17 @@ def _execute_fold(cur, task: dict, cutoff, cache: dict) -> None:
     if key not in cache:
         cache[key]=_load_context(cur,task,cutoff)
     bars,entry,execution=cache[key]
+    adaptive_scenario_id = task["parameter_json"].get("adaptive_scenario_id")
+    if adaptive_scenario_id:
+        cur.execute("""SELECT confirmation_after_ts FROM analytics.edge_search_adaptive_scenario_v1
+          WHERE adaptive_scenario_id=%s AND status_code='ACTIVE'""", (adaptive_scenario_id,))
+        scenario = cur.fetchone()
+        if not scenario:
+            raise RuntimeError(f"ACTIVE_REMEDIATION_SCENARIO_MISSING:{adaptive_scenario_id}")
+        bars = [bar for bar in bars if bar.ts > scenario["confirmation_after_ts"]]
+        entry = load_meta_entry_policy_v2(cur,task["symbol"],task["timeframe"],bars)
+        if len(bars) < 60:
+            raise RuntimeError(f"FUTURE_ONLY_COHORT_TOO_SHORT:{task['symbol']}:{len(bars)}")
     fold_no=int(task["fold_no"])
     evaluation_start,start,end=_fold_bounds(len(bars),max(1,fold_no))
     if fold_no == 0:
@@ -115,8 +246,8 @@ def _execute_fold(cur, task: dict, cutoff, cache: dict) -> None:
     lookback=int(params["lookback"])
     start_ts,end_ts=bars[start].ts,bars[end-1].ts
     trades=[t for t in build_trades({"strategy_code":task["strategy_code"],"parameter_json":params},bars[max(0,start-lookback):end])
-            if start_ts<=t.entry_ts<=end_ts]
-    value=_summary(trades)
+            if start_ts<=t.entry_ts<=end_ts and t.exit_ts<=end_ts]
+    value={**_summary(trades),"start":start_ts.isoformat(),"end":end_ts.isoformat()}
     cur.execute("""UPDATE analytics.walkforward_fold_checkpoint_v4 SET status_code='COMPLETE',
       metrics=%s,finished_at=clock_timestamp(),error_text=NULL WHERE variant_task_id=%s AND fold_no=%s""",
       (psycopg2.extras.Json(value),task["variant_task_id"],task["fold_no"]))
@@ -190,6 +321,16 @@ def _pf(pnls: list[float]) -> float:
     return wins/losses if losses else (wins if wins else 0.0)
 
 
+def _one_sided_sign_p_value(pnls: list[float]) -> float:
+    """Exact one-sided sign test; FDR correction remains a contract gate."""
+    nonzero = [value for value in pnls if value != 0]
+    n = len(nonzero)
+    wins = sum(value > 0 for value in nonzero)
+    if not n:
+        return 1.0
+    return min(1.0, sum(math.comb(n, k) for k in range(wins, n + 1)) / (2 ** n))
+
+
 def _finalize_results(cur,campaign_id) -> int:
     cur.execute("""SELECT v.*,a.algorithm_code,r.gate_policy,
       jsonb_object_agg(f.fold_no::text,f.metrics ORDER BY f.fold_no) fold_data
@@ -209,7 +350,9 @@ def _finalize_results(cur,campaign_id) -> int:
                 and (sum(net)/len(net) if net else 0)>float(gate["fold_min_expectancy"]))
         folds_passed+=int(passed); all_net+=net; all_gross+=gross
         fold_rows.append({"fold":fold,"trades":len(net),"profit_factor":_pf(net),
-                          "expectancy":sum(net)/len(net) if net else 0,"max_drawdown":float(item.get("max_drawdown",0)),"passed":passed})
+                          "expectancy":sum(net)/len(net) if net else 0,
+                          "max_drawdown":float(item.get("max_drawdown",0)),
+                          "start":item.get("start"),"end":item.get("end"),"passed":passed})
       ins=list(map(float,data["0"].get("gross_pnls",[]))); in_pass=(len(ins)>=int(gate["min_trades"]) and _pf(ins)>=float(gate["min_profit_factor"]) and (sum(ins)/len(ins) if ins else 0)>float(gate["min_expectancy"]))
       oos_gross=(len(all_gross)>=int(gate["min_trades"]) and _pf(all_gross)>=float(gate["min_profit_factor"]) and (sum(all_gross)/len(all_gross) if all_gross else 0)>float(gate["min_expectancy"]))
       after_cost=(len(all_net)>=int(gate["min_trades"]) and _pf(all_net)>=float(gate["min_profit_factor"]) and (sum(all_net)/len(all_net) if all_net else 0)>float(gate["min_expectancy"]))
@@ -218,6 +361,25 @@ def _finalize_results(cur,campaign_id) -> int:
       reason="WALKFORWARD_COST_ADJUSTED_PASS" if passed else ("INSUFFICIENT_TRADES" if len(all_net)<int(gate["min_trades"]) else "NEGATIVE_COST_ADJUSTED_EXPECTANCY" if (sum(all_net)/len(all_net) if all_net else 0)<=float(gate["min_expectancy"]) else "WALKFORWARD_FOLDS_UNSTABLE")
       gross_pf=_pf(all_gross); gross_expectancy=sum(all_gross)/len(all_gross) if all_gross else 0
       net_pf=_pf(all_net); net_expectancy=sum(all_net)/len(all_net) if all_net else 0
+      stressed_net=[gross-1.5*(gross-net) for gross,net in zip(all_gross,all_net)]
+      holdout_metrics=data["5"]
+      methodology_evidence={
+        "one_sided_p_value":_one_sided_sign_p_value(all_net),
+        "stressed_profit_factor":_pf(stressed_net),
+        "stressed_expectancy":sum(stressed_net)/len(stressed_net) if stressed_net else 0.0,
+        "average_fill_ratio":float(holdout_metrics.get("average_fill_ratio",0)),
+        "fallback_quote_share":float(holdout_metrics.get("fallback_quote_share",1)),
+        "microstructure_coverage":float(holdout_metrics.get("microstructure_coverage",0)),
+        "signal_latency_bars":int(holdout_metrics.get("signal_latency_bars",0)),
+        "capacity_rub":float(holdout_metrics.get("capacity_rub",0)),
+        "contract_spec_coverage":float(holdout_metrics.get("contract_spec_coverage",0)),
+        "holdout_access_code":"OPENED",
+        "daily_pnl":holdout_metrics.get("daily_pnl",[]),
+        "independent_trade_days":len(holdout_metrics.get("daily_pnl",[])),
+        "pnl_stdev":statistics.pstdev(all_net) if len(all_net)>1 else 0.0,
+        "future_only":bool(row["parameter_json"].get("adaptive_scenario_id")),
+        "fold_overlap_forbidden":True,
+      }
       funnel={
         "in_sample":{"passed":in_pass},
         "oos_gross":{"trades":len(all_gross),"profit_factor":gross_pf,
@@ -234,20 +396,22 @@ def _finalize_results(cur,campaign_id) -> int:
        (result_id,search_run_id,strategy_family,strategy_code,symbol,timeframe,parameter_json,
         transaction_cost_bps,total_trades,net_profit_factor,net_expectancy,max_drawdown,folds_total,
         folds_passed,final_holdout_passed,fold_metrics,verdict_code,promotion_allowed,reason_code,
-        source_version,in_sample_passed,oos_gross_passed,cost_adjusted_passed,stability_passed,validation_funnel)
-       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,5,%s,%s,%s,%s,false,%s,%s,%s,%s,%s,%s,%s)
+        source_version,in_sample_passed,oos_gross_passed,cost_adjusted_passed,stability_passed,
+        validation_funnel,methodology_evidence)
+       VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,5,%s,%s,%s,%s,false,%s,%s,%s,%s,%s,%s,%s,%s)
        ON CONFLICT(search_run_id,strategy_code,symbol,timeframe,parameter_json) DO NOTHING""",
        (str(uuid.uuid5(NAMESPACE,f"{campaign_id}:{row['variant_task_id']}")),campaign_id,row["algorithm_code"],row["strategy_code"],row["symbol"],row["timeframe"],
         psycopg2.extras.Json(row["parameter_json"]),20 if row["symbol"].endswith("USD") else 8,len(all_net),_pf(all_net),sum(all_net)/len(all_net) if all_net else 0,
         max(float(x.get("max_drawdown",0)) for x in fold_rows),folds_passed,final_holdout,psycopg2.extras.Json(fold_rows),"OOS_PASS" if passed else "OOS_FAIL",reason,
-        "CHECKPOINTED_WALKFORWARD_V4",in_pass,oos_gross,after_cost,passed,psycopg2.extras.Json(funnel)))
+        "CHECKPOINTED_WALKFORWARD_V4",in_pass,oos_gross,after_cost,passed,
+        psycopg2.extras.Json(funnel),psycopg2.extras.Json(methodology_evidence)))
       written+=cur.rowcount
     return written
 
 
 def _refresh(cur,campaign_id) -> dict:
     cur.execute("""UPDATE analytics.walkforward_variant_task_v4 v SET status_code='COMPLETE'
-      WHERE v.phase_code='FULL_OOS' AND v.status_code<>'COMPLETE'
+      WHERE v.phase_code IN ('FULL_OOS','HOLDOUT') AND v.status_code<>'COMPLETE'
         AND NOT EXISTS(SELECT 1 FROM analytics.walkforward_fold_checkpoint_v4 f
           WHERE f.variant_task_id=v.variant_task_id AND f.status_code<>'COMPLETE')""")
     cur.execute("""UPDATE analytics.walkforward_algorithm_task_v4 a SET
@@ -272,6 +436,7 @@ def _refresh(cur,campaign_id) -> dict:
     done=row["phase_code"]=='HOLDOUT' and total and total==complete
     if done:
         _finalize_results(cur,campaign_id)
+        _reconcile_remediation_results(cur,campaign_id)
     progress=100 if done else int(complete*100/max(1,total))
     cur.execute("""UPDATE analytics.walkforward_campaign_v4 SET tasks_total=%s,tasks_complete=%s,
       progress_pct=%s,heartbeat_at=clock_timestamp(),status_code=%s,phase_code=%s,
@@ -289,6 +454,7 @@ def main() -> None:
         cur.execute("SELECT * FROM analytics.walkforward_campaign_v4 WHERE status_code='RUNNING' ORDER BY started_at LIMIT 1")
         campaign=cur.fetchone() or _create_campaign(cur)
         campaign_id=str(campaign["campaign_id"]); cutoff=campaign["data_cutoff_ts"]
+        remediation_inserted=_enqueue_remediation_variants(cur,campaign_id)
         cur.execute("""UPDATE analytics.walkforward_fold_checkpoint_v4 f SET status_code='PENDING',error_text='RECOVERED_AFTER_STOP'
           FROM analytics.walkforward_variant_task_v4 v JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
           WHERE f.variant_task_id=v.variant_task_id AND a.campaign_id=%s AND f.status_code='RUNNING'""",(campaign_id,))
@@ -320,6 +486,7 @@ def main() -> None:
     print(f"tasks_total={totals['total']}")
     print(f"tasks_completed={totals['complete']}")
     print(f"tasks_processed={processed}")
+    print(f"remediation_variants_inserted={remediation_inserted}")
     print(f"campaign_progress_pct={totals['progress']}")
     print(f"stage_complete={int(totals['done'])}")
     print(f"cpu_limit={CPU_LIMIT}")

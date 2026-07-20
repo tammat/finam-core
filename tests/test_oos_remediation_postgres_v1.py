@@ -43,3 +43,19 @@ def test_accepted_variants_keep_original_gate_policy() -> None:
             AND s.generation_policy->'gate_policy' IS DISTINCT FROM r.gate_policy
         """)
         assert cursor.fetchone()[0] == 0
+
+
+def test_future_candidates_have_complete_dispatch_lineage() -> None:
+    with psycopg2.connect(DB) as connection, connection.cursor() as cursor:
+        cursor.execute("""
+          SELECT count(*)
+          FROM analytics.oos_remediation_candidate_v1 c
+          LEFT JOIN analytics.edge_search_adaptive_scenario_v1 s
+            ON s.adaptive_scenario_id=c.adaptive_scenario_id
+          LEFT JOIN analytics.walkforward_edge_search_v3 w
+            ON w.result_id=c.parent_result_id
+          WHERE c.status_code IN ('WAITING_FUTURE_DATA','QUEUED')
+            AND (s.adaptive_scenario_id IS NULL OR w.result_id IS NULL
+                 OR w.timeframe IS NULL OR s.confirmation_after_ts IS NULL)
+        """)
+        assert cursor.fetchone()[0] == 0

@@ -12,7 +12,6 @@ import psycopg2.extras
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-CONTRACT = "METHODOLOGY_V1_STRICT"
 NAMESPACE = uuid.UUID("1d9a3a47-e61c-4d97-9443-bc4f0104dc22")
 EXECUTION_KEYS = {"transaction_cost_bps","commission","slippage","reference_symbol",
                   "contract_symbol","contract_root","contract_expiration","adaptive_scenario_id",
@@ -86,11 +85,13 @@ def main() -> int:
     search_run_id = os.environ["EDGE_SEARCH_WALKFORWARD_RUN_ID"]
     with psycopg2.connect(DB) as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-            cursor.execute("SELECT policy FROM analytics.edge_methodology_contract_v1 WHERE contract_code=%s AND active",(CONTRACT,))
+            cursor.execute("""SELECT contract_code,policy FROM analytics.edge_methodology_contract_v1
+                WHERE active ORDER BY created_at DESC LIMIT 1""")
             contract_row = cursor.fetchone()
             if not contract_row:
                 raise RuntimeError("METHODOLOGY_CONTRACT_NOT_ACTIVE")
             policy = contract_row["policy"]
+            contract_code = contract_row["contract_code"]
             cursor.execute("""SELECT policy_code,policy FROM analytics.execution_simulation_policy_v1
                 WHERE active ORDER BY activated_at DESC LIMIT 1""")
             execution_contract = cursor.fetchone()
@@ -114,7 +115,7 @@ def main() -> int:
                     and float(other["net_expectancy"]) > 0
                     and int(other["folds_passed"]) >= int(policy["neighbor_min_folds"]))
                 fold5 = next((item for item in row["fold_metrics"] if int(item["fold"]) == 5),None)
-                evaluation_id = uuid.uuid5(NAMESPACE,f"{scenario_run_id}:{row['result_id']}:{CONTRACT}")
+                evaluation_id = uuid.uuid5(NAMESPACE,f"{scenario_run_id}:{row['result_id']}:{contract_code}")
                 cursor.execute("""SELECT EXISTS(SELECT 1 FROM analytics.edge_holdout_consumption_v1
                     WHERE strategy_code=%s AND symbol=%s AND timeframe=%s AND parameter_hash=%s
                       AND holdout_end=%s AND evaluation_id<>%s) consumed""",
@@ -147,6 +148,8 @@ def main() -> int:
                     and float(evidence.get("average_fill_ratio",0)) >= float(execution_policy["minimum_fill_ratio"])
                     and float(evidence.get("fallback_quote_share",1)) <= float(execution_policy["max_fallback_quote_share"])
                     and float(evidence.get("contract_spec_coverage",0)) >= 1.0
+                    and float(evidence.get("microstructure_coverage",0)) >= float(policy.get("min_microstructure_coverage",0.80))
+                    and int(evidence.get("independent_trade_days",0)) >= int(policy.get("min_independent_trade_days",5))
                     and pnl_unit_status == "READY"
                 )
                 capacity = float(evidence.get("capacity_rub",0)) >= float(policy["min_capacity_rub"])
@@ -201,7 +204,7 @@ def main() -> int:
                     global_adjusted_p=EXCLUDED.global_adjusted_p,
                     holdout_access_code=EXCLUDED.holdout_access_code,
                     pnl_unit_status=EXCLUDED.pnl_unit_status""",
-                    (str(evaluation_id),scenario_run_id,search_run_id,str(row["result_id"]),CONTRACT,
+                    (str(evaluation_id),scenario_run_id,search_run_id,str(row["result_id"]),contract_code,
                      row["strategy_family"],row["strategy_code"],row["symbol"],row["timeframe"],
                      psycopg2.extras.Json(core),p_hash,statistical,robustness,holdout,execution,capacity,
                      portfolio_pass,q_values[index],neighbors,evidence.get("stressed_profit_factor",0),
