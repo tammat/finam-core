@@ -349,6 +349,9 @@ def _loss_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ..
 def _swing_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
     strategy_names = {
         "MOMENTUM": "Импульс",
+        "REGIME_MOMENTUM": "Режимный импульс",
+        "BREAKOUT": "Пробой",
+        "META_BREAKOUT": "Режимный пробой",
         "INTERMARKET_LEAD_LAG": "Межрыночное опережение",
         "RELATIVE_STRENGTH": "Относительная сила",
         "SWING_EDGE_SEARCH": "Swing-поиск",

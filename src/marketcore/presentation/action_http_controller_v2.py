@@ -82,7 +82,7 @@ def dispatch_browser_action_http_v2(body: bytes) -> ActionHttpResponseV2:
             definition = resolve_state_changing_action_v2(action_id)
             request_id = str(UUID(str(payload.get("requestId"))))
             command_target_id = str(payload.get("targetId") or "").strip() or None
-            if definition.request_kind in {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE"}:
+            if definition.request_kind in {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE", "OPERATOR_DECISION_REFRESH"}:
                 command_target_id = str(UUID(str(command_target_id)))
                 operator_request_id = request_id
                 operator_request_kind = definition.request_kind

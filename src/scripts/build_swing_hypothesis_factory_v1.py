@@ -13,9 +13,36 @@ from marketcore.research_window_guard_v1 import require_off_market_research_wind
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V4_DYNAMIC_ENTRY_EXIT"
+SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V5_MARKET_DIVERSITY"
 NAMESPACE = uuid.UUID("66ee4a61-5af4-56dd-9f86-d7f77555a207")
 MAX_CANDIDATES = int(os.getenv("SWING_HYPOTHESIS_MAX_CANDIDATES", "360"))
+
+
+def balanced_candidate_cap(candidates: list[tuple], maximum: int) -> list[tuple]:
+    """Cap candidates without allowing the first sorted market to consume a group."""
+    if maximum <= 0:
+        return []
+    groups = sorted({(row[0], row[3]) for row in candidates})
+    quota = max(1, maximum // max(1, len(groups)))
+    selected: list[tuple] = []
+    for family, timeframe in groups:
+        group = [row for row in candidates if row[0] == family and row[3] == timeframe]
+        symbols = sorted({row[2] for row in group})
+        by_symbol = {symbol: [row for row in group if row[2] == symbol] for symbol in symbols}
+        offset = 0
+        while len([row for row in selected if row[0] == family and row[3] == timeframe]) < quota:
+            added = False
+            for symbol in symbols:
+                rows = by_symbol[symbol]
+                if offset < len(rows):
+                    selected.append(rows[offset])
+                    added = True
+                    if len([row for row in selected if row[0] == family and row[3] == timeframe]) >= quota:
+                        break
+            if not added:
+                break
+            offset += 1
+    return selected[:maximum]
 
 
 def canon(value: object) -> str:
@@ -113,12 +140,9 @@ def main() -> None:
                     for impulse,lag,hold in itertools.product((1,3,6),(1,2,3),(2,4)):
                         candidates.append(("INTERMARKET_LEAD_LAG","SWING_LEAD_LAG_V1",target,timeframe,
                                            {"source":source,"impulse_bars":impulse,"lag_bars":lag,"holding_bars":hold}))
-            # Deterministic balanced cap: equal quota by family and timeframe, never ranked on outcomes.
-            selected = []
-            groups = sorted({(row[0], row[3]) for row in candidates})
-            quota = max(1, MAX_CANDIDATES // len(groups))
-            for family, timeframe in groups:
-                selected.extend([row for row in candidates if row[0] == family and row[3] == timeframe][:quota])
+            # Equal quota by family/timeframe and round-robin by symbol.  Ranking
+            # never uses outcomes and every data-ready market gets a fair slot.
+            selected = balanced_candidate_cap(candidates, MAX_CANDIDATES)
             for family,engine,symbol,timeframe,params in selected:
                 cur.execute("""SELECT ts FROM analytics.swing_market_bars_v1
                     WHERE symbol=%s AND timeframe=%s ORDER BY ts""", (symbol,timeframe))

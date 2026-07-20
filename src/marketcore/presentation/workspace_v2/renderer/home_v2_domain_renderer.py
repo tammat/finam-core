@@ -73,6 +73,13 @@ def _operator_compact_status_message_key(value: Any) -> str:
     status = str(value or "").strip().upper()
     return {
         "ACKNOWLEDGED": "home.operator.status.accepted",
+        "AWAITING_OPERATOR": "home.operator.status.decision",
+        "MEASURING": "home.operator.status.measuring",
+        "MEASUREMENT_DUE": "home.operator.status.measure_due",
+        "IMPROVED": "home.operator.status.improved",
+        "NO_EFFECT": "home.operator.status.no_effect",
+        "DEGRADED": "home.operator.status.degraded",
+        "STALE": "home.operator.status.stale",
         "EXPIRED": "home.operator.status.expired",
         "BLOCKED": "home.operator.status.blocked",
         "MEASURED": "home.operator.status.done",
@@ -322,20 +329,27 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
         action_value = card.payload.get("v2_value")
         loss_value, _ = fields.get("home.operator.field.loss_source", (None, "DOMAIN_CODE"))
         effect_value, _ = fields.get("home.operator.field.expected_profit_impact", (None, "MONEY_RUB"))
+        actual_value, actual_format = fields.get("home.operator.field.actual_result", (None, "DECIMAL"))
         verdict_value, _ = fields.get("home.operator.field.policy_verdict", (None, "DOMAIN_CODE"))
         expires_value, _ = fields.get("home.operator.field.expires_at", (None, "DATETIME"))
-        next_key = (
-            "home.operator.next.open" if card.payload.get("operator_action_enabled") else
-            "home.operator.next.view" if str(verdict_value) == "EXPIRED" else
-            "home.operator.next.wait"
-        )
+        measured_value, _ = fields.get("home.operator.field.measured_at", (None, "DATETIME"))
+        if card.payload.get("operator_action_enabled"):
+            next_key = "home.operator.next.measure" if str(verdict_value) == "MEASUREMENT_DUE" else (
+                "home.operator.next.refresh" if str(verdict_value) in {"IMPROVED", "NO_EFFECT", "DEGRADED"} else "home.operator.next.open"
+            )
+        elif str(verdict_value) in {"IMPROVED", "NO_EFFECT", "DEGRADED", "EXPIRED", "STALE"}:
+            next_key = "home.operator.next.view"
+        else:
+            next_key = "home.operator.next.wait"
+        displayed_effect = actual_value if actual_value is not None else effect_value
+        displayed_effect_format = actual_format if actual_value is not None else "MONEY_RUB"
         values = (
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.priority",value=display_number,format_code="INTEGER"),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.action",message_key=_operator_domain_message_key(action_value)),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.reason",message_key=_operator_domain_message_key(loss_value)),
-            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.effect",message_key=_operator_domain_message_key("NO_DATA" if effect_value is None else effect_value) if effect_value is None else None,value=effect_value,format_code=None if effect_value is None else "MONEY_RUB"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.effect",message_key=_operator_domain_message_key("NO_DATA") if displayed_effect is None else None,value=displayed_effect,format_code=None if displayed_effect is None else displayed_effect_format),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.status",message_key=_operator_compact_status_message_key(verdict_value)),
-            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.expires",value=expires_value,format_code="DATETIME"),
+            _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.expires",value=measured_value or expires_value,format_code="DATETIME"),
             _content_node(RenderNodeTypeV2.TABLE_CELL,f"{card.widget_id}.next",message_key=next_key),
         )
         rows.append(RenderNodeV2(

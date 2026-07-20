@@ -233,7 +233,9 @@
                 const reason = row.cells[2]?.textContent?.trim() || "";
                 const commandLabel = row.dataset.mcActionId === "operator.decision.measure"
                     ? "Проверить результат"
-                    : "Принять рекомендацию";
+                    : row.dataset.mcActionId === "operator.decision.refresh"
+                        ? "Обновить решение"
+                        : "Принять рекомендацию";
                 const itemTitle = this.documentObject.createElement("strong");
                 itemTitle.textContent = `${priority}. ${commandLabel}`;
                 const itemReason = this.documentObject.createElement("span");
@@ -294,7 +296,59 @@
             close.type = "button"; close.className = "mc-action-dialog-close"; close.textContent = "Закрыть";
             close.addEventListener("click", () => dialog.close());
             dialog.addEventListener("close", () => dialog.remove());
-            dialog.append(title, hint, list, close);
+            const actions = this.documentObject.createElement("div");
+            actions.className = "mc-action-dialog-list";
+            const openSection = this.documentObject.createElement("button");
+            openSection.type = "button"; openSection.className = "mc-action-dialog-item";
+            const openTitle = this.documentObject.createElement("strong");
+            openTitle.textContent = values[4]?.includes("Блок") ? "Открыть допуски" : "Открыть ответственный раздел";
+            const openDetail = this.documentObject.createElement("span");
+            openDetail.textContent = "Проверить источник, ограничения и следующий допустимый переход";
+            openSection.append(openTitle, openDetail);
+            openSection.addEventListener("click", () => {
+                dialog.close(); dialog.remove();
+                globalObject.location.href = "/workspace-v2/control-center/edge-oos";
+            });
+            const refresh = this.documentObject.createElement("button");
+            refresh.type = "button"; refresh.className = "mc-action-dialog-item";
+            const refreshTitle = this.documentObject.createElement("strong"); refreshTitle.textContent = "Обновить данные";
+            const refreshDetail = this.documentObject.createElement("span"); refreshDetail.textContent = "Повторно получить актуальное состояние из БД";
+            refresh.append(refreshTitle, refreshDetail);
+            refresh.addEventListener("click", () => { dialog.close(); dialog.remove(); globalObject.location.reload(); });
+            actions.append(openSection, refresh);
+            dialog.append(title, hint, list, actions, close);
+            this.documentObject.body.appendChild(dialog);
+            dialog.showModal();
+        }
+
+        openOperatorCardActions(card, emit) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "operator-card");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = card.querySelector("h2")?.textContent?.trim() || "Операторская функция";
+            const texts = Array.from(card.querySelectorAll("p,dd")).map((item) => item.textContent.trim()).filter(Boolean);
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = texts[0] || "Текущее состояние функции";
+            const result = this.documentObject.createElement("p");
+            result.textContent = texts[texts.length - 1] || "Нет данных";
+            const actions = this.documentObject.createElement("div");
+            actions.className = "mc-action-dialog-list";
+            const open = this.documentObject.createElement("button");
+            open.type = "button"; open.className = "mc-action-dialog-item";
+            const openTitle = this.documentObject.createElement("strong"); openTitle.textContent = "Открыть раздел";
+            const openDetail = this.documentObject.createElement("span"); openDetail.textContent = "Перейти к данным, причинам и доступным действиям";
+            open.append(openTitle, openDetail);
+            open.addEventListener("click", async () => {
+                dialog.close(); dialog.remove();
+                await this.activateInteractive(card, emit, "DOUBLE_CLICK", "Открываю раздел…");
+            });
+            actions.appendChild(open);
+            const close = this.documentObject.createElement("button");
+            close.type = "button"; close.className = "mc-action-dialog-close"; close.textContent = "Закрыть";
+            close.addEventListener("click", () => dialog.close());
+            dialog.addEventListener("close", () => dialog.remove());
+            dialog.append(title, hint, result, actions, close);
             this.documentObject.body.appendChild(dialog);
             dialog.showModal();
         }
@@ -460,7 +514,9 @@
                         });
                     } else if (isContainer) {
                         element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — открыть раздел"));
-                        element.addEventListener("dblclick", () => this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"));
+                        element.addEventListener("dblclick", () => node.node_id.startsWith("home.operator.")
+                            ? this.openOperatorCardActions(element,emit)
+                            : this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…"));
                     } else if (isCommandButton) {
                         element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — выполнить действие"));
                         element.addEventListener("dblclick", async () => {
@@ -475,6 +531,7 @@
                         if (event.key === "Enter" || (!requiresDoubleClick && event.key === " ")) {
                             event.preventDefault();
                             if (isTableRow) this.openRecommendedActions(element);
+                            else if (isContainer && node.node_id.startsWith("home.operator.")) this.openOperatorCardActions(element,emit);
                             else if (isContainer) this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…");
                             else if (isCommandButton && globalObject.confirm("Подтвердить выполнение действия?")) this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
                             else emit("CLICK");
@@ -510,6 +567,12 @@
                     "Требуется решение оператора": 10,
                     "Принято к рассмотрению": 50,
                     "Результат измерен": 100,
+                    "Измерение": 50,
+                    "Измерить": 75,
+                    "Улучшение": 100,
+                    "Без эффекта": 100,
+                    "Ухудшение": 100,
+                    "Устарело": 0,
                     "Заблокировано": 0,
                     "Просрочено": 0,
                     "Выполнено": 100,

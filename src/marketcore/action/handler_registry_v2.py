@@ -57,6 +57,10 @@ _DEFINITIONS: Mapping[str, StateChangingActionDefinitionV2] = MappingProxyType({
         "operator.decision.measure", "OPERATOR.MEASURE_DECISION", "OPERATOR_FEEDBACK",
         "operator:write", "OPERATOR.CANCEL_PENDING_MEASUREMENT", "OPERATOR_DECISION_MEASURE",
     ),
+    "operator.decision.refresh": StateChangingActionDefinitionV2(
+        "operator.decision.refresh", "OPERATOR.REFRESH_DECISION", "OPERATOR_FEEDBACK",
+        "operator:write", "OPERATOR.CANCEL_PENDING_REFRESH", "OPERATOR_DECISION_REFRESH",
+    ),
 })
 
 

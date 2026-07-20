@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from marketcore.presentation.framework.base_card import BaseCard
 from marketcore.presentation.framework.base_layout import BaseLayout
@@ -182,18 +182,49 @@ class HomeV2Presenter:
 
     @staticmethod
     def _operator_action_card(item) -> BaseCard:
-        expired = item["expires_at"].astimezone(timezone.utc) <= datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        expired = item["expires_at"].astimezone(timezone.utc) <= now
         blocked = str(item["policy_verdict"]) == "BLOCKED"
-        acknowledgeable = not expired and not blocked and str(item["selection_status"]) == "NOT_SELECTED"
+        source_stale = str(item["freshness_code"]) == "STALE"
+        acknowledgeable = not expired and not blocked and not source_stale and str(item["selection_status"]) == "NOT_SELECTED"
         measurable = (
-            not expired and not blocked and str(item["selection_status"]) == "ACKNOWLEDGED"
+            not blocked and str(item["selection_status"]) == "ACKNOWLEDGED"
             and str(item["feedback_status"]) == "PENDING"
             and item["measurement_due_at"] is not None
-            and item["measurement_due_at"].astimezone(timezone.utc) <= datetime.now(timezone.utc)
+            and item["measurement_due_at"].astimezone(timezone.utc) <= now
         )
-        action_id = "operator.decision.acknowledge" if acknowledgeable else ("operator.decision.measure" if measurable else None)
-        command_code = "OPERATOR.ACKNOWLEDGE_DECISION" if acknowledgeable else ("OPERATOR.MEASURE_DECISION" if measurable else None)
-        rollback_code = "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT" if acknowledgeable else ("OPERATOR.CANCEL_PENDING_MEASUREMENT" if measurable else None)
+        refreshable = not blocked and not source_stale and str(item["feedback_status"]) == "MEASURED"
+        feedback_status = str(item["feedback_status"])
+        selection_status = str(item["selection_status"])
+        actual_result = item["actual_result"]
+        if blocked:
+            lifecycle_status = "BLOCKED"
+        elif source_stale:
+            lifecycle_status = "STALE"
+        elif feedback_status == "MEASURED":
+            lifecycle_status = "IMPROVED" if actual_result is not None and actual_result > 0 else (
+                "DEGRADED" if actual_result is not None and actual_result < 0 else "NO_EFFECT"
+            )
+        elif measurable:
+            lifecycle_status = "MEASUREMENT_DUE"
+        elif selection_status == "ACKNOWLEDGED":
+            lifecycle_status = "MEASURING"
+        elif expired:
+            lifecycle_status = "EXPIRED"
+        else:
+            lifecycle_status = "AWAITING_OPERATOR"
+        action_id = "operator.decision.acknowledge" if acknowledgeable else (
+            "operator.decision.measure" if measurable else ("operator.decision.refresh" if refreshable else None)
+        )
+        command_code = "OPERATOR.ACKNOWLEDGE_DECISION" if acknowledgeable else (
+            "OPERATOR.MEASURE_DECISION" if measurable else ("OPERATOR.REFRESH_DECISION" if refreshable else None)
+        )
+        rollback_code = "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT" if acknowledgeable else (
+            "OPERATOR.CANCEL_PENDING_MEASUREMENT" if measurable else ("OPERATOR.CANCEL_PENDING_REFRESH" if refreshable else None)
+        )
+        action_expiration = item["expires_at"]
+        if measurable and action_expiration.astimezone(timezone.utc) <= now:
+            action_expiration = item["measurement_due_at"] + timedelta(days=30)
         return BaseCard(
             widget_id=(
                 f"home.operator.action.{item['rank']}."
@@ -203,8 +234,8 @@ class HomeV2Presenter:
             card_type=CardType.DECISION,
             title_key="home.operator.action.title",
             subtitle_key="home.operator.action.subtitle",
-            status_code=UiStatusCode.BLOCKED if blocked or expired else UiStatusCode.WARNING,
-            status_label_key="ui.status.blocked" if blocked or expired else "ui.status.warning",
+            status_code=UiStatusCode.BLOCKED if blocked or (expired and not measurable) else UiStatusCode.WARNING,
+            status_label_key="ui.status.blocked" if blocked or (expired and not measurable) else "ui.status.warning",
             priority=int(item["rank"]),
             actions=({"action_code": action_id, "target": str(item["decision_id"])},) if action_id else (),
             payload={
@@ -213,7 +244,7 @@ class HomeV2Presenter:
                 "v2_value": item["action_code"],
                 "v2_format_code": "DOMAIN_CODE",
                 "operator_decision_id": str(item["decision_id"]),
-                "operator_action_expires_at": item["expires_at"],
+                "operator_action_expires_at": action_expiration,
                 "operator_action_enabled": bool(action_id),
                 "operator_action_id": action_id,
                 "operator_command_code": command_code,
@@ -227,22 +258,19 @@ class HomeV2Presenter:
                     ("home.operator.field.sample_sufficiency",item["sample_sufficiency_code"],"DOMAIN_CODE"),
                     (
                         "home.operator.field.policy_verdict",
-                        "EXPIRED" if expired else (
-                            "MEASURED" if str(item["feedback_status"]) == "MEASURED" else (
-                                "ACKNOWLEDGED" if str(item["selection_status"]) == "ACKNOWLEDGED"
-                                else item["policy_verdict"]
-                            )
-                        ),
+                        lifecycle_status,
                         "DOMAIN_CODE",
                     ),
                     ("home.operator.field.autonomy_mode",item["autonomy_mode"],"DOMAIN_CODE"),
-                    ("home.operator.field.expires_at",item["expires_at"],"DATETIME"),
+                    ("home.operator.field.expires_at",action_expiration,"DATETIME"),
                     ("home.operator.field.rollback",item["rollback_plan_code"],"DOMAIN_CODE"),
                     ("home.operator.field.feedback",item["feedback_status"],"DOMAIN_CODE"),
                     ("home.operator.field.selection",item["selection_status"],"DOMAIN_CODE"),
                     ("home.operator.field.baseline",item["baseline_value"],"DECIMAL"),
                     ("home.operator.field.measurement_due",item["measurement_due_at"],"DATETIME"),
-                    ("home.operator.field.actual_result",item["actual_result"],"DECIMAL"),
+                    ("home.operator.field.measured_at",item["measured_at"],"DATETIME"),
+                    ("home.operator.field.actual_result",item["actual_result"],
+                     "MONEY_RUB" if item["action_code"] == "REVIEW_SHADOW_LOSS" else "DECIMAL"),
                 ),
             },
         )

@@ -1,0 +1,23 @@
+BEGIN;
+
+ALTER TABLE marketcore_action.command_request_v2
+    DROP CONSTRAINT IF EXISTS command_request_v2_request_kind_check;
+ALTER TABLE marketcore_action.command_request_v2
+    ADD CONSTRAINT command_request_v2_request_kind_check CHECK (request_kind IN (
+        'RESEARCH_REFRESH','PAPER_OBSERVATION','OPERATOR_DECISION_ACKNOWLEDGE',
+        'OPERATOR_DECISION_MEASURE','OPERATOR_DECISION_REFRESH','EDGE_SEARCH_RUN',
+        'EDGE_SEARCH_CANCEL','RESEARCH_UNIVERSE_INCLUDE','RESEARCH_UNIVERSE_EXCLUDE',
+        'RESEARCH_UNIVERSE_PRIORITY'
+    ));
+
+ALTER TABLE marketcore_action.command_request_v2
+    DROP CONSTRAINT IF EXISTS command_request_v2_command_code_check;
+ALTER TABLE marketcore_action.command_request_v2
+    ADD CONSTRAINT command_request_v2_command_code_check CHECK (command_code IN (
+        'RESEARCH.REQUEST_REFRESH','PAPER.REQUEST_OBSERVATION','OPERATOR.ACKNOWLEDGE_DECISION',
+        'OPERATOR.MEASURE_DECISION','OPERATOR.REFRESH_DECISION','RESEARCH.RUN_EDGE_SEARCH',
+        'RESEARCH.CANCEL_EDGE_SEARCH','RESEARCH.UNIVERSE_INCLUDE_NEXT',
+        'RESEARCH.UNIVERSE_EXCLUDE_NEXT','RESEARCH.UNIVERSE_SET_PRIORITY'
+    ));
+
+COMMIT;

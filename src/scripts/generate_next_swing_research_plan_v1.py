@@ -10,8 +10,29 @@ import psycopg2.extras
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-VERSION = "SWING_NEXT_RESEARCH_PLAN_V1"
+VERSION = "SWING_NEXT_RESEARCH_PLAN_V2_MARKET_DIVERSITY"
 NAMESPACE = uuid.UUID("62440f72-d658-53df-bba1-10d80c78bc3b")
+
+
+def diverse_plan_candidates(rows: list[dict], limit: int = 12) -> list[dict]:
+    """Preserve score order while rotating across instruments."""
+    symbols = list(dict.fromkeys(str(row["symbol"]) for row in rows))
+    buckets = {symbol: [row for row in rows if str(row["symbol"]) == symbol] for symbol in symbols}
+    selected: list[dict] = []
+    offset = 0
+    while len(selected) < limit:
+        added = False
+        for symbol in symbols:
+            bucket = buckets[symbol]
+            if offset < len(bucket):
+                selected.append(bucket[offset])
+                added = True
+                if len(selected) == limit:
+                    break
+        if not added:
+            break
+        offset += 1
+    return selected
 
 
 def adaptation(reason: str) -> tuple[str, str]:
@@ -51,9 +72,9 @@ def main() -> int:
                   AND r.selection_pf>=1.05 AND r.selection_expectancy>0
                   AND r.validation_pf>=1.05 AND r.validation_expectancy>0
                 ORDER BY r.validation_folds_passed DESC,r.adjusted_p_value,
-                         r.validation_pf DESC,r.validation_expectancy DESC,r.hypothesis_id
-                LIMIT 12""", (str(source["validation_run_id"]),))
-            candidates = cursor.fetchall()
+                         r.validation_pf DESC,r.validation_expectancy DESC,r.hypothesis_id""",
+                (str(source["validation_run_id"]),))
+            candidates = diverse_plan_candidates(list(cursor.fetchall()))
             reasons = {}
             for row in candidates:
                 reasons[row["reason_code"]] = reasons.get(row["reason_code"],0)+1

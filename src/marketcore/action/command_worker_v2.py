@@ -92,7 +92,7 @@ class GovernedCommandWorkerV2:
         self._audit = PostgresActionAuditTrailV2()
 
     def run_once(self, *, request_id: str | None = None, request_kind: str | None = None) -> str | None:
-        inline_commands = {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE", "EDGE_SEARCH_CANCEL",
+        inline_commands = {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE", "OPERATOR_DECISION_REFRESH", "EDGE_SEARCH_CANCEL",
                            "RESEARCH_UNIVERSE_INCLUDE", "RESEARCH_UNIVERSE_EXCLUDE", "RESEARCH_UNIVERSE_PRIORITY"}
         if request_kind is not None and request_kind not in COMMANDS and request_kind not in inline_commands:
             raise ValueError("WORKER_REQUEST_KIND_FORBIDDEN")
@@ -128,6 +128,8 @@ class GovernedCommandWorkerV2:
             return self._acknowledge_operator_decision(row)
         if row["request_kind"] == "OPERATOR_DECISION_MEASURE":
             return self._measure_operator_decision(row)
+        if row["request_kind"] == "OPERATOR_DECISION_REFRESH":
+            return self._refresh_operator_decision(row)
         if row["request_kind"] == "EDGE_SEARCH_CANCEL":
             return self._cancel_edge_search(row)
         if str(row["request_kind"]).startswith("RESEARCH_UNIVERSE_"):
@@ -195,6 +197,29 @@ class GovernedCommandWorkerV2:
         if cancelled is None:
             return self._finish(row,False,None,"EDGE_SEARCH_PENDING_REQUEST_NOT_FOUND")
         return self._finish(row,True,f"cancelled:{cancelled[0]}",None)
+
+    def _refresh_operator_decision(self, row) -> str:
+        self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE analytics.operator_decision_workspace_v2
+                        SET selection_status='NOT_SELECTED',selected_at=NULL,selected_by=NULL,
+                            baseline_value=NULL,measurement_due_at=NULL,measured_at=NULL,
+                            measurement_source_identity=NULL,actual_result=NULL,
+                            feedback_status='PENDING',expires_at=clock_timestamp()+interval '2 hours',
+                            updated_at=clock_timestamp()
+                        WHERE decision_id=%s::uuid AND policy_verdict='REVIEW_REQUIRED'
+                          AND feedback_status='MEASURED'
+                        RETURNING decision_id
+                    """, (row["target_id"],))
+                    refreshed = cursor.fetchone()
+                    if refreshed is None:
+                        raise ValueError("OPERATOR_DECISION_NOT_REFRESHABLE")
+            return self._finish(row, True, f"refreshed:{refreshed[0]}", None)
+        except Exception as exc:
+            return self._finish(row, False, None, str(exc)[:256])
 
     def _apply_universe_override(self, row) -> str:
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")

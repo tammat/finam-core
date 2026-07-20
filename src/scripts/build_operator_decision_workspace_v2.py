@@ -25,6 +25,12 @@ def main() -> None:
                 ORDER BY p.priority,l.transition_code
             """)
             rows = cursor.fetchall()
+            active_transitions = [str(row["transition_code"]) for row in rows]
+            cursor.execute("""
+                UPDATE analytics.operator_decision_workspace_v2
+                SET freshness_code='STALE',updated_at=clock_timestamp()
+                WHERE NOT (transition_code = ANY(%s)) AND freshness_code<>'STALE'
+            """, (active_transitions,))
             for rank, row in enumerate(rows, start=1):
                 sample_size = int(row["from_count"] or 0)
                 expected_impact = None
