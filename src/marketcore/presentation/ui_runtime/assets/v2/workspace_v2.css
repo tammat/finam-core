@@ -512,32 +512,20 @@ td.mc-progress-cell span { color: var(--mc-text-primary); text-shadow: 0 1px 1px
 [data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="OK"] [data-mc-node-id$=".state"] { color: var(--mc-ok); }
 [data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="BLOCKED"] [data-mc-node-id$=".state"] { color: var(--mc-danger); }
 [data-mc-node="card"][data-mc-node-id^="research.tile."]::before {
-    width: 64px;
-    height: 28px;
-    border-radius: 15px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
     border-color: var(--mc-border-strong);
-    background:
-        radial-gradient(circle at 13px 50%, color-mix(in srgb, var(--mc-danger) 18%, transparent) 0 6px, transparent 7px),
-        radial-gradient(circle at 32px 50%, var(--mc-warning) 0 6px, transparent 7px),
-        radial-gradient(circle at 51px 50%, color-mix(in srgb, var(--mc-ok) 18%, transparent) 0 6px, transparent 7px),
-        var(--mc-surface-header);
-    box-shadow: none;
+    background: var(--mc-warning);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--mc-warning) 15%, transparent);
 }
 [data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="OK"]::before {
-    background:
-        radial-gradient(circle at 13px 50%, color-mix(in srgb, var(--mc-danger) 18%, transparent) 0 6px, transparent 7px),
-        radial-gradient(circle at 32px 50%, color-mix(in srgb, var(--mc-warning) 18%, transparent) 0 6px, transparent 7px),
-        radial-gradient(circle at 51px 50%, var(--mc-ok) 0 6px, transparent 7px),
-        var(--mc-surface-header);
-    box-shadow: none;
+    background: var(--mc-ok);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--mc-ok) 15%, transparent);
 }
 [data-mc-node="card"][data-mc-node-id^="research.tile."][data-mc-status="BLOCKED"]::before {
-    background:
-        radial-gradient(circle at 13px 50%, var(--mc-danger) 0 6px, transparent 7px),
-        radial-gradient(circle at 32px 50%, color-mix(in srgb, var(--mc-warning) 18%, transparent) 0 6px, transparent 7px),
-        radial-gradient(circle at 51px 50%, color-mix(in srgb, var(--mc-ok) 18%, transparent) 0 6px, transparent 7px),
-        var(--mc-surface-header);
-    box-shadow: none;
+    background: var(--mc-danger);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--mc-danger) 15%, transparent);
 }
 [data-mc-node="card"][data-mc-node-id^="research.tile."] [data-mc-node-id$=".state"] { color: var(--mc-warning); font-size: .82rem; }
 [data-mc-status="OK"], [data-mc-status="VERIFIED"], [data-mc-status="PASS"] { border-color: color-mix(in srgb, var(--mc-ok) 58%, var(--mc-border)); }
@@ -708,6 +696,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
 .mc-control-drawer-navigation,
 .mc-control-drawer-views { display: grid; grid-template-columns: 1fr; gap: 4px; }
 .mc-control-drawer-navigation { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.mc-control-drawer-functions { display:grid; grid-template-columns:1fr; gap:4px; }
 .mc-control-drawer-groups { display: grid; gap: 4px; }
 .mc-control-drawer-opportunities { display: grid; gap: 8px; }
 .mc-control-drawer-opportunities > strong { color: var(--mc-ok); font-size: .9rem; }

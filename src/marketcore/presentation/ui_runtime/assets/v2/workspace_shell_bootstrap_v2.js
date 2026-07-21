@@ -24,6 +24,17 @@
         "container.program": "/workspace-v2/program",
         "container.settings": "/workspace-v2/settings"
     });
+    const OPERATOR_MENU_ITEMS = Object.freeze([
+        ["container.home", "workspace.menu.home"],
+        ["container.research", "workspace.menu.research"],
+        ["container.edge", "workspace.menu.control"],
+        ["container.intraday", "workspace.menu.intraday"],
+        ["container.portfolio", "workspace.menu.portfolio"],
+        ["container.risk", "workspace.menu.risk"],
+        ["container.capital", "workspace.menu.capital"],
+        ["container.program", "workspace.menu.system"],
+        ["container.settings", "workspace.menu.settings"]
+    ]);
 
     function initialTarget(pathname) {
         const path = String(pathname || "").toLowerCase();
@@ -171,6 +182,18 @@
             if (homeButton) homeButton.disabled = false;
         };
 
+        const navigateToTarget = async (targetId) => {
+            const endpoint = ENDPOINT_BY_TARGET[targetId];
+            if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
+            if (targetId === currentTargetId) return;
+            persistPanelState();
+            navigationStack.push(currentTargetId);
+            currentTargetId = targetId;
+            await render(endpoint, {restoreStored: true});
+            syncRoute(targetId);
+            updateBackButton();
+        };
+
         const installControlDrawer = () => {
             const existing = globalObject.document.getElementById("marketcore-control-drawer");
             if (existing) existing.remove();
@@ -230,6 +253,29 @@
             addNav("workspace.drawer.back", backButton);
             addNav("workspace.drawer.home", homeButton);
             content.appendChild(nav);
+
+            const functions = globalObject.document.createElement("div");
+            functions.className = "mc-control-drawer-functions";
+            const functionsTitle = globalObject.document.createElement("strong");
+            functionsTitle.className = "mc-control-drawer-label";
+            functionsTitle.textContent = services.translate("workspace.drawer.functions", {}, services.localeCode);
+            functions.appendChild(functionsTitle);
+            OPERATOR_MENU_ITEMS.forEach(([targetId, labelKey]) => {
+                const button = globalObject.document.createElement("button");
+                button.type = "button";
+                button.dataset.active = String(targetId === currentTargetId);
+                button.textContent = services.translate(labelKey, {}, services.localeCode);
+                button.addEventListener("click", () => {
+                    if (targetId === currentTargetId) {
+                        globalObject.scrollTo({top: 0, behavior: "smooth"});
+                        return;
+                    }
+                    navigateToTarget(targetId).catch((error) =>
+                        globalObject.console.error("WORKSPACE_MENU_NAVIGATION_FAILED", error));
+                });
+                functions.appendChild(button);
+            });
+            content.appendChild(functions);
 
             const toolbar = mountElement.querySelector(".mc-control-view-toolbar");
             if (toolbar) {
@@ -364,17 +410,7 @@
         };
 
         actionSink = globalObject.MarketCoreBrowserActionControllerV2.create({
-            onNavigation: async (targetId) => {
-                const endpoint = ENDPOINT_BY_TARGET[targetId];
-                if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
-                if (targetId === currentTargetId) return;
-                persistPanelState();
-                navigationStack.push(currentTargetId);
-                currentTargetId = targetId;
-                await render(endpoint, {restoreStored: true});
-                syncRoute(targetId);
-                updateBackButton();
-            },
+            onNavigation: navigateToTarget,
             onCommand: async () => {
                 await new Promise((resolve) => globalObject.setTimeout(resolve, 800));
                 await render(currentEndpoint, {preserveState: true});

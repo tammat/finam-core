@@ -57,6 +57,17 @@ def test_navigation_uses_chat_style_left_sidebar_without_covering_content() -> N
     assert ".mc-control-view-toolbar { display:none; }" in css
 
 
+def test_operator_functions_and_single_large_status_light_live_in_sidebar() -> None:
+    shell = (ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_bootstrap_v2.js").read_text()
+    css = (ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
+    assert "OPERATOR_MENU_ITEMS" in shell
+    assert "mc-control-drawer-functions" in shell
+    assert 'services.translate("workspace.drawer.functions"' in shell
+    assert "width: 24px" in css
+    assert "height: 24px" in css
+    assert "background: var(--mc-warning)" in css
+
+
 def test_runtime_i18n_has_observed_missing_statuses() -> None:
     sql = (ROOT / "sql/analytics/171_ui_runtime_resilience_i18n_v1.sql").read_text()
     assert "status.shadow_heartbeat_older_than_10_minutes" in sql
