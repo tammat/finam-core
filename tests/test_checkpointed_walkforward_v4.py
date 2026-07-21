@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from scripts.run_checkpointed_walkforward_v4 import _finalize_results, _one_sided_sign_p_value
+from scripts.run_checkpointed_walkforward_v4 import (
+    _are_parameter_neighbors,
+    _finalize_results,
+    _one_sided_sign_p_value,
+)
 
 
 def test_worker_is_fold_checkpointed_and_early_prunes() -> None:
@@ -89,3 +93,19 @@ def test_sign_test_and_result_insert_are_well_formed() -> None:
             }]
 
     assert _finalize_results(Cursor(), "00000000-0000-0000-0000-000000000002") == 1
+
+
+def test_parameter_neighbors_ignore_lineage_but_require_one_structural_change() -> None:
+    base = {"lookback": 20, "threshold": 1.5, "adaptive_scenario_id": "first"}
+    assert _are_parameter_neighbors(
+        base,
+        {"lookback": 40, "threshold": 1.5, "adaptive_scenario_id": "second"},
+    )
+    assert not _are_parameter_neighbors(
+        base,
+        {"lookback": 40, "threshold": 2.0, "adaptive_scenario_id": "second"},
+    )
+    assert not _are_parameter_neighbors(
+        base,
+        {"lookback": 20, "threshold": 1.5, "adaptive_scenario_id": "second"},
+    )

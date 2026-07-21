@@ -24,10 +24,24 @@ FOLDS = 5
 NAMESPACE = uuid.UUID("af257269-62c0-4dd3-b283-bf75c387cb4c")
 FEATURE_VERSION = "SESSION_REGIME_FEATURE_CACHE_V1"
 CPU_LIMIT = min(2,max(1,int(os.getenv("OMP_NUM_THREADS","1"))))
+NON_STRUCTURAL_PARAMETERS = {
+    "adaptive_scenario_id","transaction_cost_bps","commission","slippage",
+    "execution_policy","entry_policy_code","entry_profile_code",
+}
 
 
 def _hash(value: dict) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _parameter_core(parameters: dict) -> dict:
+    return {key:value for key,value in parameters.items() if key not in NON_STRUCTURAL_PARAMETERS}
+
+
+def _are_parameter_neighbors(left: dict, right: dict) -> bool:
+    left_core,right_core=_parameter_core(left),_parameter_core(right)
+    keys=set(left_core)|set(right_core)
+    return sum(left_core.get(key)!=right_core.get(key) for key in keys)==1
 
 
 def _enqueue_remediation_variants(cur, campaign_id: str) -> int:
@@ -147,7 +161,9 @@ def _summary(trades) -> dict:
     for trade in trades:
         day = trade.exit_ts.date().isoformat()
         daily[day] = daily.get(day, 0.0) + float(trade.net_pnl)
-    quote_verified = sum(t.quote_source == "HISTORICAL_BID_ASK" for t in trades)
+    quote_verified = sum(t.quote_source in {"HISTORICAL_BID_ASK","HISTORICAL_ORDER_BOOK"} for t in trades)
+    depth_verified = sum(t.book_depth_verified for t in trades)
+    timestamp_verified = sum(t.exchange_timestamp_verified for t in trades)
     return {
         **value,
         "net_pnls": pnls,
@@ -155,7 +171,15 @@ def _summary(trades) -> dict:
         "daily_pnl": [{"date": day, "pnl": pnl} for day, pnl in sorted(daily.items())],
         "average_fill_ratio": statistics.mean(t.fill_ratio for t in trades) if trades else 0.0,
         "fallback_quote_share": 1.0 - quote_verified / len(trades) if trades else 1.0,
-        "microstructure_coverage": quote_verified / len(trades) if trades else 0.0,
+        "quote_coverage": quote_verified / len(trades) if trades else 0.0,
+        "depth_coverage": depth_verified / len(trades) if trades else 0.0,
+        "exchange_timestamp_coverage": timestamp_verified / len(trades) if trades else 0.0,
+        "microstructure_coverage": min(depth_verified,timestamp_verified) / len(trades) if trades else 0.0,
+        "quote_verified_trades": quote_verified,
+        "depth_verified_trades": depth_verified,
+        "timestamp_verified_trades": timestamp_verified,
+        "session_codes": sorted({t.entry_session for t in trades if t.entry_session != "UNKNOWN"}),
+        "regime_codes": sorted({t.entry_regime for t in trades if t.entry_regime != "UNKNOWN"}),
         "signal_latency_bars": min((t.latency_bars for t in trades), default=0),
         "capacity_rub": min((t.capacity_rub for t in trades), default=0.0),
         "contract_spec_coverage": (
@@ -204,11 +228,49 @@ def _create_campaign(cur) -> dict:
 
 
 def _load_context(cur, task: dict, cutoff) -> tuple[list[Bar], dict, dict]:
-    cur.execute("""SELECT ts,close,coalesce(volume,0) volume FROM public.market_bars
-      WHERE symbol=%s AND timeframe=%s AND ts<=%s AND close IS NOT NULL
-        AND source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY ts""",
+    cur.execute("""SELECT b.ts,b.close,coalesce(b.volume,0) volume,
+        q.best_bid,q.best_ask,coalesce(q.bid_depth,0) bid_depth,
+        coalesce(q.ask_depth,0) ask_depth,coalesce(q.bid_levels,0) bid_levels,
+        coalesce(q.ask_levels,0) ask_levels,q.exchange_ts,q.observed_at quote_observed_at,
+        q.source_latency_ms,coalesce(r.session_type,
+          CASE
+            WHEN extract(isodow FROM b.ts AT TIME ZONE 'Europe/Moscow') IN (6,7) THEN 'WEEKEND'
+            WHEN extract(hour FROM b.ts AT TIME ZONE 'Europe/Moscow') < 10 THEN 'PREMARKET'
+            WHEN extract(hour FROM b.ts AT TIME ZONE 'Europe/Moscow') < 14 THEN 'MOSCOW'
+            WHEN extract(hour FROM b.ts AT TIME ZONE 'Europe/Moscow') < 17 THEN 'EUROPE'
+            ELSE 'US_OVERLAP'
+          END) session_code,
+        coalesce(r.regime,'UNKNOWN') regime_code
+      FROM public.market_bars b
+      LEFT JOIN LATERAL (
+        SELECT m.best_bid,m.best_ask,m.bid_depth,m.ask_depth,m.bid_levels,m.ask_levels,
+               m.exchange_ts,m.observed_at,m.source_latency_ms
+        FROM analytics.market_microstructure_snapshot_v1 m
+        WHERE m.symbol=b.symbol AND m.exchange_ts>=b.ts
+          AND m.exchange_ts<b.ts+interval '5 seconds'
+          AND m.observed_at>=b.ts AND m.observed_at<b.ts+interval '10 seconds'
+          AND m.source_latency_ms BETWEEN 0 AND 5000
+        ORDER BY m.exchange_ts,m.observed_at LIMIT 1
+      ) q ON true
+      LEFT JOIN LATERAL (
+        SELECT s.session_type,s.regime
+        FROM public.analytics_regime_snapshots_v2 s
+        WHERE s.symbol=b.symbol AND s.timeframe=b.timeframe AND s.ts=b.ts
+        ORDER BY s.created_at DESC LIMIT 1
+      ) r ON true
+      WHERE b.symbol=%s AND b.timeframe=%s AND b.ts<=%s AND b.close IS NOT NULL
+        AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1') ORDER BY b.ts""",
       (task["symbol"],task["timeframe"],cutoff))
-    bars=[Bar(r["ts"],float(r["close"]),float(r["volume"])) for r in cur.fetchall()]
+    bars=[Bar(
+      ts=r["ts"],close=float(r["close"]),volume=float(r["volume"]),
+      best_bid=float(r["best_bid"]) if r["best_bid"] is not None else None,
+      best_ask=float(r["best_ask"]) if r["best_ask"] is not None else None,
+      bid_depth=float(r["bid_depth"]),ask_depth=float(r["ask_depth"]),
+      bid_levels=int(r["bid_levels"]),ask_levels=int(r["ask_levels"]),
+      exchange_ts=r["exchange_ts"],quote_observed_at=r["quote_observed_at"],
+      source_latency_ms=float(r["source_latency_ms"]) if r["source_latency_ms"] is not None else None,
+      session_code=str(r["session_code"]),regime_code=str(r["regime_code"]),
+    ) for r in cur.fetchall()]
     entry=load_meta_entry_policy_v2(cur,task["symbol"],task["timeframe"],bars)
     execution=load_execution_context(cur,task["symbol"])
     cur.execute("""INSERT INTO analytics.walkforward_feature_cache_v4
@@ -313,7 +375,65 @@ def _select_clean_holdout(cur,campaign_id) -> None:
       SELECT variant_task_id,5 FROM analytics.walkforward_variant_task_v4 v
       JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
       WHERE a.campaign_id=%s AND v.phase_code='HOLDOUT' ON CONFLICT DO NOTHING""",(campaign_id,))
+    _record_pre_holdout_robustness(cur,campaign_id)
     cur.execute("UPDATE analytics.walkforward_campaign_v4 SET phase_code='HOLDOUT' WHERE campaign_id=%s",(campaign_id,))
+
+
+def _record_pre_holdout_robustness(cur,campaign_id) -> None:
+    """Use folds 1-4 only; the frozen holdout is still unread at this point."""
+    cur.execute("""SELECT policy FROM analytics.edge_methodology_contract_v1
+      WHERE active ORDER BY created_at DESC LIMIT 1""")
+    policy_row=cur.fetchone()
+    policy=dict(policy_row["policy"] if policy_row else {})
+    min_pf=float(policy.get("neighbor_min_profit_factor",1.0))
+    min_folds=int(policy.get("neighbor_min_folds",3))
+    cur.execute("""SELECT v.variant_task_id,v.algorithm_task_id,v.symbol,v.timeframe,
+      v.parameter_json,v.phase_code,r.gate_policy,
+      jsonb_object_agg(f.fold_no::text,f.metrics ORDER BY f.fold_no) fold_data
+      FROM analytics.walkforward_variant_task_v4 v
+      JOIN analytics.walkforward_algorithm_task_v4 a USING(algorithm_task_id)
+      JOIN analytics.edge_search_algorithm_registry_v1 r ON r.algorithm_code=a.algorithm_code
+      JOIN analytics.walkforward_fold_checkpoint_v4 f USING(variant_task_id)
+      WHERE a.campaign_id=%s AND f.fold_no BETWEEN 1 AND 4 AND f.status_code='COMPLETE'
+      GROUP BY v.variant_task_id,v.algorithm_task_id,v.symbol,v.timeframe,
+               v.parameter_json,v.phase_code,r.gate_policy
+      HAVING count(DISTINCT f.fold_no)=4""",(campaign_id,))
+    rows=[dict(row) for row in cur.fetchall()]
+    summaries={}
+    for row in rows:
+        gate=row["gate_policy"]["walkforward"]
+        all_net=[];folds_passed=0
+        for fold in range(1,5):
+            net=list(map(float,row["fold_data"][str(fold)].get("net_pnls",[])))
+            expectancy=sum(net)/len(net) if net else 0.0
+            passed=(len(net)>=int(gate["fold_min_trades"])
+                    and _pf(net)>=float(gate["fold_min_profit_factor"])
+                    and expectancy>float(gate["fold_min_expectancy"]))
+            folds_passed+=int(passed);all_net+=net
+        summaries[row["variant_task_id"]]={
+            "folds_passed":folds_passed,"profit_factor":_pf(all_net),
+            "expectancy":sum(all_net)/len(all_net) if all_net else 0.0,
+        }
+    for selected in (row for row in rows if row["phase_code"]=="HOLDOUT"):
+        neighbors=[]
+        for other in rows:
+            if (other["variant_task_id"]==selected["variant_task_id"]
+                or other["algorithm_task_id"]!=selected["algorithm_task_id"]
+                or other["symbol"]!=selected["symbol"] or other["timeframe"]!=selected["timeframe"]
+                or not _are_parameter_neighbors(selected["parameter_json"],other["parameter_json"])):
+                continue
+            summary=summaries[other["variant_task_id"]]
+            if (summary["profit_factor"]>=min_pf and summary["expectancy"]>0
+                and summary["folds_passed"]>=min_folds):
+                neighbors.append({"variant_task_id":str(other["variant_task_id"]),**summary})
+        evidence={
+            "selection_folds":[1,2,3,4],"holdout_fold_unread":True,
+            "robust_neighbors":len(neighbors),"supportive_neighbors":neighbors,
+            "neighbor_min_profit_factor":min_pf,"neighbor_min_folds":min_folds,
+        }
+        cur.execute("""UPDATE analytics.walkforward_variant_task_v4
+          SET pre_holdout_evidence=%s WHERE variant_task_id=%s""",
+          (psycopg2.extras.Json(evidence),selected["variant_task_id"]))
 
 
 def _pf(pnls: list[float]) -> float:
@@ -344,11 +464,19 @@ def _finalize_results(cur,campaign_id) -> int:
     for row in cur.fetchall():
       data=row["fold_data"]; gate=row["gate_policy"]["walkforward"]
       fold_rows=[]; all_net=[]; all_gross=[]; folds_passed=0
+      all_sessions=set();all_regimes=set();all_days=set()
+      quote_verified=depth_verified=timestamp_verified=execution_trades=0
       for fold in range(1,6):
         item=data[str(fold)]; net=list(map(float,item.get("net_pnls",[]))); gross=list(map(float,item.get("gross_pnls",[])))
         passed=(len(net)>=int(gate["fold_min_trades"]) and _pf(net)>=float(gate["fold_min_profit_factor"])
                 and (sum(net)/len(net) if net else 0)>float(gate["fold_min_expectancy"]))
         folds_passed+=int(passed); all_net+=net; all_gross+=gross
+        all_sessions.update(item.get("session_codes",[]));all_regimes.update(item.get("regime_codes",[]))
+        all_days.update(day["date"] for day in item.get("daily_pnl",[]) if day.get("date"))
+        quote_verified+=int(item.get("quote_verified_trades",0))
+        depth_verified+=int(item.get("depth_verified_trades",0))
+        timestamp_verified+=int(item.get("timestamp_verified_trades",0))
+        execution_trades+=len(net)
         fold_rows.append({"fold":fold,"trades":len(net),"profit_factor":_pf(net),
                           "expectancy":sum(net)/len(net) if net else 0,
                           "max_drawdown":float(item.get("max_drawdown",0)),
@@ -363,19 +491,27 @@ def _finalize_results(cur,campaign_id) -> int:
       net_pf=_pf(all_net); net_expectancy=sum(all_net)/len(all_net) if all_net else 0
       stressed_net=[gross-1.5*(gross-net) for gross,net in zip(all_gross,all_net)]
       holdout_metrics=data["5"]
+      pre_holdout=dict(row.get("pre_holdout_evidence") or {})
       methodology_evidence={
         "one_sided_p_value":_one_sided_sign_p_value(all_net),
         "stressed_profit_factor":_pf(stressed_net),
         "stressed_expectancy":sum(stressed_net)/len(stressed_net) if stressed_net else 0.0,
         "average_fill_ratio":float(holdout_metrics.get("average_fill_ratio",0)),
         "fallback_quote_share":float(holdout_metrics.get("fallback_quote_share",1)),
-        "microstructure_coverage":float(holdout_metrics.get("microstructure_coverage",0)),
+        "quote_coverage":quote_verified/execution_trades if execution_trades else 0.0,
+        "depth_coverage":depth_verified/execution_trades if execution_trades else 0.0,
+        "exchange_timestamp_coverage":timestamp_verified/execution_trades if execution_trades else 0.0,
+        "microstructure_coverage":min(depth_verified,timestamp_verified)/execution_trades if execution_trades else 0.0,
         "signal_latency_bars":int(holdout_metrics.get("signal_latency_bars",0)),
         "capacity_rub":float(holdout_metrics.get("capacity_rub",0)),
         "contract_spec_coverage":float(holdout_metrics.get("contract_spec_coverage",0)),
         "holdout_access_code":"OPENED",
         "daily_pnl":holdout_metrics.get("daily_pnl",[]),
-        "independent_trade_days":len(holdout_metrics.get("daily_pnl",[])),
+        "independent_trade_days":len(all_days),
+        "session_codes":sorted(all_sessions),"independent_sessions":len(all_sessions),
+        "regime_codes":sorted(all_regimes),"independent_regimes":len(all_regimes),
+        "pre_holdout_robust_neighbors":int(pre_holdout.get("robust_neighbors",0)),
+        "pre_holdout_robustness":pre_holdout,
         "pnl_stdev":statistics.pstdev(all_net) if len(all_net)>1 else 0.0,
         "future_only":bool(row["parameter_json"].get("adaptive_scenario_id")),
         "fold_overlap_forbidden":True,

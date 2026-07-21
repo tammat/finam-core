@@ -31,6 +31,15 @@ class Bar:
     reference_close: float | None = None
     best_bid: float | None = None
     best_ask: float | None = None
+    bid_depth: float = 0.0
+    ask_depth: float = 0.0
+    bid_levels: int = 0
+    ask_levels: int = 0
+    exchange_ts: Any | None = None
+    quote_observed_at: Any | None = None
+    source_latency_ms: float | None = None
+    session_code: str = "UNKNOWN"
+    regime_code: str = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,10 @@ class Trade:
     capacity_rub: float = 0.0
     contract_spec_source: str = "LEGACY"
     exit_reason: str = "FIXED_HOLD"
+    book_depth_verified: bool = False
+    exchange_timestamp_verified: bool = False
+    entry_session: str = "UNKNOWN"
+    entry_regime: str = "UNKNOWN"
 
 
 def safe_float(v: Any) -> float:
@@ -459,11 +472,24 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             and exit_bar.best_bid is not None and exit_bar.best_ask is not None
             and entry.best_ask >= entry.best_bid > 0 and exit_bar.best_ask >= exit_bar.best_bid > 0
         )
+        has_order_book = (
+            has_historical_quote
+            and entry.bid_depth > 0 and entry.ask_depth > 0
+            and exit_bar.bid_depth > 0 and exit_bar.ask_depth > 0
+            and entry.bid_levels > 0 and entry.ask_levels > 0
+            and exit_bar.bid_levels > 0 and exit_bar.ask_levels > 0
+        )
+        has_exchange_timestamp = (
+            entry.exchange_ts is not None and exit_bar.exchange_ts is not None
+            and entry.quote_observed_at is not None and exit_bar.quote_observed_at is not None
+            and entry.source_latency_ms is not None and exit_bar.source_latency_ms is not None
+            and entry.source_latency_ms >= 0 and exit_bar.source_latency_ms >= 0
+        )
         if has_historical_quote:
             crossed_entry = float(entry.best_ask if side > 0 else entry.best_bid)
             crossed_exit = float(exit_bar.best_bid if side > 0 else exit_bar.best_ask)
             spread_cost_price = max(0.0, gross_price - (crossed_exit-crossed_entry)*side)
-            quote_source = "HISTORICAL_BID_ASK"
+            quote_source = "HISTORICAL_ORDER_BOOK" if has_order_book and has_exchange_timestamp else "HISTORICAL_BID_ASK"
         else:
             half_spread_bps = spread_bps / 2.0
             crossed_entry = entry.close + side * entry.close * half_spread_bps / 10000.0
@@ -502,6 +528,10 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             capacity_rub=available * entry.close * multiplier,
             contract_spec_source=str(execution.get("contract_spec_source", "MISSING_SPEC_FALLBACK")),
             exit_reason=exit_decision.reason_code,
+            book_depth_verified=has_order_book,
+            exchange_timestamp_verified=has_exchange_timestamp,
+            entry_session=entry.session_code,
+            entry_regime=entry.regime_code,
         ))
         i = exit_decision.exit_index
 

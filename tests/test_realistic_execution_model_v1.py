@@ -7,7 +7,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, build_trades
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def bars(with_quotes: bool = False) -> list[Bar]:
+def bars(with_quotes: bool = False, with_order_book: bool = False) -> list[Bar]:
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return [
         Bar(
@@ -16,6 +16,15 @@ def bars(with_quotes: bool = False) -> list[Bar]:
             100000.0,
             best_bid=99.9 + index if with_quotes else None,
             best_ask=100.1 + index if with_quotes else None,
+            bid_depth=1000.0 if with_order_book else 0.0,
+            ask_depth=900.0 if with_order_book else 0.0,
+            bid_levels=10 if with_order_book else 0,
+            ask_levels=9 if with_order_book else 0,
+            exchange_ts=start + timedelta(minutes=5 * index) if with_order_book else None,
+            quote_observed_at=start + timedelta(minutes=5 * index, milliseconds=50) if with_order_book else None,
+            source_latency_ms=50.0 if with_order_book else None,
+            session_code="MOSCOW" if with_order_book else "UNKNOWN",
+            regime_code="TREND" if with_order_book else "UNKNOWN",
         )
         for index in range(100)
     ]
@@ -60,6 +69,15 @@ def test_historical_bid_ask_is_preferred_when_available() -> None:
     trade = build_trades(run(), bars(with_quotes=True))[0]
     assert trade.quote_source == "HISTORICAL_BID_ASK"
     assert trade.entry_price > bars(with_quotes=True)[21].best_ask
+
+
+def test_complete_order_book_and_exchange_time_are_audited() -> None:
+    trade = build_trades(run(), bars(with_quotes=True,with_order_book=True))[0]
+    assert trade.quote_source == "HISTORICAL_ORDER_BOOK"
+    assert trade.book_depth_verified is True
+    assert trade.exchange_timestamp_verified is True
+    assert trade.entry_session == "MOSCOW"
+    assert trade.entry_regime == "TREND"
 
 
 def test_participation_limit_can_reject_unfillable_trade() -> None:

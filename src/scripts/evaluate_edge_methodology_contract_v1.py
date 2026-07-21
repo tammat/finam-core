@@ -108,12 +108,15 @@ def main() -> int:
             for index,row in enumerate(rows):
                 core = parameter_core(row["parameter_json"])
                 p_hash = parameter_hash(row["parameter_json"])
+                evidence = row["methodology_evidence"]
                 neighbors = sum(1 for other in rows if other["result_id"] != row["result_id"]
                     and other["strategy_family"] == row["strategy_family"] and other["symbol"] == row["symbol"]
                     and are_neighbors(core,parameter_core(other["parameter_json"]))
                     and float(other["net_profit_factor"]) >= float(policy["neighbor_min_profit_factor"])
                     and float(other["net_expectancy"]) > 0
                     and int(other["folds_passed"]) >= int(policy["neighbor_min_folds"]))
+                pre_holdout_neighbors = int(evidence.get("pre_holdout_robust_neighbors",0))
+                robust_neighbors = max(neighbors,pre_holdout_neighbors)
                 fold5 = next((item for item in row["fold_metrics"] if int(item["fold"]) == 5),None)
                 evaluation_id = uuid.uuid5(NAMESPACE,f"{scenario_run_id}:{row['result_id']}:{contract_code}")
                 cursor.execute("""SELECT EXISTS(SELECT 1 FROM analytics.edge_holdout_consumption_v1
@@ -121,7 +124,6 @@ def main() -> int:
                       AND holdout_end=%s AND evaluation_id<>%s) consumed""",
                     (row["strategy_code"],row["symbol"],row["timeframe"],p_hash,fold5["end"] if fold5 else None,str(evaluation_id)))
                 consumed = bool(cursor.fetchone()["consumed"])
-                evidence = row["methodology_evidence"]
                 cursor.execute("""SELECT experiment_no,adjusted_p_value,verdict_code
                     FROM analytics.research_global_experiment_v1
                     WHERE scenario_run_id=%s AND result_id=%s""", (scenario_run_id,row["result_id"]))
@@ -139,8 +141,19 @@ def main() -> int:
                     and global_adjusted_p <= float(policy["max_fdr_q"])
                     and global_experiment.get("verdict_code") == "PASS"
                 )
-                robustness = neighbors >= int(policy["min_robust_neighbors"])
-                holdout = bool(fold5 and fold5["passed"] and not consumed and holdout_access == "OPENED")
+                robustness = robust_neighbors >= int(policy["min_robust_neighbors"])
+                remediation_variant = bool(row["parameter_json"].get("adaptive_scenario_id"))
+                cohort_integrity = (
+                    not remediation_variant
+                    or (
+                        bool(evidence.get("future_only",False))
+                        and bool(evidence.get("fold_overlap_forbidden",False))
+                    )
+                )
+                holdout = bool(
+                    fold5 and fold5["passed"] and not consumed
+                    and holdout_access == "OPENED" and cohort_integrity
+                )
                 execution = (
                     float(evidence.get("stressed_profit_factor",0)) >= float(policy["stress_min_profit_factor"])
                     and float(evidence.get("stressed_expectancy",0)) > 0
@@ -149,7 +162,11 @@ def main() -> int:
                     and float(evidence.get("fallback_quote_share",1)) <= float(execution_policy["max_fallback_quote_share"])
                     and float(evidence.get("contract_spec_coverage",0)) >= 1.0
                     and float(evidence.get("microstructure_coverage",0)) >= float(policy.get("min_microstructure_coverage",0.80))
+                    and float(evidence.get("depth_coverage",0)) >= float(policy.get("min_depth_coverage",0.80))
+                    and float(evidence.get("exchange_timestamp_coverage",0)) >= float(policy.get("min_exchange_timestamp_coverage",0.80))
                     and int(evidence.get("independent_trade_days",0)) >= int(policy.get("min_independent_trade_days",5))
+                    and int(evidence.get("independent_sessions",0)) >= int(policy.get("min_independent_sessions",2))
+                    and int(evidence.get("independent_regimes",0)) >= int(policy.get("min_independent_regimes",2))
                     and pnl_unit_status == "READY"
                 )
                 capacity = float(evidence.get("capacity_rub",0)) >= float(policy["min_capacity_rub"])
@@ -182,6 +199,8 @@ def main() -> int:
                          "empty_portfolio":not portfolio_exists,"contract_policy":policy,
                          "global_adjusted_p_value":global_adjusted_p,
                          "holdout_access_code":holdout_access,"pnl_unit_status":pnl_unit_status,
+                         "cohort_integrity":cohort_integrity,
+                         "pre_holdout_robust_neighbors":pre_holdout_neighbors,
                          "execution_policy_code":execution_contract["policy_code"],
                          "execution_policy":execution_policy}
                 cursor.execute("""INSERT INTO analytics.edge_methodology_evaluation_v1
@@ -207,7 +226,7 @@ def main() -> int:
                     (str(evaluation_id),scenario_run_id,search_run_id,str(row["result_id"]),contract_code,
                      row["strategy_family"],row["strategy_code"],row["symbol"],row["timeframe"],
                      psycopg2.extras.Json(core),p_hash,statistical,robustness,holdout,execution,capacity,
-                     portfolio_pass,q_values[index],neighbors,evidence.get("stressed_profit_factor",0),
+                     portfolio_pass,q_values[index],robust_neighbors,evidence.get("stressed_profit_factor",0),
                      evidence.get("capacity_rub",0),portfolio_corr,psycopg2.extras.Json(audit),
                      psycopg2.extras.Json(reasons),verdict,
                      int(global_experiment["experiment_no"]) if global_experiment else None,
