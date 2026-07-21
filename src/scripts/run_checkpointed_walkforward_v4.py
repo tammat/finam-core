@@ -429,6 +429,12 @@ def _refresh(cur,campaign_id) -> dict:
       LEFT JOIN analytics.walkforward_fold_checkpoint_v4 f USING(variant_task_id)
       WHERE c.campaign_id=%s GROUP BY c.phase_code""",(campaign_id,))
     row=dict(cur.fetchone()); total=int(row["total"]); complete=int(row["complete"])
+    if row["phase_code"] == 'COMPLETE':
+        cur.execute("""UPDATE analytics.walkforward_campaign_v4 SET
+          status_code='COMPLETE',progress_pct=100,tasks_total=%s,tasks_complete=%s,
+          heartbeat_at=clock_timestamp(),finished_at=coalesce(finished_at,clock_timestamp())
+          WHERE campaign_id=%s""",(total,complete,campaign_id))
+        return {"total":total,"complete":complete,"progress":100,"done":True}
     if row["phase_code"]=='COARSE' and total and total==complete:
         _promote(cur,campaign_id); return _refresh(cur,campaign_id)
     if row["phase_code"]=='FULL_OOS' and total and total==complete:
@@ -451,7 +457,13 @@ def main() -> None:
     try:
       with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT pg_advisory_lock(%s)",(741903128,))
-        cur.execute("SELECT * FROM analytics.walkforward_campaign_v4 WHERE status_code='RUNNING' ORDER BY started_at LIMIT 1")
+        cur.execute("""UPDATE analytics.walkforward_campaign_v4 SET
+          status_code='COMPLETE',progress_pct=100,
+          finished_at=coalesce(finished_at,clock_timestamp()),heartbeat_at=clock_timestamp()
+          WHERE phase_code='COMPLETE' AND status_code<>'COMPLETE'""")
+        cur.execute("""SELECT * FROM analytics.walkforward_campaign_v4
+          WHERE status_code='RUNNING' AND phase_code<>'COMPLETE'
+          ORDER BY started_at LIMIT 1""")
         campaign=cur.fetchone() or _create_campaign(cur)
         campaign_id=str(campaign["campaign_id"]); cutoff=campaign["data_cutoff_ts"]
         remediation_inserted=_enqueue_remediation_variants(cur,campaign_id)

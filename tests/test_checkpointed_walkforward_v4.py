@@ -27,6 +27,9 @@ def test_worker_is_fold_checkpointed_and_early_prunes() -> None:
     assert "confirmation_after_ts" in source
     assert "FUTURE_ONLY_COHORT_TOO_SHORT" in source
     assert "t.exit_ts<=end_ts" in source
+    assert "if row[\"phase_code\"] == 'COMPLETE'" in source
+    assert "WHERE status_code='RUNNING' AND phase_code<>'COMPLETE'" in source
+    assert "WHERE phase_code='COMPLETE' AND status_code<>'COMPLETE'" in source
 
 
 def test_autonomous_cycle_uses_checkpointed_worker() -> None:
