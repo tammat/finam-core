@@ -68,6 +68,18 @@ def test_operator_functions_and_single_large_status_light_live_in_sidebar() -> N
     assert "background: var(--mc-warning)" in css
 
 
+def test_operating_palette_is_calm_blue_while_status_colours_remain_semantic() -> None:
+    css = (ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
+    assert "--mc-page: #f2f7fb" in css
+    assert "--mc-surface-subtle: #edf5fb" in css
+    assert "background: #eaf3fa" in css
+    assert "--mc-ok: #16775a" in css
+    assert "--mc-warning: #9a6500" in css
+    assert "--mc-danger: #b93646" in css
+    assert 'grid-template-columns:repeat(auto-fit,minmax(190px,1fr))' in css
+    assert '[data-mc-node="card"][data-mc-status="WARNING"]' in css
+
+
 def test_runtime_i18n_has_observed_missing_statuses() -> None:
     sql = (ROOT / "sql/analytics/171_ui_runtime_resilience_i18n_v1.sql").read_text()
     assert "status.shadow_heartbeat_older_than_10_minutes" in sql

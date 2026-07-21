@@ -287,36 +287,36 @@ td.mc-progress-cell span { position: absolute; inset: 50% auto auto 50%; transfo
 .mc-control-view-toolbar button[aria-pressed="true"] { color:#061319; background:#55dec9; border-color:#55dec9; }
 [data-mc-section-group] > [data-mc-node="section"] { margin:12px; }
 
-/* Neutral light operating theme. Status colour is reserved for meaning. */
+/* Calm pastel-blue operating theme. Status colour is reserved for meaning. */
 :root {
     color-scheme: light;
-    --mc-text-primary: #17212b;
-    --mc-text-secondary: #5d6874;
-    --mc-page: #ffffff;
-    --mc-surface: #ffffff;
-    --mc-surface-subtle: #f4f6f8;
-    --mc-surface-header: #eef2f5;
-    --mc-surface-hover: #eaf3fb;
-    --mc-surface-action-soft: #edf5fc;
+    --mc-text-primary: #173247;
+    --mc-text-secondary: #587287;
+    --mc-page: #f2f7fb;
+    --mc-surface: #fbfdff;
+    --mc-surface-subtle: #edf5fb;
+    --mc-surface-header: #e6f0f7;
+    --mc-surface-hover: #dcecf7;
+    --mc-surface-action-soft: #e0eff9;
     --mc-surface-success-soft: #e5f4ef;
     --mc-surface-danger-soft: #fff1f2;
-    --mc-surface-disabled: #edf0f3;
-    --mc-border: #d8dee5;
-    --mc-border-strong: #aeb8c2;
-    --mc-border-row: #e0e5ea;
-    --mc-action: #245f9e;
-    --mc-action-hover: #174f89;
-    --mc-action-focus: #75a7d5;
+    --mc-surface-disabled: #e6eef4;
+    --mc-border: #c9dce9;
+    --mc-border-strong: #91b6cf;
+    --mc-border-row: #d9e7f0;
+    --mc-action: #2d73a5;
+    --mc-action-hover: #205f8d;
+    --mc-action-focus: #78add1;
     --mc-ok: #16775a;
     --mc-warning: #9a6500;
     --mc-danger: #b93646;
     --mc-danger-text: #7f1d2d;
-    --mc-disabled-text: #8b96a0;
+    --mc-disabled-text: #8195a5;
     --mc-on-action: #ffffff;
     --mc-overlay: rgba(33, 43, 54, .38);
-    --mc-shadow-sm: 0 1px 3px rgba(27, 39, 51, .05);
-    --mc-shadow-md: 0 4px 18px rgba(27, 39, 51, .07);
-    --mc-shadow-hover: 0 8px 28px rgba(27, 39, 51, .1);
+    --mc-shadow-sm: 0 1px 3px rgba(35, 84, 116, .06);
+    --mc-shadow-md: 0 4px 18px rgba(35, 84, 116, .08);
+    --mc-shadow-hover: 0 8px 28px rgba(35, 84, 116, .12);
     --mc-shadow-lg: 0 24px 70px rgba(25, 35, 45, .25);
     background: var(--mc-page);
     color: var(--mc-text-primary);
@@ -650,7 +650,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
     border-right: 1px solid var(--mc-border);
     border-radius: 0;
     color: var(--mc-text-primary);
-    background: #f7f7f8;
+    background: #eaf3fa;
     box-shadow: none;
     transition: width .18s ease, transform .18s ease;
 }
@@ -671,7 +671,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
     flex:0 0 36px;
     border-radius:50%;
     color:#fff;
-    background:#202123;
+    background:#2d6f9e;
     font-size:.88rem;
     font-weight:800;
 }
@@ -680,12 +680,12 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
     height: 40px;
     border: 1px solid transparent;
     border-radius: 10px;
-    color: #45474a;
+    color: #365a73;
     background: transparent;
     font-size: 1.25rem;
     cursor: pointer;
 }
-.mc-control-drawer-toggle:hover { background:#e8e8eb; }
+.mc-control-drawer-toggle:hover { background:#d9eaf6; }
 .mc-control-drawer-content {
     display: grid;
     gap: 12px;
@@ -702,7 +702,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
 .mc-control-drawer-opportunities > strong { color: var(--mc-ok); font-size: .9rem; }
 .mc-control-drawer-label {
     margin:14px 10px 4px;
-    color:#6b6d70;
+    color:#56738a;
     font-size:.72rem;
     font-weight:750;
     letter-spacing:.04em;
@@ -713,7 +713,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
     padding: 9px 11px;
     border: 0;
     border-radius: 9px;
-    color: #202123;
+    color: #173247;
     background: transparent;
     font: inherit;
     font-weight: 700;
@@ -721,7 +721,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
     cursor: pointer;
 }
 .mc-control-drawer-content button:hover,
-.mc-control-drawer-content button[data-active="true"] { background:#e8e8eb; }
+.mc-control-drawer-content button[data-active="true"] { background:#d7e9f6; }
 .mc-control-drawer-groups button[data-severity="BLOCKED"] {
     border-left: 4px solid var(--mc-danger);
     color: var(--mc-danger-text);
@@ -729,7 +729,7 @@ details[data-mc-section-group][open] > [data-mc-node="section"] {
 }
 .mc-control-drawer-groups button[data-severity="WARNING"] {
     border-left: 4px solid var(--mc-warning);
-    background: #fff8e7;
+    background: #eef5fa;
 }
 .mc-control-drawer-groups button[data-severity="SUCCESS"],
 .mc-control-drawer-opportunities button {
@@ -749,9 +749,19 @@ body[data-mc-drawer-open="false"] [data-marketcore-ui-runtime="v2"],
 body[data-mc-drawer-open="false"] .mc-workspace-navigation { width:calc(100% - 64px); margin-left:64px; }
 .mc-workspace-navigation { display:none; }
 .mc-control-view-toolbar { display:none; }
-[data-mc-status="BLOCKED"], [data-mc-status="FAIL"] { background-color: var(--mc-surface-danger-soft); }
-[data-mc-status="WARNING"], [data-mc-status="REVIEW_REQUIRED"] { background-color: #fff8e7; }
-[data-mc-status="PASS"], [data-mc-status="VERIFIED"], [data-mc-status="OOS_PASS"] { background-color: var(--mc-surface-success-soft); }
+[data-mc-node="card"][data-mc-status="BLOCKED"],
+[data-mc-node="card"][data-mc-status="FAIL"] { background-color: var(--mc-surface-danger-soft); }
+[data-mc-node="card"][data-mc-status="WARNING"],
+[data-mc-node="card"][data-mc-status="REVIEW_REQUIRED"] { background-color: #f3f7fa; }
+[data-mc-node="card"][data-mc-status="PASS"],
+[data-mc-node="card"][data-mc-status="VERIFIED"],
+[data-mc-node="card"][data-mc-status="OOS_PASS"] { background-color: var(--mc-surface-success-soft); }
+[data-mc-node-id="research.tiles"] { grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); }
+[data-mc-node="card"][data-mc-node-id^="research.tile."] [data-mc-node="title"] {
+    overflow-wrap:normal;
+    word-break:normal;
+    hyphens:none;
+}
 
 @media (max-width: 900px) {
     #marketcore-control-drawer { width:min(292px, calc(100vw - 24px)); box-shadow:var(--mc-shadow-lg); }
