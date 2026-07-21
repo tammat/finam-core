@@ -178,14 +178,23 @@
             drawer.id = "marketcore-control-drawer";
             drawer.setAttribute("aria-label", services.translate("workspace.drawer.title", {}, services.localeCode));
             const collapsedKey = "marketcore.workspace-v2.drawer-collapsed";
-            let collapsed = false;
-            try { collapsed = globalObject.sessionStorage.getItem(collapsedKey) === "true"; }
+            let collapsed = globalObject.matchMedia("(max-width: 900px)").matches;
+            try {
+                const stored = globalObject.sessionStorage.getItem(collapsedKey);
+                if (stored !== null) collapsed = stored === "true";
+            }
             catch (error) { globalObject.console.warn("MARKETCORE_DRAWER_STATE_LOAD_FAILED", error); }
             drawer.dataset.collapsed = String(collapsed);
 
             const header = globalObject.document.createElement("header");
+            const brand = globalObject.document.createElement("div");
+            brand.className = "mc-control-drawer-brand";
+            const brandMark = globalObject.document.createElement("span");
+            brandMark.className = "mc-control-drawer-brand-mark";
+            brandMark.textContent = "M";
             const title = globalObject.document.createElement("strong");
-            title.textContent = services.translate("workspace.drawer.title", {}, services.localeCode);
+            title.textContent = services.translate("workspace.drawer.brand", {}, services.localeCode);
+            brand.append(brandMark, title);
             const toggle = globalObject.document.createElement("button");
             toggle.type = "button";
             toggle.className = "mc-control-drawer-toggle";
@@ -205,7 +214,7 @@
                 catch (error) { globalObject.console.warn("MARKETCORE_DRAWER_STATE_SAVE_FAILED", error); }
                 syncToggle();
             });
-            header.append(title, toggle);
+            header.append(brand, toggle);
 
             const content = globalObject.document.createElement("div");
             content.className = "mc-control-drawer-content";
@@ -226,11 +235,20 @@
             if (toolbar) {
                 const views = globalObject.document.createElement("div");
                 views.className = "mc-control-drawer-views";
+                const viewsTitle = globalObject.document.createElement("strong");
+                viewsTitle.className = "mc-control-drawer-label";
+                viewsTitle.textContent = services.translate("workspace.drawer.views", {}, services.localeCode);
+                views.appendChild(viewsTitle);
                 toolbar.querySelectorAll("button[data-mc-control-view]").forEach((source) => {
                     const button = globalObject.document.createElement("button");
                     button.type = "button";
                     button.textContent = source.textContent;
-                    button.addEventListener("click", () => source.click());
+                    button.dataset.active = String(source.getAttribute("aria-pressed") === "true");
+                    button.addEventListener("click", () => {
+                        source.click();
+                        views.querySelectorAll("button").forEach((item) => item.dataset.active = "false");
+                        button.dataset.active = "true";
+                    });
                     views.appendChild(button);
                 });
                 content.appendChild(views);
@@ -238,6 +256,10 @@
 
             const groupList = globalObject.document.createElement("div");
             groupList.className = "mc-control-drawer-groups";
+            const groupsTitle = globalObject.document.createElement("strong");
+            groupsTitle.className = "mc-control-drawer-label";
+            groupsTitle.textContent = services.translate("workspace.drawer.sections", {}, services.localeCode);
+            groupList.appendChild(groupsTitle);
             const groups = Array.from(mountElement.querySelectorAll("details[data-mc-section-group]"))
                 .map((details) => {
                     const blocked = details.querySelectorAll('[data-mc-status="BLOCKED"], [data-mc-status="FAIL"]').length;
@@ -263,6 +285,8 @@
                 button.textContent = count > 0 ? `${label} · ${marker}${count}` : label;
                 button.addEventListener("click", () => {
                     details.open = true;
+                    groupList.querySelectorAll("button").forEach((item) => item.dataset.active = "false");
+                    button.dataset.active = "true";
                     details.scrollIntoView({behavior: "smooth", block: "start"});
                 });
                 groupList.appendChild(button);

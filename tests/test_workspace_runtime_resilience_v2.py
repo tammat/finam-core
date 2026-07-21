@@ -47,6 +47,16 @@ def test_right_control_drawer_prioritizes_problems_and_persists_state() -> None:
     assert '.mc-control-drawer-groups button[data-severity="SUCCESS"]' in css
 
 
+def test_navigation_uses_chat_style_left_sidebar_without_covering_content() -> None:
+    shell = (ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_bootstrap_v2.js").read_text()
+    css = (ROOT / "src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css").read_text()
+    assert "mc-control-drawer-brand" in shell
+    assert 'services.translate("workspace.drawer.views"' in shell
+    assert "inset: 0 auto 0 0" in css
+    assert 'body[data-mc-drawer-open="true"] [data-marketcore-ui-runtime="v2"]' in css
+    assert ".mc-control-view-toolbar { display:none; }" in css
+
+
 def test_runtime_i18n_has_observed_missing_statuses() -> None:
     sql = (ROOT / "sql/analytics/171_ui_runtime_resilience_i18n_v1.sql").read_text()
     assert "status.shadow_heartbeat_older_than_10_minutes" in sql
