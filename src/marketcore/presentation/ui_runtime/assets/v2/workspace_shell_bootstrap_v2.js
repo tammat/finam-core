@@ -171,6 +171,128 @@
             if (homeButton) homeButton.disabled = false;
         };
 
+        const installControlDrawer = () => {
+            const existing = globalObject.document.getElementById("marketcore-control-drawer");
+            if (existing) existing.remove();
+            const drawer = globalObject.document.createElement("aside");
+            drawer.id = "marketcore-control-drawer";
+            drawer.setAttribute("aria-label", services.translate("workspace.drawer.title", {}, services.localeCode));
+            const collapsedKey = "marketcore.workspace-v2.drawer-collapsed";
+            let collapsed = false;
+            try { collapsed = globalObject.sessionStorage.getItem(collapsedKey) === "true"; }
+            catch (error) { globalObject.console.warn("MARKETCORE_DRAWER_STATE_LOAD_FAILED", error); }
+            drawer.dataset.collapsed = String(collapsed);
+
+            const header = globalObject.document.createElement("header");
+            const title = globalObject.document.createElement("strong");
+            title.textContent = services.translate("workspace.drawer.title", {}, services.localeCode);
+            const toggle = globalObject.document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "mc-control-drawer-toggle";
+            const syncToggle = () => {
+                const isCollapsed = drawer.dataset.collapsed === "true";
+                toggle.textContent = isCollapsed ? "☰" : "×";
+                toggle.title = services.translate(
+                    isCollapsed ? "workspace.drawer.open" : "workspace.drawer.close",
+                    {}, services.localeCode
+                );
+                toggle.setAttribute("aria-expanded", String(!isCollapsed));
+                globalObject.document.body.dataset.mcDrawerOpen = String(!isCollapsed);
+            };
+            toggle.addEventListener("click", () => {
+                drawer.dataset.collapsed = String(drawer.dataset.collapsed !== "true");
+                try { globalObject.sessionStorage.setItem(collapsedKey, drawer.dataset.collapsed); }
+                catch (error) { globalObject.console.warn("MARKETCORE_DRAWER_STATE_SAVE_FAILED", error); }
+                syncToggle();
+            });
+            header.append(title, toggle);
+
+            const content = globalObject.document.createElement("div");
+            content.className = "mc-control-drawer-content";
+            const nav = globalObject.document.createElement("div");
+            nav.className = "mc-control-drawer-navigation";
+            const addNav = (labelKey, sourceButton) => {
+                const button = globalObject.document.createElement("button");
+                button.type = "button";
+                button.textContent = services.translate(labelKey, {}, services.localeCode);
+                button.addEventListener("click", () => sourceButton && sourceButton.click());
+                nav.appendChild(button);
+            };
+            addNav("workspace.drawer.back", backButton);
+            addNav("workspace.drawer.home", homeButton);
+            content.appendChild(nav);
+
+            const toolbar = mountElement.querySelector(".mc-control-view-toolbar");
+            if (toolbar) {
+                const views = globalObject.document.createElement("div");
+                views.className = "mc-control-drawer-views";
+                toolbar.querySelectorAll("button[data-mc-control-view]").forEach((source) => {
+                    const button = globalObject.document.createElement("button");
+                    button.type = "button";
+                    button.textContent = source.textContent;
+                    button.addEventListener("click", () => source.click());
+                    views.appendChild(button);
+                });
+                content.appendChild(views);
+            }
+
+            const groupList = globalObject.document.createElement("div");
+            groupList.className = "mc-control-drawer-groups";
+            const groups = Array.from(mountElement.querySelectorAll("details[data-mc-section-group]"))
+                .map((details) => {
+                    const blocked = details.querySelectorAll('[data-mc-status="BLOCKED"], [data-mc-status="FAIL"]').length;
+                    const warning = details.querySelectorAll('[data-mc-status="WARNING"], [data-mc-status="REVIEW_REQUIRED"]').length;
+                    const success = details.querySelectorAll(
+                        '[data-mc-status="PASS"], [data-mc-status="VERIFIED"], [data-mc-status="OOS_PASS"]'
+                    ).length;
+                    return {details, blocked, warning, success};
+                })
+                .sort((left, right) => (right.blocked - left.blocked)
+                    || (right.warning - left.warning)
+                    || (right.success - left.success));
+            groups.forEach(({details, blocked, warning, success}) => {
+                const button = globalObject.document.createElement("button");
+                button.type = "button";
+                button.dataset.severity = blocked > 0 ? "BLOCKED"
+                    : warning > 0 ? "WARNING"
+                        : success > 0 ? "SUCCESS" : "NEUTRAL";
+                const label = details.querySelector(".mc-control-group-heading strong")?.textContent
+                    || details.dataset.mcSectionGroup;
+                const count = blocked || warning || success;
+                const marker = success > 0 && blocked === 0 && warning === 0 ? "+" : "";
+                button.textContent = count > 0 ? `${label} · ${marker}${count}` : label;
+                button.addEventListener("click", () => {
+                    details.open = true;
+                    details.scrollIntoView({behavior: "smooth", block: "start"});
+                });
+                groupList.appendChild(button);
+            });
+            if (groups.length) content.appendChild(groupList);
+
+            const opportunities = Array.from(mountElement.querySelectorAll(
+                '[data-mc-status="PASS"], [data-mc-status="VERIFIED"], [data-mc-status="OOS_PASS"]'
+            )).filter((element) => !element.closest("details[data-mc-section-group]")).slice(0, 5);
+            if (opportunities.length) {
+                const opportunityList = globalObject.document.createElement("div");
+                opportunityList.className = "mc-control-drawer-opportunities";
+                const heading = globalObject.document.createElement("strong");
+                heading.textContent = services.translate("workspace.drawer.opportunities", {}, services.localeCode);
+                opportunityList.appendChild(heading);
+                opportunities.forEach((element) => {
+                    const button = globalObject.document.createElement("button");
+                    button.type = "button";
+                    button.textContent = element.textContent.trim().slice(0, 80)
+                        || services.translate("workspace.drawer.confirmed", {}, services.localeCode);
+                    button.addEventListener("click", () => element.scrollIntoView({behavior: "smooth", block: "center"}));
+                    opportunityList.appendChild(button);
+                });
+                content.insertBefore(opportunityList, groupList);
+            }
+            drawer.append(header, content);
+            globalObject.document.body.appendChild(drawer);
+            syncToggle();
+        };
+
         const render = async (endpoint, options = {}) => {
             const panelState = options.preserveState
                 ? persistPanelState()
@@ -197,12 +319,16 @@
                     ? (storedPanelState() || panelState)
                     : panelState;
                 if (stateToRestore) {
+                    restorePanelState(stateToRestore, {
+                        restorePageScroll: options.restorePageScroll !== false
+                    });
                     globalObject.requestAnimationFrame(() => globalObject.requestAnimationFrame(() => {
                         restorePanelState(stateToRestore, {
                             restorePageScroll: options.restorePageScroll !== false
                         });
                     }));
                 }
+                installControlDrawer();
             } catch (error) {
                 mountElement.setAttribute("data-runtime-status", "FAILED");
                 mountElement.setAttribute("data-runtime-error", error && error.message ? error.message : String(error));
@@ -271,7 +397,7 @@
         if (globalObject.history && "scrollRestoration" in globalObject.history) {
             globalObject.history.scrollRestoration = "manual";
         }
-        await render(currentEndpoint, {restoreStored: true, restorePageScroll: false});
+        await render(currentEndpoint, {restoreStored: true});
         syncRoute(currentTargetId, true);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
@@ -283,7 +409,7 @@
             try { await render(currentEndpoint, {preserveState: true}); }
             catch (error) { globalObject.console.error("MARKETCORE_AUTO_REFRESH_FAILED", error); }
             finally { refreshInFlight = false; }
-        }, 5000);
+        }, 15000);
     }
 
     const launch = () => start().catch((error) => {

@@ -28,10 +28,23 @@
             fail("PRESENTATION_V2_CATALOG_INVALID");
         }
         const messages = catalog.messages || {};
+        const missingMessages = new Set();
+        const readableFallback = (messageKey) => {
+            const raw = String(messageKey || "").split(".").pop().split(":").pop();
+            const label = raw.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+            return label ? `Новый статус: ${label}` : "Новый статус";
+        };
         return function translate(messageKey, messageArgs, localeCode) {
             const template = messages[messageKey];
             if (typeof template !== "string" || template === "") {
-                fail("PRESENTATION_V2_MESSAGE_MISSING", `${localeCode}:${messageKey}`);
+                if (!missingMessages.has(messageKey)) {
+                    missingMessages.add(messageKey);
+                    globalObject.console.error(
+                        "PRESENTATION_V2_MESSAGE_MISSING",
+                        `${localeCode}:${messageKey}`
+                    );
+                }
+                return readableFallback(messageKey);
             }
             return substitute(template, messageArgs || {});
         };
@@ -45,6 +58,24 @@
         if (hours > 0 && minutes > 0) return `${hours} ч ${minutes} мин`;
         if (hours > 0) return `${hours} ч`;
         return `${minutes} мин`;
+    }
+
+    function domainValue(value, locale) {
+        if (value === null || value === undefined || value === "") return "Нет данных";
+        if (typeof value === "boolean") return value ? "Да" : "Нет";
+        if (Array.isArray(value)) {
+            return value.length
+                ? value.map((item) => domainValue(item, locale)).join(", ")
+                : "Нет данных";
+        }
+        if (typeof value === "object") {
+            const entries = Object.entries(value);
+            if (!entries.length) return "Нет параметров";
+            return entries
+                .map(([key, item]) => `${key.replace(/_/g, " ")}: ${domainValue(item, locale)}`)
+                .join(" · ");
+        }
+        return String(value);
     }
 
     function createFormatter() {
@@ -61,9 +92,12 @@
                 case "MONEY_RUB": return new Intl.NumberFormat(locale, {style: "currency", currency: "RUB"}).format(Number(value));
                 case "PERCENT": return `${new Intl.NumberFormat(locale, {maximumFractionDigits: 2}).format(Number(value))}%`;
                 case "PERCENT_RATIO": return new Intl.NumberFormat(locale, {style: "percent", maximumFractionDigits: 2}).format(Number(value));
+                case "BOOLEAN": return domainValue(Boolean(value), locale);
+                case "DOMAIN_VALUE": return domainValue(value, locale);
+                case "DOMAIN_CODE": return String(value || "").replace(/[_-]+/g, " ");
                 case null:
-                case undefined: return String(value);
-                default: return String(value);
+                case undefined: return domainValue(value, locale);
+                default: return domainValue(value, locale);
             }
         };
     }

@@ -203,7 +203,33 @@ class StrategyWalkForwardRepository:
         return "OOS_FAILED", "out_of_sample_edge_не_подтвержден"
 
     def save(self, items: list[StrategyWalkForwardResult]) -> int:
-        sql = """
+        update_sql = """
+        UPDATE strategy_walkforward_results SET
+            train_trades = %(train_trades)s,
+            test_trades = %(test_trades)s,
+            train_pf = %(train_pf)s,
+            test_pf = %(test_pf)s,
+            train_expectancy = %(train_expectancy)s,
+            test_expectancy = %(test_expectancy)s,
+            train_winrate = %(train_winrate)s,
+            test_winrate = %(test_winrate)s,
+            degradation_score = %(degradation_score)s,
+            stability_score = %(stability_score)s,
+            status = %(status)s,
+            reason = %(reason)s,
+            computed_at = clock_timestamp()
+        WHERE id = (
+            SELECT id FROM strategy_walkforward_results
+            WHERE strategy = %(strategy)s AND symbol = %(symbol)s
+              AND timeframe = %(timeframe)s AND regime = %(regime)s
+              AND trade_source = %(trade_source)s
+              AND train_from = %(train_from)s AND train_to = %(train_to)s
+              AND test_from = %(test_from)s AND test_to = %(test_to)s
+            ORDER BY computed_at DESC, id DESC
+            LIMIT 1
+        );
+        """
+        insert_sql = """
         INSERT INTO strategy_walkforward_results (
             strategy, symbol, timeframe, regime, trade_source,
             train_from, train_to, test_from, test_to,
@@ -229,7 +255,20 @@ class StrategyWalkForwardRepository:
         with psycopg.connect(self.database_url) as conn:
             with conn.cursor() as cur:
                 for item in items:
-                    cur.execute(sql, item.__dict__)
+                    logical_key = "|".join(
+                        str(value) for value in (
+                            item.strategy, item.symbol, item.timeframe, item.regime,
+                            item.trade_source, item.train_from, item.train_to,
+                            item.test_from, item.test_to,
+                        )
+                    )
+                    cur.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                        (logical_key,),
+                    )
+                    cur.execute(update_sql, item.__dict__)
+                    if cur.rowcount == 0:
+                        cur.execute(insert_sql, item.__dict__)
                     saved += 1
             conn.commit()
         return saved

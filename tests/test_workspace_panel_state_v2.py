@@ -25,14 +25,16 @@ def test_panel_state_survives_full_page_reload_and_navigation() -> None:
     assert "{restoreStored: true}" in source
 
 
-def test_manual_reload_starts_at_top_without_losing_panel_controls() -> None:
+def test_manual_reload_preserves_scroll_and_panel_controls() -> None:
     source = BOOTSTRAP.read_text(encoding="utf-8")
     assert 'history.scrollRestoration = "manual"' in source
-    assert "{restoreStored: true, restorePageScroll: false}" in source
+    assert "await render(currentEndpoint, {restoreStored: true})" in source
     assert "restorePageScroll: options.restorePageScroll !== false" in source
+    assert source.count("restorePanelState(stateToRestore") == 2
 
 
 def test_refresh_timer_is_single_and_does_not_reset_research_twice() -> None:
     source = BOOTSTRAP.read_text(encoding="utf-8")
     assert "researchRefreshTimer" not in source
     assert source.count("globalObject.setInterval(async () =>") == 1
+    assert "}, 15000);" in source
