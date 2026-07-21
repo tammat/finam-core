@@ -5,8 +5,8 @@ def test_universe_rows_offer_four_operator_actions() -> None:
     driver = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     renderer = Path("src/marketcore/presentation/workspace_v2/renderer/research_v2_domain_renderer.py").read_text()
     for label in (
-        "Показать объяснение",
-        "Исследовать следующим циклом",
+        "Почему выбрано",
+        "Закрепить в следующем цикле",
         "Исключить из следующего цикла",
         "Изменить приоритет",
     ):

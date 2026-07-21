@@ -133,6 +133,18 @@ def _table_row_action(section_code: str, row: dict[str, Any]) -> RenderActionV2 
     if section_code != "funnel":
         return None
     stage_code = str(row.get("stage_code") or "").strip().upper()
+    reason_code = str(row.get("reason_code") or "").strip().upper()
+    if row.get("pass_rate_pct") is None and reason_code != "INITIAL_STAGE":
+        return RenderActionV2(
+            action_id="research.request.refresh",
+            action_kind=ActionKindV2.COMMAND,
+            target_id=stage_code,
+            command_code="RESEARCH.REQUEST_REFRESH",
+            policy_class="RESEARCH_MAINTENANCE",
+            reversible=True,
+            rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
+            idempotency_key="client.request",
+        )
     target_id = _FUNNEL_STAGE_CONTAINER.get(stage_code)
     if target_id is None:
         return None
@@ -177,6 +189,7 @@ def _table_section(
             raw_value = row.get(column)
             display_value, format_code = _display_value(column, raw_value)
             normalized_column = column.lower()
+            message_args: dict[str, Any] | None = None
             is_localized_code = (
                 normalized_column == "status"
                 or normalized_column.endswith("_status")
@@ -198,7 +211,26 @@ def _table_section(
                 raw_value, (str, list, tuple, set)
             )
             message_key = None
-            if raw_value is None:
+            if (
+                section_code == "funnel"
+                and normalized_column == "pass_rate_pct"
+                and raw_value is None
+            ):
+                reason_code = _message_code(row.get("reason_code") or "not_calculated")
+                message_key = f"funnel.conversion.{reason_code}"
+                display_value = None
+                format_code = None
+            elif (
+                section_code == "funnel"
+                and normalized_column == "source_identity"
+                and isinstance(raw_value, str)
+                and raw_value.strip()
+            ):
+                message_key = f"funnel.source.{_message_code(raw_value)}"
+                message_args = {"tooltip_value": raw_value}
+                display_value = None
+                format_code = None
+            elif raw_value is None:
                 message_key = "status.no_data"
                 display_value = None
                 format_code = None
@@ -217,6 +249,7 @@ def _table_section(
                     RenderNodeTypeV2.TABLE_CELL,
                     f"{section_id}.row.{row_index}.cell.{column_index}",
                     message_key=message_key,
+                    message_args=message_args,
                     value=display_value,
                     format_code=format_code,
                     column_code=column,

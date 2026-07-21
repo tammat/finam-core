@@ -241,18 +241,6 @@
 
             const content = globalObject.document.createElement("div");
             content.className = "mc-control-drawer-content";
-            const nav = globalObject.document.createElement("div");
-            nav.className = "mc-control-drawer-navigation";
-            const addNav = (labelKey, sourceButton) => {
-                const button = globalObject.document.createElement("button");
-                button.type = "button";
-                button.textContent = services.translate(labelKey, {}, services.localeCode);
-                button.addEventListener("click", () => sourceButton && sourceButton.click());
-                nav.appendChild(button);
-            };
-            addNav("workspace.drawer.back", backButton);
-            addNav("workspace.drawer.home", homeButton);
-            content.appendChild(nav);
 
             const functions = globalObject.document.createElement("div");
             functions.className = "mc-control-drawer-functions";

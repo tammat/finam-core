@@ -57,9 +57,9 @@ def test_research_page_auto_refreshes_process_state() -> None:
     shell = Path(
         "src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_bootstrap_v2.js"
     ).read_text()
-    assert 'currentTargetId === "container.research"' in shell
+    assert '["container.edge", "container.research"].includes(currentTargetId)' in shell
     assert "globalObject.setInterval" in shell
-    assert "10000" in shell
+    assert "15000" in shell
 
 
 def test_status_is_first_column_and_uses_progress_bar() -> None:
@@ -69,7 +69,7 @@ def test_status_is_first_column_and_uses_progress_bar() -> None:
     driver = Path(
         "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js"
     ).read_text()
-    assert 'columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")' in renderer
+    assert 'columns=("status","process","started","steps","duration","outcome","reason","analysis","recommendation")' in renderer
     assert '"Выполнено": 100' in driver
     assert '"Выполняется": 50' in driver
     assert '"Ожидает": 10' in driver

@@ -20,7 +20,8 @@ def test_home_exposes_ranked_non_green_operator_actions() -> None:
     assert all(action.action_id in {"operator.decision.acknowledge", "operator.decision.measure", "operator.decision.refresh"} for action in actions)
     assert all(action.reversible and action.target_id and action.idempotency_key for action in actions)
     assert all(row.action is not None or row.children[6].content.message_key in {
-        "home.operator.next.view", "home.operator.next.wait"
+        "home.operator.next.view", "home.operator.next.wait",
+        "home.operator.next.automatic", "home.operator.next.review_block",
     } for row in rows)
     assert all(row.state.status_code in {"WARNING","BLOCKED"} for row in rows)
     assert all(row.state.quality_code == "UNVERIFIED" for row in rows)

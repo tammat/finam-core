@@ -339,12 +339,13 @@ def _futures_roll_cards(items):
     return RenderNodeV2(RenderNodeTypeV2.GRID,"research.futures.cards",children=tuple(cards))
 
 def _run_audit_table(items):
-    columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")
+    columns=("status","process","started","steps","duration","outcome","reason","analysis","recommendation")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.audit.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.audit.header.{code}",key=f"research.audit.column.{code}") for code in columns))
     rows=[]
     for index,item in enumerate(items,start=1):
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.audit.{index}",children=(
             _process_status(f"research.audit.{index}.status",item),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.process",item.process_type),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.started",value=item.started_at,fmt="DATETIME"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.steps",key="research.audit.steps",args={"completed":item.steps_completed,"total":item.steps_total}),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.duration",value=item.duration_seconds,fmt="INTEGER"),

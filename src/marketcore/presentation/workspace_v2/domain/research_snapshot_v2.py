@@ -74,6 +74,7 @@ class FuturesRollItemV1:
 @dataclass(frozen=True, slots=True)
 class EdgeSearchRunAuditV1:
     process_id: str
+    process_type: str
     run_id: str
     status: str
     progress_pct: float

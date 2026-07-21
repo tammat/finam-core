@@ -12,7 +12,7 @@ def test_universe_row_reads_latest_process_status() -> None:
 def test_universe_table_renders_status_progress_in_same_row() -> None:
     renderer = Path("src/marketcore/presentation/workspace_v2/renderer/research_v2_domain_renderer.py").read_text()
     domain = Path("src/marketcore/presentation/workspace_v2/domain/research_snapshot_v2.py").read_text()
-    assert 'columns=("selected","symbol","category","bars","rank","reason","status")' in renderer
+    assert 'columns=("selected","symbol","category","bars","rank","reason","status","operator_action")' in renderer
     assert '_process_status(f"research.universe.{index}.status",item)' in renderer
     assert "process_id: str | None" in domain
     assert "progress_pct: float" in domain

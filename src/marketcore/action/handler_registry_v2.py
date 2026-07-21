@@ -81,10 +81,15 @@ class PostgresCommandRequestHandlerV2:
         if intent.command_code != definition.command_code:
             raise ValueError("STATE_CHANGING_COMMAND_MISMATCH")
         request_id = str(intent.idempotency_key)
+        maximum_priority = False
         with psycopg2.connect("postgresql:///finam_core") as connection:
             with connection.cursor() as cursor:
                 process_id = None
                 if definition.request_kind in {"EDGE_SEARCH_RUN", "RESEARCH_REFRESH"}:
+                    maximum_priority = (
+                        definition.request_kind == "EDGE_SEARCH_RUN"
+                        and str(intent.target_id or "").strip().upper() == "MAX_PRIORITY"
+                    )
                     cursor.execute(
                         """SELECT request_id FROM marketcore_action.command_request_v2
                            WHERE request_kind=%s AND status IN ('PENDING','RUNNING')
@@ -93,6 +98,12 @@ class PostgresCommandRequestHandlerV2:
                     )
                     active_request = cursor.fetchone()
                     if active_request is not None:
+                        if maximum_priority:
+                            cursor.execute(
+                                "UPDATE marketcore_action.command_request_v2 SET priority=1 "
+                                "WHERE request_id=%s AND status='PENDING'",
+                                (active_request[0],),
+                            )
                         return str(active_request[0])
                     try:
                         candidate_process_id = str(UUID(str(intent.target_id)))
@@ -149,6 +160,12 @@ class PostgresCommandRequestHandlerV2:
                      intent.actor_id, intent.target_id, process_id),
                 )
                 row = cursor.fetchone()
+                if row is not None and maximum_priority:
+                    cursor.execute(
+                        "UPDATE marketcore_action.command_request_v2 SET priority=1 "
+                        "WHERE request_id=%s AND status='PENDING'",
+                        (request_id,),
+                    )
                 if row is None:
                     cursor.execute("""SELECT request_id FROM marketcore_action.command_request_v2
                         WHERE request_kind=%s AND target_id IS NOT DISTINCT FROM %s

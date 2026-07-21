@@ -30,6 +30,11 @@ STEPS = [
         "src/scripts/build_market_universe_research_queue_v1.py",
         "VERDICT=MARKET_UNIVERSE_RESEARCH_QUEUE_V1_READY",
     ),
+    (
+        "profit_funnel_lineage",
+        "src/scripts/build_profit_funnel_transition_lineage_v2.py",
+        "VERDICT=MARKETCORE_PROFIT_FUNNEL_TRANSITION_LINEAGE_V2_BUILT",
+    ),
 ]
 
 

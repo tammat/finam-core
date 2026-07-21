@@ -53,6 +53,8 @@
                             documentPayload.locale_code,
                             documentPayload.fallback_locale_code
                         );
+                    } else if (content.message_args && content.message_args.tooltip_value) {
+                        tooltipValue = String(content.message_args.tooltip_value);
                     }
                 } else {
                     displayValue = format(

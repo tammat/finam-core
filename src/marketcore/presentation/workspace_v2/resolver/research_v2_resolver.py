@@ -310,7 +310,7 @@ class ResearchV2Resolver:
                 """)
                 algorithms=tuple(ResearchAlgorithmResultV2(str(row["strategy_family"]),int(row["markets"]),int(row["variants"]),int(row["best_folds"]),int(row["folds_total"]),float(row["best_profit_factor"]),int(row["passes"]),"PASS" if int(row["passes"]) else "NO_PASS",str(row["fail_reason"] or "NO_DATA")) for row in cursor.fetchall())
                 cursor.execute("""
-                    SELECT p.process_id,p.run_id,p.status_code,p.progress_pct,p.current_step_code,p.requested_at,p.started_at,p.finished_at,
+                    SELECT p.process_id,p.process_type,p.run_id,p.status_code,p.progress_pct,p.current_step_code,p.requested_at,p.started_at,p.finished_at,
                            coalesce(count(s.step_run_id) FILTER (WHERE s.status_code='SUCCEEDED'),
                                     CASE WHEN p.status_code='SUCCEEDED' THEN 1 ELSE 0 END) steps_completed,
                            greatest(count(s.step_run_id),CASE WHEN p.process_type='RESEARCH_REFRESH' THEN 1 ELSE 0 END) steps_total,
@@ -338,7 +338,7 @@ class ResearchV2Resolver:
                     ORDER BY p.updated_at DESC LIMIT 10
                 """)
                 runs=tuple(EdgeSearchRunAuditV1(
-                    str(row["process_id"]),str(row["run_id"] or ""),str(row["status_code"]),float(row["progress_pct"] or 0),str(row["current_step_code"] or "QUEUED"),int(row["steps_completed"] or 0),
+                    str(row["process_id"]),str(row["process_type"]),str(row["run_id"] or ""),str(row["status_code"]),float(row["progress_pct"] or 0),str(row["current_step_code"] or "QUEUED"),int(row["steps_completed"] or 0),
                     int(row["steps_total"] or 0),int(row["duration_seconds"] or 0),str(row["outcome_code"]),
                     str(row["reason_code"]),str(row["recommendation_code"]),str(row["explanation_ru"]),
                     _utc(row["started_at"] or row["requested_at"]),tuple(dict(item) for item in row["available_actions"]),
