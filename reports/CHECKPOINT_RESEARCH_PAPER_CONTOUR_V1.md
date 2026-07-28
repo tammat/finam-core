@@ -167,3 +167,13 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Server-side render verified; 8 focused tests passed.
 - Deployment pending: restart only `marketcore-ui-shell.service`, then verify
   HTTP actions and visible state. Real execution remains disabled.
+
+## V5 Edge Control UI runtime verified 22:15–22:17 МСК
+
+- UI PID `3955695`; HTTP document quality `VERIFIED`.
+- Exactly two normal-state commands: manual governed RUN and REFRESH.
+- Autonomous mode: enabled; no-click operation continues independently.
+- No broker, real-trading, micro-live or live-promotion commands rendered.
+- Observed freshness: M1 226 sec (above 180-sec target), M5 346 sec (within
+  420-sec threshold). Next checkpoint: independent fast V5 refresh subcycle.
+- Verdict: `V5_EDGE_CONTROL_UI_ACTIVE_AUTONOMOUS_MODE`.

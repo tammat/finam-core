@@ -233,6 +233,19 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## V5 Edge Control UI runtime 28.07.2026, 22:15–22:17 МСК
+
+- UI reload применён: `marketcore-ui-shell` PID `3955695`, active/running.
+- HTTP render подтверждён: document `operator.control_center.v2`, quality `VERIFIED`.
+- В обычном состоянии отображаются ровно две команды: governed manual edge RUN
+  и research REFRESH. Autonomous mode отображается как `Включён`.
+- Sections scheduler, V5 freshness и edge control присутствуют. Broker/live/micro-live
+  command codes в документе отсутствуют; Paper safety flags не менялись.
+- На runtime-замере age закрытых свечей: M1 `226` секунд, M5 `346` секунд.
+  M5 находится в установленном допуске 420 секунд; M1 превышает цель 180 секунд.
+- Следующий data-plane приоритет: отделить короткий V5 refresh subcycle от полного
+  scout universe, чтобы длительные второстепенные запросы не задерживали новый цикл.
+
 ## V5 Edge Control read model 28.07.2026, 22:09–22:16 МСК
 
 - Compact Control V3 закреплён в canonical domain producer registry; будущий
