@@ -155,3 +155,15 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - UI verdict: `PARTIAL_CONTROL`. Research exposes several actions, but Control
   Center lacks canonical run/cancel state and some rendered commands have no
   governed handler. Next checkpoint is `V5_EDGE_CONTROL_READ_MODEL_V1`.
+
+## V5 Edge Control read model 22:09–22:16 МСК
+
+- Canonical registry now builds compact Control V3 directly.
+- Read model covers scheduler, recent jobs, governed queue, edge process, V5
+  freshness, clean cohorts and OOS readiness.
+- Minimal UI: one contextual RUN/CANCEL slot plus REFRESH.
+- No click means autonomous operation continues. Manual cancellation is scoped
+  to the same non-system actor and cannot cancel `system.scheduler` requests.
+- Server-side render verified; 8 focused tests passed.
+- Deployment pending: restart only `marketcore-ui-shell.service`, then verify
+  HTTP actions and visible state. Real execution remains disabled.

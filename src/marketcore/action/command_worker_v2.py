@@ -192,7 +192,9 @@ class GovernedCommandWorkerV2:
                     finished_at=clock_timestamp(),result_reference=%s
                     WHERE request_id=(SELECT request_id FROM marketcore_action.command_request_v2
                       WHERE request_kind='EDGE_SEARCH_RUN' AND status='PENDING'
-                      ORDER BY requested_at DESC LIMIT 1) RETURNING request_id""",(f"cancelled_by:{row['request_id']}",))
+                        AND actor_id=%s AND actor_id<>'system.scheduler'
+                      ORDER BY requested_at DESC LIMIT 1) RETURNING request_id""",
+                    (f"cancelled_by:{row['request_id']}", row["actor_id"]))
                 cancelled=cursor.fetchone()
         if cancelled is None:
             return self._finish(row,False,None,"EDGE_SEARCH_PENDING_REQUEST_NOT_FOUND")

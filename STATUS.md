@@ -233,6 +233,24 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## V5 Edge Control read model 28.07.2026, 22:09–22:16 МСК
+
+- Compact Control V3 закреплён в canonical domain producer registry; будущий
+  restart UI больше не вернёт старый Control Center V2.
+- Единый read model теперь включает: состояние autonomous scheduler, последние
+  jobs, governed command queue, текущий edge process, свежесть семи приоритетных
+  V5 series, чистые futures/equity сделки и OOS readiness.
+- UI оставляет минимальный набор управления: одна контекстная основная кнопка
+  (`RUN` либо `CANCEL MANUAL PENDING`) и одна кнопка refresh.
+- Если оператор ничего не нажимает, autonomous edge search продолжает работать.
+  Ручной RUN только добавляет внеочередной governed request; CANCEL ограничен
+  pending-запросами того же оператора и не может отменить `system.scheduler`.
+- Full server-side render: `operator.control_center.v2`, quality `VERIFIED`;
+  freshness и scheduler sections присутствуют; в обычном состоянии две команды.
+- Проверки нового контура и governed worker: 8 passed. Два ранее известных
+  Research/Home contract tests остаются отдельным долгом: progress/trusted source.
+- Требуется restart только `marketcore-ui-shell.service`, затем HTTP/UI verification.
+
 ## Auto-edge/UI audit 28.07.2026, 22:02–22:08 МСК
 
 - Автоматический edge-контур уже имеет autorun, governed command worker,

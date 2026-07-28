@@ -112,6 +112,54 @@ class ControlCompactV3Resolver:
                 """)
                 streams = {row["stream_code"]: dict(row) for row in cursor.fetchall()}
 
+                cursor.execute("""
+                    SELECT
+                      count(*) FILTER (WHERE request_kind='EDGE_SEARCH_RUN' AND status='PENDING')::int AS edge_pending,
+                      count(*) FILTER (WHERE request_kind='EDGE_SEARCH_RUN' AND status='PENDING'
+                                             AND actor_id<>'system.scheduler')::int AS edge_manual_pending,
+                      count(*) FILTER (WHERE request_kind='EDGE_SEARCH_RUN' AND status='RUNNING')::int AS edge_running,
+                      count(*) FILTER (WHERE request_kind='RESEARCH_REFRESH' AND status IN ('PENDING','RUNNING'))::int AS refresh_active,
+                      count(*) FILTER (WHERE status='FAILED' AND requested_at >= clock_timestamp()-interval '24 hours')::int AS failed_24h,
+                      max(requested_at) FILTER (WHERE request_kind='EDGE_SEARCH_RUN') AS last_edge_requested_at,
+                      max(finished_at) FILTER (WHERE request_kind='EDGE_SEARCH_RUN' AND status='COMPLETED') AS last_edge_completed_at
+                    FROM marketcore_action.command_request_v2
+                """)
+                command_state = dict(cursor.fetchone() or {})
+
+                cursor.execute("""
+                    SELECT count(*) FILTER (WHERE enabled)::int AS enabled_jobs
+                    FROM analytics.system_job_schedule_v1
+                    WHERE executor_code IN ('EDGE_SEARCH_AUTO_ENQUEUE_V1','EDGE_SEARCH_COMMAND_QUEUE_V1')
+                """)
+                command_state["autorun_enabled"] = int(
+                    (cursor.fetchone() or {}).get("enabled_jobs") or 0
+                ) > 0
+
+                cursor.execute("""
+                    SELECT job_code,executor_code,status_code,started_at,finished_at,
+                           return_code,coalesce(stderr_tail,'') AS stderr_tail
+                    FROM analytics.system_job_run_v1
+                    ORDER BY started_at DESC
+                    LIMIT 12
+                """)
+                recent_jobs = [dict(row) for row in cursor.fetchall()]
+
+                cursor.execute("""
+                    SELECT symbol,timeframe,max(ts) AS latest_bar,
+                           extract(epoch FROM clock_timestamp()-max(ts))::int AS age_sec
+                    FROM market_bars
+                    WHERE (symbol,timeframe) IN (
+                      ('BRQ6@RTSX','M1'),('NGQ6@RTSX','M1'),
+                      ('SBER@MISX','M1'),('GAZP@MISX','M1'),('LKOH@MISX','M1'),
+                      ('NVTK@MISX','M5'),('VTBR@MISX','M5')
+                    )
+                    GROUP BY symbol,timeframe
+                    ORDER BY array_position(
+                      ARRAY['BRQ6@RTSX','NGQ6@RTSX','SBER@MISX','GAZP@MISX',
+                            'LKOH@MISX','NVTK@MISX','VTBR@MISX']::text[],symbol)
+                """)
+                freshness = [dict(row) for row in cursor.fetchall()]
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -172,4 +220,8 @@ class ControlCompactV3Resolver:
             "next_action": next_action,
             "nearest": nearest,
             "branch_plan": branch_plan,
+            "command_state": command_state,
+            "recent_jobs": recent_jobs,
+            "freshness": freshness,
+            "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
         }

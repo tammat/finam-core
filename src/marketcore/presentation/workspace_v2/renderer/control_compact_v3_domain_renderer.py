@@ -37,6 +37,93 @@ def _metric_row(code, label, value):
     ))
 
 
+def _command(code, label, action_id, command_code, *, target_id=None,
+             enabled=True, requires_approval=False, rollback_code=None):
+    return RenderNodeV2(
+        RenderNodeTypeV2.ACTION,
+        f"control.v3.action.{code}",
+        content=RenderContentV2(value=label),
+        action=RenderActionV2(
+            action_id,
+            ActionKindV2.COMMAND,
+            command_code=command_code,
+            policy_class="RESEARCH_MAINTENANCE",
+            target_id=target_id,
+            enabled=enabled,
+            requires_approval=requires_approval,
+            reversible=bool(rollback_code),
+            rollback_code=rollback_code,
+            idempotency_key="client.request",
+        ),
+    )
+
+
+def _edge_control_section(snapshot):
+    state = snapshot["command_state"]
+    pending = int(state.get("edge_pending") or 0)
+    manual_pending = int(state.get("edge_manual_pending") or 0)
+    running = int(state.get("edge_running") or 0)
+    refresh_active = int(state.get("refresh_active") or 0)
+    active = pending + running
+    primary_action = (
+        _command("edge_cancel", "Отменить ожидающий запуск", "research.edge_search.cancel",
+                 "RESEARCH.CANCEL_EDGE_SEARCH", enabled=True, requires_approval=True)
+        if manual_pending > 0 else
+        _command("edge_run", "Запустить edge search", "research.edge_search.run",
+                 "RESEARCH.RUN_EDGE_SEARCH", enabled=running == 0,
+                 rollback_code="RESEARCH.CANCEL_PENDING_REQUEST")
+    )
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.edge_control", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.edge_control.title", "Управление поиском edge", level="SECTION"),
+        _metric_row("edge_autorun", "Автономный режим",
+                    "Включён" if state.get("autorun_enabled") else "Не подтверждён"),
+        _metric_row("edge_queue", "Edge search: очередь / выполняется", f"{pending} / {running}"),
+        _metric_row("edge_failures", "Ошибок команд за 24 часа", int(state.get("failed_24h") or 0)),
+        primary_action,
+        _command("refresh", "Обновить research-витрины", "research.request.refresh",
+                 "RESEARCH.REQUEST_REFRESH", enabled=refresh_active == 0,
+                 rollback_code="RESEARCH.CANCEL_PENDING_REQUEST"),
+    ))
+
+
+def _freshness_section(rows):
+    children = [_leaf(RenderNodeTypeV2.TITLE, "control.v3.freshness.title",
+                      "Свежесть V5", level="SECTION")]
+    for index, row in enumerate(rows, start=1):
+        age = int(row.get("age_sec") or 0)
+        threshold = 180 if row.get("timeframe") == "M1" else 420
+        children.append(RenderNodeV2(
+            RenderNodeTypeV2.METRIC_ROW,
+            f"control.v3.freshness.{index}",
+            state=RenderNodeStateV2(
+                status_code="OK" if age <= threshold else "WARNING",
+                source_identity="market_bars",
+                source_as_of=_utc(row.get("latest_bar")),
+            ),
+            children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,
+                      f"control.v3.freshness.{index}.label",
+                      f"{row['symbol']} · {row['timeframe']}"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,
+                      f"control.v3.freshness.{index}.value", age, "INTEGER"),
+            ),
+        ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.freshness",
+                        children=tuple(children))
+
+
+def _jobs_section(rows):
+    running = sum(1 for row in rows if row.get("status_code") == "RUNNING")
+    failed = sum(1 for row in rows if row.get("status_code") in {"FAILED", "TIMEOUT"})
+    latest = rows[0]["job_code"] if rows else "Нет данных"
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.scheduler", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.scheduler.title", "Автоматический research scheduler", level="SECTION"),
+        _metric_row("scheduler_latest", "Последнее задание", latest),
+        _metric_row("scheduler_running", "Выполняется", running),
+        _metric_row("scheduler_failed", "Ошибок в последних 12", failed),
+    ))
+
+
 def _ru_status(value):
     code = str(value or "").upper()
     return {
@@ -267,6 +354,9 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.title", "MarketCore", level="PAGE"),
         _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.subtitle", "Контроль · чистая статистика · готовность к OOS"),
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards, opportunities, attention)),
+        _edge_control_section(snapshot),
+        _freshness_section(snapshot.get("freshness") or ()),
+        _jobs_section(snapshot.get("recent_jobs") or ()),
         _scope_section("FRESH_V5_CONFIRMED_EQUITY", "Акции", snapshot),
         _scope_section("FRESH_V5_CONFIRMED_FUTURES", "Фьючерсы", snapshot),
         _branch_plan_section(snapshot.get("branch_plan") or ()),
