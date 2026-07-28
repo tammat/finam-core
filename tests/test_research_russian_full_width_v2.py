@@ -18,7 +18,8 @@ def test_workspace_and_research_audit_use_available_width() -> None:
     ).read_text()
     assert '[data-mc-node="workspace"] { width: 100%; max-width: none;' in css
     assert '[data-mc-node-id="research.audit.table"] { width: 100%; min-width: 0; table-layout: fixed; }' in css
-    assert ':nth-child(7) { width: 28%; }' in css
+    assert ':nth-child(8) { width: 23%; }' in css
+    assert ':nth-child(9) { width: 15%; }' in css
 
 
 def test_research_domain_i18n_covers_current_system_codes() -> None:

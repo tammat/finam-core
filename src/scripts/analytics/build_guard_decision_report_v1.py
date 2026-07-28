@@ -130,6 +130,99 @@ def build(conn: psycopg.Connection) -> int:
         """)
 
         rows = cur.fetchall()
+        observed_contracts = {
+            (
+                str(row[0] or "").upper(),
+                str(row[1] or "").upper(),
+                str(row[2] or "").upper(),
+            )
+            for row in rows
+        }
+
+        # Назначенная стратегия должна иметь явное решение guard даже до
+        # появления первой сделки. Иначе loader возвращает NO_RULE, хотя
+        # корректное состояние такого контракта — INSUFFICIENT_DATA.
+        cur.execute("""
+        SELECT
+            symbol,
+            strategy_code,
+            timeframe
+        FROM analytics.runtime_strategy_assignment_v1
+        WHERE enabled IS TRUE
+        """)
+        for symbol, strategy, timeframe in cur.fetchall():
+            contract = (
+                str(symbol or "").upper(),
+                str(strategy or "").upper(),
+                str(timeframe or "").upper(),
+            )
+            if contract in observed_contracts:
+                continue
+            rows.append((
+                symbol,
+                strategy,
+                timeframe,
+                "UNKNOWN",
+                "UNKNOWN",
+                "UNKNOWN",
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                None,
+                0.0,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ))
+
+        # Режимная политика может назначать инструменту несколько исполнимых
+        # стратегий (например, возврат к среднему в боковике и пробой в тренде).
+        # Каждая ветка обязана получить явное guard-решение. Без этой выборки
+        # вторая стратегия ошибочно превращалась в NO_RULE, хотя была назначена
+        # действующей DB-политикой.
+        cur.execute("""
+        SELECT DISTINCT
+            symbol,
+            strategy_code,
+            timeframe
+        FROM analytics.runtime_strategy_policy_v2
+        WHERE enabled IS TRUE
+        """)
+        for symbol, strategy, timeframe in cur.fetchall():
+            contract = (
+                str(symbol or "").upper(),
+                str(strategy or "").upper(),
+                str(timeframe or "").upper(),
+            )
+            if contract in observed_contracts:
+                continue
+            observed_contracts.add(contract)
+            rows.append((
+                symbol,
+                strategy,
+                timeframe,
+                "UNKNOWN",
+                "UNKNOWN",
+                "UNKNOWN",
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                None,
+                0.0,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ))
 
     saved = 0
 

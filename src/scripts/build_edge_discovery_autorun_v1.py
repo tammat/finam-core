@@ -49,7 +49,7 @@ def main() -> None:
                 SELECT max(started_at) AS last_started_at
                 FROM analytics.edge_discovery_autorun_history_v1
                 WHERE source_version=%s
-                  AND status IN ('FINISHED','IDLE');
+                  AND status='FINISHED';
             """, (SOURCE_VERSION,))
             row = cur.fetchone()
             last_started_at = row["last_started_at"] if row else None

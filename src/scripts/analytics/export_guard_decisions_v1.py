@@ -55,6 +55,10 @@ def export_guard_decisions() -> int:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    # The exporter can run under an administrative account while the market
+    # pipeline runs as an unprivileged service user. Keep the generated
+    # contract readable after every atomic refresh.
+    OUTPUT_PATH.chmod(0o644)
 
     print(f"GUARD_DECISIONS_EXPORT_V1_OK path={OUTPUT_PATH} rows={len(rows)}", flush=True)
     return len(rows)

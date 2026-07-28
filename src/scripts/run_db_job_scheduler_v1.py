@@ -19,6 +19,7 @@ LOCK_ID = 941903128
 EXECUTORS = {
     "RESEARCH_PROCESS_MONITOR_V1": "src/scripts/monitor_research_processes_v1.py",
     "INSTRUMENT_SCOUT_V1": "src/scripts/run_autonomous_instrument_scout_v1.py",
+    "INSTRUMENT_DATA_REMEDIATION_V1": "src/scripts/run_instrument_data_remediation_v1.py",
     "CONTRACT_SPEC_SYNC_V1": "src/scripts/sync_market_contract_specs_v1.py",
     "SWING_EDGE_SEARCH_CYCLE_V1": "src/scripts/run_swing_edge_search_cycle_v1.py",
     "SWING_CLOSED_BAR_SEARCH_V1": "src/scripts/run_swing_closed_bar_search_v1.py",
@@ -44,6 +45,12 @@ EXECUTORS = {
     "EDGE_STRICT_RULE_BUILD_V2": "src/scripts/build_edge_strict_rules_v2.py",
     "PAPER_CLOSED_TRADE_MATERIALIZER_V2": "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py",
     "PAPER_FILL_ANOMALY_DETECTOR_V1": "src/scripts/detect_paper_fill_anomalies_v1.py",
+    "TRADE_OUTCOME_PATTERN_ANALYSIS_V1": "src/scripts/build_trade_outcome_pattern_analysis_v1.py",
+    "TRADE_OUTCOME_HYPOTHESIS_GENERATOR_V1": "src/scripts/generate_trade_outcome_hypotheses_v1.py",
+    "TRADE_OUTCOME_OOS_ADMISSION_V1": "src/scripts/admit_trade_outcome_hypotheses_to_oos_v1.py",
+    "ARCHIVE_V3_OOS_BRIDGE_V1": "src/scripts/build_archive_v3_oos_bridge_v1.py",
+    "ARCHIVE_EXACT_V3_BRANCH_PLAN_V1": "src/scripts/build_archive_exact_v3_branch_plan_v1.py",
+    "HIERARCHICAL_EVIDENCE_ROUTER_V1": "src/scripts/build_hierarchical_evidence_router_v1.py",
     "MARKET_OPEN_READINESS_V1": "src/scripts/check_market_open_readiness_v1.py",
     "HISTORICAL_EDGE_AUDIT_ENQUEUE_V1": "src/scripts/enqueue_historical_edge_audit_v1.py",
     "SIGNAL_FUNNEL_ANALYTICS_V1": "src/scripts/signal_funnel_analytics_v1.py",
@@ -52,6 +59,7 @@ EXECUTORS = {
     "CHECKPOINTED_WALKFORWARD_V4": "src/scripts/run_checkpointed_walkforward_v4.py",
     "SESSION_EXECUTION_EDGE_V2": "src/scripts/build_session_execution_edge_v1.py",
     "OOS_REMEDIATION_BRANCH_GENERATOR_V1": "src/scripts/generate_oos_remediation_branches_v1.py",
+    "TEMPORAL_OOS_BRANCH_GENERATOR_V1": "src/scripts/generate_temporal_oos_branches_v1.py",
     "MICROSTRUCTURE_PRIORITY_REFRESH_V1": "src/scripts/refresh_microstructure_priority_v1.py",
     "M15_REBUILD_FROM_M5_V1": "src/scripts/rebuild_m15_from_m5_v1.py",
 }

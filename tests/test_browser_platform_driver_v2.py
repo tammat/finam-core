@@ -19,6 +19,15 @@ def test_rows_and_clickable_containers_require_double_click() -> None:
     assert 'else emit("CLICK");' in source
 
 
+def test_governance_tiles_open_recommended_actions_on_double_click() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    assert "openGovernanceActions(card)" in source
+    assert 'node.node_id.startsWith("research.tile.")' in source
+    assert 'element.addEventListener("dblclick", () => this.openGovernanceActions(element));' in source
+    assert 'commandCode: refreshOnly.has(code) ? "RESEARCH.REQUEST_REFRESH" : "RESEARCH.RUN_EDGE_SEARCH"' in source
+    assert 'interactionKind: "DOUBLE_CLICK"' in source
+
+
 def test_action_controller_can_create_uuid_on_insecure_http_origin() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_action_controller_v2.js").read_text()
     assert 'typeof globalObject.crypto.randomUUID === "function"' in source
@@ -52,12 +61,21 @@ def test_clickable_cards_highlight_and_open_only_on_double_click() -> None:
     assert 'cursor: pointer' in css
 
 
-def test_command_buttons_require_confirmed_double_click() -> None:
+def test_command_buttons_execute_on_double_click_without_second_confirmation() -> None:
     source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
     assert 'const isCommandButton = node.type === "action"' in source
     assert 'isTableRow || isContainer || isCommandButton' in source
-    assert 'globalObject.confirm("Подтвердить выполнение действия?")' in source
+    assert 'globalObject.confirm("Подтвердить выполнение действия?")' not in source
     assert 'activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…")' in source
+
+
+def test_all_action_dialogs_use_double_click_and_have_no_close_button() -> None:
+    source = Path("src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js").read_text()
+    assert "showActionDialog(dialog)" in source
+    assert 'dialog.addEventListener("dblclick", (event) =>' in source
+    assert 'action.dataset.mcDoubleClickActivation = "true"' in source
+    assert 'dialog.querySelectorAll(".mc-action-dialog-close").forEach((button) => button.remove())' in source
+    assert "if (event.target === dialog)" in source
 
 
 def test_control_center_tables_are_grouped_under_collapsible_sections() -> None:
@@ -89,3 +107,44 @@ def test_control_center_group_state_survives_auto_refresh_races() -> None:
     assert 'details[data-mc-section-group]' in source
     assert "const backgroundRefresh = Boolean(options.preserveState" in source
     assert 'if (!backgroundRefresh) {' in source
+
+
+def test_executable_double_click_updates_status_until_database_refresh() -> None:
+    source = Path(
+        "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js"
+    ).read_text()
+    assert "setRowStatus(row, label, progressValue, statusCode)" in source
+    assert 'this.setRowStatus(row, "Выполняется", 50, "RUNNING")' in source
+    assert 'this.setRowStatus(row, "Ожидает", 10, "WARNING")' in source
+    assert 'this.setRowStatus(row, "Ошибка", 0, "FAIL")' in source
+    assert 'data-mc-column-code' in source
+
+
+def test_table_headers_sort_on_double_click_and_survive_auto_refresh() -> None:
+    source = Path(
+        "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js"
+    ).read_text()
+    css = Path(
+        "src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css"
+    ).read_text()
+    migration = Path("sql/presentation/177_research_process_priority_i18n_v1.sql").read_text()
+    assert "sortTable(header, requestedDirection = null, persist = true)" in source
+    assert 'element.addEventListener("dblclick", (event) =>' in source
+    assert "sortableValue(cell)" in source
+    assert "restoreTableSorts()" in source
+    assert "sessionStorage.setItem(this.tableSortKey(table)" in source
+    assert 'data-mc-sort-direction="ascending"' in css
+    assert 'data-mc-sort-direction="descending"' in css
+    assert "table.sort.hint" in migration
+
+
+def test_every_table_row_has_a_database_backed_resolution_dialog() -> None:
+    source = Path(
+        "src/marketcore/presentation/ui_runtime/assets/v2/browser_platform_driver_v2.js"
+    ).read_text()
+    assert "openRowResolution(row)" in source
+    assert 'actionId:"research.request.refresh"' in source
+    assert 'commandCode:"RESEARCH.REQUEST_REFRESH"' in source
+    assert "Исполняемая команда будет записана в БД" in source
+    assert '&& node.type === "table_row"' in source
+    assert "openStaticResolution" in source

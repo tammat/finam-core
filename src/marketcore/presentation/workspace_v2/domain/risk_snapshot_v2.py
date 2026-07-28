@@ -37,10 +37,30 @@ class RiskDecisionAggregateV2:
 
 
 @dataclass(frozen=True, slots=True)
+class RiskControlDecisionV2:
+    symbol: str
+    strategy_family: str
+    decision_code: str
+    reason_codes: tuple[str, ...]
+    requested_quantity: Decimal
+    approved_quantity: Decimal
+    risk_budget_rub: Decimal
+    risk_per_contract_rub: Decimal
+    gross_exposure_rub: Decimal
+    daily_pnl_rub: Decimal
+    drawdown_rub: Decimal
+    spread_bps: Decimal | None
+    book_depth: Decimal | None
+    quote_observed_at: datetime | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class RiskSnapshotV2:
     clusters: tuple[RiskClusterSnapshotV2, ...]
     permissions: RiskPermissionSnapshotV2 | None
     decisions: RiskDecisionAggregateV2
+    control_decisions: tuple[RiskControlDecisionV2, ...]
     maximum_age_seconds: int
     generated_at: datetime
     portfolio_freshness_code: str

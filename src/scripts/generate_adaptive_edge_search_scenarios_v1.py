@@ -89,13 +89,23 @@ def adapted_grid(base_grid: list[dict], reason: str, algorithm_code: str = "", b
                 candidate.update({"exit_policy_code": "DYNAMIC_EXIT_V1", "exit_max_holding_bars": 20,
                                   "exit_trend_lookback": 5, "exit_volatility_risk_multiplier": 2.0,
                                   "entry_policy_code": "META_ENTRY_V2", "entry_trend_mode": "WITH_TREND",
-                                  "entry_volume_mode": "REQUIRE"})
+                                  "entry_volume_mode": "REQUIRE",
+                                  "entry_regime_mode": "REQUIRE",
+                                  "entry_allowed_regimes": [
+                                      "compression", "range_compression", "trend_up_expansion",
+                                      "trend_down_expansion",
+                                  ]})
             elif algorithm_code == "EMA_TREND":
                 candidate.update({"entry_policy_code": "META_ENTRY_V2",
                                   "entry_trend_mode": "WITH_TREND",
                                   "entry_min_volatility_bps": 1.0,
                                   "entry_max_volatility_bps": 120.0,
                                   "entry_volume_mode": "REQUIRE",
+                                  "entry_regime_mode": "REQUIRE",
+                                  "entry_allowed_regimes": [
+                                      "trend_up", "trend_down", "trend_up_expansion",
+                                      "trend_down_expansion",
+                                  ],
                                   "session_analysis": "MARKET_SESSION_CONTRACT_V1",
                                   "exit_policy_code": "DYNAMIC_EXIT_V1",
                                   "exit_max_holding_bars": 20,
@@ -127,12 +137,28 @@ def methodology_failures(cursor, parent_run_id: str) -> list[dict]:
                jsonb_build_object('folds',w.folds_passed,'profit_factor',w.net_profit_factor,
                                   'expectancy',w.net_expectancy) AS best_metrics,
                CASE
-                 WHEN NOT m.execution_pass THEN 'METHODOLOGY_REALISTIC_EXECUTION'
-                 WHEN NOT m.statistical_pass THEN 'METHODOLOGY_STATISTICAL_SIGNIFICANCE'
-                 WHEN NOT m.robustness_pass THEN 'METHODOLOGY_PARAMETER_ROBUSTNESS'
-                 WHEN NOT m.holdout_pass THEN 'METHODOLOGY_INDEPENDENT_HOLDOUT'
-                 WHEN NOT m.capacity_pass THEN 'METHODOLOGY_CAPACITY'
-                 WHEN NOT m.portfolio_pass THEN 'METHODOLOGY_PORTFOLIO_CONTRIBUTION'
+                 WHEN NOT coalesce((m.evidence->>'base_walkforward_pass')::boolean,false)
+                   THEN 'BASE_WALKFORWARD_FAILED'
+                 ELSE coalesce((
+                   SELECT CASE gate.key
+                     WHEN 'STATISTICAL_SIGNIFICANCE' THEN 'METHODOLOGY_STATISTICAL_SIGNIFICANCE'
+                     WHEN 'PARAMETER_ROBUSTNESS' THEN 'METHODOLOGY_PARAMETER_ROBUSTNESS'
+                     WHEN 'INDEPENDENT_HOLDOUT' THEN 'METHODOLOGY_INDEPENDENT_HOLDOUT'
+                     WHEN 'REALISTIC_EXECUTION' THEN 'METHODOLOGY_REALISTIC_EXECUTION'
+                     WHEN 'CAPACITY' THEN 'METHODOLOGY_CAPACITY'
+                     WHEN 'PORTFOLIO_CONTRIBUTION' THEN 'METHODOLOGY_PORTFOLIO_CONTRIBUTION'
+                   END
+                   FROM jsonb_each_text(coalesce(m.evidence->'gate_statuses','{}'::jsonb)) AS gate(key,value)
+                   WHERE gate.value='FAIL'
+                   ORDER BY CASE gate.key
+                     WHEN 'STATISTICAL_SIGNIFICANCE' THEN 1
+                     WHEN 'PARAMETER_ROBUSTNESS' THEN 2
+                     WHEN 'INDEPENDENT_HOLDOUT' THEN 3
+                     WHEN 'REALISTIC_EXECUTION' THEN 4
+                     WHEN 'CAPACITY' THEN 5
+                     WHEN 'PORTFOLIO_CONTRIBUTION' THEN 6 ELSE 99 END
+                   LIMIT 1
+                 ),'BASE_WALKFORWARD_FAILED')
                END AS primary_reason_code
         FROM analytics.edge_methodology_evaluation_v1 m
         JOIN analytics.walkforward_edge_search_v3 w ON w.result_id=m.result_id

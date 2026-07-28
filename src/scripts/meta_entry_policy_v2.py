@@ -31,4 +31,6 @@ def load_meta_entry_policy_v2(cursor: Any, symbol: str, timeframe: str, bars: Se
 def apply_meta_entry_policy_v2(params: dict, policy: dict) -> dict:
     if str(params.get("entry_policy_code", "NONE")) != "META_ENTRY_V2":
         return params
-    return {**params, **policy, "entry_policy_code": "META_ENTRY_V2"}
+    # The DB profile supplies safe defaults. A versioned adaptive scenario may
+    # narrow sessions/regimes, so its explicit fields must win over defaults.
+    return {**policy, **params, "entry_policy_code": "META_ENTRY_V2"}

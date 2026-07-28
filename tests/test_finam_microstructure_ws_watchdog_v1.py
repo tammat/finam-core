@@ -35,7 +35,9 @@ def test_active_oos_has_priority_and_eight_detail_slots() -> None:
     source = SCRIPT.read_text()
     assert 'MAX_DETAIL_SYMBOLS", "8"' in source
     assert 'query("DYNAMIC_PRIORITY"' in source
-    assert "merge_symbols(dynamic_priority, recent_fills" in source
+    assert 'query("ACTIVE_OOS"' in source
+    assert "analytics.futures_roll_decision_v1" in source
+    assert "merge_symbols(active_oos, dynamic_priority, recent_fills" in source
     assert "analytics.microstructure_research_priority_v1" in source
     assert "selected_for_detail" in source
     assert 'PRIORITY_REFRESH_SECONDS' in source

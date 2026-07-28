@@ -1,10 +1,20 @@
 from pathlib import Path
+import importlib.util
 
 from finam_core.runtime.research_contract_key_v1 import normalize_research_contract_key_v1
 from finam_core.storage.trade_context_guard_v1 import TradeContextGuardV1
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load_fill_materializer():
+    path = ROOT / "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py"
+    spec = importlib.util.spec_from_file_location("fill_materializer_v1", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_br_contract_key_is_canonical() -> None:
@@ -16,6 +26,21 @@ def test_br_contract_key_is_canonical() -> None:
     assert key.timeframe == "M5"
     assert key.side == "BUY"
     assert key.regime_code == "trend_up_high_vol"
+
+
+def test_equity_root_keeps_digits_that_are_part_of_ticker() -> None:
+    materializer = _load_fill_materializer()
+    assert materializer.root_symbol_for("X5@MISX", None) == "X5"
+    assert materializer.root_symbol_for("SBER@MISX", None) == "SBER"
+    assert materializer.root_symbol_for("BRQ6@RTSX", None) == "BR"
+
+
+def test_equity_research_quota_is_specific_and_keeps_risk_gates() -> None:
+    sql = (ROOT / "sql/analytics/187_equity_fresh_v2_quota_v1.sql").read_text()
+    assert "EQUITY_RESEARCH_PAPER_V1" in sql
+    assert "VOLATILITY_BREAKOUT_EQUITY" in sql
+    assert "3600, 6, 180" in sql
+    assert "reserved_research_slots" in sql
 
 
 def test_storage_guard_cannot_persist_br_live_timeframe() -> None:

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import psycopg2
 import psycopg2.extras
@@ -607,7 +607,7 @@ def main() -> int:
     print("orders_changed=0")
     print("fills_changed=0")
     print("micro_live_allowed=0")
-    HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
     return 0
 
 

@@ -169,10 +169,31 @@ class Collector:
             WHERE selected_for_detail
             ORDER BY priority_rank
         """)
+        active_oos = query("ACTIVE_OOS", """
+            WITH latest_roll AS (
+                SELECT DISTINCT ON (root_symbol) root_symbol,selected_symbol
+                FROM analytics.futures_roll_decision_v1
+                ORDER BY root_symbol,created_at DESC
+            ), waiting AS (
+                SELECT DISTINCT symbol,
+                    CASE WHEN symbol ~ '^BR[A-Z][0-9]@RTSX$' THEN 'BR'
+                         WHEN symbol ~ '^NG[A-Z][0-9]@RTSX$' THEN 'NG'
+                    END AS root_symbol
+                FROM analytics.oos_remediation_candidate_v1
+                WHERE status_code IN ('WAITING_FUTURE_DATA','QUEUED')
+            )
+            SELECT coalesce(r.selected_symbol,w.symbol) AS symbol
+            FROM waiting w
+            LEFT JOIN latest_roll r USING(root_symbol)
+            ORDER BY symbol
+        """)
         # The first symbols receive ORDER_BOOK and trade-tape subscriptions.
         # Keep active OOS instruments ahead of opportunistic Paper traffic so a
         # busy signal stream cannot evict the cohort that must be validated.
-        return merge_symbols(dynamic_priority, recent_fills, shadow, SYMBOLS, watched)
+        # Contract selection is DB-driven.  A candidate following an expiring
+        # futures symbol is subscribed through the currently selected contract,
+        # rather than a hard-coded next contract.
+        return merge_symbols(active_oos, dynamic_priority, recent_fills, shadow, SYMBOLS, watched)
 
     def close(self) -> None:
         self.token_manager.close()

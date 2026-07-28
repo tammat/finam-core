@@ -15,6 +15,34 @@ class ResearchAlgorithmResultV2:
     fail_reason: str
 
 @dataclass(frozen=True, slots=True)
+class TradeOutcomePatternV1:
+    dimension_code: str
+    dimension_value: str
+    trades: int
+    winners: int
+    losers: int
+    expectancy: float
+    profit_factor: float
+    outcome_code: str
+    recommendation_code: str
+
+@dataclass(frozen=True, slots=True)
+class TradeOutcomeHypothesisV1:
+    hypothesis_id: str
+    hypothesis_type: str
+    strategy_code: str
+    side_code: str
+    session_code: str | None
+    holding_code: str | None
+    regime_code: str | None
+    trades: int
+    context_complete_trades: int
+    profit_factor: float
+    expectancy: float
+    lifecycle_state: str
+    recommendation_code: str
+
+@dataclass(frozen=True, slots=True)
 class MethodologyGateFailureV1:
     gate_code: str
     total: int
@@ -25,6 +53,7 @@ class MethodologyGateFailureV1:
     status: str
     cost_failures: int = 0
     sample_failures: int = 0
+    next_action_code: str = "NO_ACTION"
 
 @dataclass(frozen=True, slots=True)
 class ResearchUniverseItemV1:
@@ -74,6 +103,7 @@ class FuturesRollItemV1:
 @dataclass(frozen=True, slots=True)
 class EdgeSearchRunAuditV1:
     process_id: str
+    process_type: str
     run_id: str
     status: str
     progress_pct: float
@@ -136,6 +166,10 @@ class ResearchSnapshotV2:
     oos_total: int
     oos_pass_total: int
     oos_updated_at: datetime | None
+    oos_waiting_total: int
+    oos_waiting_cost: int
+    oos_waiting_sample: int
+    oos_waiting_future: int
     edge_search_status: str
     edge_search_step: str
     edge_search_progress_pct: int
@@ -188,6 +222,8 @@ class ResearchSnapshotV2:
     scout_items: tuple[InstrumentScoutItemV1, ...]
     universe_items: tuple[ResearchUniverseItemV1, ...]
     algorithm_results: tuple[ResearchAlgorithmResultV2, ...]
+    trade_outcome_patterns: tuple[TradeOutcomePatternV1, ...]
+    trade_outcome_hypotheses: tuple[TradeOutcomeHypothesisV1, ...]
     edge_search_runs: tuple[EdgeSearchRunAuditV1, ...]
     remediation_branches: tuple[OosRemediationBranchV1, ...]
     live_signals_1h: int

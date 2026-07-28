@@ -112,11 +112,11 @@ def test_signal_repository_supports_managed_connection_factory() -> None:
     assert len(connections[0].cursor_instance.executions) == 1
 
 
-def test_runtime_reload_does_not_evict_base_symbols() -> None:
+def test_runtime_reload_obeys_hard_subscription_limit_and_db_priority() -> None:
     service = object.__new__(RuntimeSymbolReloadService)
     service.source = "opportunity_scanner"
     service.sources = ["opportunity_scanner", "confirmation_universe"]
-    service.limit = 10
+    service.limit = 2
 
     class _Provider:
         def load_symbols(self, **_kwargs):
@@ -125,9 +125,9 @@ def test_runtime_reload_does_not_evict_base_symbols() -> None:
     service.provider = _Provider()
     decision = service.decide(["SBERP@MISX", "VTBR@MISX"])
 
-    assert decision.active_symbols == ["SBERP@MISX", "VTBR@MISX", "BRQ6@RTSX"]
+    assert decision.active_symbols == ["BRQ6@RTSX", "SBERP@MISX"]
     assert decision.added_symbols == ["BRQ6@RTSX"]
-    assert decision.removed_symbols == []
+    assert decision.removed_symbols == ["VTBR@MISX"]
 
 
 def test_equity_signal_is_persisted_and_sunday_contract_exists() -> None:

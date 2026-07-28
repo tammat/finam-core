@@ -27,7 +27,7 @@ def test_sunday_window_requires_verified_live_stream() -> None:
     }
 
 
-def test_sunday_window_boundaries_and_saturday_are_closed() -> None:
+def test_weekend_window_boundaries_and_saturday_requires_live_stream() -> None:
     manager = SessionManager()
     assert not manager.get_regime(
         now=datetime(2026, 7, 19, 9, 59, tzinfo=MSK), market_data_live=True
@@ -35,8 +35,11 @@ def test_sunday_window_boundaries_and_saturday_are_closed() -> None:
     assert not manager.get_regime(
         now=datetime(2026, 7, 19, 19, 0, tzinfo=MSK), market_data_live=True
     )["allow_entries"]
-    assert not manager.get_regime(
+    assert manager.get_regime(
         now=datetime(2026, 7, 18, 12, 0, tzinfo=MSK), market_data_live=True
+    )["allow_entries"]
+    assert not manager.get_regime(
+        now=datetime(2026, 7, 18, 12, 0, tzinfo=MSK), market_data_live=False
     )["allow_entries"]
 
 

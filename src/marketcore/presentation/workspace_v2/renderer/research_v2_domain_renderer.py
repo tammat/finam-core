@@ -56,6 +56,22 @@ def _status_tile(code, value):
             _domain(RenderNodeTypeV2.METRIC_VALUE,f"research.tile.{code}.value",value),
         ))
 
+def _oos_waiting_card(s):
+    return RenderNodeV2(RenderNodeTypeV2.CARD,"research.oos.waiting",
+        state=RenderNodeStateV2(status_code="WARNING" if s.oos_waiting_total else "OK"),children=(
+            _leaf(RenderNodeTypeV2.TITLE,"research.oos.waiting.title",key="research.oos.waiting.title"),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.oos.waiting.total",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.oos.waiting.total.label",key="research.oos.waiting.total"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.oos.waiting.total.value",value=s.oos_waiting_total,fmt="INTEGER"),
+            )),
+            RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.oos.waiting.reasons",children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.oos.waiting.reasons.label",key="research.oos.waiting.reasons"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.oos.waiting.reasons.value",key="research.oos.waiting.reasons.value",args={
+                    "cost":s.oos_waiting_cost,"sample":s.oos_waiting_sample,"future":s.oos_waiting_future,
+                }),
+            )),
+        ))
+
 def _validation_funnel_tiles(s):
     values=(
         ("validation_in_sample",s.validation_in_sample),
@@ -131,8 +147,109 @@ def _algorithm_table(items):
         )))
     return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.algorithms.table",children=(RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.algorithms.head",children=(header,)),RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.algorithms.body",children=tuple(rows))))
 
+def _trade_outcome_pattern_table(items):
+    columns=(("Разрез","dimension"),("Группа","group"),("Сделки","trades"),
+             ("Плюс / минус","wins"),("Ожидание, ₽","expectancy"),
+             ("PF","pf"),("Вывод","outcome"),("Дальше","next"))
+    header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.outcomes.header",children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.outcomes.header.{code}",value=label)
+        for label,code in columns))
+    labels={"STRATEGY_SIDE":"Стратегия · сторона","INSTRUMENT":"Инструмент",
+            "SESSION_MSK":"Сессия","HOLDING":"Удержание",
+            "PROFITABLE":"Прибыльно","LOSS_MAKING":"Убыточно",
+            "EXPAND_VALIDATION":"Проверить OOS","RESTRICT_OR_RESEARCH":"Ограничить и изучить",
+            "COLLECT_SAMPLE":"Накопить выборку"}
+    rows=[]
+    for index,item in enumerate(items,start=1):
+        state="OK" if item.outcome_code=="PROFITABLE" else "BLOCKED" if item.outcome_code=="LOSS_MAKING" else "WARNING"
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.outcomes.{index}",
+            state=RenderNodeStateV2(status_code=state),children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.dimension",value=labels.get(item.dimension_code,item.dimension_code)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.group",value=item.dimension_value),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.trades",value=item.trades,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.wins",value=f"{item.winners} / {item.losers}"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.expectancy",value=item.expectancy,fmt="DECIMAL"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.pf",value=item.profit_factor,fmt="DECIMAL"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.outcome",value=labels.get(item.outcome_code,item.outcome_code)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.outcomes.{index}.next",value=labels.get(item.recommendation_code,item.recommendation_code)),
+            )))
+    return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.outcomes.table",children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.outcomes.head",children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.outcomes.body",children=tuple(rows))))
+
+def _trade_outcome_hypothesis_table(items):
+    columns=(("Гипотеза","type"),("Связка","scope"),("Сделки","trades"),
+             ("Контекст","context"),("PF","pf"),("Статус","status"),("Действие","next"))
+    header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.hypotheses.header",children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.hypotheses.header.{code}",value=label)
+        for label,code in columns))
+    labels={
+        "FILTER_OOS_CANDIDATE":"Кандидат OOS","DATA_QUALITY_REMEDIATION":"Качество данных",
+        "LOSS_FILTER_REMEDIATION":"Фильтр убытков","SAMPLE_EXPANSION":"Расширение выборки",
+        "SESSION_FILTER_COHORT":"Проверка сессии","EXIT_POLICY_REFINEMENT":"Проверка выхода",
+        "REGIME_FILTER_COHORT":"Проверка режима","READY_FOR_OOS":"Готова к OOS",
+        "WAITING_CONTEXT":"Ждёт контекст","GENERATED":"Накопление",
+        "RESTRICTED":"Ограничена","WAITING_HYPOTHESIS":"Ждёт условий",
+        "WAITING_FRESH_DATA":"Ждёт свежие сделки","WAITING_MICROSTRUCTURE":"Ждёт стакан",
+        "QUEUED":"В очереди","FRESH_SAMPLE_BELOW_80":"Накопить 80 свежих сделок",
+        "HYPOTHESIS_NOT_READY_FOR_OOS":"Выполнить условия гипотезы",
+        "FRESH_CONTEXT_BELOW_THRESHOLD":"Дополнить контекст сделок",
+        "MICROSTRUCTURE_COVERAGE_BELOW_THRESHOLD":"Довести покрытие стаканом до 80%",
+        "READY_FOR_ISOLATED_OOS":"Поставить в изолированный OOS",
+        "BUILD_ISOLATED_OOS_COHORT":"Создать изолированный OOS",
+        "BUILD_SESSION_OOS_COHORT":"Проверить сессию","BUILD_EXIT_POLICY_OOS_COHORT":"Проверить выход",
+        "BUILD_REGIME_OOS_COHORT":"Проверить режим","RECORD_ENTRY_CONTEXT":"Записать вход",
+        "RECORD_SESSION_CONTEXT":"Записать сессию","RECORD_EXIT_CONTEXT":"Записать выход",
+        "RECORD_REGIME_CONTEXT":"Записать режим","RESTRICT_AND_RESEARCH":"Ограничить и изучить",
+        "RESTRICT_SESSION_FILTER":"Ограничить сессию","RESTRICT_EXIT_POLICY":"Ограничить выход",
+        "RESTRICT_REGIME_FILTER":"Ограничить режим","EXPAND_COMPATIBLE_SAMPLE":"Накопить совместимые сделки",
+        "LONG":"Покупка","SHORT":"Продажа","UNKNOWN":"Не определено",
+        "UNVERIFIED_EXIT":"Выход не подтверждён","STOP_TAKE":"Стоп или цель",
+        "TIME_EXIT":"Выход по времени","PREMARKET":"До открытия","MORNING":"Утро",
+        "DAY":"День","EVENING":"Вечер","OFF_MAIN":"Вне основной сессии",
+        "5M_TO_1H":"От 5 минут до часа","UP_TO_5M":"До 5 минут",
+        "1H_TO_4H":"От часа до четырёх","OVER_4H":"Более четырёх часов",
+        "trend_up_high_vol":"Рост, высокая волатильность",
+        "trend_down_high_vol":"Снижение, высокая волатильность",
+        "range_high_vol":"Боковик, высокая волатильность",
+    }
+    strategy_labels={
+        "VOLATILITY_BREAKOUT_EQUITY":"Пробой волатильности",
+        "BR_CONSERVATIVE_BREAKOUT":"Консервативный пробой нефти",
+        "NG_CONSERVATIVE_BREAKOUT":"Консервативный пробой газа",
+        "NG_CONSERVATIVE_BREAKOUT_M1":"Пробой газа M1",
+        "VWAP_BANDS_MR":"Возврат к VWAP",
+        "USD_INTRADAY_REGIME":"Внутридневной доллар",
+    }
+    rows=[]
+    for index,item in enumerate(items,start=1):
+        status="OK" if item.lifecycle_state=="READY_FOR_OOS" else "BLOCKED" if item.lifecycle_state=="RESTRICTED" else "WARNING"
+        parts=(strategy_labels.get(item.strategy_code,item.strategy_code),labels.get(item.side_code,item.side_code),
+               labels.get(item.session_code,item.session_code) if item.session_code else None,
+               labels.get(item.holding_code,item.holding_code) if item.holding_code else None,
+               labels.get(item.regime_code,item.regime_code) if item.regime_code else None)
+        scope=" · ".join(str(part) for part in parts if part)
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.hypotheses.{index}",
+            state=RenderNodeStateV2(status_code=status),children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.type",value=labels.get(item.hypothesis_type,item.hypothesis_type)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.scope",value=scope),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.trades",value=item.trades,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.context",value=f"{item.context_complete_trades} / {item.trades}"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.pf",value=item.profit_factor,fmt="DECIMAL"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.status",value=labels.get(item.lifecycle_state,item.lifecycle_state)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.hypotheses.{index}.next",value="Включить в исследование"),
+            ),action=RenderActionV2(
+                "research.hypothesis.include",ActionKindV2.COMMAND,target_id=item.hypothesis_id,
+                command_code="RESEARCH.HYPOTHESIS_INCLUDE",policy_class="RESEARCH_MAINTENANCE",
+                reversible=True,rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
+                idempotency_key="client.request",
+            )))
+    return RenderNodeV2(RenderNodeTypeV2.TABLE,"research.hypotheses.table",children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD,"research.hypotheses.head",children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.hypotheses.body",children=tuple(rows))))
+
 def _methodology_failure_table(items):
-    columns=("gate","failed","passed","not_evaluated","fail_pct","detail","status")
+    columns=("gate","failed","passed","fail_pct","detail","action","status")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.failures.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.failures.header.{code}",key=f"research.failures.column.{code}") for code in columns))
     rows=[]
@@ -150,9 +267,9 @@ def _methodology_failure_table(items):
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.gate",key=f"research.failures.gate.{item.gate_code}"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.failed",value=item.failed,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.passed",value=item.passed,fmt="INTEGER"),
-            _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.not_evaluated",value=item.not_evaluated,fmt="INTEGER"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.fail_pct",value=item.fail_pct,fmt="DECIMAL"),
             detail,
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.action",item.next_action_code),
             _domain(RenderNodeTypeV2.TABLE_CELL,f"research.failures.{index}.status",item.status),
         ),action=RenderActionV2(
             "research.methodology.recheck",ActionKindV2.COMMAND,target_id=item.gate_code,
@@ -165,7 +282,7 @@ def _methodology_failure_table(items):
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY,"research.failures.body",children=tuple(rows))))
 
 def _remediation_branch_table(items):
-    columns=("branch","sources","created","pruned","queued","evaluated","gross","net","lost","pass","status","action")
+    columns=("branch","sources","created","pruned","queued","evaluated","result","status","action")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.remediation.header",children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.remediation.header.{code}",
               key=f"research.remediation.column.{code}") for code in columns))
@@ -181,10 +298,9 @@ def _remediation_branch_table(items):
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.pruned",value=item.pruned_variants,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.queued",value=item.queued_variants,fmt="INTEGER"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.evaluated",value=item.evaluated_variants,fmt="INTEGER"),
-                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.gross",value=item.gross_pass,fmt="INTEGER"),
-                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.net",value=item.after_costs_pass,fmt="INTEGER"),
-                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.lost",value=item.cost_lost,fmt="INTEGER"),
-                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.pass",value=item.oos_pass,fmt="INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.result",
+                      value=(f"{item.gross_pass} → {item.after_costs_pass}; "
+                             f"−{item.cost_lost}; PASS {item.oos_pass}")),
                 _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.remediation.{index}.status",
                       key=_domain_key(item.status),args={"progress_pct":item.progress_pct,
                       "current_step":item.current_step,"updated_at":item.updated_at.isoformat() if item.updated_at else None}),
@@ -339,12 +455,13 @@ def _futures_roll_cards(items):
     return RenderNodeV2(RenderNodeTypeV2.GRID,"research.futures.cards",children=tuple(cards))
 
 def _run_audit_table(items):
-    columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")
+    columns=("status","process","started","steps","duration","outcome","reason","analysis","recommendation")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.audit.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.audit.header.{code}",key=f"research.audit.column.{code}") for code in columns))
     rows=[]
     for index,item in enumerate(items,start=1):
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,f"research.audit.{index}",children=(
             _process_status(f"research.audit.{index}.status",item),
+            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.process",item.process_type),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.started",value=item.started_at,fmt="DATETIME"),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.steps",key="research.audit.steps",args={"completed":item.steps_completed,"total":item.steps_total}),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.duration",value=item.duration_seconds,fmt="INTEGER"),
@@ -450,12 +567,14 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
               "research.tile.status.pass" if s.oos_pass_total else "research.tile.status.no_pass"),
         _tile("queue",s.queue_pending,"WARNING" if s.queue_pending else "OK",
               "research.tile.status.queue" if s.queue_pending else "research.tile.status.empty"),
+        _oos_waiting_card(s),
     )
     governance_tiles=(
         _tile("global_trials",s.global_trials,"OK" if s.global_trials else "WARNING"),
         _tile("global_pass",s.global_significance_pass,"OK" if s.global_significance_pass else "WARNING"),
         _tile("holdout",s.holdout_opened,"BLOCKED" if s.holdout_reuse_blocked else ("OK" if s.holdout_opened else "WARNING")),
-        _tile("pnl_units",s.pnl_units_ready,"BLOCKED" if s.pnl_units_blocked else ("OK" if s.pnl_units_ready else "WARNING")),
+        _tile("pnl_units",s.pnl_units_ready,"OK" if s.pnl_units_ready else "WARNING"),
+        _tile("pnl_blocks",s.pnl_units_blocked,"BLOCKED" if s.pnl_units_blocked else "OK"),
         _tile("equities",s.equity_experiments,"OK" if s.equity_experiments else "WARNING"),
         _tile("futures",s.futures_experiments,"OK" if s.futures_experiments else "WARNING"),
         _tile("portfolio",s.portfolio_selected,"OK" if s.portfolio_selected else "WARNING"),
@@ -479,6 +598,6 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.degradation.title",key="research.degradation.title",level="SECTION"),_strategy_degradation_table(s.strategy_degradation)))
     if s.global_trials:
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.governance.title",key="research.governance.title",level="SECTION"),RenderNodeV2(RenderNodeTypeV2.GRID,"research.governance.tiles",children=governance_tiles)))
-    children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.scout.title",key="research.scout.title",level="SECTION"),_scout_schedule(s),_leaf(RenderNodeTypeV2.TITLE,"research.scout.funnel.title",key="research.scout.funnel.title",level="SECTION"),_instrument_funnel(s),_scout_table(s.scout_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results)))
+    children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.futures.title",key="research.futures.title",level="SECTION"),_futures_roll_cards(s.futures_roll_items),_leaf(RenderNodeTypeV2.TITLE,"research.scout.title",key="research.scout.title",level="SECTION"),_scout_schedule(s),_leaf(RenderNodeTypeV2.TITLE,"research.scout.funnel.title",key="research.scout.funnel.title",level="SECTION"),_instrument_funnel(s),_scout_table(s.scout_items),_leaf(RenderNodeTypeV2.TITLE,"research.universe.title",key="research.universe.title",level="SECTION"),_universe_table(s.universe_items),_leaf(RenderNodeTypeV2.TITLE,"research.failures.title",key="research.failures.title",level="SECTION"),_methodology_failure_table(s.methodology_failures),_leaf(RenderNodeTypeV2.TITLE,"research.audit.title",key="research.audit.title",level="SECTION"),_run_audit_table(s.edge_search_runs),_leaf(RenderNodeTypeV2.TITLE,"research.outcomes.title",value="Где прибыль и убытки",level="SECTION"),_trade_outcome_pattern_table(s.trade_outcome_patterns),_leaf(RenderNodeTypeV2.TITLE,"research.hypotheses.title",value="Гипотезы для проверки",level="SECTION"),_trade_outcome_hypothesis_table(s.trade_outcome_hypotheses),_leaf(RenderNodeTypeV2.TITLE,"research.algorithms.title",key="research.algorithms.title",level="SECTION"),_algorithm_table(s.algorithm_results)))
     d=RenderDocumentV2(document_id="operator.research.v2",locale_code="ru-RU",fallback_locale_code="ru-RU",timezone_code=timezone_code,generated_at=s.generated_at,source_as_of=source_as_of,quality_code="MIXED_FRESHNESS",root=RenderNodeV2(RenderNodeTypeV2.WORKSPACE,"workspace.research",children=(RenderNodeV2(RenderNodeTypeV2.PAGE,"page.research",state=RenderNodeStateV2(status_code="WARNING",quality_code="MIXED_FRESHNESS"),children=tuple(children)),)))
     validate_render_document_v2(d); return d

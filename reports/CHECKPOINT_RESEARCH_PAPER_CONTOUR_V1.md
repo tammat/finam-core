@@ -1,9 +1,9 @@
 # CHECKPOINT_RESEARCH_PAPER_CONTOUR_V1
 
 Дата: 28.07.2026, МСК
-Git branch: feature/exit-alpha-v1
-Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
-Статус: V5_MONOTONIC_VIRTUAL_STOP_AWAITING_RELOAD
+Git branch: codex/research-edge-v5
+Git HEAD: 915a795dba4ff81b6dde3af90463f18286839317
+Статус: V5_SWING_DYNAMIC_EXIT_VERIFIED_AWAITING_COMMIT_AND_RELOAD
 
 ## Подтверждено
 
@@ -70,6 +70,16 @@ Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
 2. Перезапустить pipeline и подтвердить, что возраст открытой NG-позиции не сбросился.
 3. Получить первое чистое V5-закрытие по акциям и фьючерсам.
 4. Проверить автоматическое увеличение точной связки и OOS routing.
+
+## Swing dynamic exit
+
+- Swing Paper теперь оценивает состояние только при наличии закрытых H1/H4/D1-баров.
+- Validation и Paper используют одну реализацию `dynamic_exit_v1`.
+- Приоритеты выхода: ATR stop/trailing, исчезновение тренда, volatility risk; `MAX_HOLD` — конечная страховка.
+- Устранено ложное раннее `MAX_HOLD` при неполном incremental-горизонте.
+- Причины закрытия записываются в Paper order и trade фактическим reason code.
+- LONG/SHORT и ожидание неполного горизонта покрыты тестом; focused suite: `24 passed`.
+- Службы и runtime не запускались; фактическое срабатывание на следующем закрытом swing-баре требует проверки после reload.
 
 ## Runtime verification 20:24:59 МСК
 

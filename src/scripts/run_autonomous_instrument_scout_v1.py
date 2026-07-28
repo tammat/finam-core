@@ -52,7 +52,10 @@ def main() -> int:
         q.execute("SELECT policy FROM analytics.instrument_scout_policy_v1 WHERE active LIMIT 1")
         policy=q.fetchone()["policy"]
         q.execute("""UPDATE analytics.instrument_scout_queue_v1 SET status_code='SUPERSEDED',updated_at=clock_timestamp()
-          WHERE status_code='PENDING'""")
+          WHERE status_code='PENDING' AND action_code='RESEARCH_NEXT'""")
+        q.execute("""UPDATE analytics.instrument_scout_queue_v1 SET status_code='SUPERSEDED',updated_at=clock_timestamp()
+          WHERE status_code IN ('PENDING','RETRY')
+            AND action_code IN ('VERIFY_SPEC','COLLECT_DATA','COLLECT_LIQUIDITY','MONITOR_ROLL')""")
         q.execute("INSERT INTO analytics.instrument_scout_run_v1(run_id,status_code) VALUES(%s,'RUNNING')",(run,))
         q.execute("""WITH bars AS(
            SELECT symbol,count(*) FILTER(WHERE timeframe='M5') bars,max(ts) latest_ts,
@@ -174,6 +177,7 @@ def main() -> int:
         for priority,x in enumerate(selected,1):
             q.execute("""INSERT INTO analytics.instrument_scout_queue_v1(queue_id,run_id,symbol,action_code,priority,evidence)
               VALUES(%s,%s,%s,'RESEARCH_NEXT',%s,%s)""",(str(uuid.uuid4()),run,x["symbol"],priority,psycopg2.extras.Json({"source":SOURCE,"score":x["information_value_score"]})))
+        q.execute("SELECT analytics.enqueue_instrument_data_remediation_v1(%s)",(run,))
         specification_pass=sum(x["data_ready"] and x["spec_ready"] and x["research_eligible"] for x in rows)
         liquidity_pass=len(eligible)
         q.execute("""UPDATE analytics.instrument_scout_run_v1 SET status_code='COMPLETE',discovered=%s,ready=%s,selected=%s,

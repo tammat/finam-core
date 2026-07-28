@@ -25,6 +25,9 @@ def main() -> None:
                 FROM analytics.edge_observation_v1 o
                 JOIN analytics.edge_candidate_v1 c ON c.observation_uuid=o.observation_uuid
                 WHERE (%s IS NULL OR o.research_batch_id=%s)
+                  AND analytics.oos_variant_admission_reason_v1(
+                      o.symbol,o.timeframe,o.parameter_json
+                  )='ELIGIBLE'
                 ORDER BY o.research_batch_id,(o.parameter_json->>'threshold')::numeric NULLS LAST,o.observation_uuid
                 """,
                 (BATCH_ID, BATCH_ID),
@@ -47,11 +50,6 @@ def main() -> None:
                 if len(bars) <= IN_SAMPLE_BARS:
                     raise RuntimeError(f"OOS_BARS_NOT_AVAILABLE market={market}")
                 params = observation["parameter_json"] or {}
-                specification_complete = (
-                    "lookback" in params
-                    and ("hold" in params or "holding_bars" in params)
-                    and "threshold" in params
-                )
                 lookback = int(params.get("lookback", 20))
                 run = {"strategy_code": observation["strategy_code"], "parameter_json": params}
                 oos_start = bars[IN_SAMPLE_BARS].ts
@@ -81,7 +79,7 @@ def main() -> None:
                         and fold["expectancy"] > 0
                     )
 
-                passed = specification_complete and (
+                passed = (
                     oos["trades"] >= 30
                     and oos["profit_factor"] >= 1.10
                     and oos["expectancy"] > 0
@@ -89,13 +87,8 @@ def main() -> None:
                 )
                 verdict = "OOS_PASS" if passed else "OOS_FAIL"
                 reason = (
-                    "OOS_SPECIFICATION_INCOMPLETE: lookback, hold/holding_bars and threshold are required"
-                    if not specification_complete
-                    else (
-                        "OOS metrics and temporal folds passed"
-                        if passed
-                        else "OOS PF/expectancy or temporal fold stability failed"
-                    )
+                    "OOS metrics and temporal folds passed"
+                    if passed else "OOS PF/expectancy or temporal fold stability failed"
                 )
                 cur.execute(
                     """

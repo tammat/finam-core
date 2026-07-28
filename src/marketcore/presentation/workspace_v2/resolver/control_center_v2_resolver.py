@@ -524,6 +524,16 @@ class ControlCenterV2Resolver:
     def _signal_funnel(cur) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
         observations = observe_profit_funnel_sources_v2(DB)
         cur.execute("""
+            SELECT status
+            FROM marketcore_action.command_request_v2
+            WHERE request_kind='RESEARCH_REFRESH'
+              AND status IN ('PENDING','RUNNING')
+            ORDER BY requested_at DESC
+            LIMIT 1
+        """)
+        active_refresh = cur.fetchone()
+        active_refresh_status = str(active_refresh["status"]) if active_refresh else None
+        cur.execute("""
             SELECT transition_code,to_stage,from_count,to_count,lineage_status,reason_code
             FROM analytics.profit_funnel_transition_lineage_v2
         """)
@@ -549,6 +559,8 @@ class ControlCenterV2Resolver:
                 status = "BLOCKED"
             elif freshness != "CURRENT" or lineage_status != "PROVEN" or observation.quality_code != "VERIFIED":
                 status = "WARNING"
+            if pass_rate is None and reason_code != "INITIAL_STAGE" and active_refresh_status:
+                status = active_refresh_status
             stages.append({
                 "stage_order": stage_order,
                 "stage_code": observation.stage.value,

@@ -35,7 +35,19 @@
                 this.documentObject.body.appendChild(toast);
             }
             toast.dataset.state = state;
-            toast.textContent = message;
+            toast.replaceChildren();
+            if (state === "RUNNING") {
+                const logo = this.documentObject.createElement("img");
+                logo.className = "mc-loading-logo";
+                logo.src = "/assets/marketcore/ui-runtime/v2/marketcore-logo-v2.png";
+                logo.alt = "";
+                logo.setAttribute("aria-hidden", "true");
+                toast.appendChild(logo);
+            }
+            const label = this.documentObject.createElement("span");
+            label.textContent = state === "RUNNING" ? "Загрузка" : message;
+            toast.appendChild(label);
+            toast.setAttribute("aria-label", message);
             globalObject.clearTimeout(this.toastTimer);
             this.toastTimer = globalObject.setTimeout(() => toast.remove(), 2600);
         }
@@ -45,6 +57,121 @@
                 .forEach((selected) => selected.removeAttribute("data-mc-selected"));
             element.setAttribute("data-mc-selected", "true");
             this.announce(hint);
+        }
+
+        localized(key, fallback) {
+            if (!this.translate) return fallback;
+            try {
+                const value = this.translate(key, {}, this.localeCode);
+                return value && value !== key ? String(value) : fallback;
+            } catch (_error) {
+                return fallback;
+            }
+        }
+
+        showActionDialog(dialog) {
+            dialog.querySelectorAll(".mc-action-dialog-close").forEach((button) => button.remove());
+            dialog.addEventListener("click", (event) => {
+                if (event.target === dialog) {
+                    dialog.close();
+                    return;
+                }
+                const action = event.target.closest?.(".mc-action-dialog-item");
+                if (!action || action.dataset.mcDoubleClickActivation === "true") return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }, true);
+            dialog.addEventListener("dblclick", (event) => {
+                const action = event.target.closest?.(".mc-action-dialog-item");
+                if (!action || action.disabled) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                action.dataset.mcDoubleClickActivation = "true";
+                action.click();
+                delete action.dataset.mcDoubleClickActivation;
+            }, true);
+            dialog.addEventListener("close", () => dialog.remove(), {once: true});
+            dialog.showModal();
+        }
+
+        tableSortKey(table) {
+            const tableId = table?.getAttribute("data-mc-node-id") || "table";
+            return `marketcore.workspace-v2.sort:${tableId}`;
+        }
+
+        sortableValue(cell) {
+            const text = String(cell?.textContent || "").replace(/\u00a0/g, " ").trim();
+            const date = text.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:,?\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+            if (date) {
+                return {kind: "number", value: Date.UTC(
+                    Number(date[3]), Number(date[2]) - 1, Number(date[1]),
+                    Number(date[4] || 0), Number(date[5] || 0), Number(date[6] || 0)
+                )};
+            }
+            const ratio = text.match(/^([+-]?[\d\s]+(?:[.,]\d+)?)\s*\/\s*([\d\s]+(?:[.,]\d+)?)$/);
+            if (ratio) {
+                const numerator = Number(ratio[1].replace(/\s/g, "").replace(",", "."));
+                const denominator = Number(ratio[2].replace(/\s/g, "").replace(",", "."));
+                return {kind: "number", value: denominator ? numerator / denominator : numerator};
+            }
+            const numeric = text.match(/^([+-]?[\d\s]+(?:[.,]\d+)?)\s*(?:%|₽|р\.?|сек\.?|мс)?$/i);
+            if (numeric) {
+                return {kind: "number", value: Number(numeric[1].replace(/\s/g, "").replace(",", "."))};
+            }
+            return {kind: "text", value: text.toLocaleLowerCase(this.localeCode)};
+        }
+
+        sortTable(header, requestedDirection = null, persist = true) {
+            const table = header?.closest("table");
+            const headerRow = header?.parentElement;
+            if (!table || !headerRow) return;
+            const columnIndex = Array.from(headerRow.children).indexOf(header);
+            if (columnIndex < 0) return;
+            const current = header.getAttribute("data-mc-sort-direction");
+            const direction = requestedDirection || (current === "ascending" ? "descending" : "ascending");
+            table.querySelectorAll('[data-mc-node="table_header_cell"]').forEach((item) => {
+                item.removeAttribute("data-mc-sort-direction");
+                item.setAttribute("aria-sort", "none");
+            });
+            header.setAttribute("data-mc-sort-direction", direction);
+            header.setAttribute("aria-sort", direction);
+            const rows = Array.from(table.querySelectorAll('tr[data-mc-node="table_row"]'))
+                .filter((row) => row.querySelector('[data-mc-node="table_cell"]'));
+            const parents = new Set(rows.map((row) => row.parentElement));
+            parents.forEach((parent) => {
+                const sortableRows = rows.filter((row) => row.parentElement === parent && row.children[columnIndex]);
+                sortableRows.map((row, index) => ({row, index, key:this.sortableValue(row.children[columnIndex])}))
+                    .sort((left, right) => {
+                        let result;
+                        if (left.key.kind === "number" && right.key.kind === "number") {
+                            result = left.key.value - right.key.value;
+                        } else {
+                            result = String(left.key.value).localeCompare(String(right.key.value), this.localeCode, {numeric:true});
+                        }
+                        if (result === 0) result = left.index - right.index;
+                        return direction === "ascending" ? result : -result;
+                    })
+                    .forEach(({row}) => parent.appendChild(row));
+            });
+            if (persist) {
+                try {
+                    globalObject.sessionStorage.setItem(this.tableSortKey(table), JSON.stringify({columnIndex, direction}));
+                } catch (_error) { /* storage may be unavailable in embedded views */ }
+            }
+            const messageKey = direction === "ascending" ? "table.sort.ascending" : "table.sort.descending";
+            const fallback = direction === "ascending" ? "По возрастанию" : "По убыванию";
+            if (persist) this.announce(this.localized(messageKey, fallback));
+        }
+
+        restoreTableSorts() {
+            this.mountElement.querySelectorAll('[data-mc-node="table"]').forEach((table) => {
+                try {
+                    const state = JSON.parse(globalObject.sessionStorage.getItem(this.tableSortKey(table)) || "null");
+                    if (!state || !Number.isInteger(state.columnIndex)) return;
+                    const header = table.querySelectorAll('[data-mc-node="table_header_cell"]')[state.columnIndex];
+                    if (header) this.sortTable(header, state.direction, false);
+                } catch (_error) { /* ignore stale or unavailable storage */ }
+            });
         }
 
         applyScoutFilter(table, filter) {
@@ -109,7 +236,6 @@
                 detail.textContent = option.detail;
                 button.append(label, detail);
                 button.addEventListener("click", async () => {
-                    if (!globalObject.confirm(`Подтвердить: ${option.label}?`)) return;
                     button.disabled = true;
                     dialog.close();
                     dialog.remove();
@@ -129,12 +255,44 @@
                 });
                 list.appendChild(button);
             });
+            const rowState = row.querySelector('[data-mc-node-id$=".status"]')?.textContent?.trim() || "";
+            if (rowState === "Ошибка" || rowState === "Пропущено") {
+                const priorityButton = this.documentObject.createElement("button");
+                priorityButton.type = "button";
+                priorityButton.className = "mc-action-dialog-item";
+                const priorityLabel = this.documentObject.createElement("strong");
+                priorityLabel.textContent = "Повторить срочно";
+                const priorityDetail = this.documentObject.createElement("span");
+                priorityDetail.textContent = "Поставить новый системный цикл первым в исследовательской очереди";
+                priorityButton.append(priorityLabel, priorityDetail);
+                priorityButton.addEventListener("click", async () => {
+                    priorityButton.disabled = true;
+                    dialog.close();
+                    dialog.remove();
+                    this.setRowStatus(row, "Выполняется", 50, "RUNNING");
+                    try {
+                        await this.actionSink({
+                            actionId: "research.edge_search.run", actionKind: "COMMAND",
+                            interactionKind: "DOUBLE_CLICK", targetId: "MAX_PRIORITY",
+                            commandCode: "RESEARCH.RUN_EDGE_SEARCH", policyClass: "RESEARCH_MAINTENANCE",
+                            requiresApproval: false, reversible: true,
+                            rollbackCode: "RESEARCH.CANCEL_PENDING_REQUEST", idempotencyKey: "client.request"
+                        });
+                        this.setRowStatus(row, "Ожидает", 10, "WARNING");
+                        this.announce("Приоритетный перезапуск поставлен в очередь", "SUCCESS");
+                    } catch (error) {
+                        this.setRowStatus(row, "Ошибка", 0, "FAIL");
+                        this.announce("Не удалось поставить приоритетный перезапуск", "ERROR");
+                    }
+                });
+                list.appendChild(priorityButton);
+            }
             const close = this.documentObject.createElement("button");
             close.type = "button"; close.className = "mc-action-dialog-close"; close.textContent = "Закрыть";
             close.addEventListener("click", () => { dialog.close(); dialog.remove(); });
             dialog.append(title, hint, list, close);
             this.documentObject.body.appendChild(dialog);
-            dialog.showModal();
+            this.showActionDialog(dialog);
         }
 
         openMethodologyActions(row) {
@@ -180,19 +338,93 @@
             const close = this.documentObject.createElement("button");
             close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
             close.addEventListener("click",()=>{dialog.close();dialog.remove();});
-            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); this.showActionDialog(dialog);
+        }
+
+        openGovernanceActions(card) {
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const nodeId = card.getAttribute("data-mc-node-id") || "";
+            const code = nodeId.replace("research.tile.", "");
+            const titleText = card.querySelector('[data-mc-node="title"]')?.textContent?.trim() || "Контроль метода";
+            const value = card.querySelector('[data-mc-node="metric_value"]')?.textContent?.trim() || "0";
+            const definitions = {
+                global_trials: ["Проверенные варианты", "Сколько вариантов прошло методологические проверки."],
+                global_pass: ["Значимые PASS", "Сколько вариантов подтвердили статистическую значимость."],
+                holdout: ["Чистый holdout", "Сколько проверок выполнено на независимых данных без пересечения фолдов."],
+                pnl_units: ["P&L готово", "Сколько результатов прибыли и убытка пригодно для методологической оценки."],
+                pnl_blocks: ["Ошибки P&L", "Сколько результатов заблокировано из-за неполного или неподтверждённого P&L."],
+                equities: ["PASS по акциям", "Сколько акционных связок прошло строгие критерии PASS."],
+                futures: ["PASS по фьючерсам", "Сколько фьючерсных связок прошло строгие критерии PASS."],
+                portfolio: ["В портфель", "Сколько подтверждённых связок прошло портфельный отбор."]
+            };
+            const [label, explanation] = definitions[code] || [titleText, "Текущий показатель методологического контроля."];
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "governance");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = label;
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = `Текущее значение: ${value}. ${explanation}`;
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const add = (buttonLabel, detail, handler) => {
+                const button = this.documentObject.createElement("button");
+                button.type = "button"; button.className = "mc-action-dialog-item";
+                const strong = this.documentObject.createElement("strong"); strong.textContent = buttonLabel;
+                const span = this.documentObject.createElement("span"); span.textContent = detail;
+                button.append(strong, span); button.addEventListener("click", handler); list.appendChild(button);
+            };
+            add("Показать пояснение", "Показать смысл показателя и допустимый следующий шаг", () => {
+                hint.textContent = `Текущее значение: ${value}. ${explanation} Критерии PASS при выполнении команды не ослабляются.`;
+            });
+            const refreshOnly = new Set(["pnl_units", "pnl_blocks", "holdout", "portfolio"]);
+            add(
+                refreshOnly.has(code) ? "Обновить оценку" : "Продолжить строгий поиск",
+                refreshOnly.has(code) ? "Пересчитать показатель по актуальным данным БД" : "Поставить следующий checkpointed-цикл в очередь",
+                async () => {
+                    dialog.close(); dialog.remove();
+                    card.setAttribute("data-mc-status", "WARNING");
+                    try {
+                        await this.actionSink({
+                            actionId: refreshOnly.has(code) ? "research.request.refresh" : "research.edge_search.run",
+                            actionKind: "COMMAND", interactionKind: "DOUBLE_CLICK", targetId: nodeId,
+                            commandCode: refreshOnly.has(code) ? "RESEARCH.REQUEST_REFRESH" : "RESEARCH.RUN_EDGE_SEARCH",
+                            policyClass: "RESEARCH_MAINTENANCE", requiresApproval: false, reversible: true,
+                            rollbackCode: refreshOnly.has(code) ? null : "RESEARCH.CANCEL_PENDING_REQUEST",
+                            idempotencyKey: `governance.${code}`
+                        });
+                        this.announce("Ожидает выполнения системной очередью", "SUCCESS");
+                    } catch (error) {
+                        card.setAttribute("data-mc-status", "FAIL");
+                        this.announce("Не удалось поставить действие в очередь", "ERROR");
+                    }
+                }
+            );
+            dialog.append(title, hint, list);
+            this.documentObject.body.appendChild(dialog);
+            this.showActionDialog(dialog);
         }
 
         openUniverseActions(row) {
             this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const table = row.closest("table");
+            const headers = Array.from(table?.querySelectorAll('[data-mc-node="table_header_cell"]') || [])
+                .map((cell) => cell.textContent.trim().toLocaleLowerCase(this.localeCode));
+            const columnIndex = (label) => headers.findIndex((header) => header.includes(label));
             const symbol = row.cells[1]?.textContent?.trim() || "";
-            const reason = row.cells[5]?.textContent?.trim() || "Нет объяснения";
+            const reasonIndex = columnIndex("причин");
+            const categoryIndex = columnIndex("категор");
+            const scoreIndex = columnIndex("оцен");
+            const decisionIndex = columnIndex("решен");
+            const reason = row.cells[reasonIndex]?.textContent?.trim() || "Нет объяснения";
+            const category = row.cells[categoryIndex]?.textContent?.trim() || "—";
+            const score = row.cells[scoreIndex]?.textContent?.trim() || "—";
+            const decision = row.cells[decisionIndex]?.textContent?.trim() || "—";
             const dialog = this.documentObject.createElement("dialog");
             dialog.setAttribute("data-mc-action-dialog", "universe");
             const title = this.documentObject.createElement("h2");
             title.textContent = symbol;
             const hint = this.documentObject.createElement("p");
-            hint.textContent = "Действие применяется только к следующему исследовательскому циклу.";
+            hint.textContent = "Решение системы уже действует. Выбор оператора необязателен и применяется только к следующему циклу.";
             const list = this.documentObject.createElement("div");
             list.className = "mc-action-dialog-list";
             const addButton = (label, detail, handler) => {
@@ -204,7 +436,6 @@
             };
             const submit = async (actionId, commandCode, targetId, label) => {
                 if (submitting) return;
-                if (!globalObject.confirm(`Подтвердить: ${label}?`)) return;
                 submitting = true;
                 dialog.close(); dialog.remove();
                 try {
@@ -216,12 +447,14 @@
                     this.announce("Не удалось применить заявку", "ERROR");
                 }
             };
-            addButton("Показать объяснение", reason, () => { hint.textContent = `${symbol}: ${reason}`; });
-            addButton("Исследовать следующим циклом", "Гарантированно включить инструмент", () =>
+            addButton("Почему выбрано", reason, () => {
+                hint.textContent = `${symbol}: решение — ${decision}; категория — ${category}; оценка — ${score}; причина — ${reason}.`;
+            });
+            addButton("Закрепить в следующем цикле", "Обязательно включить инструмент независимо от нового рейтинга", () =>
                 submit("research.universe.include_next","RESEARCH.UNIVERSE_INCLUDE_NEXT",symbol,"включить инструмент"));
-            addButton("Исключить из следующего цикла", "Не менять уже выполняющийся цикл", () =>
+            addButton("Исключить из следующего цикла", "Не затрагивать текущий цикл; убрать инструмент только из следующего", () =>
                 submit("research.universe.exclude_next","RESEARCH.UNIVERSE_EXCLUDE_NEXT",symbol,"исключить инструмент"));
-            addButton("Изменить приоритет", "Значение от 1 до 100", () => {
+            addButton("Изменить приоритет", "1 — максимальный, 100 — минимальный", () => {
                 const value = Number(globalObject.prompt("Приоритет от 1 до 100", "50"));
                 if (!Number.isInteger(value) || value < 1 || value > 100) return this.announce("Введите целое число от 1 до 100", "ERROR");
                 return submit("research.universe.priority","RESEARCH.UNIVERSE_SET_PRIORITY",`${symbol}|${value}`,`приоритет ${value}`);
@@ -229,7 +462,7 @@
             const close = this.documentObject.createElement("button");
             close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
             close.addEventListener("click",()=>{dialog.close();dialog.remove();});
-            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); this.showActionDialog(dialog);
         }
 
         async activateInteractive(element, emit, interactionKind, pendingLabel) {
@@ -247,17 +480,113 @@
             }
         }
 
+        setRowStatus(row, label, progressValue, statusCode) {
+            if (!row) return;
+            const statusCell = row.querySelector(
+                '[data-mc-column-code="status"], [data-mc-node-id$=".status"]'
+            );
+            if (!statusCell) return;
+            const progress = this.documentObject.createElement("progress");
+            progress.max = 100;
+            progress.value = Math.max(0, Math.min(100, Number(progressValue) || 0));
+            progress.setAttribute("aria-label", `${label}: ${progress.value} %`);
+            const value = this.documentObject.createElement("span");
+            value.textContent = label;
+            statusCell.replaceChildren(progress, value);
+            statusCell.setAttribute("data-mc-transient-status", statusCode);
+            row.setAttribute("data-mc-status", statusCode);
+        }
+
+        openRowResolution(row) {
+            const table = row.closest("table");
+            if (!table) return;
+            this.documentObject.querySelector("[data-mc-action-dialog]")?.remove();
+            const headers = Array.from(table.querySelectorAll('[data-mc-node="table_header_cell"]'));
+            const values = Array.from(row.cells).map((cell) => cell.textContent.trim());
+            const dialog = this.documentObject.createElement("dialog");
+            dialog.setAttribute("data-mc-action-dialog", "row-resolution");
+            const title = this.documentObject.createElement("h2");
+            title.textContent = `Решение: ${values[0] || "выбранная строка"}`;
+            const hint = this.documentObject.createElement("p");
+            hint.textContent = "Исполняемая команда будет записана в БД и выполнена системным планировщиком.";
+            const facts = this.documentObject.createElement("dl");
+            facts.className = "mc-v2-values";
+            values.forEach((value, index) => {
+                const term = this.documentObject.createElement("dt");
+                term.textContent = headers[index]?.textContent?.trim() || `Поле ${index + 1}`;
+                const definition = this.documentObject.createElement("dd");
+                definition.textContent = value || "—";
+                facts.append(term, definition);
+            });
+            const list = this.documentObject.createElement("div");
+            list.className = "mc-action-dialog-list";
+            const refresh = this.documentObject.createElement("button");
+            refresh.type = "button";
+            refresh.className = "mc-action-dialog-item";
+            const refreshTitle = this.documentObject.createElement("strong");
+            const proposed = values[values.length - 1];
+            const passiveRecommendation = /^(ждать|система|нет действий|готово|блок)/i.test(proposed || "");
+            refreshTitle.textContent = proposed && proposed !== "Нет данных" && proposed !== "—" && !passiveRecommendation
+                ? proposed : "Проверить сейчас";
+            const refreshDetail = this.documentObject.createElement("span");
+            refreshDetail.textContent = "Обновить источник, связи и рекомендации без ослабления критериев PASS";
+            refresh.append(refreshTitle, refreshDetail);
+            refresh.addEventListener("click", async () => {
+                refresh.disabled = true;
+                dialog.close();
+                dialog.remove();
+                this.setRowStatus(row, "Выполняется", 50, "RUNNING");
+                try {
+                    await this.actionSink({
+                        actionId:"research.request.refresh", actionKind:"COMMAND", interactionKind:"DOUBLE_CLICK",
+                        targetId:table.dataset.mcNodeId || row.dataset.mcNodeId || "TABLE_REVIEW",
+                        commandCode:"RESEARCH.REQUEST_REFRESH", policyClass:"RESEARCH_MAINTENANCE",
+                        requiresApproval:false, reversible:true,
+                        rollbackCode:"RESEARCH.CANCEL_PENDING_REQUEST", idempotencyKey:"client.request"
+                    });
+                    this.setRowStatus(row, "Ожидает", 10, "WARNING");
+                    this.announce("Перепроверка поставлена в очередь", "SUCCESS");
+                } catch (error) {
+                    this.setRowStatus(row, "Ошибка", 0, "FAIL");
+                    this.announce("Не удалось поставить перепроверку в очередь", "ERROR");
+                }
+            });
+            list.appendChild(refresh);
+            const keep = this.documentObject.createElement("button");
+            keep.type = "button";
+            keep.className = "mc-action-dialog-item";
+            const keepTitle = this.documentObject.createElement("strong");
+            keepTitle.textContent = "Оставить без изменений";
+            const keepDetail = this.documentObject.createElement("span");
+            keepDetail.textContent = "Закрыть окно и сохранить текущее решение";
+            keep.append(keepTitle, keepDetail);
+            keep.addEventListener("click", () => { dialog.close(); dialog.remove(); });
+            list.appendChild(keep);
+            const close = this.documentObject.createElement("button");
+            close.type = "button";
+            close.className = "mc-action-dialog-close";
+            close.textContent = "Закрыть";
+            close.addEventListener("click", () => dialog.close());
+            dialog.addEventListener("close", () => dialog.remove());
+            dialog.append(title, hint, facts, list, close);
+            this.documentObject.body.appendChild(dialog);
+            this.showActionDialog(dialog);
+        }
+
         openRecommendedActions(sourceElement) {
             const table = sourceElement.closest("table");
             if (!table) return;
-            if (sourceElement.dataset.mcActionKind === "NAVIGATE") {
+            if (
+                sourceElement.dataset.mcActionKind === "NAVIGATE"
+                || (sourceElement.dataset.mcNodeId || "").startsWith("control.section.funnel.row.")
+            ) {
                 this.openFunnelActions(sourceElement);
                 return;
             }
             const requiresOperator = (row) => Boolean(row.dataset.mcActionId)
                 && !row.hasAttribute("disabled");
             if (!requiresOperator(sourceElement)) {
-                this.openOperatorDetails(sourceElement);
+                this.openRowResolution(sourceElement);
                 return;
             }
             const rows = [sourceElement];
@@ -293,6 +622,7 @@
                     item.disabled = true;
                     dialog.close();
                     dialog.remove();
+                    this.setRowStatus(row, "Выполняется", 50, "RUNNING");
                     try {
                         await this.actionSink({
                             actionId: row.dataset.mcActionId,
@@ -306,6 +636,11 @@
                             rollbackCode: row.dataset.mcRollbackCode || null,
                             idempotencyKey: row.dataset.mcIdempotencyKey || null
                         });
+                        this.setRowStatus(row, "Ожидает", 10, "WARNING");
+                        this.announce("Заявка принята и ожидает выполнения", "SUCCESS");
+                    } catch (error) {
+                        this.setRowStatus(row, "Ошибка", 0, "FAIL");
+                        this.announce("Не удалось поставить заявку в очередь", "ERROR");
                     } finally {
                         item.disabled = false;
                     }
@@ -320,7 +655,7 @@
             dialog.addEventListener("close", () => dialog.remove());
             dialog.append(title, hint, list, close);
             this.documentObject.body.appendChild(dialog);
-            dialog.showModal();
+            this.showActionDialog(dialog);
         }
 
         openBlockActions(row) {
@@ -341,16 +676,23 @@
                 const span=this.documentObject.createElement("span"); span.textContent=detail;
                 button.append(strong,span); button.addEventListener("click",handler); list.appendChild(button);
             };
-            add("Проверить и снять блок", "Поставить аудируемую перепроверку в системную очередь", async () => {
+            add(values[4] || "Проверить и снять блок", "Поставить аудируемую перепроверку в системную очередь", async () => {
                 dialog.close(); dialog.remove();
-                await this.actionSink({
-                    actionId:row.dataset.mcActionId,actionKind:row.dataset.mcActionKind,
-                    interactionKind:"DOUBLE_CLICK",targetId:row.dataset.mcTargetId || null,
-                    commandCode:row.dataset.mcCommandCode,policyClass:row.dataset.mcPolicyClass,
-                    requiresApproval:false,reversible:true,
-                    rollbackCode:row.dataset.mcRollbackCode,idempotencyKey:"client.request"
-                });
-                this.announce("Перепроверка блока поставлена в очередь", "SUCCESS");
+                this.setRowStatus(row, "Выполняется", 50, "RUNNING");
+                try {
+                    await this.actionSink({
+                        actionId:row.dataset.mcActionId,actionKind:row.dataset.mcActionKind,
+                        interactionKind:"DOUBLE_CLICK",targetId:row.dataset.mcTargetId || null,
+                        commandCode:row.dataset.mcCommandCode,policyClass:row.dataset.mcPolicyClass,
+                        requiresApproval:false,reversible:true,
+                        rollbackCode:row.dataset.mcRollbackCode,idempotencyKey:"client.request"
+                    });
+                    this.setRowStatus(row, "Ожидает", 10, "WARNING");
+                    this.announce("Перепроверка блока поставлена в очередь", "SUCCESS");
+                } catch (error) {
+                    this.setRowStatus(row, "Ошибка", 0, "FAIL");
+                    this.announce("Не удалось поставить перепроверку блока", "ERROR");
+                }
             });
             add("Оставить блок", "Не менять ограничение до появления новых доказательств", () => {
                 dialog.close(); dialog.remove();
@@ -363,7 +705,7 @@
             close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
             close.addEventListener("click",()=>dialog.close());
             dialog.addEventListener("close",()=>dialog.remove());
-            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); this.showActionDialog(dialog);
         }
 
         openOperatorDetails(row) {
@@ -383,12 +725,40 @@
                 const content = this.documentObject.createElement("dd"); content.textContent = value || "—";
                 list.append(key, content);
             });
+            const actions = this.documentObject.createElement("div");
+            actions.className = "mc-action-dialog-list";
+            const refresh = this.documentObject.createElement("button");
+            refresh.type = "button";
+            refresh.className = "mc-action-dialog-item";
+            const refreshTitle = this.documentObject.createElement("strong");
+            refreshTitle.textContent = "Проверить сейчас";
+            const refreshDetail = this.documentObject.createElement("span");
+            refreshDetail.textContent = "Поставить обновление доказательств и решения в системную очередь";
+            refresh.append(refreshTitle, refreshDetail);
+            refresh.addEventListener("click", async () => {
+                refresh.disabled = true;
+                dialog.close(); dialog.remove();
+                this.setRowStatus(row, "Выполняется", 50, "RUNNING");
+                try {
+                    await this.actionSink({
+                        actionId:"research.request.refresh", actionKind:"COMMAND", interactionKind:"DOUBLE_CLICK",
+                        targetId:row.dataset.mcNodeId || "OPERATOR_REVIEW",
+                        commandCode:"RESEARCH.REQUEST_REFRESH", policyClass:"RESEARCH_MAINTENANCE",
+                        requiresApproval:false, reversible:true,
+                        rollbackCode:"RESEARCH.CANCEL_PENDING_REQUEST", idempotencyKey:"client.request"
+                    });
+                    this.setRowStatus(row, "Ожидает", 10, "WARNING");
+                    this.announce("Проверка поставлена в очередь", "SUCCESS");
+                } catch (error) {
+                    this.setRowStatus(row, "Ошибка", 0, "FAIL");
+                    this.announce("Не удалось поставить проверку в очередь", "ERROR");
+                }
+            });
+            actions.appendChild(refresh);
             const close = this.documentObject.createElement("button");
             close.type = "button"; close.className = "mc-action-dialog-close"; close.textContent = "Закрыть";
             close.addEventListener("click", () => dialog.close());
             dialog.addEventListener("close", () => dialog.remove());
-            const actions = this.documentObject.createElement("div");
-            actions.className = "mc-action-dialog-list";
             const openSection = this.documentObject.createElement("button");
             openSection.type = "button"; openSection.className = "mc-action-dialog-item";
             const openTitle = this.documentObject.createElement("strong");
@@ -400,16 +770,10 @@
                 dialog.close(); dialog.remove();
                 globalObject.location.href = "/workspace-v2/control-center/edge-oos";
             });
-            const refresh = this.documentObject.createElement("button");
-            refresh.type = "button"; refresh.className = "mc-action-dialog-item";
-            const refreshTitle = this.documentObject.createElement("strong"); refreshTitle.textContent = "Обновить данные";
-            const refreshDetail = this.documentObject.createElement("span"); refreshDetail.textContent = "Повторно получить актуальное состояние из БД";
-            refresh.append(refreshTitle, refreshDetail);
-            refresh.addEventListener("click", () => { dialog.close(); dialog.remove(); globalObject.location.reload(); });
-            actions.append(openSection, refresh);
+            actions.appendChild(openSection);
             dialog.append(title, hint, list, actions, close);
             this.documentObject.body.appendChild(dialog);
-            dialog.showModal();
+            this.showActionDialog(dialog);
         }
 
         openOperatorCardActions(card, emit) {
@@ -441,7 +805,7 @@
             dialog.addEventListener("close", () => dialog.remove());
             dialog.append(title, hint, result, actions, close);
             this.documentObject.body.appendChild(dialog);
-            dialog.showModal();
+            this.showActionDialog(dialog);
         }
 
         openFunnelActions(row) {
@@ -472,20 +836,39 @@
             open.type = "button";
             open.className = "mc-action-dialog-item";
             const openTitle = this.documentObject.createElement("strong");
-            openTitle.textContent = `Открыть этап «${stage}»`;
+            const isCommand = row.dataset.mcActionKind === "COMMAND";
+            openTitle.textContent = isCommand
+                ? "Пересобрать связь стадий"
+                : `Открыть этап «${stage}»`;
             const detail = this.documentObject.createElement("span");
-            detail.textContent = recommendations[stage] || "Открыть ответственный режим и проверить причину статуса";
+            detail.textContent = isCommand
+                ? "Поставить в БД обновление источников и канонических связей"
+                : (recommendations[stage] || "Открыть ответственный режим и проверить причину статуса");
             open.append(openTitle, detail);
             open.addEventListener("click", async () => {
                 open.disabled = true;
                 dialog.close();
+                if (isCommand) this.setRowStatus(row, "Выполняется", 50, "RUNNING");
                 try {
                     await this.actionSink({
                         actionId: row.dataset.mcActionId,
                         actionKind: row.dataset.mcActionKind,
                         interactionKind: "DOUBLE_CLICK",
-                        targetId: row.dataset.mcTargetId || null
+                        targetId: row.dataset.mcTargetId || null,
+                        commandCode: row.dataset.mcCommandCode || null,
+                        policyClass: row.dataset.mcPolicyClass || null,
+                        requiresApproval: row.dataset.mcRequiresApproval === "true",
+                        reversible: row.dataset.mcReversible === "true",
+                        rollbackCode: row.dataset.mcRollbackCode || null,
+                        idempotencyKey: row.dataset.mcIdempotencyKey || null
                     });
+                    if (isCommand) {
+                        this.setRowStatus(row, "Ожидает", 10, "WARNING");
+                        this.announce("Перепроверка связи поставлена в очередь", "SUCCESS");
+                    }
+                } catch (error) {
+                    if (isCommand) this.setRowStatus(row, "Ошибка", 0, "FAIL");
+                    this.announce("Не удалось поставить перепроверку в очередь", "ERROR");
                 } finally {
                     open.disabled = false;
                 }
@@ -497,9 +880,9 @@
             close.textContent = "Отмена";
             close.addEventListener("click", () => dialog.close());
             dialog.addEventListener("close", () => dialog.remove());
-            dialog.append(title, hint, list, close);
+            dialog.append(title, hint, list, actions, close);
             this.documentObject.body.appendChild(dialog);
-            dialog.showModal();
+            this.showActionDialog(dialog);
         }
 
         openSwingDetails(row) {
@@ -523,7 +906,7 @@
             close.type="button"; close.className="mc-action-dialog-close"; close.textContent="Закрыть";
             close.addEventListener("click",()=>dialog.close());
             dialog.addEventListener("close",()=>dialog.remove());
-            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); dialog.showModal();
+            dialog.append(title,hint,list,close); this.documentObject.body.appendChild(dialog); this.showActionDialog(dialog);
         }
 
         beginDocument() {
@@ -631,6 +1014,9 @@
             const element = this.documentObject.createElement(tagName);
             element.setAttribute("data-mc-node", node.type);
             element.setAttribute("data-mc-node-id", node.node_id);
+            if (node.content && node.content.column_code) {
+                element.setAttribute("data-mc-column-code", String(node.content.column_code));
+            }
             if (node.state && node.state.status_code) element.setAttribute("data-mc-status", node.state.status_code);
             if (node.action) {
                 element.setAttribute("data-mc-action-id", node.action.action_id);
@@ -708,9 +1094,7 @@
                     } else if (isCommandButton) {
                         element.addEventListener("click", () => this.selectInteractive(element,"Двойной клик — выполнить действие"));
                         element.addEventListener("dblclick", async () => {
-                            if (globalObject.confirm("Подтвердить выполнение действия?")) {
-                                await this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
-                            }
+                            await this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
                         });
                     } else {
                         element.addEventListener("click", () => emit("CLICK"));
@@ -721,7 +1105,7 @@
                             if (isTableRow) this.openRecommendedActions(element);
                             else if (isContainer && node.node_id.startsWith("home.operator.")) this.openOperatorCardActions(element,emit);
                             else if (isContainer) this.activateInteractive(element,emit,"DOUBLE_CLICK","Открываю раздел…");
-                            else if (isCommandButton && globalObject.confirm("Подтвердить выполнение действия?")) this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
+                            else if (isCommandButton) this.activateInteractive(element,emit,"DOUBLE_CLICK","Выполняю действие…");
                             else emit("CLICK");
                         }
                     });
@@ -737,6 +1121,35 @@
                 element.addEventListener("keydown", (event) => {
                     if (event.key === "Enter") { event.preventDefault(); this.openOperatorDetails(element); }
                 });
+            } else if (!node.action && node.type === "card" && node.node_id.startsWith("research.tile.")) {
+                element.setAttribute("role", "button");
+                element.setAttribute("tabindex", "0");
+                element.setAttribute("data-mc-interaction", "double-click");
+                element.setAttribute("title", "Двойной клик — пояснение и рекомендуемые действия");
+                element.addEventListener("click", () => this.selectInteractive(element, "Двойной клик — открыть рекомендуемые действия"));
+                element.addEventListener("dblclick", () => this.openGovernanceActions(element));
+                element.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") { event.preventDefault(); this.openGovernanceActions(element); }
+                });
+            } else if (
+                !node.action
+                && node.type === "table_row"
+                && !(node.children || []).some((child) => child.type === "table_header_cell")
+            ) {
+                element.setAttribute("role", "button");
+                element.setAttribute("tabindex", "0");
+                element.setAttribute("data-mc-interaction", "double-click");
+                element.setAttribute("title", "Двойной клик — открыть решение");
+                const openStaticResolution = () => {
+                    if (node.node_id.startsWith("research.failures.")) this.openMethodologyActions(element);
+                    else if (node.node_id.startsWith("control.section.swing_lifecycle.row.")) this.openSwingDetails(element);
+                    else this.openRowResolution(element);
+                };
+                element.addEventListener("click", () => this.selectInteractive(element, "Двойной клик — открыть решение"));
+                element.addEventListener("dblclick", openStaticResolution);
+                element.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") { event.preventDefault(); openStaticResolution(); }
+                });
             }
             if (context.displayValue !== null && context.displayValue !== undefined) {
                 element.textContent = String(context.displayValue);
@@ -745,11 +1158,29 @@
                 element.setAttribute("title", String(context.tooltipValue));
                 element.setAttribute("aria-label", `${String(context.displayValue || "")}. ${String(context.tooltipValue)}`);
             }
+            if (node.type === "table_header_cell") {
+                const hint = this.localized("table.sort.hint", "Двойной клик — сортировать");
+                const currentTitle = element.getAttribute("title");
+                element.setAttribute("title", currentTitle ? `${currentTitle}. ${hint}` : hint);
+                element.setAttribute("tabindex", "0");
+                element.setAttribute("aria-sort", "none");
+                element.addEventListener("dblclick", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.sortTable(element);
+                });
+                element.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter") {
+                        event.preventDefault();
+                        this.sortTable(element);
+                    }
+                });
+            }
             if (node.type === "table_cell" && node.node_id.endsWith(".recommendation") && node.content?.message_args) {
                 element.dataset.mcProcessId = String(node.content.message_args.process_id || "");
                 element.dataset.mcActions = JSON.stringify(node.content.message_args.actions || []);
             }
-            if (node.type === "table_cell" && node.node_id.endsWith(".status")) {
+            if (node.type === "table_cell" && node.content && node.content.column_code === "status") {
                 const label = String(context.displayValue || "");
                 const progressByLabel = {
                     "Требуется решение оператора": 10,
@@ -820,6 +1251,7 @@
                     return;
                 }
             });
+            this.restoreTableSorts();
             this.groupControlCenterSections();
             return Object.freeze({driverVersion: DRIVER_VERSION, nodesRendered: this.nodesRendered});
         }

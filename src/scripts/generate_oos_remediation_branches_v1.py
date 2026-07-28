@@ -13,12 +13,16 @@ from scripts.generate_adaptive_edge_search_scenarios_v1 import adapted_grid
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-VERSION = "OOS_REMEDIATION_BRANCHES_V1"
+VERSION = "OOS_REMEDIATION_BRANCHES_V2_FOCUSED_ENTRY_EXIT"
 NAMESPACE = uuid.UUID("4e589952-d68d-4b29-a1cf-f10f6fd80da8")
 MIN_FUTURE_BARS = int(os.getenv("OOS_REMEDIATION_MIN_FUTURE_BARS", "500"))
 BRANCH_POLICY = {
     "COST_REMEDIATION": {"reason": "NEGATIVE_COST_ADJUSTED_EXPECTANCY", "sources": 4, "budget": 34},
     "SAMPLE_EXPANSION": {"reason": "INSUFFICIENT_TRADES", "sources": 2, "budget": 10},
+}
+FOCUS_ALGORITHM_BUDGET = {
+    "DONCHIAN_VOL_BREAKOUT": 20,
+    "EMA_TREND": 14,
 }
 
 
@@ -43,7 +47,8 @@ def source_rows(cursor, search_run_id: str) -> list[dict]:
     cursor.execute("""
       SELECT w.result_id,w.strategy_family AS algorithm_code,r.strategy_code,w.symbol,
              w.parameter_json,w.fold_metrics,w.folds_passed,w.net_profit_factor,
-             w.net_expectancy,w.total_trades,w.reason_code,r.gate_policy
+             w.net_expectancy,w.total_trades,w.reason_code,r.gate_policy,
+             coalesce(p.priority_rank,100) priority_rank
       FROM analytics.walkforward_edge_search_v3 w
       JOIN analytics.edge_search_algorithm_registry_v1 r ON r.algorithm_code=w.strategy_family
       LEFT JOIN analytics.edge_algorithm_compute_policy_v1 p ON p.algorithm_code=w.strategy_family
@@ -53,6 +58,7 @@ def source_rows(cursor, search_run_id: str) -> list[dict]:
         AND w.parameter_json ? 'lookback' AND w.parameter_json ? 'hold'
         AND w.parameter_json ? 'threshold'
       ORDER BY CASE w.reason_code WHEN 'NEGATIVE_COST_ADJUSTED_EXPECTANCY' THEN 1 ELSE 2 END,
+        coalesce(p.priority_rank,100),
         w.folds_passed DESC,
         CASE WHEN w.net_profit_factor BETWEEN 0 AND 10 THEN w.net_profit_factor ELSE 0 END DESC,
         w.net_expectancy DESC,w.total_trades DESC,w.result_id
@@ -61,16 +67,24 @@ def source_rows(cursor, search_run_id: str) -> list[dict]:
     selected: list[dict] = []
     for branch, policy in BRANCH_POLICY.items():
         seen: set[tuple[str, str]] = set()
+        focus_seen: set[str] = set()
         for row in rows:
             if row["reason_code"] != policy["reason"]:
                 continue
+            if branch == "COST_REMEDIATION":
+                algorithm = str(row["algorithm_code"])
+                if algorithm not in FOCUS_ALGORITHM_BUDGET or algorithm in focus_seen:
+                    continue
+                focus_seen.add(algorithm)
             key = (str(row["algorithm_code"]), str(row["symbol"]))
             if key in seen:
                 continue
             row["branch_code"] = branch
             selected.append(row)
             seen.add(key)
-            if len(seen) >= policy["sources"]:
+            if branch == "COST_REMEDIATION" and len(focus_seen) >= len(FOCUS_ALGORITHM_BUDGET):
+                break
+            if branch != "COST_REMEDIATION" and len(seen) >= policy["sources"]:
                 break
     return selected
 
@@ -214,10 +228,16 @@ def main() -> int:
                                WHERE process_id<>%s AND status_code NOT LIKE 'PRUNED_%%'""", (process_id,))
             existing_global.update(str(row["fingerprint"]) for row in cursor.fetchall())
             accepted = {branch: 0 for branch in BRANCH_POLICY}
+            accepted_by_algorithm = {algorithm: 0 for algorithm in FOCUS_ALGORITHM_BUDGET}
             for row in source_rows(cursor, str(cohort["search_run_id"])):
                 branch = row["branch_code"]
+                algorithm = str(row["algorithm_code"])
+                algorithm_budget = (
+                    FOCUS_ALGORITHM_BUDGET.get(algorithm, BRANCH_POLICY[branch]["budget"])
+                    if branch == "COST_REMEDIATION" else BRANCH_POLICY[branch]["budget"]
+                )
                 generated = adapted_grid([dict(row["parameter_json"])], str(row["reason_code"]),
-                                         str(row["algorithm_code"]), 48)
+                                         algorithm, algorithm_budget)
                 scenario_id = str(uuid.uuid5(NAMESPACE, f"{process_id}:{branch}:{row['result_id']}"))
                 accepted_params: list[dict] = []
                 candidates: list[tuple[dict, str, str, str]] = []
@@ -227,11 +247,16 @@ def main() -> int:
                     fp = fingerprint(str(row["algorithm_code"]), str(row["symbol"]), clean)
                     if fp in local_seen or fp in existing_global:
                         status, reason = "PRUNED_DUPLICATE", "DUPLICATE_FINGERPRINT"
-                    elif accepted[branch] >= BRANCH_POLICY[branch]["budget"]:
+                    elif accepted[branch] >= BRANCH_POLICY[branch]["budget"] or (
+                        branch == "COST_REMEDIATION"
+                        and accepted_by_algorithm[algorithm] >= algorithm_budget
+                    ):
                         status, reason = "PRUNED_BUDGET", "SAFE_COMPUTE_BUDGET"
                     else:
                         status, reason = "GENERATED", str(row["reason_code"])
                         accepted[branch] += 1
+                        if branch == "COST_REMEDIATION":
+                            accepted_by_algorithm[algorithm] += 1
                         accepted_params.append(clean)
                         existing_global.add(fp)
                     local_seen.add(fp)

@@ -43,6 +43,10 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
     if not row:
         raise RuntimeError("EDGE_RESEARCH_UNIVERSE_POLICY_NOT_ACTIVE")
     policy=row["policy"]
+    cursor.execute("""SELECT policy->'perpetual_symbols' AS perpetual_symbols
+        FROM analytics.instrument_scout_policy_v1 WHERE active LIMIT 1""")
+    perpetual_row=cursor.fetchone() or {}
+    perpetual_symbols=list(perpetual_row.get("perpetual_symbols") or [])
     quotas={key:int(value) for key,value in policy["category_quotas"].items()}
     cursor.execute("""SELECT DISTINCT ON(root_symbol) root_symbol,selected_symbol
         FROM analytics.futures_roll_decision_v1 ORDER BY root_symbol,created_at DESC""")
@@ -56,12 +60,12 @@ def load_research_universe(cursor, *, run_id: str, stage_code: str, min_bars: in
       LEFT JOIN public.futures_contract_universe u ON u.contract_symbol=b.symbol
       WHERE b.timeframe='M5' AND b.source NOT IN ('unknown','synthetic_futures_backfill_v1')
         AND (%s='' OR b.symbol=%s)
-        AND (b.symbol NOT LIKE '%%@RTSX' OR
+        AND (b.symbol=ANY(%s) OR b.symbol NOT LIKE '%%@RTSX' OR
              coalesce(c.expiration_date,u.expiration_date)>=current_date)
       GROUP BY b.symbol,b.timeframe,c.root_symbol,u.root_symbol,c.expiration_date,u.expiration_date
       HAVING count(*) >= %s AND max(b.ts)>=clock_timestamp()-(%s * interval '1 minute')
       ORDER BY count(*) DESC,b.symbol
-    """,(target_symbol,target_symbol,min_bars,freshness_minutes))
+    """,(target_symbol,target_symbol,perpetual_symbols,min_bars,freshness_minutes))
     candidates=[dict(item) for item in cursor.fetchall()]
     cursor.execute("""SELECT symbol,inclusion_mode,priority_override
         FROM analytics.edge_research_universe_override_v1 WHERE active""")

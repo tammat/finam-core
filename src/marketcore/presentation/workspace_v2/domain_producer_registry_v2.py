@@ -39,6 +39,8 @@ from marketcore.presentation.workspace_v2.resolver.intraday_v2_resolver import I
 from marketcore.presentation.workspace_v2.renderer.intraday_v2_domain_renderer import render_intraday_domain_v2
 from marketcore.presentation.workspace_v2.resolver.program_v2_resolver import ProgramV2Resolver
 from marketcore.presentation.workspace_v2.renderer.program_v2_domain_renderer import render_program_domain_v2
+from marketcore.presentation.workspace_v2.resolver.control_compact_v3_resolver import ControlCompactV3Resolver
+from marketcore.presentation.workspace_v2.renderer.control_compact_v3_domain_renderer import render_control_compact_v3
 
 
 class DomainProducerCodeV2(str, Enum):
@@ -66,9 +68,9 @@ class DomainProducerDefinitionV2:
 
 
 def _build_home(timezone_code: str) -> RenderDocumentV2:
-    return render_home_domain_v2(
-        HomeV2Presenter().load(),
-        timezone_code=timezone_code,
+    return render_control_compact_v3(
+        ControlCompactV3Resolver().resolve(), timezone_code=timezone_code,
+        document_id="operator.home.v2",
     )
 
 
@@ -81,9 +83,9 @@ def _build_portfolio(timezone_code: str) -> RenderDocumentV2:
 
 
 def _build_control_center(timezone_code: str) -> RenderDocumentV2:
-    return render_control_center_domain_v2(
-        ControlCenterV2Presenter().load(),
-        timezone_code=timezone_code,
+    return render_control_compact_v3(
+        ControlCompactV3Resolver().resolve(), timezone_code=timezone_code,
+        document_id="operator.control_center.v2",
     )
 
 

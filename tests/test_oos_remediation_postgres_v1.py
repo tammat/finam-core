@@ -13,10 +13,13 @@ def test_latest_oos_remediation_process_is_bounded_and_auditable() -> None:
           FROM analytics.oos_remediation_branch_summary_v1 ORDER BY branch_code
         """)
         rows = cursor.fetchall()
-        assert [row[0] for row in rows] == ["COST_REMEDIATION", "SAMPLE_EXPANSION"]
+        branches = {row[0] for row in rows}
+        assert {"COST_REMEDIATION", "SAMPLE_EXPANSION"}.issubset(branches)
         active = {row[0]: row[3] for row in rows}
         assert active["COST_REMEDIATION"] <= 34
         assert active["SAMPLE_EXPANSION"] <= 10
+        if "TEMPORAL_SESSION" in active:
+            assert active["TEMPORAL_SESSION"] <= 10
         assert all(row[1] == row[2] + row[3] + row[4] for row in rows)
 
 

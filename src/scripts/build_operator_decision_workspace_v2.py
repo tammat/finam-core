@@ -28,8 +28,20 @@ def main() -> None:
             active_transitions = [str(row["transition_code"]) for row in rows]
             cursor.execute("""
                 UPDATE analytics.operator_decision_workspace_v2
-                SET freshness_code='STALE',updated_at=clock_timestamp()
-                WHERE NOT (transition_code = ANY(%s)) AND freshness_code<>'STALE'
+                SET freshness_code='STALE',
+                    -- A historical loss remains auditable, but it must not be
+                    -- displayed as a current expected effect on the operator desk.
+                    evidence=CASE WHEN expected_profit_impact IS NULL THEN evidence
+                        ELSE jsonb_set(
+                            evidence,
+                            '{stale_expected_profit_impact}',
+                            to_jsonb(expected_profit_impact),
+                            true
+                        ) END,
+                    expected_profit_impact=NULL,
+                    updated_at=clock_timestamp()
+                WHERE NOT (transition_code = ANY(%s))
+                  AND (freshness_code<>'STALE' OR expected_profit_impact IS NOT NULL)
             """, (active_transitions,))
             for rank, row in enumerate(rows, start=1):
                 sample_size = int(row["from_count"] or 0)

@@ -93,7 +93,8 @@ class GovernedCommandWorkerV2:
 
     def run_once(self, *, request_id: str | None = None, request_kind: str | None = None) -> str | None:
         inline_commands = {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE", "OPERATOR_DECISION_REFRESH", "EDGE_SEARCH_CANCEL",
-                           "RESEARCH_UNIVERSE_INCLUDE", "RESEARCH_UNIVERSE_EXCLUDE", "RESEARCH_UNIVERSE_PRIORITY"}
+                           "RESEARCH_UNIVERSE_INCLUDE", "RESEARCH_UNIVERSE_EXCLUDE", "RESEARCH_UNIVERSE_PRIORITY",
+                           "RESEARCH_HYPOTHESIS_INCLUDE"}
         if request_kind is not None and request_kind not in COMMANDS and request_kind not in inline_commands:
             raise ValueError("WORKER_REQUEST_KIND_FORBIDDEN")
         with psycopg2.connect("postgresql:///finam_core") as connection:
@@ -134,6 +135,8 @@ class GovernedCommandWorkerV2:
             return self._cancel_edge_search(row)
         if str(row["request_kind"]).startswith("RESEARCH_UNIVERSE_"):
             return self._apply_universe_override(row)
+        if row["request_kind"] == "RESEARCH_HYPOTHESIS_INCLUDE":
+            return self._include_research_hypothesis(row)
         if command is None:
             return self._finish(row, False, None, "WORKER_REQUEST_KIND_FORBIDDEN")
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
@@ -218,6 +221,31 @@ class GovernedCommandWorkerV2:
                     if refreshed is None:
                         raise ValueError("OPERATOR_DECISION_NOT_REFRESHABLE")
             return self._finish(row, True, f"refreshed:{refreshed[0]}", None)
+        except Exception as exc:
+            return self._finish(row, False, None, str(exc)[:256])
+
+    def _include_research_hypothesis(self, row) -> str:
+        """Prioritise a hypothesis without bypassing sample, cost or OOS gates."""
+        self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE analytics.trade_outcome_hypothesis_v1
+                        SET priority_score=greatest(priority_score,1000),
+                            evidence=coalesce(evidence,'{}'::jsonb) || jsonb_build_object(
+                              'operator_selected',true,
+                              'operator_selected_at',clock_timestamp(),
+                              'operator_selected_by',%s,
+                              'promotion_allowed',false),
+                            updated_at=clock_timestamp()
+                        WHERE hypothesis_id=%s::uuid AND lifecycle_state<>'CLOSED'
+                        RETURNING hypothesis_id,lifecycle_state
+                    """, (row["actor_id"],row["target_id"]))
+                    selected = cursor.fetchone()
+                    if selected is None:
+                        raise ValueError("RESEARCH_HYPOTHESIS_NOT_AVAILABLE")
+            return self._finish(row, True, f"research-priority:{selected[0]}:{selected[1]}", None)
         except Exception as exc:
             return self._finish(row, False, None, str(exc)[:256])
 

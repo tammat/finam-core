@@ -24,6 +24,16 @@
         "container.program": "/workspace-v2/program",
         "container.settings": "/workspace-v2/settings"
     });
+    const OPERATOR_MENU_ITEMS = Object.freeze([
+        ["container.home", "workspace.menu.home"],
+        ["container.research", "workspace.menu.research"],
+        ["container.intraday", "workspace.menu.intraday"],
+        ["container.portfolio", "workspace.menu.portfolio"],
+        ["container.risk", "workspace.menu.risk"],
+        ["container.capital", "workspace.menu.capital"],
+        ["container.program", "workspace.menu.system"],
+        ["container.settings", "workspace.menu.settings"]
+    ]);
 
     function initialTarget(pathname) {
         const path = String(pathname || "").toLowerCase();
@@ -34,7 +44,7 @@
         if (path.includes("/risk")) return "container.risk";
         if (path.includes("/program")) return "container.program";
         if (path.includes("/settings")) return "container.settings";
-        if (path.includes("/control-center") || path.includes("/edge-oos")) return "container.edge";
+        if (path.includes("/control-center") || path.includes("/edge-oos")) return "container.home";
         return "container.home";
     }
 
@@ -171,6 +181,345 @@
             if (homeButton) homeButton.disabled = false;
         };
 
+        const navigateToTarget = async (targetId) => {
+            const endpoint = ENDPOINT_BY_TARGET[targetId];
+            if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
+            if (targetId === currentTargetId) return;
+            persistPanelState();
+            navigationStack.push(currentTargetId);
+            currentTargetId = targetId;
+            await render(endpoint, {restoreStored: true});
+            syncRoute(targetId);
+            updateBackButton();
+        };
+
+        const installControlDrawer = () => {
+            const existing = globalObject.document.getElementById("marketcore-control-drawer");
+            if (existing) existing.remove();
+            const drawer = globalObject.document.createElement("aside");
+            drawer.id = "marketcore-control-drawer";
+            drawer.setAttribute("aria-label", services.translate("workspace.drawer.title", {}, services.localeCode));
+            const collapsedKey = "marketcore.workspace-v2.drawer-collapsed";
+            let collapsed = globalObject.matchMedia("(max-width: 900px)").matches;
+            try {
+                const stored = globalObject.sessionStorage.getItem(collapsedKey);
+                if (stored !== null) collapsed = stored === "true";
+            }
+            catch (error) { globalObject.console.warn("MARKETCORE_DRAWER_STATE_LOAD_FAILED", error); }
+            drawer.dataset.collapsed = String(collapsed);
+
+            const header = globalObject.document.createElement("header");
+            const brand = globalObject.document.createElement("div");
+            brand.className = "mc-control-drawer-brand";
+            const brandMark = globalObject.document.createElement("img");
+            brandMark.className = "mc-control-drawer-brand-mark";
+            brandMark.src = "/assets/marketcore/ui-runtime/v2/marketcore-logo-v2.png";
+            brandMark.alt = "MarketCore";
+            const title = globalObject.document.createElement("strong");
+            title.textContent = services.translate("workspace.drawer.brand", {}, services.localeCode);
+            brand.append(brandMark, title);
+            const toggle = globalObject.document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "mc-control-drawer-toggle";
+            const syncToggle = () => {
+                const isCollapsed = drawer.dataset.collapsed === "true";
+                toggle.textContent = isCollapsed ? "☰" : "×";
+                toggle.title = services.translate(
+                    isCollapsed ? "workspace.drawer.open" : "workspace.drawer.close",
+                    {}, services.localeCode
+                );
+                toggle.setAttribute("aria-expanded", String(!isCollapsed));
+                globalObject.document.body.dataset.mcDrawerOpen = String(!isCollapsed);
+            };
+            toggle.addEventListener("click", () => {
+                drawer.dataset.collapsed = String(drawer.dataset.collapsed !== "true");
+                try { globalObject.sessionStorage.setItem(collapsedKey, drawer.dataset.collapsed); }
+                catch (error) { globalObject.console.warn("MARKETCORE_DRAWER_STATE_SAVE_FAILED", error); }
+                syncToggle();
+            });
+            header.append(brand, toggle);
+
+            const content = globalObject.document.createElement("div");
+            content.className = "mc-control-drawer-content";
+
+            const functions = globalObject.document.createElement("div");
+            functions.className = "mc-control-drawer-functions";
+            OPERATOR_MENU_ITEMS.forEach(([targetId, labelKey]) => {
+                const button = globalObject.document.createElement("button");
+                button.type = "button";
+                button.dataset.active = String(targetId === currentTargetId);
+                button.textContent = services.translate(labelKey, {}, services.localeCode);
+                button.addEventListener("click", () => {
+                    if (targetId === currentTargetId) {
+                        globalObject.scrollTo({top: 0, behavior: "smooth"});
+                        return;
+                    }
+                    navigateToTarget(targetId).catch((error) =>
+                        globalObject.console.error("WORKSPACE_MENU_NAVIGATION_FAILED", error));
+                });
+                functions.appendChild(button);
+            });
+            content.appendChild(functions);
+
+            const toolbar = mountElement.querySelector(".mc-control-view-toolbar");
+            if (toolbar) {
+                const views = globalObject.document.createElement("div");
+                views.className = "mc-control-drawer-views";
+                const viewsTitle = globalObject.document.createElement("strong");
+                viewsTitle.className = "mc-control-drawer-label";
+                viewsTitle.textContent = services.translate("workspace.drawer.views", {}, services.localeCode);
+                views.appendChild(viewsTitle);
+                toolbar.querySelectorAll("button[data-mc-control-view]").forEach((source) => {
+                    const button = globalObject.document.createElement("button");
+                    button.type = "button";
+                    button.textContent = source.textContent;
+                    button.dataset.active = String(source.getAttribute("aria-pressed") === "true");
+                    button.addEventListener("click", () => {
+                        source.click();
+                        views.querySelectorAll("button").forEach((item) => item.dataset.active = "false");
+                        button.dataset.active = "true";
+                    });
+                    views.appendChild(button);
+                });
+                content.appendChild(views);
+            }
+
+            const groupList = globalObject.document.createElement("div");
+            groupList.className = "mc-control-drawer-groups";
+            const groupsTitle = globalObject.document.createElement("strong");
+            groupsTitle.className = "mc-control-drawer-label";
+            groupsTitle.textContent = services.translate("workspace.drawer.sections", {}, services.localeCode);
+            groupList.appendChild(groupsTitle);
+            const groups = Array.from(mountElement.querySelectorAll("details[data-mc-section-group]"))
+                .map((details) => {
+                    const blocked = details.querySelectorAll('[data-mc-status="BLOCKED"], [data-mc-status="FAIL"]').length;
+                    const warning = details.querySelectorAll('[data-mc-status="WARNING"], [data-mc-status="REVIEW_REQUIRED"]').length;
+                    const success = details.querySelectorAll(
+                        '[data-mc-status="PASS"], [data-mc-status="VERIFIED"], [data-mc-status="OOS_PASS"]'
+                    ).length;
+                    return {details, blocked, warning, success};
+                })
+                .sort((left, right) => (right.blocked - left.blocked)
+                    || (right.warning - left.warning)
+                    || (right.success - left.success));
+            groups.forEach(({details, blocked, warning, success}) => {
+                const button = globalObject.document.createElement("button");
+                button.type = "button";
+                button.dataset.severity = blocked > 0 ? "BLOCKED"
+                    : warning > 0 ? "WARNING"
+                        : success > 0 ? "SUCCESS" : "NEUTRAL";
+                const label = details.querySelector(".mc-control-group-heading strong")?.textContent
+                    || details.querySelector(":scope > summary > span > strong")?.textContent
+                    || details.querySelector(":scope > summary > strong")?.textContent
+                    || details.dataset.mcSectionGroup;
+                const description = details.querySelector(":scope > summary > span > small")?.textContent?.trim() || "";
+                const count = blocked || warning || success;
+                const marker = success > 0 && blocked === 0 && warning === 0 ? "+" : "";
+                const buttonLabel = globalObject.document.createElement("span");
+                buttonLabel.className = "mc-control-drawer-group-label";
+                buttonLabel.textContent = label.trim();
+                button.appendChild(buttonLabel);
+                if (count > 0) {
+                    const badge = globalObject.document.createElement("span");
+                    badge.className = "mc-control-drawer-group-count";
+                    badge.textContent = `${marker}${count}`;
+                    badge.setAttribute("aria-label", "Количество событий");
+                    button.appendChild(badge);
+                }
+                if (description) button.title = description;
+                button.addEventListener("click", () => {
+                    details.open = true;
+                    groupList.querySelectorAll("button").forEach((item) => item.dataset.active = "false");
+                    button.dataset.active = "true";
+                    details.scrollIntoView({behavior: "smooth", block: "start"});
+                });
+                groupList.appendChild(button);
+            });
+            if (groups.length) content.appendChild(groupList);
+
+            const opportunities = Array.from(mountElement.querySelectorAll(
+                '[data-mc-status="PASS"], [data-mc-status="VERIFIED"], [data-mc-status="OOS_PASS"]'
+            )).filter((element) => !element.closest("details[data-mc-section-group]")).slice(0, 5);
+            if (opportunities.length) {
+                const opportunityList = globalObject.document.createElement("div");
+                opportunityList.className = "mc-control-drawer-opportunities";
+                const heading = globalObject.document.createElement("strong");
+                heading.textContent = services.translate("workspace.drawer.opportunities", {}, services.localeCode);
+                opportunityList.appendChild(heading);
+                opportunities.forEach((element) => {
+                    const button = globalObject.document.createElement("button");
+                    button.type = "button";
+                    button.textContent = element.textContent.trim().slice(0, 80)
+                        || services.translate("workspace.drawer.confirmed", {}, services.localeCode);
+                    button.addEventListener("click", () => element.scrollIntoView({behavior: "smooth", block: "center"}));
+                    opportunityList.appendChild(button);
+                });
+                content.insertBefore(opportunityList, groupList);
+            }
+            drawer.append(header, content);
+            globalObject.document.body.appendChild(drawer);
+            syncToggle();
+        };
+
+        const installCompactControlEnhancements = () => {
+            const equity = mountElement.querySelector('[data-mc-node-id="control.v3.scope.equity"]');
+            const futures = mountElement.querySelector('[data-mc-node-id="control.v3.scope.futures"]');
+            if (!equity || !futures) return;
+            const storageKey = "marketcore.control-v3.active-scope";
+            const tabs = globalObject.document.createElement("div");
+            tabs.className = "mc-control-v3-tabs";
+            tabs.setAttribute("role", "tablist");
+            const activate = (scope) => {
+                const showEquity = scope !== "futures";
+                equity.dataset.mcControlScopeHidden = String(!showEquity);
+                futures.dataset.mcControlScopeHidden = String(showEquity);
+                tabs.querySelectorAll("button").forEach((button) => {
+                    const active = button.dataset.scope === scope;
+                    button.setAttribute("aria-pressed", String(active));
+                    button.setAttribute("aria-selected", String(active));
+                });
+                try { globalObject.sessionStorage.setItem(storageKey, scope); }
+                catch (error) { globalObject.console.warn("MARKETCORE_CONTROL_SCOPE_SAVE_FAILED", error); }
+            };
+            [["equity", "Акции"], ["futures", "Фьючерсы"]].forEach(([scope, label]) => {
+                const button = globalObject.document.createElement("button");
+                button.type = "button";
+                button.dataset.scope = scope;
+                button.setAttribute("role", "tab");
+                button.textContent = label;
+                button.addEventListener("click", () => activate(scope));
+                tabs.appendChild(button);
+            });
+            equity.parentElement.insertBefore(tabs, equity);
+            let stored = "equity";
+            try { stored = globalObject.sessionStorage.getItem(storageKey) || stored; }
+            catch (error) { globalObject.console.warn("MARKETCORE_CONTROL_SCOPE_LOAD_FAILED", error); }
+            activate(stored === "futures" ? "futures" : "equity");
+
+            const archive = mountElement.querySelector('[data-mc-node-id="control.v3.archive"]');
+            if (archive && archive.parentElement?.tagName !== "DETAILS") {
+                const details = globalObject.document.createElement("details");
+                details.dataset.mcSectionGroup = "control-v3-archive";
+                const summary = globalObject.document.createElement("summary");
+                summary.textContent = "Архив и диагностика";
+                archive.parentElement.insertBefore(details, archive);
+                details.append(summary, archive);
+            }
+        };
+
+        const installResearchTableFolds = () => {
+            const sections = [
+                ["research.outcomes.title", "research.outcomes.table", "research-outcomes", "Прибыль и убытки"],
+                ["research.hypotheses.title", "research.hypotheses.table", "research-hypotheses", "Гипотезы для проверки"],
+            ];
+            sections.forEach(([titleId, tableId, code, fallback]) => {
+                const title = mountElement.querySelector(`[data-mc-node-id="${titleId}"]`);
+                const table = mountElement.querySelector(`[data-mc-node-id="${tableId}"]`);
+                if (!title || !table || table.closest("details[data-mc-section-group]")) return;
+                const parent = title.parentElement;
+                if (!parent || table.parentElement !== parent) return;
+                const details = globalObject.document.createElement("details");
+                details.dataset.mcSectionGroup = code;
+                details.className = "mc-research-table-fold";
+                const summary = globalObject.document.createElement("summary");
+                const label = globalObject.document.createElement("strong");
+                label.textContent = title.textContent.trim() || fallback;
+                const count = globalObject.document.createElement("span");
+                const rows = table.querySelectorAll('[data-mc-node="table_body"] > [data-mc-node="table_row"]').length;
+                count.textContent = `${rows} ${rows === 1 ? "строка" : rows > 1 && rows < 5 ? "строки" : "строк"}`;
+                summary.append(label, count);
+                parent.insertBefore(details, title);
+                title.remove();
+                details.append(summary, table);
+            });
+        };
+
+        const installResearchWorkspaceLayout = () => {
+            const page = mountElement.querySelector('[data-mc-node-id="page.research"]');
+            if (!page || page.querySelector('.mc-research-disclosure-grid')) return;
+
+            const operating = page.querySelector('[data-mc-node-id="research.operating"]');
+            const current = page.querySelector('[data-mc-node-id="research.current"]');
+            if (operating && current && !operating.closest('.mc-research-now')) {
+                const now = globalObject.document.createElement('section');
+                now.className = 'mc-research-now';
+                now.setAttribute('aria-label', 'Сейчас');
+                operating.parentElement.insertBefore(now, operating);
+                now.append(operating, current);
+            }
+
+            const groups = [
+                {
+                    code: 'research-oos-method',
+                    label: 'OOS и методология',
+                    description: 'Восстановление, воронка проверки и контроль метода',
+                    ids: [
+                        'research.remediation.title', 'research.remediation.table',
+                        'research.validation_funnel.title', 'research.validation_funnel.tiles',
+                        'research.validation_funnel.recommendation',
+                        'research.degradation.title', 'research.degradation.table',
+                        'research.governance.title', 'research.governance.tiles'
+                    ]
+                },
+                {
+                    code: 'research-markets',
+                    label: 'Инструменты и рынки',
+                    description: 'Фьючерсы, новые инструменты и исследовательская вселенная',
+                    ids: [
+                        'research.futures.title', 'research.futures.cards', 'research.futures.table',
+                        'research.scout.title', 'research.scout.schedule',
+                        'research.scout.funnel.title', 'research.scout.funnel.tiles',
+                        'research.scout.table', 'research.universe.title', 'research.universe.table'
+                    ]
+                },
+                {
+                    code: 'research-results',
+                    label: 'Результаты и гипотезы',
+                    description: 'Прибыль, убытки и варианты для следующей проверки',
+                    ids: ['research.outcomes.title', 'research.outcomes.table',
+                        'research.hypotheses.title', 'research.hypotheses.table']
+                },
+                {
+                    code: 'research-diagnostics',
+                    label: 'Диагностика',
+                    description: 'Причины отказов, журнал запусков и результаты алгоритмов',
+                    ids: ['research.failures.title', 'research.failures.table',
+                        'research.audit.title', 'research.audit.table',
+                        'research.algorithms.title', 'research.algorithms.table']
+                }
+            ];
+            const grid = globalObject.document.createElement('div');
+            grid.className = 'mc-research-disclosure-grid';
+            let inserted = false;
+            groups.forEach((group) => {
+                const nodes = group.ids.map((id) => page.querySelector(`[data-mc-node-id="${id}"]`))
+                    .filter(Boolean);
+                if (!nodes.length) return;
+                if (!inserted) {
+                    nodes[0].parentElement.insertBefore(grid, nodes[0]);
+                    inserted = true;
+                }
+                const details = globalObject.document.createElement('details');
+                details.dataset.mcSectionGroup = group.code;
+                details.className = 'mc-research-work-group';
+                const summary = globalObject.document.createElement('summary');
+                const copy = globalObject.document.createElement('span');
+                const title = globalObject.document.createElement('strong');
+                const description = globalObject.document.createElement('small');
+                title.textContent = group.label;
+                description.textContent = group.description;
+                copy.append(title, description);
+                const count = globalObject.document.createElement('b');
+                count.textContent = String(nodes.reduce((total, node) =>
+                    total + node.querySelectorAll('[data-mc-node="table_body"] > [data-mc-node="table_row"]').length, 0));
+                count.setAttribute('aria-label', 'Количество строк');
+                summary.append(copy, count);
+                details.appendChild(summary);
+                nodes.forEach((node) => details.appendChild(node));
+                grid.appendChild(details);
+            });
+        };
+
         const render = async (endpoint, options = {}) => {
             const panelState = options.preserveState
                 ? persistPanelState()
@@ -193,16 +542,23 @@
                     actionSink
                 });
                 mountElement.setAttribute("data-runtime-status", "READY");
+                installResearchWorkspaceLayout();
+                installResearchTableFolds();
                 const stateToRestore = options.preserveState
                     ? (storedPanelState() || panelState)
                     : panelState;
                 if (stateToRestore) {
+                    restorePanelState(stateToRestore, {
+                        restorePageScroll: options.restorePageScroll !== false
+                    });
                     globalObject.requestAnimationFrame(() => globalObject.requestAnimationFrame(() => {
                         restorePanelState(stateToRestore, {
                             restorePageScroll: options.restorePageScroll !== false
                         });
                     }));
                 }
+                installCompactControlEnhancements();
+                installControlDrawer();
             } catch (error) {
                 mountElement.setAttribute("data-runtime-status", "FAILED");
                 mountElement.setAttribute("data-runtime-error", error && error.message ? error.message : String(error));
@@ -214,17 +570,7 @@
         };
 
         actionSink = globalObject.MarketCoreBrowserActionControllerV2.create({
-            onNavigation: async (targetId) => {
-                const endpoint = ENDPOINT_BY_TARGET[targetId];
-                if (!endpoint) throw new Error(`WORKSPACE_SHELL_V2_TARGET_UNKNOWN:${targetId}`);
-                if (targetId === currentTargetId) return;
-                persistPanelState();
-                navigationStack.push(currentTargetId);
-                currentTargetId = targetId;
-                await render(endpoint, {restoreStored: true});
-                syncRoute(targetId);
-                updateBackButton();
-            },
+            onNavigation: navigateToTarget,
             onCommand: async () => {
                 await new Promise((resolve) => globalObject.setTimeout(resolve, 800));
                 await render(currentEndpoint, {preserveState: true});
@@ -271,19 +617,21 @@
         if (globalObject.history && "scrollRestoration" in globalObject.history) {
             globalObject.history.scrollRestoration = "manual";
         }
-        await render(currentEndpoint, {restoreStored: true, restorePageScroll: false});
+        await render(currentEndpoint, {restoreStored: true});
         syncRoute(currentTargetId, true);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
         globalObject.setInterval(async () => {
             if (refreshInFlight || globalObject.document.visibilityState !== "visible") return;
-            if (!currentTargetId || !["container.edge", "container.research"].includes(currentTargetId)) return;
+            const refreshableWorkspace = currentTargetId === "container.home"
+                || ["container.edge", "container.research"].includes(currentTargetId);
+            if (!currentTargetId || !refreshableWorkspace) return;
             if (globalObject.document.querySelector("[role='dialog']")) return;
             refreshInFlight = true;
             try { await render(currentEndpoint, {preserveState: true}); }
             catch (error) { globalObject.console.error("MARKETCORE_AUTO_REFRESH_FAILED", error); }
             finally { refreshInFlight = false; }
-        }, 5000);
+        }, 15000);
     }
 
     const launch = () => start().catch((error) => {

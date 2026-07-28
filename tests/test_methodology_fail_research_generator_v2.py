@@ -44,6 +44,13 @@ def test_generator_reads_base_pass_methodology_failures_and_is_idempotent() -> N
     assert "liquid_peer" in source
 
 
+def test_generator_uses_the_first_recorded_gate_failure_not_raw_booleans() -> None:
+    source=(ROOT/"src/scripts/generate_adaptive_edge_search_scenarios_v1.py").read_text()
+    assert "jsonb_each_text(coalesce(m.evidence->'gate_statuses'" in source
+    assert "WHEN 'STATISTICAL_SIGNIFICANCE' THEN 1" in source
+    assert "WHEN 'REALISTIC_EXECUTION' THEN 4" in source
+
+
 def test_database_contract_forbids_gate_weakening() -> None:
     migration=(ROOT/"sql/analytics/095_methodology_fail_research_generator_v2.sql").read_text()
     for forbidden in ("pass_gate","methodology_contract","execution_costs","consumed_holdout"):

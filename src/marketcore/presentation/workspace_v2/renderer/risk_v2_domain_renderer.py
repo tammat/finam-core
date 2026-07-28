@@ -36,6 +36,7 @@ def _cluster_table(snapshot: RiskSnapshotV2):
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"risk.clusters.header.{code}", key=f"risk.column.{code}", column_code=code)
         for code in ("cluster", "positions", "heat", "portfolio_share", "state")
     )
+
     rows = tuple(
         RenderNodeV2(
             RenderNodeTypeV2.TABLE_ROW, f"risk.cluster.{index}",
@@ -62,6 +63,33 @@ def _cluster_table(snapshot: RiskSnapshotV2):
             RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "risk.clusters.body", children=rows),
         ),
     )
+
+
+def _decision_table(snapshot: RiskSnapshotV2):
+    columns = ("symbol", "strategy", "decision", "reason", "quantity", "risk", "spread", "book", "time")
+    header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "risk.decisions.header", children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"risk.decisions.header.{code}", key=f"risk.decision.column.{code}", column_code=code)
+        for code in columns
+    ))
+    rows = tuple(RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW, f"risk.decision.{index}",
+        state=RenderNodeStateV2(status_code=item.decision_code, source_as_of=item.created_at, source_identity="analytics.risk_control_decision_v2"),
+        children=(
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.symbol", value=item.symbol, column_code="symbol"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.strategy", value=item.strategy_family, column_code="strategy"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.decision", value=item.decision_code, format_code="DOMAIN_CODE", column_code="decision"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.reason", value=", ".join(item.reason_codes) or "RISK_PASS", column_code="reason"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.quantity", value=f"{item.approved_quantity}/{item.requested_quantity}", column_code="quantity"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.risk", value=item.risk_budget_rub, format_code="MONEY_RUB", column_code="risk"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.spread", value=item.spread_bps, format_code="DECIMAL", column_code="spread"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.book", value=item.book_depth, format_code="DECIMAL", column_code="book"),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"risk.decision.{index}.time", value=item.created_at, format_code="DATETIME", column_code="time"),
+        ),
+    ) for index, item in enumerate(snapshot.control_decisions, 1))
+    return RenderNodeV2(RenderNodeTypeV2.TABLE, "risk.decisions.table", children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "risk.decisions.head", children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "risk.decisions.body", children=rows),
+    ))
 
 
 def render_risk_domain_v2(snapshot: RiskSnapshotV2, *, timezone_code: str = "Europe/Moscow") -> RenderDocumentV2:
@@ -94,6 +122,7 @@ def render_risk_domain_v2(snapshot: RiskSnapshotV2, *, timezone_code: str = "Eur
                 _leaf(RenderNodeTypeV2.SUBTITLE, "risk.subtitle", key="risk.workspace.subtitle"),
                 RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "risk.metrics", children=metrics),
                 _cluster_table(snapshot),
+                _decision_table(snapshot),
             )),
         )),
     )

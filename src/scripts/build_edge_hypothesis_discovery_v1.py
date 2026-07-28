@@ -46,10 +46,14 @@ def load_search_configuration(cursor):
             "promotion_blocked": row["promotion_blocked"], "compute_policy": row["compute_policy"],
         }))
     cursor.execute("""
-        SELECT adaptive_scenario_id,algorithm_code,strategy_code,parameter_grid,
-               generation_policy,config_version,target_symbol
-        FROM analytics.edge_search_adaptive_scenario_v1
-        WHERE status_code='ACTIVE'
+        SELECT s.adaptive_scenario_id,s.algorithm_code,s.strategy_code,s.parameter_grid,
+               s.generation_policy,s.config_version,s.target_symbol,
+               r.regime_policy AS canonical_regime_policy,
+               r.gate_policy AS canonical_gate_policy
+        FROM analytics.edge_search_adaptive_scenario_v1 s
+        JOIN analytics.edge_search_algorithm_registry_v1 r
+          ON r.algorithm_code=s.algorithm_code AND r.enabled
+        WHERE s.status_code='ACTIVE'
         ORDER BY created_at,adaptive_scenario_id
     """)
     for row in cursor.fetchall():
@@ -59,8 +63,14 @@ def load_search_configuration(cursor):
         ]
         result.append((row["algorithm_code"], {
             "strategy_code": row["strategy_code"], "grid": grid,
-            "regime_policy": {"target_symbols": [row["target_symbol"]]},
-            "gate_policy": row["generation_policy"]["gate_policy"],
+            # Adaptive scenarios may narrow the market and parameter area, but
+            # must inherit the canonical regime and PASS contracts.  Earlier
+            # rows kept only target_symbols and therefore failed before OOS.
+            "regime_policy": {
+                **row["canonical_regime_policy"],
+                "target_symbols": [row["target_symbol"]],
+            },
+            "gate_policy": row["canonical_gate_policy"],
             "config_version": row["config_version"],
         }))
     return result

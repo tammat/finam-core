@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from scripts.generate_oos_remediation_branches_v1 import BRANCH_POLICY, fingerprint
+from scripts.generate_oos_remediation_branches_v1 import (
+    BRANCH_POLICY,
+    FOCUS_ALGORITHM_BUDGET,
+    fingerprint,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +14,11 @@ def test_branch_budgets_are_bounded_and_costs_get_priority() -> None:
     assert BRANCH_POLICY["COST_REMEDIATION"]["budget"] == 34
     assert BRANCH_POLICY["SAMPLE_EXPANSION"]["budget"] == 10
     assert sum(item["budget"] for item in BRANCH_POLICY.values()) == 44
+    assert FOCUS_ALGORITHM_BUDGET == {
+        "DONCHIAN_VOL_BREAKOUT": 20,
+        "EMA_TREND": 14,
+    }
+    assert sum(FOCUS_ALGORITHM_BUDGET.values()) == BRANCH_POLICY["COST_REMEDIATION"]["budget"]
 
 
 def test_fingerprint_ignores_runtime_scenario_identity() -> None:
@@ -50,14 +59,19 @@ def test_zero_cost_diagnostic_is_visible_but_cannot_promote() -> None:
     assert "RESEARCH.REQUEST_REFRESH" in renderer
 
 
-def test_resource_policy_keeps_70_20_10_and_dynamic_exit() -> None:
+def test_resource_policy_reserves_temporal_budget_and_dynamic_exit() -> None:
     migration = (ROOT / "sql/analytics/159_zero_cost_diagnostic_v1.sql").read_text()
+    temporal = (ROOT / "sql/analytics/177_temporal_oos_branches_v1.sql").read_text()
     adaptive = (ROOT / "src/scripts/generate_adaptive_edge_search_scenarios_v1.py").read_text()
     assert "('COST_REMEDIATION',70,34" in migration
     assert "('SAMPLE_EXPANSION',20,10" in migration
     assert "('NEW_INSTRUMENT_EXPLORATION',10,4" in migration
+    assert "('TEMPORAL_SESSION',10,10,15" in temporal
+    assert "SET resource_share_pct=60" in temporal
     assert adaptive.count('"exit_max_holding_bars": 20') >= 2
     assert '"entry_volume_mode": "REQUIRE"' in adaptive
+    assert adaptive.count('"entry_regime_mode": "REQUIRE"') >= 2
+    assert '"entry_allowed_regimes"' in adaptive
 
 
 def test_workspace_navigation_updates_browser_url() -> None:

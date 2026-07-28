@@ -133,6 +133,18 @@ def _table_row_action(section_code: str, row: dict[str, Any]) -> RenderActionV2 
     if section_code != "funnel":
         return None
     stage_code = str(row.get("stage_code") or "").strip().upper()
+    reason_code = str(row.get("reason_code") or "").strip().upper()
+    if row.get("pass_rate_pct") is None and reason_code != "INITIAL_STAGE":
+        return RenderActionV2(
+            action_id="research.request.refresh",
+            action_kind=ActionKindV2.COMMAND,
+            target_id=stage_code,
+            command_code="RESEARCH.REQUEST_REFRESH",
+            policy_class="RESEARCH_MAINTENANCE",
+            reversible=True,
+            rollback_code="RESEARCH.CANCEL_PENDING_REQUEST",
+            idempotency_key="client.request",
+        )
     target_id = _FUNNEL_STAGE_CONTAINER.get(stage_code)
     if target_id is None:
         return None
@@ -177,6 +189,7 @@ def _table_section(
             raw_value = row.get(column)
             display_value, format_code = _display_value(column, raw_value)
             normalized_column = column.lower()
+            message_args: dict[str, Any] | None = None
             is_localized_code = (
                 normalized_column == "status"
                 or normalized_column.endswith("_status")
@@ -198,7 +211,26 @@ def _table_section(
                 raw_value, (str, list, tuple, set)
             )
             message_key = None
-            if raw_value is None:
+            if (
+                section_code == "funnel"
+                and normalized_column == "pass_rate_pct"
+                and raw_value is None
+            ):
+                reason_code = _message_code(row.get("reason_code") or "not_calculated")
+                message_key = f"funnel.conversion.{reason_code}"
+                display_value = None
+                format_code = None
+            elif (
+                section_code == "funnel"
+                and normalized_column == "source_identity"
+                and isinstance(raw_value, str)
+                and raw_value.strip()
+            ):
+                message_key = f"funnel.source.{_message_code(raw_value)}"
+                message_args = {"tooltip_value": raw_value}
+                display_value = None
+                format_code = None
+            elif raw_value is None:
                 message_key = "status.no_data"
                 display_value = None
                 format_code = None
@@ -217,6 +249,7 @@ def _table_section(
                     RenderNodeTypeV2.TABLE_CELL,
                     f"{section_id}.row.{row_index}.cell.{column_index}",
                     message_key=message_key,
+                    message_args=message_args,
                     value=display_value,
                     format_code=format_code,
                     column_code=column,
@@ -358,6 +391,45 @@ def _loss_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ..
     )
 
 
+def _entry_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
+    """Operator view of entry contracts; technical payload stays in the drill-down."""
+    regime_names = {
+        "UPTREND": "Восходящий тренд", "DOWNTREND": "Нисходящий тренд",
+        "RANGE": "Боковой рынок", "UNKNOWN": "Режим не определён",
+    }
+    session_names = {
+        "MORNING": "Утро", "DAY": "День", "EVENING": "Вечерняя сессия",
+        "US": "Америка", "EUROPE": "Европа", "UNKNOWN": "Любая сессия",
+    }
+    rows = []
+    for item in view_model.entry_analysis:
+        params = item.get("parameter_json") or {}
+        threshold = params.get("threshold")
+        lookback = params.get("lookback")
+        hold = params.get("hold") or params.get("holding_bars")
+        parts = []
+        if threshold is not None:
+            parts.append(f"Импульс от {threshold}")
+        if lookback is not None:
+            parts.append(f"за {lookback} свечей")
+        entry = " ".join(parts) if parts else "Сигнал стратегии"
+        exit_rule = (f"Не более {hold} свечей; раньше — при смене режима"
+                     if hold is not None else "Выход по смене режима")
+        verdict = str(item.get("verdict_code") or "NO_DATA")
+        rows.append({
+            "strategy": item.get("strategy_code") or "—",
+            "symbol": item.get("symbol") or "—",
+            "timeframe": item.get("timeframe") or "—",
+            "entry": entry,
+            "regime": regime_names.get(str(item.get("regime_code") or "").upper(), "Любой режим"),
+            "session": session_names.get(str(item.get("session_code") or "").upper(), "Любая сессия"),
+            "exit": exit_rule,
+            "evidence": f"Сделок OOS: {int(item.get('oos_trades') or 0)} · фолды: {int(item.get('folds_passed') or 0)}/{int(item.get('folds_total') or 0)}",
+            "status": verdict,
+        })
+    return tuple(rows)
+
+
 def _swing_rows(view_model: ControlCenterV2ViewModel) -> tuple[dict[str, Any], ...]:
     strategy_names = {
         "MOMENTUM": "Импульс",
@@ -411,7 +483,7 @@ def render_control_center_domain_v2(
         ("loss_reasons", _loss_rows(view_model)),
         ("volatility", tuple(view_model.volatility_analysis)),
         ("risk", tuple(view_model.risk_analysis)),
-        ("entry", tuple(view_model.entry_analysis)),
+        ("entry", _entry_rows(view_model)),
         ("execution", tuple(view_model.execution_quality)),
         ("microstructure_priorities", tuple(view_model.microstructure_priorities)),
         ("execution_microstructure", tuple(

@@ -18,7 +18,10 @@ def classify_cluster(symbol: str) -> str:
     if s.startswith("NG") or s.startswith("BR"):
         return "COMMODITIES"
 
-    if "USD" in s or "RUB" in s:
+    if s.startswith(("GD", "GLD")) or "GOLD" in s:
+        return "METALS"
+
+    if "USD" in s or "RUB" in s or "CNY" in s:
         return "FX"
 
     return "EQUITIES"
@@ -58,7 +61,17 @@ def main() -> int:
 
             rows = cur.fetchall()
 
-            clusters = {}
+            # Always refresh every supported cluster.  A cluster with no current
+            # allocations is a valid zero-risk state, not a missing/stale state.
+            clusters = {
+                name: {
+                    "positions": 0,
+                    "heat": 0.0,
+                    "risk_sum": 0.0,
+                    "max_risk": 0.0,
+                }
+                for name in ("EQUITIES", "COMMODITIES", "METALS", "FX")
+            }
 
             total_heat = 0.0
 
@@ -69,14 +82,6 @@ def main() -> int:
                 risk_multiplier = safe_float(risk_multiplier)
 
                 cluster = classify_cluster(symbol)
-
-                if cluster not in clusters:
-                    clusters[cluster] = {
-                        "positions": 0,
-                        "heat": 0.0,
-                        "risk_sum": 0.0,
-                        "max_risk": 0.0,
-                    }
 
                 clusters[cluster]["positions"] += 1
                 clusters[cluster]["heat"] += capital_weight

@@ -337,6 +337,10 @@ def _operator_action_table(cards: tuple[BaseCard, ...]) -> RenderNodeV2:
             next_key = "home.operator.next.measure" if str(verdict_value) == "MEASUREMENT_DUE" else (
                 "home.operator.next.refresh" if str(verdict_value) in {"IMPROVED", "NO_EFFECT", "DEGRADED"} else "home.operator.next.open"
             )
+        elif str(verdict_value) == "BLOCKED":
+            next_key = "home.operator.next.review_block"
+        elif str(verdict_value) == "MEASURING":
+            next_key = "home.operator.next.automatic"
         elif str(verdict_value) in {"IMPROVED", "NO_EFFECT", "DEGRADED", "EXPIRED", "STALE"}:
             next_key = "home.operator.next.view"
         else:
