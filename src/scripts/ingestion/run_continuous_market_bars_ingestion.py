@@ -10,17 +10,40 @@ import psycopg
 from finam_core.analytics.statistics_repository import build_psycopg_url
 
 
-def load_watch_symbols() -> list[str]:
+V5_FRESHNESS_PRIORITY = (
+    "BRQ6@RTSX",
+    "NGQ6@RTSX",
+    "SBER@MISX",
+    "GAZP@MISX",
+    "LKOH@MISX",
+    "NVTK@MISX",
+    "VTBR@MISX",
+)
+
+
+def load_watch_targets() -> list[tuple[str, str]]:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT symbol
+                SELECT symbol, timeframe
                 FROM market_data_watch_universe
                 WHERE is_enabled = true
-                ORDER BY asset_group, symbol
-            """)
-            rows = [str(r[0]) for r in cur.fetchall()]
+                ORDER BY
+                    array_position(%s::text[], symbol) NULLS LAST,
+                    asset_group,
+                    symbol,
+                    timeframe
+            """, (list(V5_FRESHNESS_PRIORITY),))
+            rows = [(str(r[0]), str(r[1])) for r in cur.fetchall()]
     return rows
+
+
+def valid_finam_symbol(symbol: str) -> bool:
+    # Finam's bars endpoint requires an explicit MIC.  Remediation-only
+    # placeholders such as BTCUSD must not consume the retry budget of the
+    # time-sensitive V5 market-data cycle.
+    ticker, separator, mic = symbol.partition("@")
+    return bool(ticker and separator and mic)
 
 def run_backfill(symbol: str, timeframe: str, lookback_hours: int, step_timeout_sec: int) -> bool:
     cmd = [
@@ -70,16 +93,27 @@ def main() -> int:
 
         # Reload the universe every cycle: the scout can add or disable instruments
         # without requiring a service restart.
-        symbols = requested_symbols or load_watch_symbols()
+        targets = (
+            [(symbol, timeframe) for timeframe in timeframes for symbol in requested_symbols]
+            if requested_symbols
+            else load_watch_targets()
+        )
         ok_all = True
-        for tf in timeframes:
-            for symbol in symbols:
-                # One unavailable vendor code must not hold the remaining active
-                # instruments hostage.  Each instrument is an independent update.
-                ok_all = (
-                    run_backfill(symbol, tf, args.lookback_hours, args.step_timeout_sec)
-                    and ok_all
+        for symbol, timeframe in targets:
+            if not valid_finam_symbol(symbol):
+                print(
+                    "MARKET_BARS_INGESTION_TARGET_SKIPPED "
+                    f"symbol={symbol} timeframe={timeframe} reason=MISSING_MIC",
+                    flush=True,
                 )
+                ok_all = False
+                continue
+            # One unavailable vendor code must not hold the remaining active
+            # instruments hostage.  Each instrument is an independent update.
+            ok_all = (
+                run_backfill(symbol, timeframe, args.lookback_hours, args.step_timeout_sec)
+                and ok_all
+            )
 
         print(f"MARKET_BARS_INGESTION_CYCLE_DONE cycle={cycle} ok={ok_all}", flush=True)
 

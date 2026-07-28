@@ -121,3 +121,25 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - UI statuses: BR countertrend blocked; NGN6 stale contract.
 
 Коммит не создан: рабочее дерево содержит посторонние незакоммиченные изменения.
+
+## Market-data freshness 21:52–21:57 МСК
+
+- Active watch universe: 68 точных targets — 64 M1 и 4 M5.
+- Старый ingestion loop игнорировал timeframe каждой строки и расширял universe
+  до M1/M5/H1 для каждого символа; это задерживало обновление V5.
+- Исправленный loop выполняет только сохранённые `symbol × timeframe` и сразу
+  пропускает `BTCUSD`/`ETHUSD` как `MISSING_MIC`.
+- Static/runtime-plan verification: targets=68, valid=66, skipped=2; tests=3 passed.
+- Deployment state: файлы обновлены, но service PID `3783032` ещё старый, потому
+  что sudo требует интерактивный пароль. Требуется операторский restart ingestion.
+- Safety state не менялся; real execution disabled. Чистое накопление V5 уже
+  продолжается pipeline, а ускоренный bars cycle требует проверки после restart.
+
+## Market-data freshness runtime verified 21:57–22:00 МСК
+
+- Loaded PID: `3878185`, active/running since 21:57:46.
+- Verified first targets: BRQ6/NGQ6 M1, SBER/GAZP/LKOH M1, NVTK/VTBR M5;
+  all seven steps completed successfully before the remaining scout universe.
+- Observed DB age: M1 137 sec, M5 197 sec at the same measurement point.
+- V5 freshness is no longer held behind unrelated slow or invalid instruments.
+- Verdict: `V5_FRESH_DATA_ACCUMULATION_ACTIVE`; real execution remains disabled.
