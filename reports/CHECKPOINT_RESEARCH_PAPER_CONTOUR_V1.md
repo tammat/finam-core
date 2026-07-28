@@ -75,6 +75,14 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - BRQ6 M1 ingestion успешен; equity M5 readiness контролируется отдельно.
 - Реальное исполнение отключено. Следующее доказательство: первое post-reload улучшение virtual stop и новое чистое intraday/equity закрытие.
 
+## Runtime verification 21:36–21:37 МСК
+
+- Pipeline PID `3782708`; first quote и projection restore успешны.
+- NGQ6 state exit: `regime_invalidation_long`, persisted `bars_held=40`, Paper SELL 1 @ `2.71675`.
+- Новая BRQ6 LONG: BUY 1 @ `84.1825`, initial virtual trailing stop `83.77`, dry-run only.
+- Broker trailing errors после старта отсутствуют; safety flags неизменны.
+- NG closed-trade materialization и первое чистое equity V5-закрытие остаются следующими наблюдаемыми фактами.
+
 ## Candle-state exit
 
 - Quote не увеличивает bars_held.

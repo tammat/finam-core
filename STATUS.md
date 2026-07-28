@@ -222,4 +222,13 @@
 - Ingestion fail-isolation подтверждён: `2xEQT@MISX` остановлен после первого `NOT_FOUND` как `SECURITY_NOT_FOUND`, после чего обработка продолжилась по следующим символам; BRQ6 M1 успешно обновлён.
 - Monotonic trailing code загружен, но нового улучшения virtual stop после этого reload ещё не было; runtime monotonic event требует наблюдения.
 
+## Runtime checkpoint 21:36–21:37 МСК
+
+- После операторских restart все четыре службы active: pipeline PID `3782708`, bars ingestion PID `3783032`, Paper Safe и UI.
+- Первая котировка пришла в 21:36:44; NGQ6 восстановилась из projection без SQL errors.
+- В 21:37:03 NGQ6 закрыта по состоянию свечей: `regime_invalidation_long`; exit payload содержит восстановленный `bars_held=40`, а не reset `1`.
+- Closing Paper fill: SELL 1 @ `2.71675`, `FRESH_V5_CONFIRMED_FUTURES`; materialization в `closed_trades` асинхронно ожидается.
+- В 21:37:18 открыта новая BRQ6 Paper LONG @ `84.1825`; virtual stop `83.77` применён с `dry_run=1`.
+- После нового PID нет `missing_old_stop` и broker trailing route. `TEST@MISX` остаётся `0/0`.
+
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
