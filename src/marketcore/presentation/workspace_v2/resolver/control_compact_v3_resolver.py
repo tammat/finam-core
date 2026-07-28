@@ -160,6 +160,29 @@ class ControlCompactV3Resolver:
                 """)
                 freshness = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""
+                    SELECT level_code,count(*)::int AS groups,
+                           count(*) FILTER (WHERE decision_code='EARLY_STOP')::int AS early_stop,
+                           count(*) FILTER (WHERE decision_code='READY_FOR_OOS')::int AS ready,
+                           max(closed_trades)::int AS max_trades
+                    FROM analytics.hierarchical_evidence_v1
+                    WHERE cohort_code='FRESH_V5_CONFIRM'
+                    GROUP BY level_code
+                """)
+                hierarchy = {row["level_code"]: dict(row) for row in cursor.fetchall()}
+                cursor.execute("""
+                    SELECT scope_code,timeframe_code,strategy_code,symbol_code,side_code,
+                           session_code,regime_code,exit_rule,closed_trades,target_trades,
+                           expectancy,profit_factor,profit_factor_observable,
+                           decision_code,reason_code
+                    FROM analytics.hierarchical_evidence_v1
+                    WHERE cohort_code='FRESH_V5_CONFIRM' AND level_code='EXACT_CONTEXT'
+                      AND decision_code<>'EARLY_STOP'
+                    ORDER BY closed_trades DESC,priority_score DESC
+                    LIMIT 1
+                """)
+                hierarchy_nearest = dict(cursor.fetchone() or {})
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -224,4 +247,6 @@ class ControlCompactV3Resolver:
             "recent_jobs": recent_jobs,
             "freshness": freshness,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
+            "hierarchy": hierarchy,
+            "hierarchy_nearest": hierarchy_nearest,
         }

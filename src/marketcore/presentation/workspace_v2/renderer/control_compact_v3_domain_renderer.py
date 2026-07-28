@@ -124,6 +124,35 @@ def _jobs_section(rows):
     ))
 
 
+def _hierarchy_section(snapshot):
+    hierarchy = snapshot.get("hierarchy") or {}
+    nearest = snapshot.get("hierarchy_nearest") or {}
+    children = [
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.hierarchy.title",
+              "Иерархическое evidence V5", level="SECTION"),
+    ]
+    labels = (
+        ("STRATEGY", "Стратегия × scope × timeframe × side"),
+        ("INSTRUMENT_SIDE", "Инструмент и направление"),
+        ("COMPATIBLE_CONTEXT", "Совместимый контекст"),
+        ("EXACT_CONTEXT", "Точный контекст"),
+    )
+    for code, label in labels:
+        row = hierarchy.get(code) or {}
+        value = (f"групп {int(row.get('groups') or 0)} · максимум {int(row.get('max_trades') or 0)}"
+                 f" · stop {int(row.get('early_stop') or 0)} · OOS {int(row.get('ready') or 0)}")
+        children.append(_metric_row(f"hierarchy_{code.lower()}", label, value))
+    nearest_text = (
+        f"{nearest.get('symbol_code')} · {nearest.get('strategy_code')} · "
+        f"{nearest.get('closed_trades',0)} / {nearest.get('target_trades',80)} · "
+        f"{nearest.get('decision_code')}"
+        if nearest else "Точных V5-групп пока нет"
+    )
+    children.append(_leaf(RenderNodeTypeV2.TEXT, "control.v3.hierarchy.nearest", nearest_text))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.hierarchy",
+                        children=tuple(children))
+
+
 def _ru_status(value):
     code = str(value or "").upper()
     return {
@@ -357,6 +386,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         _edge_control_section(snapshot),
         _freshness_section(snapshot.get("freshness") or ()),
         _jobs_section(snapshot.get("recent_jobs") or ()),
+        _hierarchy_section(snapshot),
         _scope_section("FRESH_V5_CONFIRMED_EQUITY", "Акции", snapshot),
         _scope_section("FRESH_V5_CONFIRMED_FUTURES", "Фьючерсы", snapshot),
         _branch_plan_section(snapshot.get("branch_plan") or ()),

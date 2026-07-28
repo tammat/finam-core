@@ -194,3 +194,12 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Freshness after cycle 2: M1=120 sec, M5=360 sec.
 - Previous M1 age 226 sec is eliminated; target contract is satisfied.
 - Verdict: `V5_FAST_BARS_REFRESH_RUNTIME_VERIFIED`.
+
+## V5 hierarchical evidence prepared 22:38–22:47 МСК
+
+- Four levels implemented with physical scope/timeframe isolation.
+- Only clean V5 confirmed trades are consumed; V3/V4 never enter the router.
+- OOS remains exact-only with 80 trades, PF/expectancy/cost gates.
+- Scheduler executor and button-free Control Center hierarchy summary added.
+- Validation: 17 focused tests passed.
+- Pending: migration 215 + first router run + UI reload and runtime verification.

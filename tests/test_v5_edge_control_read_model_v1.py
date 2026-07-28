@@ -47,3 +47,13 @@ def test_manual_control_does_not_disable_or_cancel_autorun() -> None:
     assert "edge_manual_pending" in resolver
     assert "actor_id<>'system.scheduler'" in worker
     assert "actor_id=%s" in worker
+
+
+def test_control_center_exposes_hierarchy_without_more_buttons() -> None:
+    resolver = (ROOT / "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py").read_text()
+    renderer = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_compact_v3_domain_renderer.py").read_text()
+    assert "FRESH_V5_CONFIRM" in resolver
+    assert "EXACT_CONTEXT" in resolver
+    assert "control.v3.hierarchy" in renderer
+    section = renderer[renderer.index("def _hierarchy_section"):renderer.index("def _ru_status")]
+    assert "_command(" not in section

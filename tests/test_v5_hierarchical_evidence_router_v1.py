@@ -1,0 +1,56 @@
+from decimal import Decimal
+from pathlib import Path
+import importlib.util
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PATH = ROOT / "src/scripts/build_v5_hierarchical_evidence_v1.py"
+SPEC = importlib.util.spec_from_file_location("v5_hierarchy", PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
+SPEC.loader.exec_module(MODULE)
+
+
+def stats(trades, net, wins, losses, move=100, cost=10):
+    return MODULE.EvidenceStats(trades, Decimal(net), Decimal(wins), Decimal(losses),
+                                Decimal(move), Decimal(cost))
+
+
+def test_hierarchy_never_promotes_non_exact_level() -> None:
+    decision, reason, _, _ = MODULE.classify(
+        stats(100,"20","30","10"), exact=False
+    )
+    assert decision == "COLLECT"
+    assert reason == "V5_HIERARCHY_SUPPORTS_EXACT_VALIDATION_ONLY"
+
+
+def test_exact_level_requires_cost_adjusted_observable_edge() -> None:
+    decision, reason, pf, observable = MODULE.classify(
+        stats(80,"20","30","10",move=100,cost=10), exact=True
+    )
+    assert (decision, reason) == ("READY_FOR_OOS", "V5_EXACT_CONTEXT_COST_ADJUSTED_EDGE")
+    assert pf == Decimal("3") and observable
+
+
+def test_small_sample_is_discovery_not_pass() -> None:
+    assert MODULE.classify(stats(9,"2","3","1"), exact=True)[0] == "DISCOVERY_ONLY"
+
+
+def test_persistent_negative_instrument_can_stop_after_twenty() -> None:
+    decision, reason, _, _ = MODULE.classify(stats(20,"-8","2","10"), exact=False)
+    assert (decision, reason) == ("EARLY_STOP", "V5_PERSISTENT_NEGATIVE_EXPECTANCY")
+
+
+def test_scope_and_timeframe_are_physical_dimensions() -> None:
+    migration = (ROOT / "sql/analytics/215_v5_hierarchical_evidence_router_v1.sql").read_text()
+    assert "scope_code" in migration and "timeframe_code" in migration
+    source = PATH.read_text()
+    assert "closed_trades_fresh_v5_confirmed" in source
+    assert "FRESH_V5_CONFIRM" in source
+    assert "FRESH_V3" not in source and "FRESH_V4" not in source
+
+
+def test_scheduler_allowlists_the_implemented_router() -> None:
+    scheduler = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert '"HIERARCHICAL_EVIDENCE_ROUTER_V1": "src/scripts/build_v5_hierarchical_evidence_v1.py"' in scheduler

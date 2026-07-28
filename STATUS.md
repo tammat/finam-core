@@ -233,6 +233,24 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
+
+- Реализованы четыре изолированных уровня evidence: STRATEGY (scope × timeframe ×
+  strategy × side), INSTRUMENT_SIDE, COMPATIBLE_CONTEXT и EXACT_CONTEXT.
+- Equity/futures scopes и разные timeframes физически не объединяются. V3/V4 не
+  участвуют: источник только `closed_trades_fresh_v5_confirmed`.
+- Совместимые session/regime группы берутся из versioned compatibility table;
+  точный уровень сохраняет фактические session, regime и exit rule.
+- Иерархические уровни используются для collection priority/early stop, но не
+  дают PASS. `READY_FOR_OOS` возможен только EXACT_CONTEXT при >=80 trades,
+  observable PF >=1.15, positive net expectancy и cost buffer 1.5x.
+- Scheduler allowlist получил реальный `HIERARCHICAL_EVIDENCE_ROUTER_V1` executor;
+  Control Center показывает четыре уровня, stop/OOS и nearest exact branch без
+  добавления кнопок.
+- Проверки: compile, 17 focused tests, `git diff --check`.
+- Deployment pending: применить migration 215, один раз выполнить router, проверить
+  строки V5 и затем restart только UI. До этого runtime status требует проверки.
+
 ## V5 fast bars runtime verification 28.07.2026, 22:34–22:36 МСК
 
 - `finam-v5-bars-fast.timer` installed, enabled и active/waiting.
