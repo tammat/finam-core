@@ -184,4 +184,15 @@
 - Текущее чистое V5: 1 закрытие NG; открыты BR и новая NG Paper-позиции.
 - Контрольный reload 21:02:56 показал, что локальный trailing cache мог теряться между двумя lifecycle routes: stop повторно записывался и мог уменьшаться. Источник истины исправлен на общий ExitEngine state; long stop теперь монотонный, повтор требует улучшения минимум на configured step. Проверки: `12 passed`; требуется reload.
 
+## Нормализация V5 и Swing 28.07.2026
+
+- Рабочее дерево `codex/research-edge-v5` очищено без потери WIP.
+- Проверенные добавления закреплены атомарно: master-context/hygiene (`d8e37ff6`), полный risk schema (`3def889f`), candle-driven swing research (`1b781d7c`) и правильный приоритет adaptive entry constraints (`810cb2cb`).
+- Swing использует только закрытые H1/H4/D1-бары; Paper и validation разделяют `dynamic_exit_v1`. Основные выходы: ATR stop/trailing, исчезновение тренда и volatility risk; `MAX_HOLD` — страховка.
+- Финальный объединённый Swing/Risk acceptance: `47 passed`; master-context verifier OK.
+- Непроверенный research/UI слой сохранён на ветке `codex/quarantine-pre-v5-wip-20260728`, commit `f91941a7`; он не является частью canonical V5.
+- Расширенный quarantine suite: 69 passed, 5 contract failures; atomic-policy branch дополнительно имеет 5 незавершённых runtime assertions. Эти ветки не допущены в V5.
+- Runtime snapshots восстановлены к HEAD; backup/log перенесены в `/tmp/finam-core-local-archive-20260728`.
+- Службы, scheduler, миграции и торговое исполнение при нормализации не запускались.
+
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».

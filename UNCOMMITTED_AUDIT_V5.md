@@ -52,3 +52,13 @@
 проверки всех файлов, входящих в manifest.
 
 VERDICT=V5_CORE_VERIFIED_FULL_TREE_NOT_CANONICAL
+
+## Разрешение аудита 28.07.2026
+
+- Canonical-ветка очищена и содержит только проверенные атомарные продолжения V5.
+- Risk schema и swing closed-bar contour закреплены отдельными коммитами.
+- Весь оставшийся WIP сохранён на `codex/quarantine-pre-v5-wip-20260728`, commit `f91941a7`.
+- Quarantine-проверка: 69 passed / 5 failed; незавершённый atomic runtime contract в V5 не включён.
+- Generated snapshot восстановлен, локальные backup/log вынесены за пределы репозитория.
+
+VERDICT=V5_CANONICAL_TREE_CLEAN_WIP_QUARANTINED

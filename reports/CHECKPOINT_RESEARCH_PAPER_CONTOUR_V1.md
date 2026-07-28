@@ -1,9 +1,9 @@
 # CHECKPOINT_RESEARCH_PAPER_CONTOUR_V1
 
 Дата: 28.07.2026, МСК
-Git branch: feature/exit-alpha-v1
-Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
-Статус: V5_MONOTONIC_VIRTUAL_STOP_AWAITING_RELOAD
+Git branch: codex/research-edge-v5
+Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
+Статус: V5_CANONICAL_CLEAN_SWING_VERIFIED
 
 ## Подтверждено
 
@@ -28,19 +28,26 @@ Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
 
 ## Dirty-tree audit
 
-- Ветка: `codex/research-edge-v5`.
-- 104 modified tracked files, `+5828/-767`, более 80 untracked.
-- AST: 173 Python files OK.
-- Full suite: 45 failures; один collection blocker из-за отсутствующего `websockets` в venv.
-- Runtime snapshots, logs, locks и backup-каталоги исключены из будущего manifest.
-- Эталонный commit ещё не создан: известные регрессии нельзя закреплять как baseline.
+- Canonical-ветка очищена; непроверенный слой вынесен без потерь.
+- Quarantine: `codex/quarantine-pre-v5-wip-20260728`, commit `f91941a7`.
+- Quarantine не является baseline: расширенная проверка дала 69 passed / 5 failed, atomic runtime contract — ещё 5 незавершённых assertions.
+- Runtime snapshots не включены; backup/log сохранены в `/tmp/finam-core-local-archive-20260728`.
 
 ## Canonical manifest
 
 - Явный staged manifest: 95 файлов, без snapshots/logs/locks/backups и UI/legacy WIP.
 - Проверен отдельный checkout содержимого git index: `61 passed`.
 - Safety diff: execution/real execution только отключены; секреты не обнаружены.
-- Готов к созданию эталонного V5 commit.
+- Эталонный V5 baseline создан и дополнен проверенными атомарными коммитами.
+
+## Canonical V5 additions
+
+- `d8e37ff6`: воспроизводимый project context и workspace hygiene.
+- `3def889f`: отсутствовавшая схема portfolio risk/degradation.
+- `1b781d7c`: отдельный candle-driven swing-контур, H1/H4/D1.
+- `810cb2cb`: explicit adaptive entry constraints имеют приоритет над DB profile defaults.
+- Финальный объединённый Swing/Risk acceptance: `47 passed`; master-context verifier OK.
+- Runtime/migrations/services не запускались.
 
 ## Candle-state exit
 

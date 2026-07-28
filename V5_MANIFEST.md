@@ -1,6 +1,6 @@
 # MARKETCORE RESEARCH EDGE V5 — CANONICAL MANIFEST
 
-Статус: canonical baseline
+Статус: canonical baseline + verified candle-driven swing
 База: `50951c2ce1f20d8065a55707394708191e1f5b68`
 Ветка: `codex/research-edge-v5`
 
@@ -33,6 +33,16 @@ V5 — изолированный Research/Paper-контур накоплени
 
 Точный список файлов фиксируется самим git commit; runtime/generated/log/backup
 артефакты в baseline не входят.
+
+## Проверенные продолжения baseline
+
+- `d8e37ff6` — master-context verifier и исключение локальных runtime-артефактов.
+- `3def889f` — полный PostgreSQL contract централизованного portfolio risk.
+- `1b781d7c` — отдельный swing research/Paper-контур по закрытым H1/H4/D1-барам.
+- `810cb2cb` — корректный приоритет явных adaptive entry constraints над profile defaults.
+
+Непроверенный UI/OOS/runtime WIP изолирован на
+`codex/quarantine-pre-v5-wip-20260728` (`f91941a7`) и в V5 не входит.
 
 ## Проверка кандидата
 
