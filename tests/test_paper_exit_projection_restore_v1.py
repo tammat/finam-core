@@ -23,3 +23,17 @@ def test_projection_restore_preserves_paper_position_open_time() -> None:
     assert "lifecycle.created_at AS opened_at" in body
     assert 'exit_state["opened_at_ts"] = float(opened_at.timestamp())' in body
     assert 'exit_state["last_qty"] = projection_qty' in body
+
+
+def test_projection_restore_reconstructs_completed_bar_clock() -> None:
+    """A restart must not move the max-bars safety horizon backwards."""
+    source = Path("src/finam_core/pipelines/paper_pipeline.py").read_text(encoding="utf-8")
+    start = source.index("    def _restore_pm_position_from_projection_v1(")
+    end = source.index("\n    def ", start + 10)
+    body = source[start:end]
+
+    assert "COUNT(*)::integer AS bars_held" in body
+    assert "b.ts > lifecycle.created_at" in body
+    assert "b.ts + CASE" in body
+    assert 'exit_state["bars_held"] = max(' in body
+    assert 'exit_state["last_exit_closed_bar_key"] = last_bar_ts.isoformat()' in body

@@ -6551,7 +6551,9 @@ class PaperTradingPipeline:
                     """
                     SELECT NULLIF(p.state->>'qty', '')::double precision AS qty,
                            NULLIF(p.state->>'avg_price', '')::double precision AS avg_price,
-                           lifecycle.created_at AS opened_at
+                           lifecycle.created_at AS opened_at,
+                           COALESCE(closed_bars.bars_held, 0) AS bars_held,
+                           closed_bars.last_bar_ts
                     FROM analytics.paper_research_position_projection_v1 p
                     LEFT JOIN LATERAL (
                         SELECT l.created_at
@@ -6562,6 +6564,21 @@ class PaperTradingPipeline:
                         ORDER BY l.created_at ASC
                         LIMIT 1
                     ) lifecycle ON true
+                    LEFT JOIN LATERAL (
+                        SELECT COUNT(*)::integer AS bars_held, MAX(b.ts) AS last_bar_ts
+                        FROM market_bars b
+                        WHERE b.symbol = p.symbol
+                          AND b.timeframe = CASE
+                              WHEN p.symbol LIKE 'NG%' OR p.symbol LIKE 'BR%' THEN 'M1'
+                              ELSE 'M5'
+                          END
+                          AND lifecycle.created_at IS NOT NULL
+                          AND b.ts > lifecycle.created_at
+                          AND b.ts + CASE
+                              WHEN b.timeframe = 'M1' THEN interval '1 minute'
+                              ELSE interval '5 minutes'
+                          END <= clock_timestamp()
+                    ) closed_bars ON true
                     WHERE p.portfolio_scope = %s AND p.symbol = %s
                     """,
                     (portfolio_scope, symbol),
@@ -6600,6 +6617,16 @@ class PaperTradingPipeline:
                 # Mark the restored quantity as already open. Otherwise the first
                 # quote follows the new-position branch and overwrites opened_at_ts.
                 exit_state["last_qty"] = projection_qty
+                # Reconstruct the completed-bar clock from persisted market bars.
+                # An in-memory counter must not move the safety horizon backwards
+                # every time the Paper process restarts.
+                exit_state["bars_held"] = max(
+                    int(exit_state.get("bars_held") or 0),
+                    int(row.get("bars_held") or 0),
+                )
+                last_bar_ts = row.get("last_bar_ts")
+                if last_bar_ts is not None:
+                    exit_state["last_exit_closed_bar_key"] = last_bar_ts.isoformat()
 
             if symbol.startswith("NG"):
                 print(
