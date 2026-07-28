@@ -223,7 +223,13 @@ class PositionLifecycleService:
                     flush=True,
                 )
             else:
-                p._handle_trailing_replace_stop_decision(decision)
+                exit_state = p._exit_state_for_symbol(decision.symbol)
+                exit_state["stop_price"] = decision.stop_price
+                print(
+                    f"PIPE_PAPER_TRAILING_STOP_APPLIED symbol={decision.symbol} "
+                    f"stop={decision.stop_price} reason={decision.reason}",
+                    flush=True,
+                )
 
 
     def _evaluate_partial_close_engine(self, **kwargs) -> None:
