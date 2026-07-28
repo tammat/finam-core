@@ -10,7 +10,7 @@ import psycopg
 from finam_core.analytics.statistics_repository import build_psycopg_url
 
 
-def load_watch_symbols() -> str:
+def load_watch_symbols() -> list[str]:
     with psycopg.connect(build_psycopg_url()) as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -20,13 +20,13 @@ def load_watch_symbols() -> str:
                 ORDER BY asset_group, symbol
             """)
             rows = [str(r[0]) for r in cur.fetchall()]
-    return ",".join(rows)
+    return rows
 
-def run_backfill(symbols: str, timeframe: str, lookback_hours: int, step_timeout_sec: int) -> bool:
+def run_backfill(symbol: str, timeframe: str, lookback_hours: int, step_timeout_sec: int) -> bool:
     cmd = [
         sys.executable,
         "src/scripts/ingestion/backfill_finam_futures_market_bars.py",
-        "--symbols", symbols,
+        "--symbols", symbol,
         "--timeframe", timeframe,
         "--lookback-hours", str(lookback_hours),
     ]
@@ -36,13 +36,15 @@ def run_backfill(symbols: str, timeframe: str, lookback_hours: int, step_timeout
         result = subprocess.run(cmd, timeout=step_timeout_sec)
     except subprocess.TimeoutExpired:
         print(
-            f"MARKET_BARS_INGESTION_STEP_TIMEOUT timeframe={timeframe} timeout_sec={step_timeout_sec}",
+            "MARKET_BARS_INGESTION_STEP_TIMEOUT "
+            f"symbol={symbol} timeframe={timeframe} timeout_sec={step_timeout_sec}",
             flush=True,
         )
         return False
     ok = result.returncode == 0
     print(
-        f"MARKET_BARS_INGESTION_STEP_DONE ok={ok} code={result.returncode} timeframe={timeframe}",
+        "MARKET_BARS_INGESTION_STEP_DONE "
+        f"ok={ok} code={result.returncode} symbol={symbol} timeframe={timeframe}",
         flush=True,
     )
     return ok
@@ -58,7 +60,7 @@ def main() -> int:
     parser.add_argument("--step-timeout-sec", type=int, default=180)
     args = parser.parse_args()
 
-    symbols = args.symbols.strip() or load_watch_symbols()
+    requested_symbols = [x.strip() for x in args.symbols.split(",") if x.strip()]
     timeframes = [x.strip() for x in args.timeframes.split(",") if x.strip()]
     cycle = 0
 
@@ -66,9 +68,18 @@ def main() -> int:
         cycle += 1
         print(f"MARKET_BARS_INGESTION_CYCLE_START cycle={cycle}", flush=True)
 
+        # Reload the universe every cycle: the scout can add or disable instruments
+        # without requiring a service restart.
+        symbols = requested_symbols or load_watch_symbols()
         ok_all = True
         for tf in timeframes:
-            ok_all = run_backfill(symbols, tf, args.lookback_hours, args.step_timeout_sec) and ok_all
+            for symbol in symbols:
+                # One unavailable vendor code must not hold the remaining active
+                # instruments hostage.  Each instrument is an independent update.
+                ok_all = (
+                    run_backfill(symbol, tf, args.lookback_hours, args.step_timeout_sec)
+                    and ok_all
+                )
 
         print(f"MARKET_BARS_INGESTION_CYCLE_DONE cycle={cycle} ok={ok_all}", flush=True)
 

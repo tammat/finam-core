@@ -157,6 +157,7 @@ def main() -> int:
         start = end - timedelta(hours=args.lookback_hours)
 
     total = 0
+    failed_symbols: list[str] = []
 
     try:
         for symbol in symbols:
@@ -167,6 +168,7 @@ def main() -> int:
                 chunk_end = min(end, cursor + timedelta(days=max(1, args.chunk_days)))
                 bars = []
                 last_error = ""
+                not_found = False
                 for attempt in range(1, 7):
                     try:
                         resp = client.get_bars(
@@ -178,12 +180,15 @@ def main() -> int:
                         break
                     except grpc.RpcError as exc:
                         last_error = f"{exc.code()}:{exc.details()}"
+                        not_found = exc.code() == grpc.StatusCode.NOT_FOUND
                         print(
                             "FINAM_FUTURES_MARKET_BARS_RETRY "
                             f"symbol={symbol} timeframe={args.timeframe} "
                             f"from={cursor.isoformat()} to={chunk_end.isoformat()} "
                             f"attempt={attempt} error={last_error}", flush=True,
                         )
+                        if not_found:
+                            break
                         time.sleep(5.0 * attempt)
                 if last_error:
                     print(
@@ -192,11 +197,14 @@ def main() -> int:
                         f"from={cursor.isoformat()} to={chunk_end.isoformat()} "
                         f"error={last_error}", flush=True,
                     )
-                    raise RuntimeError(
-                        f"FINAM_HISTORY_CHUNK_FAILED symbol={symbol} "
-                        f"from={cursor.isoformat()} to={chunk_end.isoformat()} "
-                        f"error={last_error}"
+                    failed_symbols.append(symbol)
+                    print(
+                        "FINAM_FUTURES_MARKET_BARS_SYMBOL_SKIPPED "
+                        f"symbol={symbol} timeframe={args.timeframe} "
+                        f"reason={'SECURITY_NOT_FOUND' if not_found else 'RETRY_EXHAUSTED'}",
+                        flush=True,
                     )
+                    break
                 saved = save_bars(symbol, args.timeframe, bars)
                 total += saved
                 symbol_saved += saved
@@ -205,9 +213,10 @@ def main() -> int:
                 if args.sleep_sec > 0:
                     time.sleep(args.sleep_sec)
             print(
-                "FINAM_FUTURES_MARKET_BARS_OK "
+                "FINAM_FUTURES_MARKET_BARS_DONE "
                 f"symbol={symbol} timeframe={args.timeframe} "
-                f"received={symbol_received} saved={symbol_saved}", flush=True,
+                f"received={symbol_received} saved={symbol_saved} "
+                f"ok={symbol not in failed_symbols}", flush=True,
             )
     finally:
         client.close()
@@ -217,8 +226,14 @@ def main() -> int:
         f"symbols={len(symbols)} saved={total}",
         flush=True,
     )
+    if failed_symbols:
+        print(
+            "FINAM_FUTURES_MARKET_BARS_PARTIAL_FAILURE "
+            f"failed_symbols={','.join(dict.fromkeys(failed_symbols))}",
+            flush=True,
+        )
 
-    return 0
+    return 1 if failed_symbols else 0
 
 
 if __name__ == "__main__":
