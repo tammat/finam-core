@@ -168,6 +168,11 @@ class PostgresLogger:
                     normalized_price = float(price)
                     normalized_commission = float(commission or 0.0)
                     normalized_execution_type = str(kwargs.get("execution_type") or getattr(fill, "execution_type", None) or "paper")
+                    cur.execute(
+                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,%s)",
+                        (normalized_symbol, normalized_execution_type),
+                    )
+                    portfolio_scope = cur.fetchone()[0]
 
                     # Русский комментарий: сохраняем metadata fill для analytics lineage.
                     extra_payload = kwargs.get("payload")
@@ -193,14 +198,15 @@ class PostgresLogger:
                         "trade_id": normalized_fill_id,
                         "paper_only": normalized_execution_type.lower().startswith("paper") or normalized_execution_type == "paper",
                         "execution_type": normalized_execution_type,
+                        "portfolio_scope": portfolio_scope,
                     }
 
                     cur.execute(
                         """
                         INSERT INTO fills (
-                            fill_id, ts, symbol, side, qty, price, commission, order_id
+                            fill_id, ts, symbol, side, qty, price, commission, order_id, portfolio_scope
                         )
-                        VALUES (%s, now(), %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, now(), %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (fill_id) DO NOTHING
                         """,
                         (
@@ -211,6 +217,7 @@ class PostgresLogger:
                             normalized_price,
                             normalized_commission,
                             kwargs.get("order_id") or getattr(fill, "order_id", None),
+                            portfolio_scope,
                         ),
                     )
 
@@ -290,9 +297,9 @@ class PostgresLogger:
                         INSERT INTO trades (
                             symbol, side, qty, price, commission,
                             fill_id, origin, payload, created_at, ts, trade_source,
-                            strategy, timeframe, continuous_symbol
+                            strategy, timeframe, continuous_symbol, portfolio_scope
                         )
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now(),now(),%s,%s,%s,%s)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now(),now(),%s,%s,%s,%s,%s)
                         ON CONFLICT (fill_id) DO NOTHING
                         """,
                         (
@@ -308,6 +315,7 @@ class PostgresLogger:
                             trade_context_decision.strategy,
                             trade_context_decision.timeframe,
                             trade_context_decision.continuous_symbol,
+                            portfolio_scope,
                         ),
                     )
         except Exception as e:

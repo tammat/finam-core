@@ -88,11 +88,15 @@ class RegimeLabeler:
         if value in ("low", "low_vol", "quiet"):
             return "low_vol"
 
+        if value in ("normal", "normal_vol", "medium", "medium_vol"):
+            return "normal_vol"
+
         if atr_pct is not None:
             if atr_pct >= 0.015:
                 return "high_vol"
             if atr_pct <= 0.005:
                 return "low_vol"
+            return "normal_vol"
 
         return "unknown_vol"
 

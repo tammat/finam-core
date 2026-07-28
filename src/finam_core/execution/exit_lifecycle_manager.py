@@ -89,6 +89,7 @@ class ExitLifecycleManager:
 
         if qty == 0:
             state["bars_held"] = 0
+            state["last_exit_bar_bucket"] = None
             state["prev_close"] = float(price)
             state["stop_price"] = None
             state["last_qty"] = 0.0
@@ -128,11 +129,23 @@ class ExitLifecycleManager:
 
         if float(state.get("last_qty") or 0.0) == 0.0:
             state["bars_held"] = 0
+            state["last_exit_bar_bucket"] = None
             state["stop_price"] = None
             # Русский комментарий: фиксируем момент открытия новой позиции для защиты от мгновенного time_exit.
             state["opened_at_ts"] = time.time()
 
-        state["bars_held"] = int(state.get("bars_held") or 0) + 1
+        # ExitEngine получает число завершённых рыночных баров, а не число quote/tick.
+        # Иначе max_bars=20 превращается в 20 котировок и закрывает позицию за секунды.
+        default_bar_seconds = "60" if str(symbol).startswith(("NG", "BR")) else "300"
+        bar_seconds = max(1, int(os.getenv("EXIT_BAR_SECONDS", default_bar_seconds)))
+        bar_bucket = int(time.time() // bar_seconds)
+        previous_bar_bucket = state.get("last_exit_bar_bucket")
+        is_new_completed_bar = previous_bar_bucket is not None and previous_bar_bucket != bar_bucket
+        if previous_bar_bucket is None:
+            state["last_exit_bar_bucket"] = bar_bucket
+        elif is_new_completed_bar:
+            state["bars_held"] = int(state.get("bars_held") or 0) + 1
+            state["last_exit_bar_bucket"] = bar_bucket
         state["last_qty"] = float(qty)
 
         side = "BUY" if qty > 0 else "SELL"
@@ -169,22 +182,29 @@ class ExitLifecycleManager:
 
         bars_for_exit = int(state["bars_held"])
 
-        # Русский комментарий: BR/NG в live идут частыми quote/tick-событиями, поэтому bars_held
-        # не равен количеству M1-баров. Не даём time_exit закрыть свежую PAPER-позицию.
+        # Tick-событие не является закрытым баром. До минимального календарного
+        # удержания запрещаем только time/stall exit, сохраняя защитный stop_loss.
+        default_min_hold_sec = float(os.getenv("PAPER_TIME_EXIT_MIN_HOLD_SEC", "300"))
+        min_hold_sec = default_min_hold_sec
         if str(symbol).startswith(("NG", "BR")):
-            min_hold_sec = float(os.getenv("ENERGY_TIME_EXIT_MIN_HOLD_SEC", os.getenv("NG_MIN_HOLD_SEC", "1800")))
-            opened_at_ts = state.get("opened_at_ts")
-            position_age_sec = time.time() - float(opened_at_ts or time.time())
+            min_hold_sec = float(
+                os.getenv(
+                    "ENERGY_TIME_EXIT_MIN_HOLD_SEC",
+                    os.getenv("NG_MIN_HOLD_SEC", "1800"),
+                )
+            )
+        opened_at_ts = state.get("opened_at_ts")
+        position_age_sec = time.time() - float(opened_at_ts or time.time())
 
-            if position_age_sec < min_hold_sec:
-                bars_for_exit = 0
-                if p._runtime_log_allowed(f"ENERGY_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
-                    print(
-                        f"PIPE_ENERGY_TIME_EXIT_GUARD symbol={symbol} "
-                        f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
-                        f"raw_bars_held={state['bars_held']}",
-                        flush=True,
-                    )
+        if position_age_sec < min_hold_sec:
+            bars_for_exit = 0
+            if p._runtime_log_allowed(f"TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
+                print(
+                    f"PIPE_TIME_EXIT_GUARD symbol={symbol} "
+                    f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
+                    f"raw_bars_held={state['bars_held']}",
+                    flush=True,
+                )
 
         decision = p._exit_engine_for_symbol(symbol).evaluate(
             side=side,
@@ -192,11 +212,13 @@ class ExitLifecycleManager:
             current_price=float(price),
             atr=effective_atr,
             bars_held=bars_for_exit,
-            prev_close=state.get("prev_close"),
+            # Stall оценивается только на смене завершённого бара, не на каждом тике.
+            prev_close=state.get("prev_close") if is_new_completed_bar else None,
             current_stop=state.get("stop_price"),
         )
 
-        state["prev_close"] = float(price)
+        if is_new_completed_bar or state.get("prev_close") is None:
+            state["prev_close"] = float(price)
         state["stop_price"] = decision.stop_price
 
         if not decision.should_exit:
@@ -262,4 +284,3 @@ class ExitLifecycleManager:
                 "exit_engine": True,
             },
         }
-

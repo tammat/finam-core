@@ -18,13 +18,34 @@ class RuntimeUniverseProvider:
         sources = sources or [source]
 
         active_sql = """
-        select symbol
-        from runtime_active_universe
-        where is_enabled = true
-          and strategy is not null
-          and strategy <> ''
-          and strategy <> 'NO_TRADE'
-        order by priority desc nulls last, score desc nulls last, updated_at desc nulls last
+        select u.symbol
+        from runtime_active_universe u
+        left join analytics.hierarchical_runtime_priority_v1 h
+          on h.symbol = u.symbol
+        where u.is_enabled = true
+          and u.strategy is not null
+          and u.strategy <> ''
+          and u.strategy <> 'NO_TRADE'
+          and not exists (
+              select 1
+              from analytics.fresh_v4_early_loss_quarantine_v1 q
+              where q.symbol = u.symbol
+                and q.strategy_code = u.strategy
+                and q.quarantined = true
+                and not exists (
+                    select 1
+                    from analytics.fresh_v4_early_loss_quarantine_v1 viable
+                    where viable.symbol = q.symbol
+                      and viable.strategy_code = q.strategy_code
+                      and viable.quarantined = false
+                )
+          )
+        order by
+          (h.symbol is not null) desc,
+          h.priority_score desc nulls last,
+          u.priority desc nulls last,
+          u.score desc nulls last,
+          u.updated_at desc nulls last
         limit %s
         """
 

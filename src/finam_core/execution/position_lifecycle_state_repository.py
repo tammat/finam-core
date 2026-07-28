@@ -46,8 +46,16 @@ class PositionLifecycleStateRepository:
             with psycopg2.connect(self.database_url) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
+                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper')",
+                        (symbol,),
+                    )
+                    portfolio_scope = cur.fetchone()[0]
+                    if not portfolio_scope:
+                        return None
+                    cur.execute(
                         """
-                        INSERT INTO position_lifecycle_state (
+                        INSERT INTO analytics.paper_research_position_lifecycle_v1 (
+                            portfolio_scope,
                             symbol,
                             strategy,
                             entry_price,
@@ -62,9 +70,9 @@ class PositionLifecycleStateRepository:
                             raw
                         )
                         VALUES (
-                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
                         )
-                        ON CONFLICT (symbol, strategy)
+                        ON CONFLICT (portfolio_scope, symbol, strategy)
                         DO UPDATE SET
                             entry_price = EXCLUDED.entry_price,
                             initial_qty = EXCLUDED.initial_qty,
@@ -75,12 +83,13 @@ class PositionLifecycleStateRepository:
                             trailing_active = EXCLUDED.trailing_active,
                             current_stop = EXCLUDED.current_stop,
                             current_take_profit = EXCLUDED.current_take_profit,
-                            raw = COALESCE(position_lifecycle_state.raw, '{}'::jsonb)
+                            raw = COALESCE(paper_research_position_lifecycle_v1.raw, '{}'::jsonb)
                                   || COALESCE(EXCLUDED.raw, '{}'::jsonb),
                             updated_at = NOW()
                         RETURNING id
                         """,
                         (
+                            portfolio_scope,
                             symbol,
                             strategy,
                             entry_price,
@@ -116,6 +125,13 @@ class PositionLifecycleStateRepository:
             with psycopg2.connect(self.database_url) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
+                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper')",
+                        (symbol,),
+                    )
+                    portfolio_scope = cur.fetchone()[0]
+                    if not portfolio_scope:
+                        return None
+                    cur.execute(
                         """
                         SELECT
                             symbol,
@@ -130,11 +146,12 @@ class PositionLifecycleStateRepository:
                             current_stop,
                             current_take_profit,
                             raw
-                        FROM position_lifecycle_state
-                        WHERE symbol = %s
+                        FROM analytics.paper_research_position_lifecycle_v1
+                        WHERE portfolio_scope = %s
+                          AND symbol = %s
                           AND strategy = %s
                         """,
-                        (symbol, strategy),
+                        (portfolio_scope, symbol, strategy),
                     )
 
                     row = cur.fetchone()
@@ -174,15 +191,22 @@ class PositionLifecycleStateRepository:
             with psycopg2.connect(self.database_url) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
+                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper')",
+                        (symbol,),
+                    )
+                    portfolio_scope = cur.fetchone()[0]
+                    if not portfolio_scope:
+                        return False
+                    cur.execute(
                         """
-                        DELETE FROM position_lifecycle_state
-                        WHERE symbol = %s
+                        DELETE FROM analytics.paper_research_position_lifecycle_v1
+                        WHERE portfolio_scope = %s
+                          AND symbol = %s
                           AND strategy = %s
                         """,
-                        (symbol, strategy),
+                        (portfolio_scope, symbol, strategy),
                     )
                     return cur.rowcount > 0
         except Exception as exc:
             print(f"POSITION_LIFECYCLE_STATE_DELETE_FAILED error={exc}", flush=True)
             return False
-

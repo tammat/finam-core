@@ -44,6 +44,21 @@ def normalize_research_contract_key_v1(
     }:
         timeframe_norm = "M5"
 
+    # Газовая модель строится на M1. LIVE — транспортная метка потока,
+    # а не таймфрейм методологического контракта.
+    if strategy_norm == "NG_CONSERVATIVE_BREAKOUT_M1" and timeframe_norm in {
+        "", "LIVE", "UNKNOWN", "UNKNOWN_TIMEFRAME"
+    }:
+        timeframe_norm = "M1"
+
+    # Акционные runtime-модели исполняются по закрытым M5-барам. LIVE здесь
+    # означает транспортный поток, а не отдельный методологический таймфрейм.
+    if strategy_norm in {
+        "VOLATILITY_BREAKOUT_EQUITY",
+        "MEAN_REVERSION_EQUITY",
+    } and timeframe_norm in {"", "LIVE", "UNKNOWN", "UNKNOWN_TIMEFRAME"}:
+        timeframe_norm = "M5"
+
     normalized_symbol = identity.continuous if identity.is_futures else identity.symbol
     return ResearchContractKeyV1(
         execution_mode=str(execution_mode or "PAPER").upper().strip(),

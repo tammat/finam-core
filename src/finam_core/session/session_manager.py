@@ -48,8 +48,10 @@ class SessionManager:
         return current.weekday() in (5, 6)
 
     def _weekend_session(self, now: datetime, *, market_data_live: bool):
-        # Суббота остаётся закрытой. Воскресное окно работает только на live-потоке.
-        if now.weekday() != 6:
+        # Субботнее и воскресное окна работают только на подтверждённом live-потоке.
+        # Это не разрешает торговлю по календарю вслепую: при отсутствии свежих
+        # биржевых данных allow_entries остаётся False.
+        if now.weekday() not in (5, 6):
             return {"phase": "closed", "allow_entries": False, "reason": "weekend_closed"}
 
         now_min = self._minute_of_day(now.hour, now.minute)
@@ -61,7 +63,7 @@ class SessionManager:
                 return {"phase": "weekend_live", "allow_entries": True, "reason": "verified_live_stream"}
             return {"phase": "weekend_waiting_stream", "allow_entries": False, "reason": "live_stream_required"}
 
-        return {"phase": "closed", "allow_entries": False, "reason": "outside_sunday_window"}
+        return {"phase": "closed", "allow_entries": False, "reason": "outside_weekend_window"}
 
     def _forts_session(self, h, m):
         now_min = self._minute_of_day(h, m)

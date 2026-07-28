@@ -106,9 +106,11 @@ class FillPersistenceService:
                             side,
                             qty,
                             price,
-                            created_at
+                            created_at,
+                            portfolio_scope
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, now())
+                        VALUES (%s, %s, %s, %s, %s, %s, now(),
+                                analytics.resolve_paper_portfolio_scope_v1(%s,'paper'))
                         """,
                         (
                             str(signal_id),
@@ -117,6 +119,7 @@ class FillPersistenceService:
                             str(side).upper(),
                             qty,
                             price,
+                            str(symbol),
                         ),
                     )
             return True

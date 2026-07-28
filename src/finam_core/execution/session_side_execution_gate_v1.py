@@ -84,7 +84,15 @@ class SessionSideExecutionGateV1:
         return str(value or "").upper().strip()
 
     @staticmethod
-    def _matches(row: dict, *, symbol: str, side: str, hour_msk: int) -> bool:
+    def _matches(
+        row: dict,
+        *,
+        symbol: str,
+        side: str,
+        hour_msk: int,
+        strategy: str,
+        timeframe: str,
+    ) -> bool:
         row_symbol = str(row.get("symbol") or "")
         row_side = str(row.get("entry_side") or "").upper().strip()
         row_hour = int(row.get("hour_msk"))
@@ -98,23 +106,45 @@ class SessionSideExecutionGateV1:
             )
         )
 
-        return symbol_ok and row_side == side and row_hour == hour_msk
+        row_strategy = str(row.get("strategy") or "").upper().strip()
+        row_timeframe = str(row.get("timeframe") or "").upper().strip()
+        strategy_ok = not row_strategy or row_strategy == strategy
+        timeframe_ok = not row_timeframe or row_timeframe == timeframe
+
+        return (
+            symbol_ok
+            and row_side == side
+            and row_hour == hour_msk
+            and strategy_ok
+            and timeframe_ok
+        )
 
     def decide(
         self,
         *,
         symbol: str,
         side: str,
+        strategy: str | None = None,
+        timeframe: str | None = None,
         ts: datetime | None = None,
     ) -> SessionSideGateDecisionV1:
         self._load_once()
 
         side_norm = self._side(side)
+        strategy_norm = str(strategy or "").upper().strip()
+        timeframe_norm = str(timeframe or "").upper().strip()
         hour_msk = self._hour_msk(ts)
         session_name = self.session_name_for_hour(hour_msk)
 
         for row in self._block:
-            if self._matches(row, symbol=symbol, side=side_norm, hour_msk=hour_msk):
+            if self._matches(
+                row,
+                symbol=symbol,
+                side=side_norm,
+                hour_msk=hour_msk,
+                strategy=strategy_norm,
+                timeframe=timeframe_norm,
+            ):
                 return SessionSideGateDecisionV1(
                     allowed=False,
                     action="BLOCK",
@@ -129,7 +159,14 @@ class SessionSideExecutionGateV1:
                 )
 
         for row in self._allow:
-            if self._matches(row, symbol=symbol, side=side_norm, hour_msk=hour_msk):
+            if self._matches(
+                row,
+                symbol=symbol,
+                side=side_norm,
+                hour_msk=hour_msk,
+                strategy=strategy_norm,
+                timeframe=timeframe_norm,
+            ):
                 return SessionSideGateDecisionV1(
                     allowed=True,
                     action="ALLOW",
@@ -144,7 +181,14 @@ class SessionSideExecutionGateV1:
                 )
 
         for row in self._insufficient:
-            if self._matches(row, symbol=symbol, side=side_norm, hour_msk=hour_msk):
+            if self._matches(
+                row,
+                symbol=symbol,
+                side=side_norm,
+                hour_msk=hour_msk,
+                strategy=strategy_norm,
+                timeframe=timeframe_norm,
+            ):
                 return SessionSideGateDecisionV1(
                     allowed=self.fail_open,
                     action="INSUFFICIENT_DATA",

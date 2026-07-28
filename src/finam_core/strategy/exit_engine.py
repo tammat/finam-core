@@ -173,3 +173,12 @@ class ExitStateMachine:
 
     def on_fill(self, symbol: str) -> None:
         self.state_for(symbol).status = "FILLED"
+
+    def on_failed(self, symbol: str) -> None:
+        """Освобождает exit-заявку, которая не дошла до подтверждённого fill."""
+        st = self.state_for(symbol)
+        st.status = "IDLE"
+        st.requested_side = None
+        st.requested_qty = 0.0
+        st.reason = None
+        st.requested_at = 0.0

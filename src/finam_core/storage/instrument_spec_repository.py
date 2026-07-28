@@ -74,23 +74,79 @@ class InstrumentSpecRepository:
                 cur.execute(sql, payload)
 
     def get_by_symbol(self, symbol: str) -> dict | None:
-        sql = """
-        SELECT *
-        FROM instrument_specs
-        WHERE symbol = %s OR base_symbol = %s
-        ORDER BY
-            CASE WHEN symbol = %s THEN 0 ELSE 1 END,
-            updated_at DESC
+        symbol_u = str(symbol or "").upper()
+        base = symbol_u.split("@", 1)[0]
+
+        # Канонические спецификации синхронизируются из MOEX ISS. Комиссии
+        # хранятся отдельно и выбираются из активного DB-профиля по классу
+        # актива. Это не позволяет устаревшим локальным fallback-значениям
+        # подменять шаг цены, стоимость шага или тариф исполнения.
+        canonical_sql = """
+        SELECT
+            spec.symbol,
+            split_part(spec.symbol, '@', 1) AS base_symbol,
+            'FUTURES'::text AS asset_class,
+            spec.tick_size AS min_price_step,
+            spec.tick_value AS step_value,
+            spec.lot_size,
+            'RUB'::text AS currency,
+            COALESCE(fee.broker_fee_per_contract, 0) AS broker_fee,
+            COALESCE(fee.exchange_fee_per_contract, 0) AS exchange_fee,
+            COALESCE(fee.clearing_fee_per_contract, 0) AS clearing_fee,
+            0.13::double precision AS tax_rate,
+            spec.source_version AS source,
+            spec.updated_at
+        FROM analytics.market_contract_spec_v1 spec
+        LEFT JOIN LATERAL (
+            SELECT
+                broker_fee_per_contract,
+                exchange_fee_per_contract,
+                clearing_fee_per_contract
+            FROM public.fee_profiles
+            WHERE active
+              AND upper(asset_class) = 'FUTURES'
+              AND (
+                    NULLIF(symbol_prefix, '') IS NULL
+                    OR %s LIKE upper(symbol_prefix) || '%%'
+              )
+            ORDER BY
+                CASE WHEN NULLIF(symbol_prefix, '') IS NULL THEN 1 ELSE 0 END,
+                updated_at DESC,
+                id DESC
+            LIMIT 1
+        ) fee ON true
+        WHERE spec.is_active
+          AND spec.symbol = %s
+        ORDER BY spec.valid_from DESC
         LIMIT 1
         """
 
-        base = str(symbol or "").upper().split("@", 1)[0]
-
         with self._connect() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(sql, (str(symbol).upper(), base, str(symbol).upper()))
+                cur.execute(canonical_sql, (symbol_u, symbol_u))
                 row = cur.fetchone()
-                return dict(row) if row else None
+                if row:
+                    return dict(row)
+
+                cur.execute("SELECT to_regclass('public.instrument_specs') AS relation")
+                relation = cur.fetchone()
+                if not relation or not relation["relation"]:
+                    return None
+
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM public.instrument_specs
+                    WHERE symbol = %s OR base_symbol = %s
+                    ORDER BY
+                        CASE WHEN symbol = %s THEN 0 ELSE 1 END,
+                        updated_at DESC
+                    LIMIT 1
+                    """,
+                    (symbol_u, base, symbol_u),
+                )
+                legacy_row = cur.fetchone()
+                return dict(legacy_row) if legacy_row else None
 
     def list_specs(self) -> list[dict]:
         with self._connect() as conn:

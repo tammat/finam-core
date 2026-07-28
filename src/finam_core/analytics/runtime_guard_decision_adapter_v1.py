@@ -6,6 +6,9 @@ from typing import Any
 from finam_core.analytics.runtime_guard_config_loader_v1 import (
     RuntimeGuardConfigLoaderV1,
 )
+from finam_core.runtime.research_contract_key_v1 import (
+    normalize_research_contract_key_v1,
+)
 
 
 @dataclass(slots=True)
@@ -72,6 +75,14 @@ class RuntimeGuardDecisionAdapterV1:
         volatility_regime: str | None = None,
         session_type: str | None = None,
     ) -> RuntimeGuardDecision:
+        requested_key = normalize_research_contract_key_v1(
+            symbol=symbol,
+            strategy=strategy,
+            timeframe=timeframe,
+            side="UNKNOWN",
+            session_name=session_type,
+            regime=regime,
+        )
 
         result = self.loader.lookup(
             symbol=symbol,
@@ -84,9 +95,9 @@ class RuntimeGuardDecisionAdapterV1:
 
         if not result:
             decision = RuntimeGuardDecision(
-                symbol=symbol,
-                strategy=strategy,
-                timeframe=self._normalize(timeframe),
+                symbol=requested_key.normalized_symbol,
+                strategy=requested_key.strategy,
+                timeframe=requested_key.timeframe,
 
                 regime=self._normalize(regime),
                 volatility_regime=self._normalize(volatility_regime),
@@ -112,9 +123,11 @@ class RuntimeGuardDecisionAdapterV1:
             return decision
 
         decision = RuntimeGuardDecision(
-            symbol=self._normalize(result.get("symbol")),
-            strategy=self._normalize(result.get("strategy")),
-            timeframe=self._normalize(result.get("timeframe")),
+            # Snapshot может содержать истёкший конкретный контракт (BRN6).
+            # В telemetry всегда показываем канонический ключ текущего запроса.
+            symbol=requested_key.normalized_symbol,
+            strategy=requested_key.strategy,
+            timeframe=requested_key.timeframe,
 
             regime=self._normalize(result.get("regime")),
             volatility_regime=self._normalize(result.get("volatility_regime")),

@@ -46,6 +46,15 @@ class FillMetadataFactory:
             "futures_year_code": identity.year_code,
             "is_futures": identity.is_futures,
             "venue": identity.venue,
+            "regime_source_version": features.get("regime_source_version"),
+            "regime_timeframe": features.get("regime_timeframe") or intent.get("timeframe"),
+            "regime_bar_ts": features.get("regime_bar_ts"),
+            "regime_atr": features.get("regime_atr"),
+            "regime_atr_pct": features.get("regime_atr_pct"),
+            "regime_atr_percentile": features.get("regime_atr_percentile"),
+            "regime_adx": features.get("regime_adx"),
+            "regime_normalized_slope": features.get("regime_normalized_slope"),
+            "regime_confirmed_bars": features.get("regime_confirmed_bars"),
         }
 
         return {

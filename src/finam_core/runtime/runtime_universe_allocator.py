@@ -26,66 +26,6 @@ class RuntimeUniverseAllocator:
         max_symbols: int = 5,
         min_score: float = 0.35,
     ) -> int:
-        sql = """
-        with selected as (
-            select
-                symbol,
-                strategy,
-                regime,
-                score,
-                priority,
-                reason,
-                raw_json
-            from dynamic_watchlist
-            where is_active = true
-              and source = 'freshness_adjusted_scoring_v2'
-              and score >= %s
-              and strategy <> 'NO_TRADE'
-            order by score desc, priority desc, updated_at desc
-            limit %s
-        ),
-        upserted as (
-            insert into runtime_active_universe (
-                symbol, strategy, regime, score, priority,
-                is_enabled, allocated_at, last_seen_at,
-                disabled_at, disable_reason, source, raw_json, updated_at
-            )
-            select
-                symbol, strategy, regime, score, priority,
-                true, now(), now(),
-                null, null, 'runtime_universe_allocator',
-                raw_json || jsonb_build_object('allocator_reason', reason),
-                now()
-            from selected
-            on conflict (symbol) do update set
-                strategy = excluded.strategy,
-                regime = excluded.regime,
-                score = excluded.score,
-                priority = excluded.priority,
-                is_enabled = true,
-                last_seen_at = now(),
-                disabled_at = null,
-                disable_reason = null,
-                raw_json = excluded.raw_json,
-                updated_at = now()
-            returning symbol
-        )
-        update runtime_active_universe rau
-        set
-            is_enabled = false,
-            disabled_at = now(),
-            disable_reason = 'not_selected_by_runtime_allocator',
-            updated_at = now()
-        where rau.symbol not in (select symbol from selected)
-          and rau.is_enabled = true;
-
-        select count(*)
-        from runtime_active_universe
-        where is_enabled = true;
-        """
-
-        today = date.today()
-
         today = date.today()
 
         with self.pg_logger._connect() as conn:
@@ -219,7 +159,8 @@ class RuntimeUniverseAllocator:
                     delete from runtime_active_universe
                     where coalesce(source, '') not in (
                         'manual_forward_accumulation_seed',
-                        'manual_forward_accumulation'
+                        'manual_forward_accumulation',
+                        'db_strategy_assignment_v1'
                     )
                 """)
 
@@ -240,42 +181,125 @@ class RuntimeUniverseAllocator:
                     payload["strategy_weight"] = float(weight)
                     payload["effective_score"] = float(effective_score)
 
+                    # Акции входят в runtime только вместе с двумя режимными
+                    # политиками. DB-функция записывает политики первой и
+                    # активирует инструмент в той же транзакции.
+                    if str(symbol).endswith("@MISX"):
+                        range_strategy = "MEAN_REVERSION_EQUITY"
+                        range_generator = "EQUITY_MEAN_REVERSION_GENERATOR_V1"
+                        trend_strategy = "VOLATILITY_BREAKOUT_EQUITY"
+                        trend_generator = "EQUITY_VOLATILITY_BREAKOUT_GENERATOR_V1"
+                        asset_group = "EQUITY"
+                    else:
+                        # Не придумываем fallback для фьючерсов. Их стратегия
+                        # обязана быть явно назначена в БД.
+                        cur.execute(
+                            '''
+                            select asset_group, strategy_code, generator_code, timeframe
+                            from analytics.runtime_strategy_assignment_v1
+                            where symbol=%s and enabled
+                            order by priority desc, updated_at desc
+                            limit 1
+                            ''',
+                            (symbol,),
+                        )
+                        assignment = cur.fetchone()
+                        if assignment is None:
+                            self.decision_logger.log_decision(
+                                symbol=str(symbol),
+                                strategy=str(strategy),
+                                regime=str(regime),
+                                base_score=float(score or 0),
+                                strategy_weight=float(weight),
+                                effective_score=float(effective_score),
+                                selected=False,
+                                decision_reason="rejected_missing_atomic_strategy_policy",
+                                raw_json={"allocator_reason": reason},
+                            )
+                            continue
+                        asset_group, assigned_strategy, assigned_generator, timeframe = assignment
+                        range_strategy = trend_strategy = assigned_strategy
+                        range_generator = trend_generator = assigned_generator
+
                     cur.execute(
                         '''
-                        insert into runtime_active_universe (
-                            symbol,
-                            strategy,
-                            regime,
-                            score,
-                            priority,
-                            is_enabled,
-                            allocated_at,
-                            last_seen_at,
-                            source,
-                            raw_json,
-                            updated_at
-                        )
-                        values (
-                            %s,%s,%s,%s,%s,
-                            true,
-                            now(),
-                            now(),
-                            'runtime_universe_allocator_v2',
-                            %s::jsonb,
-                            now()
+                        select analytics.activate_instrument_with_strategy_policy_v2(
+                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s
                         )
                         ''',
                         (
                             symbol,
-                            strategy,
-                            regime,
-                            effective_score,
+                            "M5" if str(symbol).endswith("@MISX") else timeframe,
+                            asset_group,
+                            range_strategy,
+                            range_generator,
+                            trend_strategy,
+                            trend_generator,
                             priority,
-                            json.dumps(payload),
+                            effective_score,
+                            "Атомарный выбор runtime allocator",
                         ),
                     )
+                    cur.execute(
+                        '''
+                        update runtime_active_universe
+                        set allocated_at=now(), last_seen_at=now(),
+                            source='runtime_universe_allocator_v2',
+                            raw_json=%s::jsonb, updated_at=now()
+                        where symbol=%s
+                        ''',
+                        (json.dumps(payload), symbol),
+                    )
 
-                active_count = len(selected)
+                # DB-назначения являются отдельным контрактом, а не fallback.
+                # В частности, так фьючерсные BR/NG генераторы не конкурируют
+                # с акциями за общий лимит allocator-а.
+                cur.execute(
+                    '''
+                    select symbol,timeframe,asset_group,strategy_code,generator_code,
+                           priority,assignment_reason
+                    from analytics.runtime_strategy_assignment_v1
+                    where enabled
+                    '''
+                )
+                for (
+                    assigned_symbol,
+                    assigned_timeframe,
+                    asset_group,
+                    assigned_strategy,
+                    assigned_generator,
+                    assigned_priority,
+                    assignment_reason,
+                ) in cur.fetchall():
+                    if str(asset_group).upper() == "EQUITY":
+                        range_strategy = "MEAN_REVERSION_EQUITY"
+                        range_generator = "EQUITY_MEAN_REVERSION_GENERATOR_V1"
+                        trend_strategy = "VOLATILITY_BREAKOUT_EQUITY"
+                        trend_generator = "EQUITY_VOLATILITY_BREAKOUT_GENERATOR_V1"
+                    else:
+                        range_strategy = trend_strategy = assigned_strategy
+                        range_generator = trend_generator = assigned_generator
+                    cur.execute(
+                        '''
+                        select analytics.activate_instrument_with_strategy_policy_v2(
+                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                        )
+                        ''',
+                        (
+                            assigned_symbol,
+                            assigned_timeframe,
+                            asset_group,
+                            range_strategy,
+                            range_generator,
+                            trend_strategy,
+                            trend_generator,
+                            assigned_priority,
+                            float(assigned_priority or 0) / 100.0,
+                            assignment_reason,
+                        ),
+                    )
+                cur.execute("select count(*) from runtime_active_universe where is_enabled")
+                active_count = int(cur.fetchone()[0])
 
             conn.commit()
 

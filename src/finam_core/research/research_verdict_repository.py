@@ -50,7 +50,7 @@ class StrategyResearchVerdictRepository:
                 test_expectancy,
                 test_trades,
                 computed_at
-            FROM strategy_walkforward_results
+            FROM analytics.strategy_walkforward_latest_v1
             WHERE symbol = %s
               AND trade_source = %s
             ORDER BY

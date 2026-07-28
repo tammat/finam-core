@@ -20,10 +20,29 @@ class CrossContractLiquidityAllocator:
         self.pg_logger = pg_logger
 
     def choose_brent(self) -> ContractLiquidityDecision | None:
+        candidates = self._active_contracts("BR")
+        if not candidates:
+            return None
         return self.choose(
             continuous_symbol="BR_CONT",
-            candidates=["BRM6@RTSX", "BRN6@RTSX"],
+            candidates=candidates,
         )
+
+    def _active_contracts(self, root_symbol: str, limit: int = 3) -> list[str]:
+        """Возвращает актуальные, ещё не истёкшие контракты из БД."""
+        sql = """
+        SELECT symbol
+        FROM public.futures_contract_calendar
+        WHERE root_symbol = %s
+          AND coalesce(last_trade_date, expiration_date) >= CURRENT_DATE
+        ORDER BY coalesce(last_trade_date, expiration_date), updated_at DESC
+        LIMIT %s
+        """
+        with self.pg_logger._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (root_symbol, int(limit)))
+                rows = cur.fetchall()
+        return [str(row[0]) for row in rows]
 
     def choose(
         self,

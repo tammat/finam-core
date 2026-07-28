@@ -59,9 +59,24 @@ class ExecutionSymbolResolver:
         if symbol in {"USDRUB_CONT", "USDRUBF@RTSX"}:
             return "USDRUB_CONT"
 
+        if symbol in {"CNYRUB_CONT", "CNYRUBF@RTSX"}:
+            return "CNYRUB_CONT"
+
+        # GLDRUBF — каноническое имя исследовательского потока,
+        # GDU6 — фактический биржевой контракт исполнения.
+        if symbol in {"GOLD_CONT", "GLDRUBF@RTSX", "GDU6@RTSX"}:
+            return "GOLD_CONT"
+
         return None
 
     def _load_preferred_symbol(self, continuous_symbol: str) -> str | None:
+        alias_sql = """
+        select execution_symbol
+        from analytics.futures_symbol_alias_v1
+        where canonical_symbol = %s
+          and enabled
+        limit 1
+        """
         sql = """
         select selected_symbol
         from analytics.futures_roll_decision_v1
@@ -74,6 +89,14 @@ class ExecutionSymbolResolver:
 
         with self.pg_logger._connect() as conn:
             with conn.cursor() as cur:
+                try:
+                    cur.execute(alias_sql, (continuous_symbol,))
+                    alias_row = cur.fetchone()
+                    if alias_row:
+                        return str(alias_row[0])
+                except Exception:
+                    # Совместимость до применения миграции 204.
+                    conn.rollback()
                 cur.execute(sql, (root,))
                 row = cur.fetchone()
 

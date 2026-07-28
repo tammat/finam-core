@@ -67,6 +67,12 @@ from finam_core.execution.position_lifecycle_reconciler import PositionLifecycle
 from finam_core.execution.position_lifecycle_reconcile_event_repository import PositionLifecycleReconcileEventRepository
 from finam_core.execution.position_lifecycle_self_healer import PositionLifecycleSelfHealer
 from finam_core.execution.exit_lifecycle_manager import ExitLifecycleInput, ExitLifecycleManager
+from finam_core.execution.entry_cost_gate_v1 import evaluate_entry_cost_gate_v1
+from finam_core.execution.futures_entry_cost_gate_v1 import (
+    evaluate_futures_entry_cost_gate_v1,
+)
+from finam_core.execution.execution_symbol_resolver import ExecutionSymbolResolver
+from finam_core.instruments.instrument_spec_registry import InstrumentSpecRegistry
 from finam_core.execution.position_lifecycle_service import PositionLifecycleInput, PositionLifecycleService
 from finam_core.execution.take_profit_event_repository import TakeProfitEventRepository
 from finam_core.execution.profit_lock_event_repository import ProfitLockEventRepository
@@ -110,6 +116,7 @@ from finam_core.runtime.regime_runtime_override_repository import RuntimeRegimeO
 from finam_core.risk.runtime_override_gate import apply_runtime_override_gate
 from finam_core.features.live_feature_buffer import LiveFeatureBuffer
 from finam_core.regime.regime_engine import RegimeEngine
+from finam_core.regime.candle_regime_engine_v2 import CandleRegimeEngineV2
 from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
@@ -122,6 +129,7 @@ from finam_core.instruments.br_point_value import get_br_rub_per_point
 from finam_core.analytics.signal_repository import SignalRepository
 from finam_core.analytics.closed_trade_attribution_service import ClosedTradeAttributionService
 from finam_core.strategy.strategy_factory import StrategyFactory
+from finam_core.strategy.db_regime_strategy_policy_v1 import DbRegimeStrategyPolicyV1
 from finam_core.strategy.strategy_runtime import StrategyRuntime
 from finam_core.strategy.quote_signal_processor import QuoteSignalInput, QuoteSignalProcessor
 from finam_core.strategy.signal_router import SignalRouteInput, SignalRouter as QuoteSignalRouter
@@ -183,6 +191,45 @@ def _safe_float(value, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return float(default)
+
+
+def _portfolio_risk_inputs_v1(intent: dict, symbol: str) -> dict:
+    """Build position-risk inputs from the exact intent sent to Paper execution."""
+    features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
+    cost_audit = intent.get("entry_cost_audit") if isinstance(intent.get("entry_cost_audit"), dict) else {}
+    entry_price = _safe_float(intent.get("entry_price") or intent.get("price") or intent.get("limit_price"))
+    stop_price = _safe_float(intent.get("stop_price") or intent.get("stop_loss") or features.get("stop"))
+
+    spec = InstrumentSpecRegistry().get(symbol)
+    min_price_step = _safe_float(getattr(spec, "min_price_step", None), 1.0)
+    step_value = _safe_float(getattr(spec, "step_value", None), min_price_step)
+    contract_multiplier = _safe_float(intent.get("contract_multiplier"))
+    if contract_multiplier <= 0.0 and min_price_step > 0.0:
+        contract_multiplier = step_value / min_price_step
+
+    best_bid = _safe_float(cost_audit.get("best_bid"))
+    best_ask = _safe_float(cost_audit.get("best_ask"))
+    spread_bps = None
+    if best_bid > 0.0 and best_ask >= best_bid:
+        midpoint = (best_bid + best_ask) / 2.0
+        if midpoint > 0.0:
+            spread_bps = (best_ask - best_bid) / midpoint * 10_000.0
+
+    quote_observed_at = cost_audit.get("quote_observed_at")
+    if isinstance(quote_observed_at, str):
+        try:
+            from datetime import datetime
+            quote_observed_at = datetime.fromisoformat(quote_observed_at.replace("Z", "+00:00"))
+        except ValueError:
+            quote_observed_at = None
+
+    return {
+        "entry_price": entry_price,
+        "stop_price": stop_price,
+        "contract_multiplier": contract_multiplier,
+        "spread_bps": spread_bps,
+        "quote_observed_at": quote_observed_at,
+    }
 
 def _coerce_mtf_ts(ts):
     """Русский комментарий: SimFeed может отдавать timestamp как float; MTF ждёт datetime с tzinfo."""
@@ -677,6 +724,9 @@ class PaperTradingPipeline:
             portfolio_reconciliation_layer=getattr(self, 'portfolio_reconciliation_layer', None),
         )
         self.regime_engine = RegimeEngine()
+        # Режим для новых входов определяется только по закрытым свечам и
+        # изолирован отдельно для каждой связки instrument × timeframe.
+        self.candle_regime_engine_v2 = CandleRegimeEngineV2()
         # Русский комментарий: BRRegimeLayer блокирует слабые breakout-сигналы до PaperExecution.
         self.br_regime_layer = BRRegimeLayer()
         # Русский комментарий: volatility-aware параметры для BR regime/confirmation.
@@ -880,6 +930,26 @@ class PaperTradingPipeline:
 
     def _current_position_qty_for_symbol(self, symbol: str) -> float:
         """Русский комментарий: текущая PAPER-позиция по символу для anti-reentry."""
+        # Для изолированного V3 источником истины является scoped DB-проекция.
+        # Глобальный/legacy PositionManager не должен блокировать чистый портфель.
+        try:
+            database_url = os.getenv("DATABASE_URL", "")
+            if database_url:
+                import psycopg
+                from psycopg.rows import dict_row
+                with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                    row = conn.execute(
+                        """SELECT NULLIF(p.state->>'qty','')::double precision AS qty
+                           FROM analytics.paper_research_position_projection_v1 p
+                           WHERE p.portfolio_scope=analytics.resolve_paper_portfolio_scope_v1(%s,'paper')
+                             AND p.symbol=%s""",
+                        (symbol, symbol),
+                    ).fetchone()
+                if row is not None:
+                    return float(row["qty"] or 0.0)
+        except Exception as exc:
+            print(f"PIPE_SCOPED_ANTI_REENTRY_READ_FAILED symbol={symbol} error={exc}", flush=True)
+
         pm = getattr(self, "position_manager", None) or getattr(self, "pm", None)
         if pm is None:
             pm = getattr(self, "positions", None) or getattr(self, "position_mgr", None)
@@ -2007,6 +2077,40 @@ class PaperTradingPipeline:
                 current_take_profit=current_take_profit,
                 raw={"source": source},
             )
+
+            # FRESH_V3 хранит lifecycle отдельно от legacy public-state. Дублируем
+            # только рассчитанные поля в уже существующую scoped-позицию, чтобы
+            # UI и OOS-аудит видели те же STOP/TAKE, что использует runtime.
+            database_url = os.getenv("DATABASE_URL", "")
+            if database_url:
+                import psycopg
+                from psycopg.types.json import Jsonb
+
+                with psycopg.connect(database_url) as conn:
+                    conn.execute(
+                        """
+                        UPDATE analytics.paper_research_position_lifecycle_v1
+                        SET entry_price=COALESCE(%s, entry_price),
+                            initial_qty=COALESCE(%s, initial_qty),
+                            remaining_qty=COALESCE(%s, remaining_qty),
+                            tp1_done=COALESCE(%s, tp1_done),
+                            tp2_done=COALESCE(%s, tp2_done),
+                            profit_lock_done=COALESCE(%s, profit_lock_done),
+                            trailing_active=COALESCE(%s, trailing_active),
+                            current_stop=COALESCE(%s, current_stop),
+                            current_take_profit=COALESCE(%s, current_take_profit),
+                            raw=COALESCE(raw, '{}'::jsonb) || %s,
+                            updated_at=now()
+                        WHERE portfolio_scope=analytics.resolve_paper_portfolio_scope_v1(%s, 'paper')
+                          AND symbol=%s
+                        """,
+                        (
+                            entry_price, initial_qty, remaining_qty,
+                            tp1_done, tp2_done, profit_lock_done, trailing_active,
+                            current_stop, current_take_profit,
+                            Jsonb({"lifecycle_source": source}), symbol, symbol,
+                        ),
+                    )
         except Exception as exc:
             print(f"PIPE_POSITION_LIFECYCLE_STATE_SAVE_FAILED symbol={symbol} error={exc}", flush=True)
 
@@ -2499,6 +2603,12 @@ class PaperTradingPipeline:
         self._sync_broker_positions_readonly()
         self._sync_broker_open_orders_if_needed()
 
+        # После перезапуска PositionManager пуст, хотя изолированная исследовательская
+        # Paper-позиция уже сохранена в БД. Восстанавливаем только её проекцию перед
+        # расчётом выхода: это не импортирует брокерскую/реальную позицию и позволяет
+        # штатно дойти до stop/take/trailing и записи закрытой сделки.
+        self._restore_pm_position_from_projection_v1(symbol)
+
         state = self._exit_state_for_symbol(symbol)
 
         qty = self._position_qty_for_symbol(symbol)
@@ -2638,22 +2748,31 @@ class PaperTradingPipeline:
 
         bars_for_exit = int(state["bars_held"])
 
-        # Русский комментарий: BR/NG в live идут частыми quote/tick-событиями, поэтому bars_held
-        # не равен количеству M1-баров. Не даём time_exit закрыть свежую PAPER-позицию.
+        # Quote-события приходят значительно чаще закрытия свечей, поэтому raw bars_held
+        # нельзя использовать как торговые бары сразу после входа. Временные и stall-выходы
+        # разрешаем только после минимального календарного удержания. Защитный stop_loss
+        # остаётся активным: ExitEngine проверяет его независимо от bars_held.
+        default_min_hold_sec = float(os.getenv("PAPER_TIME_EXIT_MIN_HOLD_SEC", "300"))
+        min_hold_sec = default_min_hold_sec
         if str(symbol).startswith(("NG", "BR")):
-            min_hold_sec = float(os.getenv("ENERGY_TIME_EXIT_MIN_HOLD_SEC", os.getenv("NG_MIN_HOLD_SEC", "1800")))
-            opened_at_ts = state.get("opened_at_ts")
-            position_age_sec = time.time() - float(opened_at_ts or time.time())
+            min_hold_sec = float(
+                os.getenv(
+                    "ENERGY_TIME_EXIT_MIN_HOLD_SEC",
+                    os.getenv("NG_MIN_HOLD_SEC", "1800"),
+                )
+            )
+        opened_at_ts = state.get("opened_at_ts")
+        position_age_sec = time.time() - float(opened_at_ts or time.time())
 
-            if position_age_sec < min_hold_sec:
-                bars_for_exit = 0
-                if self._runtime_log_allowed(f"ENERGY_TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
-                    print(
-                        f"PIPE_ENERGY_TIME_EXIT_GUARD symbol={symbol} "
-                        f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
-                        f"raw_bars_held={state['bars_held']}",
-                        flush=True,
-                    )
+        if position_age_sec < min_hold_sec:
+            bars_for_exit = 0
+            if self._runtime_log_allowed(f"TIME_EXIT_GUARD:{symbol}", ttl_seconds=60):
+                print(
+                    f"PIPE_TIME_EXIT_GUARD symbol={symbol} "
+                    f"age_sec={round(position_age_sec, 3)} min_hold_sec={min_hold_sec} "
+                    f"raw_bars_held={state['bars_held']}",
+                    flush=True,
+                )
 
         decision = self._exit_engine_for_symbol(symbol).evaluate(
             side=side,
@@ -3446,6 +3565,7 @@ class PaperTradingPipeline:
             if (
                 os.getenv("ENABLE_BROKER_POSITION_APPLY_TO_PM", "0") != "1"
                 and abs(float(getattr(self, "_broker_position_qty_by_symbol", {}).get(sym, 0.0) or 0.0)) > 1e-9
+                and not self._has_scoped_research_position_v1(sym)
             ):
                 skip_key = (sym, raw_intent.get("side"), raw_intent.get("reason"))
                 if getattr(self, "_last_exit_broker_snapshot_skip", None) != skip_key:
@@ -3475,6 +3595,7 @@ class PaperTradingPipeline:
                     )
                 )
                 if not getattr(decision, "allowed", False):
+                    self.exit_state_machine.on_failed(sym)
                     print(
                         f"PIPE_EXIT_HARD_RISK_REJECT reason={getattr(decision, 'reason', 'unknown')} "
                         f"value={getattr(getattr(self.risk_router, 'last_context', None), 'trade_value', None)} exposure={getattr(getattr(self.risk_router, 'last_context', None), 'total_exposure', None)}",
@@ -3496,6 +3617,7 @@ class PaperTradingPipeline:
 
                 intent = self._apply_execution_decision_if_enabled(intent, st)
                 if intent is None:
+                    self.exit_state_machine.on_failed(sym)
                     print("PIPE_EXECUTION_DECISION_SKIP source=exit_engine", flush=True)
                     return
 
@@ -3510,12 +3632,23 @@ class PaperTradingPipeline:
                     return
 
                 if not self.runtime_config.get_bool("ENABLE_PAPER_FILLS", True):
+                    self.exit_state_machine.on_failed(sym)
                     self._log_dedup("PIPE_PAPER_FILL_BLOCKED:exit_engine", "PIPE_PAPER_FILL_BLOCKED source=exit_engine")
                     return
+                print(
+                    f"PIPE_EXIT_PAPER_EXEC_START symbol={sym} side={intent.get('side')} "
+                    f"qty={intent.get('qty')}",
+                    flush=True,
+                )
                 raw_fill = self.paper.execute(intent, st)
                 raw_qty = float(getattr(raw_fill, "qty", intent.get("qty", 0.0)) or 0.0)
                 fill_side = "SELL" if raw_qty < 0 else "BUY"
                 exec_price = float(getattr(raw_fill, "price", intent.get("price") or st.get("last") or price) or 0.0)
+                print(
+                    f"PIPE_EXIT_PAPER_EXEC_OK symbol={sym} side={fill_side} "
+                    f"qty={abs(raw_qty)} price={exec_price}",
+                    flush=True,
+                )
 
                 commission = 0.0
                 if hasattr(self.fee_tax, "commission"):
@@ -3547,7 +3680,9 @@ class PaperTradingPipeline:
                 except Exception as exc:
                     print(f"PIPE_SIGNAL_SOURCE_CACHE_FAILED symbol={intent.get('symbol')} error={exc}", flush=True)
 
+                print(f"PIPE_EXIT_FILL_PUBLISH_START symbol={sym} fill_id={fill.fill_id}", flush=True)
                 self.bus.publish({"type": "FILL", "fill": fill})
+                print(f"PIPE_EXIT_FILL_PUBLISH_OK symbol={sym} fill_id={fill.fill_id}", flush=True)
                 try:
                     self.exit_state_machine.on_fill(str(intent.get("symbol") or ""))
                     self._restore_pm_position_from_projection_v1(str(intent.get("symbol") or ""))
@@ -3563,7 +3698,15 @@ class PaperTradingPipeline:
 
                 return
             except Exception as exc:
-                print(f"PIPE_EXIT_HARD_EXEC_ERROR {exc}", flush=True)
+                try:
+                    self.exit_state_machine.on_failed(sym)
+                except Exception:
+                    pass
+                print(
+                    f"PIPE_EXIT_HARD_EXEC_ERROR symbol={sym} phase=paper_exit "
+                    f"error_type={type(exc).__name__} error={exc!r}",
+                    flush=True,
+                )
                 return
 
 
@@ -3721,45 +3864,32 @@ class PaperTradingPipeline:
 
         prev_price = st.get("prev_price", price)
 
-        # === ATR FIX (ограничение и нормализация) ===
-        raw_atr = st.get("atr") or abs(price - prev_price) or price * 0.003
-        atr = min(raw_atr, price * 0.02)  # максимум 2% от цены
-        st["atr"] = atr
-
-        # EMA trend
-        alpha_fast = 2 / (5 + 1)
-        alpha_slow = 2 / (20 + 1)
-
-        ema_fast = alpha_fast * price + (1 - alpha_fast) * st.get("ema_fast", price)
-        ema_slow = alpha_slow * price + (1 - alpha_slow) * st.get("ema_slow", price)
-
-        st["ema_fast"] = ema_fast
-        st["ema_slow"] = ema_slow
-
-        if ema_fast > ema_slow:
-            trend = "up"
-        elif ema_fast < ema_slow:
-            trend = "down"
-        else:
-            trend = "flat"
-
-        features = {
-            "atr": atr,
-            "trend": trend,
-            "m5": st.get("m5"),
-            "m15": st.get("m15"),
-        }
-
         # === REGIME ===
         if not self.regime_enabled:
+            atr = _safe_float(st.get("atr"), abs(price - prev_price) or price * 0.003)
             regime = SimpleNamespace(
                 trend="any",
                 volatility="any",
                 atr=atr,
+                atr_pct=(atr / price if price else 0.0),
+                atr_percentile=0.5,
+                adx=0.0,
+                normalized_slope=0.0,
+                confirmed_bars=1,
+                data_ready=True,
+                stale=False,
+                source_version="REGIME_DISABLED",
+                timeframe="M5",
+                bar_ts=None,
                 is_tradeable=lambda: True,
             )
         else:
-            regime = self.regime_engine.evaluate(price, features)
+            timeframe = str(st.get("timeframe") or getattr(self, "timeframe", None) or "M5").upper()
+            if timeframe in {"LIVE", "TICK", "QUOTE", "NONE", ""}:
+                timeframe = "M5"
+            regime = self.candle_regime_engine_v2.evaluate(str(sym), timeframe)
+            atr = _safe_float(regime.atr, 0.0)
+            st["atr"] = atr
 
         # === SAVE REGIME STATE (robust, deterministic) ===
         trend_val = getattr(regime, "trend", "unknown")
@@ -3769,6 +3899,16 @@ class PaperTradingPipeline:
         st["regime_trend"] = trend_val
         st["regime_vol"] = vol_val
         st["regime_atr"] = atr_val
+        st["regime_source_version"] = str(getattr(regime, "source_version", "UNKNOWN"))
+        st["regime_timeframe"] = str(getattr(regime, "timeframe", "M5"))
+        st["regime_bar_ts"] = getattr(regime, "bar_ts", None)
+        st["regime_atr_pct"] = _safe_float(getattr(regime, "atr_pct", 0.0), 0.0)
+        st["regime_atr_percentile"] = _safe_float(getattr(regime, "atr_percentile", 0.0), 0.0)
+        st["regime_adx"] = _safe_float(getattr(regime, "adx", 0.0), 0.0)
+        st["regime_normalized_slope"] = _safe_float(getattr(regime, "normalized_slope", 0.0), 0.0)
+        st["regime_confirmed_bars"] = int(getattr(regime, "confirmed_bars", 0) or 0)
+        st["regime_data_ready"] = bool(getattr(regime, "data_ready", False))
+        st["regime_stale"] = bool(getattr(regime, "stale", True))
 
         # === CONTROLLED LOG (ONLY ON CHANGE, WITH TIME GUARD) ===
         prev_trend = st.get("_last_logged_trend")
@@ -3797,6 +3937,23 @@ class PaperTradingPipeline:
 
         is_exit_intent = isinstance(raw_intent, dict) and raw_intent.get("intent_type") == "EXIT"
         is_force_intent = isinstance(raw_intent, dict) and raw_intent.get("strategy") == "force_once_buy"
+
+        # Неподтверждённый/устаревший свечной режим запрещает только новый вход.
+        # Выход из уже открытой позиции никогда не блокируется этим шлюзом.
+        if (
+            isinstance(raw_intent, dict)
+            and not is_exit_intent
+            and not is_force_intent
+            and not regime.is_tradeable()
+        ):
+            self._log_dedup(
+                f"PIPE_CANDLE_REGIME_NOT_READY:{sym}:{getattr(regime, 'timeframe', 'M5')}",
+                "PIPE_CANDLE_REGIME_NOT_READY "
+                f"symbol={sym} timeframe={getattr(regime, 'timeframe', 'M5')} "
+                f"reason={getattr(regime, 'reason', 'unavailable')}",
+                heartbeat_sec=float(os.getenv("PIPE_REGIME_NOT_READY_LOG_EVERY_SEC", "60")),
+            )
+            return
 
         # === TREND + VOL FILTER (LEVEL 2 STABLE) ===
         try:
@@ -3995,7 +4152,9 @@ class PaperTradingPipeline:
 
             # === 3. СЛАБЫЙ ТРЕНД (главный фикс)
             if (not is_exit_intent) and (not is_force_intent) and regime.trend in ("up", "down"):
-                trend_strength = abs(st.get("ema_fast", price) - st.get("ema_slow", price)) / price
+                # CANDLE_REGIME_V2 already computes trend from closed-bar EMA/ADX.
+                # Reusing the old tick EMA fields here would mix two methodologies.
+                trend_strength = abs(_safe_float(getattr(regime, "normalized_slope", 0.0), 0.0))
 
                 if trend_strength < float(os.getenv("TREND_STRENGTH_MIN","0.0003")) and regime.volatility != "high":  # ключевой параметр
                     print("PIPE_TREND_WEAK_BLOCK", flush=True)
@@ -4395,6 +4554,19 @@ class PaperTradingPipeline:
                 "atr": regime.atr,
                 "trend": regime.trend,
                 "volatility": regime.volatility,
+                "regime_source_version": getattr(regime, "source_version", "UNKNOWN"),
+                "regime_timeframe": getattr(regime, "timeframe", "M5"),
+                "regime_bar_ts": (
+                    getattr(regime, "bar_ts", None).isoformat()
+                    if getattr(regime, "bar_ts", None) is not None else None
+                ),
+                "regime_atr_pct": getattr(regime, "atr_pct", 0.0),
+                "regime_atr_percentile": getattr(regime, "atr_percentile", 0.0),
+                "regime_adx": getattr(regime, "adx", 0.0),
+                "regime_normalized_slope": getattr(regime, "normalized_slope", 0.0),
+                "regime_confirmed_bars": getattr(regime, "confirmed_bars", 0),
+                "regime_data_ready": getattr(regime, "data_ready", False),
+                "regime_stale": getattr(regime, "stale", True),
             })
 
             regime_label = RegimeLabeler.label(
@@ -4804,11 +4976,75 @@ class PaperTradingPipeline:
         except Exception as e:
             print(f"PRICE_INJECT_ERROR {e}", flush=True)
 
+        # FUTURES_STRICT_ENTRY_ALL_ACTIVE_V1:
+        # Валютные и золотые фьючерсы проходят тот же строгий DB-driven шлюз,
+        # что BR/NG. BR/NG проверяются в специализированном paper-исполнителе.
+        try:
+            strict_futures_symbol = str(intent.get("symbol") or sym or "").upper()
+            is_generic_strict_future = strict_futures_symbol.startswith(
+                ("CNY", "USDRUB", "USD", "GD", "GLD", "GL")
+            )
+            if is_generic_strict_future and not is_exit_intent:
+                strict_features = (
+                    intent.get("features")
+                    if isinstance(intent.get("features"), dict)
+                    else {}
+                )
+                strict_strategy = str(
+                    intent.get("strategy")
+                    or strict_features.get("strategy")
+                    or self._strategy_name_for_symbol(strict_futures_symbol)
+                    or ""
+                )
+                strict_qty = float(intent.get("qty") or 0.0)
+                strict_allowed, strict_reason, strict_audit = (
+                    self._futures_entry_policy_allows_signal_v1(
+                        signal=intent,
+                        qty=strict_qty,
+                        strategy=strict_strategy,
+                    )
+                )
+                intent["futures_entry_policy_audit_v1"] = strict_audit
+                if not strict_allowed:
+                    print(
+                        "PIPE_FUTURES_STRICT_ENTRY_BLOCK "
+                        f"symbol={strict_futures_symbol} strategy={strict_strategy} "
+                        f"side={intent.get('side')} reason={strict_reason} "
+                        f"audit={strict_audit}",
+                        flush=True,
+                    )
+                    self._reject_persisted_signal_v1(
+                        intent,
+                        f"futures_strict_entry:{strict_reason}",
+                    )
+                    return
+                print(
+                    "PIPE_FUTURES_STRICT_ENTRY_ALLOW "
+                    f"symbol={strict_futures_symbol} strategy={strict_strategy} "
+                    f"side={intent.get('side')} reason={strict_reason}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(
+                "PIPE_FUTURES_STRICT_ENTRY_FAILED_CLOSED "
+                f"symbol={intent.get('symbol') or sym} "
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            self._reject_persisted_signal_v1(
+                intent,
+                f"futures_strict_entry_error:{type(exc).__name__}",
+            )
+            return
+
         # =========================================================
         # === TREND FLIP GUARD (prevents rapid direction changes) ===
         try:
             prev_trend = st.get("prev_trend")
             if prev_trend and prev_trend != regime.trend:
+                # Запоминаем подтверждённую смену до раннего выхода. Иначе один
+                # переход режима блокирует все последующие сигналы бесконечно.
+                st["prev_trend"] = regime.trend
                 if (not is_exit_intent) and abs(regime.atr / price) < 0.01:
                     print("PIPE_TREND_FLIP_BLOCK", flush=True)
                     self._reject_persisted_signal_v1(intent, "trend_flip_block")
@@ -4938,7 +5174,7 @@ class PaperTradingPipeline:
                         return
 
             # === EXTRA IMPULSE FILTER ===
-            if (not is_exit_intent) and (not is_force_intent) and abs(st.get("ema_fast", price) - price) / price < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
+            if (not is_exit_intent) and (not is_force_intent) and abs(_safe_float(getattr(regime, "normalized_slope", 0.0), 0.0)) < float(os.getenv("IMPULSE_MIN","0.0003")) and regime.volatility != "high":
                 print("PIPE_NO_IMPULSE_BLOCK", flush=True)
 
                 # Русский комментарий:
@@ -5112,6 +5348,29 @@ class PaperTradingPipeline:
                     phase2_decision = self.runtime_edge_governance_soft_block_v1.decide(
                         symbol=str(sym),
                         side=str(gate_side),
+                        strategy=str(
+                            intent.get("strategy")
+                            or (intent.get("features") or {}).get("strategy")
+                            or ""
+                        ),
+                        timeframe=str(
+                            intent.get("timeframe")
+                            or (intent.get("features") or {}).get("timeframe")
+                            or "UNKNOWN"
+                        ),
+                        regime=str(
+                            intent.get("regime")
+                            or (intent.get("features") or {}).get("regime_label")
+                            or "UNKNOWN"
+                        ),
+                        # Накопление доказательств разрешает только PAPER-потоку
+                        # пройти отсутствие/малую выборку строгого правила.
+                        # Отрицательная expectancy и реальные сделки не обходятся.
+                        evidence_accumulation=(
+                            str(os.getenv("EXECUTION_MODE", "paper")).lower() == "paper"
+                            and os.getenv("EXECUTION_ENABLED", "0") != "1"
+                            and os.getenv("REAL_TRADING_ENABLED", "0") != "1"
+                        ),
                     )
                     print(
                         "PIPE_RUNTIME_EDGE_GOVERNANCE_PHASE2_DECISION",
@@ -5169,7 +5428,20 @@ class PaperTradingPipeline:
                         flush=True,
                     )
 
-                if not self._check_session_side_execution_gate_v1(symbol=str(sym), side=gate_side):
+                if not self._check_session_side_execution_gate_v1(
+                    symbol=str(sym),
+                    side=gate_side,
+                    strategy=str(
+                        intent.get("strategy")
+                        or (intent.get("features") or {}).get("strategy")
+                        or ""
+                    ),
+                    timeframe=str(
+                        intent.get("timeframe")
+                        or (intent.get("features") or {}).get("timeframe")
+                        or "UNKNOWN"
+                    ),
+                ):
                     # Русский комментарий: PAPER-only advisory bypass для накопления статистики BRN6,
                     # без влияния на real execution.
                     br_session_bypass = (
@@ -5317,12 +5589,17 @@ class PaperTradingPipeline:
                             return
                 except Exception as exc:
                     print(
-                        "PIPE_EDGE_GATE_STRICT_MODE_FAILED_OPEN",
+                        "PIPE_EDGE_GATE_STRICT_MODE_FAILED_CLOSED",
                         f"symbol={sym}",
                         f"side={gate_side}",
                         f"error={type(exc).__name__}:{exc}",
                         flush=True,
                     )
+                    self._reject_persisted_signal_v1(
+                        intent,
+                        f"strict_edge_gate_error:{type(exc).__name__}",
+                    )
+                    return
 
             decision = self.risk_router.route(
                 RiskRouteInput(
@@ -5343,10 +5620,8 @@ class PaperTradingPipeline:
 
             approved = _decision_allowed(decision)
 
-            # soft override for dev/sim
             if os.getenv("RISK_SOFT", "0") == "1":
-                print("PIPE_RISK_FORCE_PASS", flush=True)
-                approved = True
+                print("PIPE_RISK_SOFT_IGNORED hard_gate=enabled", flush=True)
 
             if not approved:
                 reject_reason = str(getattr(decision, 'reason', 'unknown'))
@@ -5427,7 +5702,22 @@ class PaperTradingPipeline:
                         max_drawdown_pct=float(os.getenv("MAX_DRAWDOWN_PCT", "0.03")),
                     )
                 elif hasattr(gate, "check"):
-                    decision = gate.check(symbol=str(sym))
+                    requested_qty = float(intent.get("qty") or intent.get("quantity") or 0.0)
+                    position_risk_inputs = _portfolio_risk_inputs_v1(intent, str(sym))
+                    decision = gate.check(
+                        symbol=str(sym),
+                        signal_id=intent.get("signal_id") or intent.get("id"),
+                        strategy_family=str(intent.get("strategy") or intent.get("strategy_family") or "UNKNOWN"),
+                        requested_quantity=requested_qty,
+                        gross_exposure_rub=total_exposure,
+                        symbol_exposure_rub=symbol_exposure,
+                        used_margin_rub=used_margin,
+                        equity_rub=equity,
+                        peak_equity_rub=peak,
+                        daily_pnl_rub=daily_pnl,
+                        drawdown_rub=max(0.0, peak - equity),
+                        **position_risk_inputs,
+                    )
                 else:
                     decision = None
                     print("PIPE_PORTFOLIO_RISK_GATE_SKIP_NO_METHOD", flush=True)
@@ -5453,6 +5743,18 @@ class PaperTradingPipeline:
                     return
 
                 if decision is not None:
+                    approved_quantity = float(getattr(decision, "approved_quantity", 0.0) or 0.0)
+                    requested_quantity = float(getattr(decision, "requested_quantity", 0.0) or 0.0)
+                    if 0 < approved_quantity < requested_quantity:
+                        intent["qty"] = approved_quantity
+                        intent["quantity"] = approved_quantity
+                        print(
+                            "PIPE_PORTFOLIO_RISK_REDUCE",
+                            f"requested={requested_quantity:g}",
+                            f"approved={approved_quantity:g}",
+                            f"decision_id={getattr(decision, 'decision_id', None)}",
+                            flush=True,
+                        )
                     print(
                         "PIPE_PORTFOLIO_RISK_OK",
                         f"reason={getattr(decision, 'reason', None)}",
@@ -5465,7 +5767,12 @@ class PaperTradingPipeline:
                     )
 
             except Exception as e:
-                print(f"PIPE_PORTFOLIO_RISK_ERROR {e}", flush=True)
+                print(f"PIPE_PORTFOLIO_RISK_FAIL_CLOSED {type(e).__name__}:{e}", flush=True)
+                self._reject_persisted_signal_v1(
+                    intent,
+                    f"portfolio_risk_error:{type(e).__name__}",
+                )
+                return
 
             symbol_for_anti = str(intent.get("symbol") or "")
             side_for_anti = str(intent.get("side") or "")
@@ -5725,6 +6032,26 @@ class PaperTradingPipeline:
                 gate = getattr(self, "entry_gate_coordinator", None)
 
                 if gate is not None:
+                    portfolio_scope = None
+                    try:
+                        pg_logger = getattr(self, "pg_logger", None)
+                        if pg_logger is not None and hasattr(pg_logger, "_connect"):
+                            with pg_logger._connect() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute(
+                                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s, 'paper')",
+                                        (str(intent.get("symbol") or st.get("symbol") or ""),),
+                                    )
+                                    row = cur.fetchone()
+                                    if row:
+                                        portfolio_scope = str(row[0])
+                    except Exception as exc:
+                        self._log_dedup(
+                            "PIPE_ENTRY_GATE_SCOPE_RESOLUTION_ERROR",
+                            f"PIPE_ENTRY_GATE_SCOPE_RESOLUTION_ERROR {type(exc).__name__}:{exc}",
+                            heartbeat_sec=300,
+                        )
+
                     gate_decision = gate.allow_entry(
                         symbol=str(intent.get("symbol") or st.get("symbol") or ""),
                         strategy=str(intent.get("strategy") or (intent.get("features") or {}).get("strategy") or "default"),
@@ -5737,6 +6064,7 @@ class PaperTradingPipeline:
                         timeframe=str(intent.get("timeframe") or (intent.get("features") or {}).get("timeframe") or "UNKNOWN"),
                         session_name=self.edge_gate_strict_mode_v1.current_session_name(),
                         execution_mode=str(self.runtime_config.get("EXECUTION_MODE", "paper")),
+                        portfolio_scope=portfolio_scope,
                     )
 
                     replay_accumulation_mode = (
@@ -5820,6 +6148,17 @@ class PaperTradingPipeline:
             except Exception as exc:
                 print(f"PIPE_ENTRY_GATE_COORDINATOR_ERROR {type(exc).__name__}:{exc}", flush=True)
                 self._reject_persisted_signal_v1(intent, f"entry_gate_error:{type(exc).__name__}")
+                return
+
+        if not is_exit_intent:
+            direction_allowed, direction_reason = self._db_intent_direction_gate_v1(intent)
+            if not direction_allowed:
+                self._log_dedup(
+                    f"PIPE_DIRECTION_GATE_BLOCK:{intent.get('symbol')}:{direction_reason}",
+                    f"PIPE_DIRECTION_GATE_BLOCK symbol={intent.get('symbol')} reason={direction_reason}",
+                    heartbeat_sec=60,
+                )
+                self._reject_persisted_signal_v1(intent, direction_reason)
                 return
 
         self._accept_persisted_signal_v1(intent)
@@ -5957,16 +6296,22 @@ class PaperTradingPipeline:
 
             with psycopg.connect(database_url, row_factory=dict_row) as conn:
                 with conn.transaction():
+                    portfolio_scope = conn.execute(
+                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper') AS portfolio_scope",
+                        (symbol,),
+                    ).fetchone()["portfolio_scope"]
+                    if not portfolio_scope:
+                        return
                     row = conn.execute(
                         """
                         SELECT id, remaining_qty, raw
-                        FROM position_lifecycle_state
-                        WHERE symbol = %s
+                        FROM analytics.paper_research_position_lifecycle_v1
+                        WHERE portfolio_scope = %s AND symbol = %s
                         ORDER BY updated_at DESC NULLS LAST, created_at DESC
                         LIMIT 1
                         FOR UPDATE
                         """,
-                        (symbol,),
+                        (portfolio_scope, symbol),
                     ).fetchone()
 
                     if row:
@@ -5981,12 +6326,12 @@ class PaperTradingPipeline:
                         })
 
                         if new_qty <= 0:
-                            conn.execute("DELETE FROM position_lifecycle_state WHERE id = %s", (row["id"],))
+                            conn.execute("DELETE FROM analytics.paper_research_position_lifecycle_v1 WHERE id = %s", (row["id"],))
                             self._trailing_order_stop_by_symbol.pop(symbol, None)
                         elif old_qty <= 0 < new_qty:
                             conn.execute(
                                 """
-                                UPDATE position_lifecycle_state
+                                UPDATE analytics.paper_research_position_lifecycle_v1
                                 SET entry_price=%s, initial_qty=%s, remaining_qty=%s,
                                     tp1_done=false, tp2_done=false, profit_lock_done=false,
                                     trailing_active=false, current_stop=NULL,
@@ -5999,7 +6344,7 @@ class PaperTradingPipeline:
                         else:
                             conn.execute(
                                 """
-                                UPDATE position_lifecycle_state
+                                UPDATE analytics.paper_research_position_lifecycle_v1
                                 SET remaining_qty=%s, initial_qty=COALESCE(initial_qty,%s),
                                     raw=%s, updated_at=now()
                                 WHERE id=%s
@@ -6011,13 +6356,14 @@ class PaperTradingPipeline:
                         if new_qty > 0:
                             conn.execute(
                                 """
-                                INSERT INTO position_lifecycle_state
-                                    (symbol, strategy, entry_price, remaining_qty, initial_qty,
+                                INSERT INTO analytics.paper_research_position_lifecycle_v1
+                                    (portfolio_scope, symbol, strategy, entry_price, remaining_qty, initial_qty,
                                      trailing_active, raw, created_at, updated_at)
                                 VALUES
-                                    (%s, %s, %s, %s, %s, false, %s, now(), now())
+                                    (%s, %s, %s, %s, %s, %s, false, %s, now(), now())
                                 """,
                                 (
+                                    portfolio_scope,
                                     symbol,
                                     "default",
                                     price,
@@ -6038,6 +6384,37 @@ class PaperTradingPipeline:
             print(f"PIPE_POSITION_LIFECYCLE_ON_FILL_FAILED error={exc}", flush=True)
 
 
+    def _has_scoped_research_position_v1(self, symbol: str) -> bool:
+        """Проверяет изолированную Paper-позицию, не смешивая её с портфелем брокера."""
+        try:
+            database_url = os.getenv("DATABASE_URL", "")
+            if not database_url or not symbol:
+                return False
+
+            import psycopg
+
+            with psycopg.connect(database_url) as conn:
+                row = conn.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM analytics.paper_research_position_projection_v1 p
+                        WHERE p.portfolio_scope = analytics.resolve_paper_portfolio_scope_v1(%s, 'paper')
+                          AND p.symbol = %s
+                          AND abs(COALESCE(NULLIF(p.state->>'qty', '')::double precision, 0)) > 1e-9
+                    )
+                    """,
+                    (symbol, symbol),
+                ).fetchone()
+            return bool(row and row[0])
+        except Exception as exc:
+            self._log_dedup(
+                f"PIPE_SCOPED_RESEARCH_POSITION_CHECK_ERROR:{symbol}",
+                f"PIPE_SCOPED_RESEARCH_POSITION_CHECK_ERROR symbol={symbol} error={type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return False
+
     def _restore_pm_position_from_projection_v1(self, symbol: str) -> bool:
         """Русский комментарий: восстанавливает qty в in-memory PositionManager из position_projection."""
         try:
@@ -6053,13 +6430,30 @@ class PaperTradingPipeline:
             from psycopg.rows import dict_row
 
             with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                portfolio_scope = conn.execute(
+                    "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper') AS portfolio_scope",
+                    (symbol,),
+                ).fetchone()["portfolio_scope"]
+                if not portfolio_scope:
+                    return False
                 row = conn.execute(
                     """
-                    SELECT NULLIF(state->>'qty', '')::double precision AS qty
-                    FROM position_projection
-                    WHERE symbol = %s
+                    SELECT NULLIF(p.state->>'qty', '')::double precision AS qty,
+                           NULLIF(p.state->>'avg_price', '')::double precision AS avg_price,
+                           lifecycle.created_at AS opened_at
+                    FROM analytics.paper_research_position_projection_v1 p
+                    LEFT JOIN LATERAL (
+                        SELECT l.created_at
+                        FROM analytics.paper_research_position_lifecycle_v1 l
+                        WHERE l.portfolio_scope = p.portfolio_scope
+                          AND l.symbol = p.symbol
+                          AND l.remaining_qty > 0
+                        ORDER BY l.created_at ASC
+                        LIMIT 1
+                    ) lifecycle ON true
+                    WHERE p.portfolio_scope = %s AND p.symbol = %s
                     """,
-                    (symbol,),
+                    (portfolio_scope, symbol),
                 ).fetchone()
 
             if not row:
@@ -6081,6 +6475,20 @@ class PaperTradingPipeline:
                 return False
 
             setattr(pos, "qty", projection_qty)
+            if row.get("avg_price") is not None:
+                setattr(pos, "avg_price", float(row["avg_price"]))
+
+            # A restart must not reset the minimum-hold clock. The isolated Paper
+            # lifecycle row is created with the opening fill and survives process
+            # restarts, so use it as the authoritative opening time for ExitEngine.
+            opened_at = row.get("opened_at")
+            if abs(projection_qty) > 1e-9 and opened_at is not None:
+                exit_state = self._exit_state_for_symbol(symbol)
+                if exit_state.get("opened_at_ts") is None:
+                    exit_state["opened_at_ts"] = float(opened_at.timestamp())
+                # Mark the restored quantity as already open. Otherwise the first
+                # quote follows the new-position branch and overwrites opened_at_ts.
+                exit_state["last_qty"] = projection_qty
 
             if symbol.startswith("NG"):
                 print(
@@ -6124,14 +6532,20 @@ class PaperTradingPipeline:
 
             with psycopg.connect(database_url, row_factory=dict_row) as conn:
                 with conn.transaction():
+                    portfolio_scope = conn.execute(
+                        "SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper') AS portfolio_scope",
+                        (symbol,),
+                    ).fetchone()["portfolio_scope"]
+                    if not portfolio_scope:
+                        return
                     row = conn.execute(
                         """
                         SELECT state
-                        FROM position_projection
-                        WHERE symbol = %s
+                        FROM analytics.paper_research_position_projection_v1
+                        WHERE portfolio_scope = %s AND symbol = %s
                         FOR UPDATE
                         """,
-                        (symbol,),
+                        (portfolio_scope, symbol),
                     ).fetchone()
 
                     state = dict(row["state"]) if row and isinstance(row.get("state"), dict) else {}
@@ -6142,12 +6556,25 @@ class PaperTradingPipeline:
                         or 0.0
                     )
                     new_qty = old_qty + delta
+                    old_avg_price = float(state.get("avg_price") or 0.0)
+                    if delta > 0 and old_qty >= 0:
+                        avg_price = (
+                            (old_avg_price * old_qty + price * delta) / new_qty
+                            if new_qty > 0 else 0.0
+                        )
+                    elif new_qty == 0:
+                        avg_price = 0.0
+                    elif old_qty == 0 or old_qty * new_qty < 0:
+                        avg_price = price
+                    else:
+                        avg_price = old_avg_price
 
                     state.update(
                         {
                             "symbol": symbol,
                             "qty": new_qty,
                             "net_qty": new_qty,
+                            "avg_price": avg_price,
                             "last_fill_side": side,
                             "last_fill_qty": qty,
                             "last_fill_price": price,
@@ -6159,14 +6586,15 @@ class PaperTradingPipeline:
 
                     conn.execute(
                         """
-                        INSERT INTO position_projection (symbol, state, updated_at)
-                        VALUES (%s, %s, now())
-                        ON CONFLICT (symbol)
+                        INSERT INTO analytics.paper_research_position_projection_v1
+                            (portfolio_scope, symbol, state, updated_at)
+                        VALUES (%s, %s, %s, now())
+                        ON CONFLICT (portfolio_scope, symbol)
                         DO UPDATE SET
                             state = EXCLUDED.state,
                             updated_at = now()
                         """,
-                        (symbol, Jsonb(state)),
+                        (portfolio_scope, symbol, Jsonb(state)),
                     )
 
             if symbol.startswith("NG"):
@@ -7724,7 +8152,7 @@ class PaperTradingPipeline:
 
             pg_logger = getattr(self, "pg_logger", None)
             if pg_logger is None:
-                return "VOLATILITY_BREAKOUT_EQUITY"
+                return "UNASSIGNED"
 
             conn = (
                 getattr(pg_logger, "conn", None)
@@ -7762,7 +8190,7 @@ class PaperTradingPipeline:
                         pass
 
             if conn is None:
-                return "VOLATILITY_BREAKOUT_EQUITY"
+                return "UNASSIGNED"
 
             try:
                 with conn.cursor() as cur:
@@ -7788,13 +8216,13 @@ class PaperTradingPipeline:
                         pass
 
             if not row:
-                return "VOLATILITY_BREAKOUT_EQUITY"
+                return "UNASSIGNED"
 
             runtime_strategy = str(row[0] or "").strip()
             if runtime_strategy:
                 return runtime_strategy
 
-            return "VOLATILITY_BREAKOUT_EQUITY"
+            return "UNASSIGNED"
 
         except Exception as exc:
             try:
@@ -7806,7 +8234,7 @@ class PaperTradingPipeline:
             except Exception:
                 pass
 
-            return "VOLATILITY_BREAKOUT_EQUITY"
+            return "UNASSIGNED"
 
 
     def _strategy_name_for_symbol(self, symbol: str, *, _allow_equity_runtime: bool = True) -> str:
@@ -7897,13 +8325,102 @@ class PaperTradingPipeline:
             return True, f"runtime_active_universe_error_soft:{type(exc).__name__}:{exc}"
 
 
+    def _db_intent_direction_gate_v1(self, intent: dict) -> tuple[bool, str]:
+        """Fail-closed direction check for the isolated research Paper route."""
+        features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
+        symbol = str(intent.get("symbol") or "").strip().upper()
+        side = str(intent.get("side") or "").strip().upper()
+        timeframe = str(
+            intent.get("timeframe")
+            or features.get("regime_timeframe")
+            or features.get("timeframe")
+            or "M5"
+        ).strip().upper()
+        if timeframe in {"LIVE", "TICK", "QUOTE", "UNKNOWN", ""}:
+            timeframe = str(features.get("regime_timeframe") or "M5").strip().upper()
+
+        regime = str(
+            intent.get("regime")
+            or features.get("regime_label")
+            or features.get("regime")
+            or ""
+        ).strip().lower()
+        regime_source = str(features.get("regime_source_version") or "").strip()
+        confirmed_bars = int(features.get("regime_confirmed_bars") or 0)
+        data_ready = bool(features.get("regime_data_ready"))
+        stale = bool(features.get("regime_stale", True))
+
+        if (
+            regime_source != "CANDLE_REGIME_V3"
+            or confirmed_bars < 3
+            or not data_ready
+            or stale
+            or not regime.startswith(("trend_up", "trend_down", "range"))
+        ):
+            return False, "DIRECTION_REGIME_NOT_READY"
+        if side not in {"BUY", "SELL"}:
+            return False, "DIRECTION_SIDE_INVALID"
+
+        try:
+            pg_logger = getattr(self, "pg_logger", None)
+            if pg_logger is None or not hasattr(pg_logger, "_connect"):
+                return False, "DIRECTION_POLICY_DB_UNAVAILABLE"
+            with pg_logger._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT countertrend_long_allowed, countertrend_short_allowed
+                        FROM analytics.runtime_strategy_assignment_v1
+                        WHERE symbol = %s AND timeframe = %s AND enabled
+                        ORDER BY priority DESC, updated_at DESC
+                        LIMIT 1
+                        """,
+                        (symbol, timeframe),
+                    )
+                    row = cur.fetchone()
+            if row is None:
+                return False, "DIRECTION_POLICY_NOT_FOUND"
+            countertrend_long_allowed, countertrend_short_allowed = bool(row[0]), bool(row[1])
+        except Exception as exc:
+            return False, f"DIRECTION_POLICY_ERROR:{type(exc).__name__}"
+
+        if side == "BUY" and regime.startswith("trend_down") and not countertrend_long_allowed:
+            return False, "LONG_BLOCKED_CONFIRMED_DOWNTREND"
+        if side == "SELL" and regime.startswith("trend_up") and not countertrend_short_allowed:
+            return False, "SHORT_BLOCKED_CONFIRMED_UPTREND"
+        return True, "DIRECTION_ALLOWED"
+
     def _strategy_runtime_control_allows_paper(self, symbol: str, qty: float, strategy: str = "default") -> tuple[bool, float, str]:
         """Русский комментарий: thin wrapper; логика runtime-control вынесена в StrategyRuntimeControlService."""
         service = getattr(self, "strategy_runtime_control_service", None)
         if service is None:
             service = StrategyRuntimeControlService(getattr(self, "pg_logger", None))
             self.strategy_runtime_control_service = service
-        return service.allow_paper(symbol=symbol, qty=qty, strategy=strategy)
+        portfolio_scope = None
+        try:
+            pg_logger = getattr(self, "pg_logger", None)
+            if pg_logger is not None and hasattr(pg_logger, "_connect"):
+                with pg_logger._connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT analytics.resolve_paper_portfolio_scope_v1(%s, 'paper')",
+                            (symbol,),
+                        )
+                        row = cur.fetchone()
+                        if row:
+                            portfolio_scope = str(row[0])
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_RUNTIME_SCOPE_RESOLUTION_ERROR",
+                f"PIPE_RUNTIME_SCOPE_RESOLUTION_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+        return service.allow_paper(
+            symbol=symbol,
+            qty=qty,
+            strategy=strategy,
+            portfolio_scope=portfolio_scope,
+        )
 
     def _br_total_open_abs_position(self) -> float:
         """Русский комментарий: сумма абсолютных открытых PAPER-позиций по BR replay/paper."""
@@ -8418,7 +8935,7 @@ class PaperTradingPipeline:
                 f"type={type(exc).__name__} error={exc}",
                 flush=True,
             )
-            return True, float(qty), "runtime_override_error_fail_open"
+            return False, 0.0, f"runtime_override_error_fail_closed:{type(exc).__name__}"
 
         if not gate.allowed:
             print(
@@ -8440,6 +8957,205 @@ class PaperTradingPipeline:
             )
 
         return True, float(gate.adjusted_quantity), gate.reason
+
+    def _futures_entry_policy_allows_signal_v1(
+        self,
+        *,
+        signal,
+        qty: float,
+        strategy: str,
+    ) -> tuple[bool, str, dict]:
+        """Единый строгий вход фьючерсов: rollover → DB-политика → спецификация → стакан."""
+        if isinstance(signal, dict):
+            features = signal.get("features") if isinstance(signal.get("features"), dict) else {}
+            symbol = str(signal.get("symbol") or "").strip().upper()
+            side = str(signal.get("side") or "").strip().upper()
+            entry_price = float(
+                signal.get("entry_price")
+                or signal.get("price")
+                or signal.get("limit_price")
+                or 0.0
+            )
+            target_price = float(
+                signal.get("take_profit")
+                or signal.get("take")
+                or features.get("take")
+                or 0.0
+            )
+            observed_trend = str(
+                signal.get("regime_trend")
+                or features.get("trend")
+                or ""
+            ).strip().lower()
+        else:
+            features = getattr(signal, "features", {}) or {}
+            symbol = str(getattr(signal, "symbol", "") or "").strip().upper()
+            side = str(getattr(signal, "side", "") or "").strip().upper()
+            entry_price = float(getattr(signal, "price", 0.0) or 0.0)
+            target_price = float(getattr(signal, "take", 0.0) or 0.0)
+            observed_trend = str(
+                getattr(signal, "regime_trend", "")
+                or features.get("trend")
+                or ""
+            ).strip().lower()
+        audit: dict = {
+            "requested_symbol": symbol,
+            "strategy": str(strategy),
+            "side": side,
+        }
+
+        if not symbol or side not in {"BUY", "SELL"}:
+            return False, "FUTURES_SIGNAL_CONTEXT_INCOMPLETE", audit
+
+        try:
+            roll = ExecutionSymbolResolver(self.pg_logger).resolve(symbol)
+        except Exception as exc:
+            return False, f"ROLLOVER_QUERY_ERROR:{type(exc).__name__}", audit
+        audit.update(
+            {
+                "execution_symbol": roll.execution_symbol,
+                "continuous_symbol": roll.continuous_symbol,
+                "roll_reason": roll.reason,
+            }
+        )
+        if roll.execution_symbol != symbol:
+            return False, f"ROLLOVER_REQUIRED:{roll.execution_symbol}", audit
+
+        if symbol.startswith("BR"):
+            asset_group = "FUTURES_BR"
+        elif symbol.startswith("NG"):
+            asset_group = "FUTURES_NG"
+        elif symbol.startswith("CNY"):
+            asset_group = "FUTURES_CNY"
+        elif symbol.startswith("USDRUB") or symbol.startswith("USD"):
+            asset_group = "FUTURES_USD"
+        elif symbol.startswith(("GD", "GLD", "GL")):
+            asset_group = "FUTURES_GOLD"
+        else:
+            return False, "FUTURES_DB_POLICY_GROUP_UNAVAILABLE", audit
+
+        trend_aliases = {
+            "up": "trend_up",
+            "growth": "trend_up",
+            "trend_up": "trend_up",
+            "down": "trend_down",
+            "decline": "trend_down",
+            "trend_down": "trend_down",
+            "range": "range",
+            "sideways": "range",
+        }
+        trend = trend_aliases.get(observed_trend)
+        regime_source = str(features.get("regime_source_version") or "").strip()
+        regime_confirmed_bars = int(features.get("regime_confirmed_bars") or 0)
+        regime_data_ready = bool(features.get("regime_data_ready"))
+        regime_stale = bool(features.get("regime_stale", True))
+        audit.update(
+            {
+                "regime_source_version": regime_source,
+                "regime_confirmed_bars": regime_confirmed_bars,
+                "regime_data_ready": regime_data_ready,
+                "regime_stale": regime_stale,
+            }
+        )
+        if (
+            regime_source != "CANDLE_REGIME_V3"
+            or regime_confirmed_bars < 3
+            or not regime_data_ready
+            or regime_stale
+        ):
+            return False, "FUTURES_REGIME_EVIDENCE_INCOMPLETE", audit
+        if trend is None:
+            return False, "FUTURES_REGIME_UNCONFIRMED", audit
+        policy_repository = getattr(self, "_futures_regime_policy_v1", None)
+        if policy_repository is None:
+            policy_repository = DbRegimeStrategyPolicyV1(self.pg_logger)
+            self._futures_regime_policy_v1 = policy_repository
+        policy = policy_repository.resolve(
+            asset_group=asset_group,
+            trend=trend,
+            data_ready=regime_data_ready,
+            stale=regime_stale,
+        )
+        if policy is None:
+            return False, "FUTURES_DB_POLICY_UNAVAILABLE", audit
+        audit.update(
+            {
+                "asset_group": asset_group,
+                "confirmed_trend": trend,
+                "policy_strategy": policy.strategy_code,
+                "allowed_side": policy.allowed_side,
+                "exit_policy_code": policy.exit_policy_code,
+                "max_holding_bars": policy.max_holding_bars,
+            }
+        )
+        if str(strategy) != policy.strategy_code:
+            return False, "FUTURES_STRATEGY_POLICY_MISMATCH", audit
+        if policy.allowed_side not in {"BOTH", side}:
+            return False, "FUTURES_SIDE_BLOCKED_BY_REGIME", audit
+
+        spec = InstrumentSpecRegistry().get(symbol)
+        audit.update(
+            {
+                "asset_class": spec.asset_class,
+                "min_price_step": spec.min_price_step,
+                "step_value": spec.step_value,
+            }
+        )
+        if str(spec.asset_class).upper() != "FUTURES":
+            return False, "VERIFIED_FUTURES_SPEC_UNAVAILABLE", audit
+
+        quote = None
+        try:
+            with self.pg_logger._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select best_bid, best_ask, observed_at
+                        from analytics.market_microstructure_snapshot_v1
+                        where symbol = %s
+                          and best_bid > 0
+                          and best_ask > best_bid
+                        order by observed_at desc
+                        limit 1
+                        """,
+                        (symbol,),
+                    )
+                    quote = cur.fetchone()
+        except Exception as exc:
+            return False, f"MICROSTRUCTURE_QUERY_ERROR:{type(exc).__name__}", audit
+        if not quote:
+            return False, "MICROSTRUCTURE_UNAVAILABLE", audit
+
+        quantity = abs(float(qty or 0.0))
+        per_side_fee = (
+            float(spec.broker_fee)
+            + float(spec.exchange_fee)
+            + float(spec.clearing_fee)
+        )
+        decision = evaluate_futures_entry_cost_gate_v1(
+            entry_price=entry_price,
+            target_price=target_price,
+            qty=quantity,
+            best_bid=float(quote[0]),
+            best_ask=float(quote[1]),
+            quote_observed_at=quote[2],
+            min_price_step=float(spec.min_price_step),
+            step_value=float(spec.step_value),
+            round_trip_commission_rub=2.0 * quantity * per_side_fee,
+            minimum_cost_buffer=float(policy.minimum_cost_buffer),
+        )
+        audit.update(
+            {
+                "best_bid": float(quote[0]),
+                "best_ask": float(quote[1]),
+                "quote_observed_at": quote[2].isoformat() if quote[2] else None,
+                "round_trip_commission_rub": 2.0 * quantity * per_side_fee,
+                "expected_move_rub": round(decision.expected_move_rub, 6),
+                "estimated_cost_rub": round(decision.estimated_cost_rub, 6),
+                "required_move_rub": round(decision.required_move_rub, 6),
+            }
+        )
+        return decision.allowed, decision.reason_code, audit
 
     def _execute_br_signal_in_paper(self, br_signal, qty: float) -> tuple[bool, str]:
         # Русский комментарий: strategy нужна внутри метода для order payload и replay trade metadata.
@@ -8668,6 +9384,24 @@ class PaperTradingPipeline:
 
         qty = runtime_override_qty
 
+        futures_entry_allowed, futures_entry_reason, futures_entry_audit = (
+            self._futures_entry_policy_allows_signal_v1(
+                signal=br_signal,
+                qty=qty,
+                strategy=br_strategy,
+            )
+        )
+        if not futures_entry_allowed:
+            self._log_dedup(
+                f"PIPE_FUTURES_STRICT_ENTRY_BLOCK:{br_symbol}:{futures_entry_reason}",
+                "PIPE_FUTURES_STRICT_ENTRY_BLOCK "
+                f"symbol={br_symbol} strategy={br_strategy} "
+                f"side={getattr(br_signal, 'side', None)} "
+                f"reason={futures_entry_reason} audit={futures_entry_audit}",
+                heartbeat_sec=120,
+            )
+            return False, futures_entry_reason
+
         # Русский комментарий: защитный слой Brent против flip-flop входов.
         # Работает только в runtime, чтобы не ломать исторические replay/исследования.
         if os.getenv("REPLAY_DISABLE_RUNTIME_CONTROL", "0") != "1":
@@ -8740,6 +9474,7 @@ class PaperTradingPipeline:
             "trade_source": "paper",
             "source": "paper_pipeline_closed_bar",
             "paper_only": True,
+            "entry_policy_audit": futures_entry_audit,
         }
 
         try:
@@ -9306,7 +10041,41 @@ class PaperTradingPipeline:
             if timeframe != "M5":
                 return
 
-            strategy_name = self._runtime_strategy_name_for_symbol(symbol)
+            regime = self.candle_regime_engine_v2.evaluate(symbol, timeframe)
+            policy_repository = getattr(self, "db_regime_strategy_policy_v1", None)
+            if policy_repository is None:
+                policy_repository = DbRegimeStrategyPolicyV1(
+                    getattr(self, "pg_logger", None)
+                )
+                self.db_regime_strategy_policy_v1 = policy_repository
+
+            policy = policy_repository.resolve(
+                asset_group="EQUITY",
+                trend=str(getattr(regime, "trend", "") or ""),
+                data_ready=bool(getattr(regime, "data_ready", False)),
+                stale=bool(getattr(regime, "stale", True)),
+            )
+            if policy is None:
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
+                    f"symbol={symbol} timeframe={timeframe} reason=regime_unconfirmed "
+                    f"trend={getattr(regime, 'trend', 'unknown')} "
+                    f"volatility={getattr(regime, 'volatility', 'unknown')}",
+                    flush=True,
+                )
+                return
+
+            # Назначение инструмента в БД остаётся обязательным. Режим выбирает
+            # исполнимое семейство внутри активной DB-политики.
+            assigned_strategy = self._runtime_strategy_name_for_symbol(symbol)
+            if assigned_strategy == "UNASSIGNED":
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
+                    f"symbol={symbol} timeframe={timeframe} reason=strategy_unassigned",
+                    flush=True,
+                )
+                return
+            strategy_name = policy.strategy_code
 
             # EQUITY_STRATEGY_CACHE_REBIND_PATCH_V1
             # Русский комментарий: если strategy_by_symbol уже содержит legacy instance,
@@ -9319,12 +10088,12 @@ class PaperTradingPipeline:
                     or getattr(cached_strategy, "strategy_name", "")
                     or cached_strategy.__class__.__name__
                 )
-                if (
-                    strategy_name == "VOLATILITY_BREAKOUT_EQUITY"
-                    and cached_strategy is not None
-                    and "VolatilityBreakout" not in cached_name
-                    and cached_name != "VOLATILITY_BREAKOUT_EQUITY"
-                ):
+                expected_class_fragment = (
+                    "VolatilityBreakout"
+                    if strategy_name == "VOLATILITY_BREAKOUT_EQUITY"
+                    else "MeanReversion"
+                )
+                if cached_strategy is not None and expected_class_fragment not in cached_name:
                     self.strategy_by_symbol[symbol] = StrategyFactory.create(
                         symbol,
                         strategy_name=strategy_name,
@@ -9340,15 +10109,6 @@ class PaperTradingPipeline:
                     f"symbol={symbol} strategy={strategy_name} error={type(exc).__name__}:{exc}",
                     flush=True,
                 )
-
-            if strategy_name != "VOLATILITY_BREAKOUT_EQUITY":
-                print(
-                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
-                    f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
-                    "reason=non_volatility_breakout_equity",
-                    flush=True,
-                )
-                return
 
             strategies = getattr(self, "strategy_by_symbol", None)
             if strategies is None:
@@ -9369,7 +10129,14 @@ class PaperTradingPipeline:
             high_price = float(getattr(bar, "high", close_price) or close_price)
             low_price = float(getattr(bar, "low", close_price) or close_price)
             volume = float(getattr(bar, "volume", 0.0) or 0.0)
-            atr_value = max(high_price - low_price, 0.0)
+            atr_value = float(getattr(regime, "atr", 0.0) or 0.0)
+            regime_code = "_".join(
+                part for part in (
+                    str(getattr(regime, "trend", "") or ""),
+                    str(getattr(regime, "volatility", "") or ""),
+                )
+                if part
+            )
 
             print(
                 "PIPE_EQUITY_CLOSED_BAR_ROUTE "
@@ -9393,7 +10160,7 @@ class PaperTradingPipeline:
                     high=high_price,
                     volume=volume,
                     atr=atr_value,
-                    regime=None,
+                    regime=regime_code,
                 )
             except TypeError:
                 signal = strategy.on_quote(
@@ -9406,6 +10173,7 @@ class PaperTradingPipeline:
                         "volume": volume,
                         "atr": atr_value,
                         "timeframe": timeframe,
+                        "regime": regime_code,
                     }
                 )
 
@@ -9417,10 +10185,83 @@ class PaperTradingPipeline:
                 )
                 return
 
-            side = str(getattr(signal, "side", "") or "")
-            qty = float(getattr(signal, "qty", 0.0) or 0.0)
-            price = float(getattr(signal, "price", close_price) or close_price)
-            reason = str(getattr(signal, "reason", "") or "equity_closed_bar_signal")
+            if isinstance(signal, dict):
+                side = str(signal.get("side") or "")
+                qty = float(signal.get("qty") or 0.0)
+                price = float(signal.get("price") or close_price)
+                reason = str(signal.get("reason") or "equity_closed_bar_signal")
+                signal_features = dict(signal.get("features") or {})
+                target_price = float(
+                    signal.get("take_profit")
+                    or signal.get("take")
+                    or signal_features.get("take")
+                    or signal_features.get("vwap")
+                    or 0.0
+                )
+                stop_price = float(
+                    signal.get("stop_price")
+                    or signal.get("stop")
+                    or signal_features.get("stop")
+                    or 0.0
+                )
+            else:
+                side = str(getattr(signal, "side", "") or "")
+                qty = float(getattr(signal, "qty", 0.0) or 0.0)
+                price = float(getattr(signal, "price", close_price) or close_price)
+                reason = str(getattr(signal, "reason", "") or "equity_closed_bar_signal")
+                signal_features = dict(getattr(signal, "features", {}) or {})
+                target_price = float(
+                    getattr(signal, "take_profit", None)
+                    or signal_features.get("take")
+                    or signal_features.get("vwap")
+                    or 0.0
+                )
+                stop_price = float(
+                    getattr(signal, "stop_price", None)
+                    or signal_features.get("stop")
+                    or 0.0
+                )
+
+            if not policy.allows(side):
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
+                    f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
+                    f"side={side} reason=side_blocked_by_regime_policy",
+                    flush=True,
+                )
+                return
+
+            collection_allowed, collection_reason = (
+                self._hierarchical_v5_collection_allows_signal(
+                    symbol=symbol,
+                    strategy=strategy_name,
+                    side=side,
+                )
+            )
+            if not collection_allowed:
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
+                    f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
+                    f"side={side} reason={collection_reason}",
+                    flush=True,
+                )
+                return
+
+            cost_allowed, cost_reason, cost_audit = self._equity_entry_cost_allows_signal_v1(
+                symbol=symbol,
+                entry_price=price,
+                target_price=target_price,
+                qty=qty,
+                minimum_cost_buffer=policy.minimum_cost_buffer,
+            )
+            if not cost_allowed:
+                print(
+                    "PIPE_EQUITY_CLOSED_BAR_SKIP "
+                    f"symbol={symbol} timeframe={timeframe} strategy={strategy_name} "
+                    f"side={side} reason={cost_reason} audit={cost_audit}",
+                    flush=True,
+                )
+                return
 
             intent = {
                 "symbol": symbol,
@@ -9428,6 +10269,8 @@ class PaperTradingPipeline:
                 "qty": qty,
                 "price": price,
                 "entry_price": price,
+                "stop_price": stop_price or None,
+                "take_profit": target_price or None,
                 "strategy": strategy_name,
                 "timeframe": timeframe,
                 "horizon": "INTRADAY",
@@ -9436,6 +10279,14 @@ class PaperTradingPipeline:
                 "ts": getattr(bar, "ts", None),
                 "source": "equity_closed_bar",
                 "origin": "paper",
+                "regime": regime_code,
+                "regime_policy_reason": policy.reason_code,
+                "assigned_strategy": assigned_strategy,
+                "features": signal_features,
+                "entry_cost_audit": cost_audit,
+                "exit_policy_code": policy.exit_policy_code,
+                "max_holding_bars": policy.max_holding_bars,
+                "countertrend_allowed": policy.countertrend_allowed,
             }
 
             signal_id = None
@@ -9466,6 +10317,126 @@ class PaperTradingPipeline:
                 f"error={type(exc).__name__}:{exc}",
                 flush=True,
             )
+
+    def _equity_entry_cost_allows_signal_v1(
+        self,
+        *,
+        symbol: str,
+        entry_price: float,
+        target_price: float,
+        qty: float,
+        minimum_cost_buffer: float,
+    ) -> tuple[bool, str, dict]:
+        """Читает свежий стакан и проверяет запас ожидаемого движения над издержками."""
+        quote = None
+        try:
+            with self.pg_logger._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select best_bid, best_ask, observed_at
+                        from analytics.market_microstructure_snapshot_v1
+                        where symbol = %s
+                          and best_bid > 0
+                          and best_ask > best_bid
+                        order by observed_at desc
+                        limit 1
+                        """,
+                        (str(symbol),),
+                    )
+                    quote = cur.fetchone()
+        except Exception as exc:
+            return False, f"MICROSTRUCTURE_QUERY_ERROR:{type(exc).__name__}", {}
+
+        if not quote:
+            return False, "MICROSTRUCTURE_UNAVAILABLE", {}
+
+        one_way_commission = float(
+            self.fee_tax.trade_fees(
+                abs(float(qty) * float(entry_price))
+            ).total
+        )
+        decision = evaluate_entry_cost_gate_v1(
+            entry_price=entry_price,
+            target_price=target_price,
+            qty=qty,
+            best_bid=float(quote[0]),
+            best_ask=float(quote[1]),
+            quote_observed_at=quote[2],
+            round_trip_commission_rub=one_way_commission * 2.0,
+            minimum_cost_buffer=minimum_cost_buffer,
+        )
+        audit = {
+            "expected_move_rub": round(decision.expected_move_rub, 6),
+            "estimated_cost_rub": round(decision.estimated_cost_rub, 6),
+            "required_move_rub": round(decision.required_move_rub, 6),
+            "minimum_cost_buffer": float(minimum_cost_buffer),
+            "best_bid": float(quote[0]),
+            "best_ask": float(quote[1]),
+            "quote_observed_at": quote[2].isoformat() if quote[2] else None,
+        }
+        return decision.allowed, decision.reason_code, audit
+
+    def _hierarchical_v5_collection_allows_signal(
+        self,
+        *,
+        symbol: str,
+        strategy: str,
+        side: str,
+    ) -> tuple[bool, str]:
+        """Не создаёт новые сигналы для уже убыточной V5-ветки.
+
+        Исторические сделки и результаты не удаляются. При недоступности
+        методологической таблицы вход закрывается, чтобы не загрязнять V5.
+        """
+        import time
+
+        key = (
+            str(symbol or "").strip(),
+            str(strategy or "").strip(),
+            str(side or "").strip().upper(),
+        )
+        cache = getattr(self, "_hierarchical_v5_collection_cache", None)
+        if cache is None:
+            cache = {}
+            self._hierarchical_v5_collection_cache = cache
+
+        now = time.monotonic()
+        cached = cache.get(key)
+        if cached and now - cached[0] < 60:
+            return cached[1], cached[2]
+
+        allowed = False
+        reason = "V5_COLLECTION_POLICY_UNAVAILABLE"
+        try:
+            with self.pg_logger._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select decision_code, reason_code
+                        from analytics.hierarchical_evidence_v1
+                        where cohort_code = 'FRESH_V5_CONFIRM'
+                          and level_code = 'INSTRUMENT_SIDE'
+                          and symbol_code = %s
+                          and strategy_code = %s
+                          and side_code = %s
+                        order by updated_at desc
+                        limit 1
+                        """,
+                        key,
+                    )
+                    row = cur.fetchone()
+            if row and str(row[0]) == "EARLY_STOP":
+                allowed = False
+                reason = f"V5_EARLY_STOP:{row[1]}"
+            else:
+                allowed = True
+                reason = "V5_COLLECTION_ALLOWED"
+        except Exception as exc:
+            reason = f"V5_COLLECTION_POLICY_ERROR:{type(exc).__name__}"
+
+        cache[key] = (now, allowed, reason)
+        return allowed, reason
 
 
     def _process_ng_m1_closed_bar_for_paper_signal(self, bar) -> None:
@@ -9959,6 +10930,8 @@ class PaperTradingPipeline:
         *,
         symbol: str,
         side: str,
+        strategy: str = "",
+        timeframe: str = "UNKNOWN",
     ) -> bool:
         """
         Русский комментарий:
@@ -9971,7 +10944,12 @@ class PaperTradingPipeline:
                 gate = SessionSideExecutionGateV1()
                 self._session_side_execution_gate_v1 = gate
 
-            decision = gate.decide(symbol=str(symbol), side=str(side))
+            decision = gate.decide(
+                symbol=str(symbol),
+                side=str(side),
+                strategy=str(strategy),
+                timeframe=str(timeframe),
+            )
 
             print(
                 "PIPE_SESSION_SIDE_GATE_DECISION",

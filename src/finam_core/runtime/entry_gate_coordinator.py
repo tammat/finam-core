@@ -56,6 +56,7 @@ class EntryGateCoordinator:
         timeframe: str | None = None,
         session_name: str | None = None,
         execution_mode: str = "PAPER",
+        portfolio_scope: str | None = None,
     ) -> EntryGateDecision:
         trend = self.trend_gate_service.allow_entry(
             symbol=symbol,
@@ -92,12 +93,15 @@ class EntryGateCoordinator:
             symbol=symbol,
             qty=qty,
             strategy=strategy,
+            portfolio_scope=portfolio_scope,
         )
 
         if not runtime_allowed:
             return EntryGateDecision(False, 0.0, runtime_reason, "runtime_control")
 
-        if self.regime_runtime_control_service is not None:
+        scope_bootstrap = runtime_reason.startswith("runtime_control_scope_bootstrap")
+
+        if self.regime_runtime_control_service is not None and not scope_bootstrap:
             regime_allowed, regime_qty, regime_reason = self.regime_runtime_control_service.allow_regime(
                 symbol=symbol,
                 strategy=strategy,
@@ -110,5 +114,8 @@ class EntryGateCoordinator:
 
             adjusted_qty = regime_qty
             runtime_reason = f"{runtime_reason}|{regime_reason}"
+
+        if scope_bootstrap:
+            runtime_reason = f"{runtime_reason}|regime_control_scope_bootstrap"
 
         return EntryGateDecision(True, float(adjusted_qty), runtime_reason, "allow")

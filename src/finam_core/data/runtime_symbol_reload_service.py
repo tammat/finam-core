@@ -36,15 +36,16 @@ class RuntimeSymbolReloadService:
             limit=self.limit,
         )
 
-        active = list(dict.fromkeys(current + desired))
+        # Провайдер уже возвращает DB-приоритет: сначала перспективные и
+        # недозаполненные исследовательские связки. Подписка Finam имеет жёсткий
+        # лимит символов, поэтому расширять её объединением двух списков нельзя.
+        # Остаток лимита заполняем текущими символами, чтобы переход был плавным.
+        active = list(dict.fromkeys(desired + current))[: self.limit]
 
         current_set = set(current)
         added = [s for s in desired if s not in current_set]
 
-        # Базовая подписка и накопленное состояние стратегий остаются активными.
-        # dynamic_watchlist здесь расширяет universe, но не владеет базовыми символами,
-        # поэтому отсутствие символа в очередной выборке не означает его удаление.
-        removed: list[str] = []
+        removed = [s for s in current if s not in set(active)]
 
         return RuntimeSymbolReloadDecision(
             active_symbols=active,

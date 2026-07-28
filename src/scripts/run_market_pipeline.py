@@ -59,9 +59,7 @@ def _session_bounds(now: datetime) -> tuple[datetime, datetime] | None:
     """Return the configured real-feed session containing ``now``."""
     local = now.astimezone(MSK)
     weekday = local.weekday()
-    if weekday == 5:  # Saturday
-        return None
-    if weekday == 6:  # Sunday session explicitly confirmed by the operator
+    if weekday in {5, 6}:  # Weekend session confirmed by the live order book
         start_at, end_at = wall_time(10, 0), wall_time(19, 0)
     else:
         start_at, end_at = wall_time(7, 0), wall_time(23, 50)
@@ -326,6 +324,7 @@ def main() -> None:
     elif args.strategy == "strategy_stack":
         strategies = [
             BreakoutReactiveStrategy(symbol=args.symbol),
+            VWAPBandsMRStrategy(window=150, k=1.5, stop_pct=0.004, take_pct=0.0),
         ]
 
         # Русский коммент: SimpleReactive включаем только для тестов

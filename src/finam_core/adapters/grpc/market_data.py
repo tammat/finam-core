@@ -52,6 +52,7 @@ class FinamMarketDataClient:
         self.first_quote_grace_sec = float(self.runtime_config.get_float("MD_FIRST_QUOTE_GRACE_SEC", 60.0))
         self._subscribed_ts = 0.0
         self._got_first_valid_quote = False
+        self._first_quote_logged = False
 
         # Русский коммент: soft/hard watchdog.
         self.watchdog_mode = self.runtime_config.get("MD_WATCHDOG_MODE", "soft").strip().lower()
@@ -126,6 +127,7 @@ class FinamMarketDataClient:
         )
         self._thread = threading.Thread(target=self.subscribe_quotes, args=(self._symbols,), daemon=True)
         self._thread.start()
+        print(f"MD_THREAD_STARTED symbols={','.join(self._symbols)}", flush=True)
 
     def ensure_subscribed(self, symbols: List[str]) -> list[str]:
         """Русский коммент: обновляет список подписки и мягко перезапускает active stream."""
@@ -208,9 +210,20 @@ class FinamMarketDataClient:
 
                 now = time.time()
 
-                # Русский коммент: пока не прошло grace и не было валидного тика — не предпринимаем действий.
-                if (now - self._subscribed_ts) < self.first_quote_grace_sec and not self._got_first_valid_quote:
-                    continue
+                # Отсутствие самой первой котировки означает мёртвую подписку даже в soft-режиме.
+                # Отменяем call, чтобы внешний цикл открыл новый поток, а не завис навсегда.
+                if not self._got_first_valid_quote:
+                    if (now - self._subscribed_ts) < self.first_quote_grace_sec:
+                        continue
+                    print(
+                        f"MD_FIRST_QUOTE_TIMEOUT grace_sec={self.first_quote_grace_sec:.0f} reconnect=1",
+                        flush=True,
+                    )
+                    try:
+                        self._active_call.cancel()
+                    except Exception:
+                        pass
+                    return
 
                 idle = now - self.last_msg_ts
                 if idle <= self.heartbeat_sec:
@@ -264,10 +277,12 @@ class FinamMarketDataClient:
                 self.last_msg_ts = now
                 self._subscribed_ts = now
                 self._got_first_valid_quote = False
+                self._first_quote_logged = False
 
                 self._start_watchdog()
 
                 LOG.info("MarketData SubscribeQuote opened: symbols=%s", active_symbols)
+                print(f"MD_SUBSCRIBE_OPENED symbols={','.join(active_symbols)}", flush=True)
                 if self.runtime_config.get_bool("MD_DEBUG", False):
                     LOG.debug("MarketData subscribed debug: %s", active_symbols)
 
@@ -362,6 +377,14 @@ class FinamMarketDataClient:
                 # Русский коммент: считаем "валидным тиком" наличие symbol + last.
                 if state.get("last") is not None:
                     self._got_first_valid_quote = True
+                    if not self._first_quote_logged:
+                        self._first_quote_logged = True
+                        print(
+                            "MD_FIRST_QUOTE "
+                            f"symbol={symbol} bid={state.get('bid')} ask={state.get('ask')} "
+                            f"last={state.get('last')}",
+                            flush=True,
+                        )
 
                 event = {
                     "type": "QUOTE",

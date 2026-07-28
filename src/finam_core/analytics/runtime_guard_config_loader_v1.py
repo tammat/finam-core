@@ -24,6 +24,7 @@ class RuntimeGuardConfigLoaderV1:
         self.path = Path(path) if path else DEFAULT_PATH
 
         self._loaded = False
+        self._loaded_mtime_ns: int | None = None
         self._items: list[dict[str, Any]] = []
         self._index: dict[tuple, dict[str, Any]] = {}
 
@@ -56,6 +57,7 @@ class RuntimeGuardConfigLoaderV1:
             self._index[key] = item
 
         self._loaded = True
+        self._loaded_mtime_ns = self.path.stat().st_mtime_ns
 
         print(
             f"RUNTIME_GUARD_CONFIG_LOADED path={self.path} items={len(self._items)}",
@@ -63,6 +65,15 @@ class RuntimeGuardConfigLoaderV1:
         )
 
         return len(self._items)
+
+    def _reload_if_changed(self) -> None:
+        """Подхватывает новый безопасный snapshot без перезапуска pipeline."""
+        try:
+            current_mtime_ns = self.path.stat().st_mtime_ns
+        except FileNotFoundError:
+            current_mtime_ns = None
+        if current_mtime_ns != self._loaded_mtime_ns:
+            self.load()
 
     @staticmethod
     def _normalize(value: Any) -> str:
@@ -115,6 +126,8 @@ class RuntimeGuardConfigLoaderV1:
     ) -> dict[str, Any] | None:
         if not self._loaded:
             self.load()
+        else:
+            self._reload_if_changed()
 
         key = self._build_key(
             symbol=symbol,
@@ -126,6 +139,38 @@ class RuntimeGuardConfigLoaderV1:
         )
 
         result = self._index.get(key)
+
+        # Исторические отчёты часто имеют UNKNOWN для режима/волатильности/сессии.
+        # Разрешаем только безопасное обобщённое правило с теми же
+        # symbol × strategy. Пустой исторический timeframe также может покрыть
+        # конкретный runtime-timeframe. Это не создаёт ALLOW: решение берётся
+        # из рассчитанного snapshot, а при нескольких правилах побеждает самое
+        # ограничительное.
+        if result is None:
+            prefix = key[:2]
+            candidates = [
+                item
+                for candidate_key, item in self._index.items()
+                if candidate_key[:2] == prefix
+                and all(
+                    expected == actual or actual == "UNKNOWN"
+                    for expected, actual in zip(key[2:], candidate_key[2:])
+                )
+            ]
+            if candidates:
+                rank = {
+                    "BLOCK": 0,
+                    "INSUFFICIENT_DATA": 1,
+                    "WATCH": 2,
+                    "ALLOW": 3,
+                }
+                result = min(
+                    candidates,
+                    key=lambda item: rank.get(
+                        str(item.get("guard_decision") or "").upper(),
+                        -1,
+                    ),
+                )
 
         canonical = normalize_research_contract_key_v1(
             symbol=symbol,

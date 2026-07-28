@@ -95,7 +95,12 @@ class RuntimeEdgeGovernanceSoftBlockV1:
         *,
         symbol: str,
         side: str,
+        strategy: str | None = None,
+        timeframe: str | None = None,
+        regime: str | None = None,
+        session_name: str | None = None,
         ts: datetime | None = None,
+        evidence_accumulation: bool = False,
     ) -> RuntimeEdgeGovernanceSoftBlockDecisionV1:
         side_norm = str(side or "").upper().strip()
         hour_msk = self._hour_msk(ts)
@@ -103,6 +108,8 @@ class RuntimeEdgeGovernanceSoftBlockV1:
         session_decision = self.session_gate.decide(
             symbol=symbol,
             side=side_norm,
+            strategy=strategy,
+            timeframe=timeframe,
             ts=ts,
         )
 
@@ -124,10 +131,23 @@ class RuntimeEdgeGovernanceSoftBlockV1:
         strict_decision = self.strict_gate.evaluate(
             symbol=symbol,
             side=side_norm,
+            strategy=str(strategy or ""),
+            timeframe=str(timeframe or "UNKNOWN"),
+            regime=str(regime or "UNKNOWN"),
+            session_name=session_name,
             hour_msk=hour_msk,
         )
 
-        if not strict_decision.allowed:
+        accumulation_reasons = {
+            "strict_mode_no_match",
+            "strict_mode_low_sample",
+        }
+        allow_evidence_accumulation = (
+            evidence_accumulation
+            and strict_decision.reason in accumulation_reasons
+        )
+
+        if not strict_decision.allowed and not allow_evidence_accumulation:
             return RuntimeEdgeGovernanceSoftBlockDecisionV1(
                 allowed=False,
                 action="SOFT_BLOCK",
@@ -161,6 +181,21 @@ class RuntimeEdgeGovernanceSoftBlockV1:
                 decay_state=decay_state,
                 expectancy_points=decay_expectancy,
                 closed_trades=decay_closed,
+            )
+
+        if allow_evidence_accumulation:
+            return RuntimeEdgeGovernanceSoftBlockDecisionV1(
+                allowed=True,
+                action="ALLOW_ACCUMULATION",
+                reason="strict_gate_evidence_accumulation",
+                symbol=symbol,
+                side=side_norm,
+                hour_msk=hour_msk,
+                session_action=session_decision.action,
+                strict_reason=strict_decision.reason,
+                decay_state=decay_state,
+                expectancy_points=strict_decision.expectancy_points,
+                closed_trades=strict_decision.closed_trades,
             )
 
         return RuntimeEdgeGovernanceSoftBlockDecisionV1(

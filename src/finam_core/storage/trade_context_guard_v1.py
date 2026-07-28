@@ -24,8 +24,9 @@ class TradeContextDecisionV1:
 class TradeContextGuardV1:
     KNOWN_ROUTES: dict[str, tuple[str, str, str]] = {
         "USDRUBF@RTSX": ("USDRUB_REGIME", "LIVE", "USDRUB_CONT"),
-        "NGM6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "LIVE", "NG_CONT"),
-        "NGN6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "LIVE", "NG_CONT"),
+        "NGM6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "M1", "NG_CONT"),
+        "NGN6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "M1", "NG_CONT"),
+        "NGQ6@RTSX": ("NG_CONSERVATIVE_BREAKOUT_M1", "M1", "NG_CONT"),
         "BRN6@RTSX": ("BR_CONSERVATIVE_BREAKOUT", "M5", "BR_CONT"),
         "BRQ6@RTSX": ("BR_CONSERVATIVE_BREAKOUT", "M5", "BR_CONT"),
     }

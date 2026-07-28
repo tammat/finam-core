@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import defaultdict, deque
 from datetime import timezone, timedelta
 import os
+import re
 
 import psycopg
 from psycopg.rows import dict_row
@@ -32,17 +33,34 @@ def session_ru(hour: int | None) -> str:
 
 
 def norm_strategy(symbol: str, raw: str | None) -> str:
-    if raw and raw not in ("UNKNOWN_STRATEGY", ""):
+    invalid = {"", "UNKNOWN", "UNKNOWN_STRATEGY", "UNASSIGNED", "DEFAULT"}
+    if raw and str(raw).strip().upper() not in invalid:
         return raw
-    if symbol.startswith("NG"):
-        return "NG_CONSERVATIVE_BREAKOUT_M1"
-    if symbol.startswith("BR"):
-        return "BR_CONSERVATIVE_BREAKOUT"
-    if symbol.startswith("USDRUB"):
-        return "USD_INTRADAY_REGIME"
-    if symbol.endswith("@MISX"):
-        return "VWAP_BANDS_MR"
-    return raw or "UNKNOWN_STRATEGY"
+    # Назначения стратегий принадлежат БД. Материализатор не должен
+    # самостоятельно подменять отсутствие контракта общим fallback.
+    return "UNASSIGNED"
+
+
+def is_assigned_strategy(raw: str | None) -> bool:
+    return str(raw or "").strip().upper() not in {
+        "", "UNKNOWN", "UNKNOWN_STRATEGY", "UNASSIGNED", "DEFAULT"
+    }
+
+
+def root_symbol_for(symbol: str, active_contract: str | None) -> str:
+    """Корень фьючерса берётся из контракта, а не из устаревшего тикера."""
+    source = str(active_contract or symbol).upper()
+    token, _, board = source.partition("@")
+    # Цифра в тикере акции (например X5) является частью инструмента, а не
+    # кодом месяца/года фьючерса.
+    if board == "MISX":
+        return token
+    if token.startswith("BR"):
+        return "BR"
+    if token.startswith("NG"):
+        return "NG"
+    match = re.match(r"[A-Z]+", token)
+    return match.group(0) if match else token
 
 
 def parse_args() -> argparse.Namespace:
@@ -131,6 +149,27 @@ def save_checkpoint(conn, symbol: str) -> None:
     )
 
 
+def resolve_scope_at_entry(conn, symbol: str, entry_ts):
+    """Resolve the portfolio cohort that was active when the position opened."""
+    row = conn.execute(
+        """
+        SELECT scope_code
+        FROM analytics.paper_portfolio_scope_v1
+        WHERE enabled
+          AND asset_group = CASE
+              WHEN upper(%s) LIKE '%%@MISX' THEN 'EQUITY'
+              WHEN upper(%s) LIKE '%%@RTSX' THEN 'FUTURES'
+              ELSE NULL
+          END
+          AND starts_at <= %s
+        ORDER BY starts_at DESC
+        LIMIT 1
+        """,
+        (symbol, symbol, entry_ts),
+    ).fetchone()
+    return (row or {}).get("scope_code") if isinstance(row, dict) else (row[0] if row else None)
+
+
 def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
     params = [symbol]
     where = [
@@ -163,28 +202,82 @@ def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
             f.qty,
             f.price,
             COALESCE(f.commission, 0) AS commission,
+            COALESCE(f.portfolio_scope, sf.portfolio_scope) AS fill_scope,
             sf.signal_id,
             sf.side AS signal_side,
-            COALESCE(NULLIF(s.strategy,''),NULLIF(t.strategy,''),NULLIF(t.payload->>'strategy','')) AS signal_strategy,
+            COALESCE(
+                CASE WHEN upper(COALESCE(s.strategy,'')) NOT IN
+                    ('','UNKNOWN','UNKNOWN_STRATEGY','UNASSIGNED','DEFAULT')
+                     THEN s.strategy END,
+                CASE WHEN upper(COALESCE(t.strategy,'')) NOT IN
+                    ('','UNKNOWN','UNKNOWN_STRATEGY','UNASSIGNED','DEFAULT')
+                     THEN t.strategy END,
+                CASE WHEN upper(COALESCE(NULLIF(t.payload->>'strategy',''),'')) NOT IN
+                    ('','UNKNOWN','UNKNOWN_STRATEGY','UNASSIGNED','DEFAULT')
+                     THEN NULLIF(t.payload->>'strategy','') END,
+                a.strategy_code
+            ) AS signal_strategy,
             COALESCE(NULLIF(s.timeframe,''),NULLIF(t.timeframe,''),NULLIF(t.payload->>'timeframe','')) AS signal_timeframe,
             COALESCE(NULLIF(s.horizon,''),NULLIF(t.payload->>'horizon','')) AS signal_horizon,
-            COALESCE(NULLIF(s.regime,''),NULLIF(t.payload->>'regime','')) AS signal_regime
+            COALESCE(NULLIF(s.regime,''),NULLIF(t.payload->>'regime',''),
+                     NULLIF(t.payload->'features'->>'regime','')) AS signal_regime,
+            COALESCE(NULLIF(t.continuous_symbol,''),NULLIF(t.payload->>'continuous_symbol',''),
+                     NULLIF(t.payload->>'root_symbol',''),f.symbol) AS signal_contract,
+            COALESCE(NULLIF(s.payload->>'exit_rule',''),NULLIF(t.payload->>'exit_rule',''),
+                     NULLIF(t.payload->>'position_rule',''),
+                     NULLIF(t.payload->'exit_policy'->>'code',''),
+                     CASE WHEN t.payload ? 'stop_price'
+                                OR t.payload ? 'take_profit'
+                                OR t.payload->'features' ? 'stop'
+                                OR t.payload->'features' ? 'take'
+                          THEN 'STOP_TAKE'
+                     END,'UNSPECIFIED') AS signal_exit_rule,
+            s.stop_loss AS signal_stop_loss,
+            s.take_profit AS signal_take_profit,
+            NULLIF(t.payload->>'reason','') AS signal_reason,
+            NULLIF(t.payload->>'source','') AS signal_source,
+            COALESCE(NULLIF(t.payload->>'regime_source_version',''),
+                     NULLIF(s.payload->'features'->>'regime_source_version','')) AS regime_source_version,
+            COALESCE(NULLIF(t.payload->>'regime_timeframe',''),
+                     NULLIF(s.payload->'features'->>'regime_timeframe',''),
+                     NULLIF(s.timeframe,''),NULLIF(t.timeframe,'')) AS regime_timeframe,
+            COALESCE(NULLIF(t.payload->>'regime_bar_ts',''),
+                     NULLIF(s.payload->'features'->>'regime_bar_ts','')) AS regime_bar_ts,
+            COALESCE(NULLIF(t.payload->>'regime_atr_pct',''),
+                     NULLIF(s.payload->'features'->>'regime_atr_pct','')) AS regime_atr_pct,
+            COALESCE(NULLIF(t.payload->>'regime_atr_percentile',''),
+                     NULLIF(s.payload->'features'->>'regime_atr_percentile','')) AS regime_atr_percentile,
+            COALESCE(NULLIF(t.payload->>'regime_adx',''),
+                     NULLIF(s.payload->'features'->>'regime_adx','')) AS regime_adx,
+            COALESCE(NULLIF(t.payload->>'regime_normalized_slope',''),
+                     NULLIF(s.payload->'features'->>'regime_normalized_slope','')) AS regime_normalized_slope,
+            COALESCE(NULLIF(t.payload->>'regime_confirmed_bars',''),
+                     NULLIF(s.payload->'features'->>'regime_confirmed_bars','')) AS regime_confirmed_bars,
+            s.payload AS signal_payload,
+            t.payload AS trade_payload
         FROM fills f
         LEFT JOIN signal_fills sf ON sf.fill_id = f.fill_id
         LEFT JOIN LATERAL (
-            SELECT strategy, timeframe, horizon, regime
+            SELECT strategy, timeframe, horizon, regime, stop_loss, take_profit, payload
             FROM signals
             WHERE signal_id = sf.signal_id
             ORDER BY ts DESC, id DESC
             LIMIT 1
         ) s ON true
         LEFT JOIN LATERAL (
-            SELECT strategy, timeframe, payload
+            SELECT strategy, timeframe, continuous_symbol, payload
             FROM trades
             WHERE fill_id = f.fill_id
             ORDER BY ts DESC, id DESC
             LIMIT 1
         ) t ON true
+        LEFT JOIN LATERAL (
+            SELECT strategy_code
+            FROM analytics.runtime_strategy_assignment_v1
+            WHERE symbol=f.symbol AND enabled
+            ORDER BY priority DESC, updated_at DESC
+            LIMIT 1
+        ) a ON true
         WHERE {' AND '.join(where)}
         ORDER BY f.ts, f.fill_id
     """
@@ -192,8 +285,10 @@ def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
 
 
 def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
-    open_longs = deque()
-    open_shorts = deque()
+    # Positions from different research cohorts must never offset each other.
+    # In particular, a FRESH_V4 exit cannot consume an old unscoped Paper fill.
+    open_longs_by_scope: dict[str | None, deque] = defaultdict(deque)
+    open_shorts_by_scope: dict[str | None, deque] = defaultdict(deque)
     closed = []
     exit_batch_counter: dict[str, int] = {}
 
@@ -204,6 +299,9 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
         price = float(f["price"] or 0.0)
         ts = f["ts"]
         signal_id = f.get("signal_id")
+        fill_scope = f.get("fill_scope")
+        open_longs = open_longs_by_scope[fill_scope]
+        open_shorts = open_shorts_by_scope[fill_scope]
 
         if side == "BUY":
             remaining = qty
@@ -231,10 +329,25 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
                     "ts": ts,
                     "fill_id": fill_id,
                     "signal_id": signal_id,
+                    "portfolio_scope": fill_scope,
                     "strategy": f.get("signal_strategy"),
                     "timeframe": f.get("signal_timeframe"),
                     "horizon": f.get("signal_horizon"),
                     "regime": f.get("signal_regime"),
+                    "active_contract": f.get("signal_contract"),
+                    "exit_rule": f.get("signal_exit_rule"),
+                    "stop_price": f.get("signal_stop_loss"),
+                    "take_price": f.get("signal_take_profit"),
+                    "signal_payload": f.get("signal_payload"),
+                    "trade_payload": f.get("trade_payload"),
+                    "regime_source_version": f.get("regime_source_version"),
+                    "regime_timeframe": f.get("regime_timeframe"),
+                    "regime_bar_ts": f.get("regime_bar_ts"),
+                    "regime_atr_pct": f.get("regime_atr_pct"),
+                    "regime_atr_percentile": f.get("regime_atr_percentile"),
+                    "regime_adx": f.get("regime_adx"),
+                    "regime_normalized_slope": f.get("regime_normalized_slope"),
+                    "regime_confirmed_bars": f.get("regime_confirmed_bars"),
                     "commission_per_unit": float(f.get("commission") or 0.0) / qty,
                 })
 
@@ -264,10 +377,25 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
                     "ts": ts,
                     "fill_id": fill_id,
                     "signal_id": signal_id,
+                    "portfolio_scope": fill_scope,
                     "strategy": f.get("signal_strategy"),
                     "timeframe": f.get("signal_timeframe"),
                     "horizon": f.get("signal_horizon"),
                     "regime": f.get("signal_regime"),
+                    "active_contract": f.get("signal_contract"),
+                    "exit_rule": f.get("signal_exit_rule"),
+                    "stop_price": f.get("signal_stop_loss"),
+                    "take_price": f.get("signal_take_profit"),
+                    "signal_payload": f.get("signal_payload"),
+                    "trade_payload": f.get("trade_payload"),
+                    "regime_source_version": f.get("regime_source_version"),
+                    "regime_timeframe": f.get("regime_timeframe"),
+                    "regime_bar_ts": f.get("regime_bar_ts"),
+                    "regime_atr_pct": f.get("regime_atr_pct"),
+                    "regime_atr_percentile": f.get("regime_atr_percentile"),
+                    "regime_adx": f.get("regime_adx"),
+                    "regime_normalized_slope": f.get("regime_normalized_slope"),
+                    "regime_confirmed_bars": f.get("regime_confirmed_bars"),
                     "commission_per_unit": float(f.get("commission") or 0.0) / qty,
                 })
 
@@ -289,7 +417,37 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
 def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill: dict, pnl: float) -> dict:
     exit_ts = exit_fill["ts"]
     exit_msk = exit_ts.astimezone(MSK)
+    entry_msk = entry["ts"].astimezone(MSK)
     strategy = norm_strategy(symbol, entry.get("strategy"))
+    root_symbol = root_symbol_for(symbol, entry.get("active_contract"))
+    entry_regime = entry.get("regime") or "UNKNOWN"
+    regime_trend = next(
+        (value for value in ("trend_up", "trend_down", "range") if entry_regime.startswith(value)),
+        "UNKNOWN",
+    )
+    regime_vol = next(
+        (value for value in ("low_vol", "normal_vol", "high_vol") if entry_regime.endswith(value)),
+        "UNKNOWN",
+    )
+    entry_side = "BUY" if trade_side == "LONG" else "SELL"
+    exit_regime = exit_fill.get("signal_regime") or entry_regime
+    planned_exit_rule = entry.get("exit_rule") or "UNSPECIFIED"
+    exit_payload = exit_fill.get("trade_payload") or exit_fill.get("signal_payload") or {}
+    actual_exit_reason = str(exit_payload.get("reason") or exit_fill.get("signal_reason") or "UNVERIFIED_EXIT")
+    reason_key = actual_exit_reason.lower()
+    # Фактические закрытия храним в четырёх взаимоисключающих классах.
+    # stall_exit является принудительным закрытием по истечению времени ожидания,
+    # а не отдельной торговой целью.
+    if "time_exit" in reason_key or "stall_exit" in reason_key:
+        exit_rule = "TIME_EXIT"
+    elif "trail" in reason_key:
+        exit_rule = "TRAILING"
+    elif "take_profit" in reason_key or "target" in reason_key or "take" in reason_key:
+        exit_rule = "TARGET"
+    elif "stop_loss" in reason_key or "stop" in reason_key:
+        exit_rule = "STOP"
+    else:
+        exit_rule = "UNVERIFIED_EXIT"
 
     entry_signal_id = entry.get("signal_id")
     exit_signal_id = exit_fill.get("signal_id")
@@ -320,10 +478,16 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         "exit_fill_id": exit_fill.get("fill_id"),
         "entry_signal_id": entry_signal_id,
         "exit_signal_id": exit_signal_id,
-        "exit_reason": None,
+        "portfolio_scope": entry.get("portfolio_scope"),
+        "exit_reason": exit_rule,
         "timeframe": entry.get("timeframe") or "LIVE",
         "horizon": entry.get("horizon") or "INTRADAY",
-        "regime": entry.get("regime") or "UNKNOWN",
+        "regime": entry_regime,
+        "root_symbol": root_symbol,
+        "entry_regime": entry_regime,
+        "exit_regime": exit_regime,
+        "active_contract": entry.get("active_contract") or symbol,
+        "exit_rule": exit_rule,
         "hour_msk": exit_msk.hour,
         "weekday": exit_msk.strftime("%A"),
         "session": session_ru(exit_msk.hour),
@@ -331,6 +495,28 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         "raw": {
             "exit_side": exit_fill.get("side"),
             "exit_signal_side": exit_fill.get("signal_side"),
+            "entry_session_msk": session_ru(entry_msk.hour),
+            "active_contract": entry.get("active_contract") or symbol,
+            "root_symbol": root_symbol,
+            "entry_regime": entry_regime,
+            "regime_trend": regime_trend,
+            "regime_vol": regime_vol,
+            "side": entry_side,
+            "exit_regime": exit_regime,
+            "exit_rule": exit_rule,
+            "planned_exit_rule": planned_exit_rule,
+            "actual_exit_reason": actual_exit_reason,
+            "actual_exit_source": exit_fill.get("signal_source"),
+            "entry_stop_price": entry.get("stop_price"),
+            "entry_take_price": entry.get("take_price"),
+            "regime_source_version": entry.get("regime_source_version"),
+            "regime_timeframe": entry.get("regime_timeframe"),
+            "regime_bar_ts": entry.get("regime_bar_ts"),
+            "regime_atr_pct": entry.get("regime_atr_pct"),
+            "regime_atr_percentile": entry.get("regime_atr_percentile"),
+            "regime_adx": entry.get("regime_adx"),
+            "regime_normalized_slope": entry.get("regime_normalized_slope"),
+            "regime_confirmed_bars": entry.get("regime_confirmed_bars"),
         },
     }
 
@@ -367,12 +553,22 @@ def upsert_trades(conn, trades: list[dict]) -> int:
     return n
 
 
-def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff) -> int:
+def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff, context_activated_at) -> int:
     """Записывает тот же факт закрытия в каноническую таблицу без дублей."""
     written = 0
     for t in trades:
         if legacy_cutoff is not None and t["exit_ts"] <= legacy_cutoff:
             continue
+        portfolio_scope = t.get("portfolio_scope") or resolve_scope_at_entry(
+            conn, t["symbol"], t["entry_ts"]
+        )
+        # Неназначенная сделка нужна для аудита (analytics_closed_trades_v1),
+        # но не является допустимым фактом чистой V4/OOS-когорты.
+        if str(portfolio_scope or "").startswith("FRESH_V4") and not is_assigned_strategy(
+            t.get("strategy")
+        ):
+            continue
+        cohort = portfolio_scope or ("FRESH_V2" if t["entry_ts"] >= context_activated_at else "LEGACY_DERIVED")
         result = conn.execute(
             """
             WITH claimed AS (
@@ -395,43 +591,141 @@ def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff) -> int:
                 signal_id, symbol, side, entry_ts, exit_ts, qty,
                 entry_price, exit_price, gross_pnl, commission, net_pnl,
                 horizon, strategy, regime, trade_source, payload,
-                timeframe, source, opened_at, closed_at, holding_seconds
+                timeframe, source, opened_at, closed_at, holding_seconds,
+                root_symbol, entry_regime, exit_regime, portfolio_scope
             )
             SELECT
                 %(entry_signal_id)s, %(symbol)s, %(side)s, %(entry_ts)s, %(exit_ts)s, %(qty)s,
                 %(entry_price)s, %(exit_price)s, %(pnl_points)s, %(commission)s, %(net_pnl)s,
                 %(horizon)s, %(strategy)s, %(regime)s, 'paper', %(payload)s,
                 %(timeframe)s, 'paper_fill_materializer_v2', %(entry_ts)s, %(exit_ts)s,
-                greatest(0, extract(epoch FROM (%(exit_ts)s - %(entry_ts)s))::integer)
+                greatest(0, extract(epoch FROM (%(exit_ts)s - %(entry_ts)s))::integer),
+                %(root_symbol)s, %(entry_regime)s, %(exit_regime)s, %(portfolio_scope)s
             WHERE EXISTS (SELECT 1 FROM claimed)
             RETURNING id
             """,
-            {**t, "payload": Jsonb({
+            {**t, "portfolio_scope": portfolio_scope, "payload": Jsonb({
                 "materialized_trade_id": t["trade_id"],
                 "entry_fill_id": t["entry_fill_id"],
                 "exit_fill_id": t["exit_fill_id"],
                 "exit_signal_id": t["exit_signal_id"],
                 "materializer": "paper_fill_materializer_v2",
+                "context": {
+                    "schema_version": "V2",
+                    "cohort": cohort,
+                    "active_contract": t["active_contract"],
+                    "root_symbol": t["root_symbol"],
+                    "entry_regime": t["entry_regime"],
+                    "regime_trend": t["raw"]["regime_trend"],
+                    "regime_vol": t["raw"]["regime_vol"],
+                    "side": t["raw"]["side"],
+                    "entry_session_msk": t["raw"]["entry_session_msk"],
+                    "exit_rule": t["exit_rule"],
+                    "planned_exit_rule": t["raw"]["planned_exit_rule"],
+                    "actual_exit_reason": t["raw"]["actual_exit_reason"],
+                    "entry_stop_price": t["raw"]["entry_stop_price"],
+                    "entry_take_price": t["raw"]["entry_take_price"],
+                    "regime_source_version": t["raw"]["regime_source_version"],
+                    "regime_timeframe": t["raw"]["regime_timeframe"],
+                    "regime_bar_ts": t["raw"]["regime_bar_ts"],
+                    "regime_atr_pct": t["raw"]["regime_atr_pct"],
+                    "regime_atr_percentile": t["raw"]["regime_atr_percentile"],
+                    "regime_adx": t["raw"]["regime_adx"],
+                    "regime_normalized_slope": t["raw"]["regime_normalized_slope"],
+                    "regime_confirmed_bars": t["raw"]["regime_confirmed_bars"],
+                },
             })},
         ).fetchone()
         written += int(result is not None)
     return written
 
 
-def refresh_canonical_attribution(conn, trades: list[dict]) -> int:
+def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at) -> int:
     updated = 0
     for t in trades:
+        portfolio_scope = t.get("portfolio_scope") or resolve_scope_at_entry(
+            conn, t["symbol"], t["entry_ts"]
+        )
+        if str(portfolio_scope or "").startswith("FRESH_V4") and not is_assigned_strategy(
+            t.get("strategy")
+        ):
+            continue
+        cohort = portfolio_scope or ("FRESH_V2" if t["entry_ts"] >= context_activated_at else "LEGACY_DERIVED")
         result = conn.execute(
             """UPDATE closed_trades
                SET strategy=%(strategy)s,timeframe=%(timeframe)s,
-                   horizon=%(horizon)s,regime=%(regime)s
+                   horizon=%(horizon)s,regime=%(regime)s,
+                   root_symbol=%(root_symbol)s,entry_regime=%(entry_regime)s,
+                   exit_regime=%(exit_regime)s,portfolio_scope=%(portfolio_scope)s,
+                   payload=payload || jsonb_build_object('context',jsonb_build_object(
+                       'schema_version','V2',
+                       'cohort',%(cohort)s::text,
+                       'active_contract',%(active_contract)s::text,'root_symbol',%(root_symbol)s::text,
+                       'entry_regime',%(entry_regime)s::text,
+                       'regime_trend',%(regime_trend)s::text,
+                       'regime_vol',%(regime_vol)s::text,
+                       'side',%(entry_side)s::text,
+                       'entry_session_msk',%(entry_session_msk)s::text,'exit_rule',%(exit_rule)s::text,
+                       'planned_exit_rule',%(planned_exit_rule)s::text,
+                       'actual_exit_reason',%(actual_exit_reason)s::text,
+                       'entry_stop_price',%(entry_stop_price)s::numeric,
+                       'entry_take_price',%(entry_take_price)s::numeric,
+                       'regime_source_version',%(regime_source_version)s::text,
+                       'regime_timeframe',%(regime_timeframe)s::text,
+                       'regime_bar_ts',%(regime_bar_ts)s::text,
+                       'regime_atr_pct',%(regime_atr_pct)s::text,
+                       'regime_atr_percentile',%(regime_atr_percentile)s::text,
+                       'regime_adx',%(regime_adx)s::text,
+                       'regime_normalized_slope',%(regime_normalized_slope)s::text,
+                       'regime_confirmed_bars',%(regime_confirmed_bars)s::text))
                WHERE source='paper_fill_materializer_v2'
                  AND payload->>'materialized_trade_id'=%(trade_id)s
                  AND (strategy IS DISTINCT FROM %(strategy)s
                    OR timeframe IS DISTINCT FROM %(timeframe)s
                    OR horizon IS DISTINCT FROM %(horizon)s
-                   OR regime IS DISTINCT FROM %(regime)s)""",
-            t,
+                   OR regime IS DISTINCT FROM %(regime)s
+                   OR root_symbol IS DISTINCT FROM %(root_symbol)s
+                   OR entry_regime IS DISTINCT FROM %(entry_regime)s
+                   OR exit_regime IS DISTINCT FROM %(exit_regime)s
+                   OR payload->'context' IS DISTINCT FROM jsonb_build_object(
+                        'schema_version','V2',
+                        'cohort',%(cohort)s::text,
+                        'active_contract',%(active_contract)s::text,'root_symbol',%(root_symbol)s::text,
+                        'entry_regime',%(entry_regime)s::text,
+                        'regime_trend',%(regime_trend)s::text,
+                        'regime_vol',%(regime_vol)s::text,
+                        'side',%(entry_side)s::text,
+                        'entry_session_msk',%(entry_session_msk)s::text,'exit_rule',%(exit_rule)s::text,
+                        'planned_exit_rule',%(planned_exit_rule)s::text,
+                        'actual_exit_reason',%(actual_exit_reason)s::text,
+                        'entry_stop_price',%(entry_stop_price)s::numeric,
+                        'entry_take_price',%(entry_take_price)s::numeric,
+                        'regime_source_version',%(regime_source_version)s::text,
+                        'regime_timeframe',%(regime_timeframe)s::text,
+                        'regime_bar_ts',%(regime_bar_ts)s::text,
+                        'regime_atr_pct',%(regime_atr_pct)s::text,
+                        'regime_atr_percentile',%(regime_atr_percentile)s::text,
+                        'regime_adx',%(regime_adx)s::text,
+                        'regime_normalized_slope',%(regime_normalized_slope)s::text,
+                        'regime_confirmed_bars',%(regime_confirmed_bars)s::text))""",
+            {**t, "context_activated_at": context_activated_at,
+             "portfolio_scope": portfolio_scope, "cohort": cohort,
+             "regime_trend": t["raw"]["regime_trend"],
+             "regime_vol": t["raw"]["regime_vol"],
+             "entry_side": t["raw"]["side"],
+             "entry_session_msk": t["raw"]["entry_session_msk"],
+             "planned_exit_rule": t["raw"]["planned_exit_rule"],
+             "actual_exit_reason": t["raw"]["actual_exit_reason"],
+             "entry_stop_price": t["raw"]["entry_stop_price"],
+             "entry_take_price": t["raw"]["entry_take_price"],
+             "regime_source_version": t["raw"]["regime_source_version"],
+             "regime_timeframe": t["raw"]["regime_timeframe"],
+             "regime_bar_ts": t["raw"]["regime_bar_ts"],
+             "regime_atr_pct": t["raw"]["regime_atr_pct"],
+             "regime_atr_percentile": t["raw"]["regime_atr_percentile"],
+             "regime_adx": t["raw"]["regime_adx"],
+             "regime_normalized_slope": t["raw"]["regime_normalized_slope"],
+             "regime_confirmed_bars": t["raw"]["regime_confirmed_bars"]},
         )
         updated += result.rowcount
     return updated
@@ -457,6 +751,10 @@ def main() -> int:
             """SELECT max(exit_ts) FROM closed_trades
                WHERE source <> 'paper_fill_materializer_v2'"""
         ).fetchone()["max"]
+        context_activated_at = conn.execute(
+            """SELECT activated_at FROM analytics.paper_trade_context_capture_state_v2
+               WHERE state_id AND active"""
+        ).fetchone()["activated_at"]
 
         print("=== MATERIALIZE CLOSED TRADES FROM FILLS V1 ===")
         print(f"mode={'APPLY' if args.apply else 'DRY_RUN'}")
@@ -482,8 +780,8 @@ def main() -> int:
                         (symbol,),
                     )
                 written = upsert_trades(conn, trades)
-                canonical_written = upsert_canonical_trades(conn, trades, legacy_cutoff)
-                attribution_updated = refresh_canonical_attribution(conn, trades)
+                canonical_written = upsert_canonical_trades(conn, trades, legacy_cutoff, context_activated_at)
+                attribution_updated = refresh_canonical_attribution(conn, trades, context_activated_at)
                 total_canonical_written += canonical_written
                 total_attribution_updated += attribution_updated
                 print(

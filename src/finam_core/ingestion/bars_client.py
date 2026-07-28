@@ -10,6 +10,7 @@ gRPC Bars client для исторических свечей Finam.
 from __future__ import annotations
 
 import grpc
+import os
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
@@ -37,8 +38,15 @@ from finam_proto.grpc.tradeapi.v1.marketdata import marketdata_service_pb2_grpc 
 
 
 class FinamBarsClient:
-    def __init__(self, host: str = "api.finam.ru:443"):
+    def __init__(self, host: str = "api.finam.ru:443", timeout_seconds: float | None = None):
         self.host = host
+        self.timeout_seconds = (
+            float(timeout_seconds)
+            if timeout_seconds is not None
+            else float(os.getenv("FINAM_BARS_REQUEST_TIMEOUT_SECONDS", "20"))
+        )
+        if self.timeout_seconds <= 0:
+            raise ValueError("FINAM_BARS_REQUEST_TIMEOUT_SECONDS must be positive")
         self.tm = FinamTokenManager()
         self.channel = grpc.secure_channel(self.host, grpc.ssl_channel_credentials())
         self.stub = md_grpc.MarketDataServiceStub(self.channel)
@@ -77,4 +85,10 @@ class FinamBarsClient:
                 end_time=self._ts(end),
             ),
         )
-        return self.stub.Bars(req, metadata=self._md())
+        # Без deadline недоступный Finam gRPC мог навсегда удержать oneshot-сервис,
+        # после чего systemd-таймер переставал обновлять свечи всех инструментов.
+        return self.stub.Bars(
+            req,
+            metadata=self._md(),
+            timeout=self.timeout_seconds,
+        )

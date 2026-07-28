@@ -61,9 +61,35 @@ class PositionLifecycleService:
                 stop_price=base_stop,
             )
 
+            lifecycle_state = p._load_position_lifecycle_state_for_symbol(symbol) or {}
+            last_action_key = (
+                f"{decision.action}:{decision.reason}:"
+                f"{round(float(decision.take_price or 0.0), 8)}"
+            )
+            raw_state = lifecycle_state.get("raw") or {}
+            if (
+                decision.action != "HOLD"
+                and raw_state.get("source") == f"take_profit_engine:{last_action_key}"
+            ):
+                return
+
+            # Материализуем рассчитанные уровни сразу. Раньше открытая Paper-
+            # позиция выглядела как позиция без STOP/TAKE до первого срабатывания.
+            p._save_position_lifecycle_state(
+                symbol=symbol,
+                entry_price=entry_price,
+                initial_qty=qty,
+                remaining_qty=qty,
+                current_stop=base_stop,
+                current_take_profit=decision.take_price,
+                source="take_profit_levels",
+            )
+
             if decision.action == "HOLD":
                 return
 
+            # Это наблюдатель, а фактический Paper-fill создаёт единый exit engine.
+            # Не обнуляем позицию и не пишем одинаковое решение на каждом тике.
             p._log_dedup(
                 f"PIPE_TAKE_PROFIT_DECISION:{symbol}:{decision.action}:{decision.reason}",
                 f"PIPE_TAKE_PROFIT_DECISION symbol={symbol} action={decision.action} "
@@ -91,9 +117,10 @@ class PositionLifecycleService:
                 symbol=symbol,
                 entry_price=entry_price,
                 initial_qty=qty,
-                remaining_qty=max(0.0, float(qty) - float(decision.qty_to_close or 0.0)),
+                remaining_qty=qty,
+                current_stop=base_stop,
                 current_take_profit=decision.take_price,
-                source="take_profit_engine",
+                source=f"take_profit_engine:{last_action_key}",
             )
 
         except Exception as exc:
