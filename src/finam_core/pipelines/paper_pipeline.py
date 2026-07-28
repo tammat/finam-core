@@ -52,7 +52,7 @@ from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
 from finam_core.strategy.br_regime_layer import BRRegimeLayer
 from finam_core.strategy.br_volatility_intelligence import BRVolatilityIntelligence
 from finam_core.features.volume_features import BarVolumeFeatureEngine
-from finam_core.strategy.exit_engine import ExitEngine, ExitStateMachine
+from finam_core.strategy.exit_engine import ExitDecision, ExitEngine, ExitStateMachine
 from types import SimpleNamespace
 
 from finam_core.execution.execution_fill import ExecutionFill
@@ -912,6 +912,7 @@ class PaperTradingPipeline:
                     close_price=bar.close_price,
                     volume=bar.volume,
                 )
+                self._mark_exit_closed_bar_v1(bar)
                 if allow_signal_evaluation:
                     self._process_br_closed_bar_for_paper_signal(bar)
                     self._process_ng_m1_closed_bar_for_paper_signal(bar)
@@ -1764,7 +1765,10 @@ class PaperTradingPipeline:
             engines = {}
             self._exit_engine_by_symbol = engines
         if symbol not in engines:
-            engines[symbol] = ExitEngine()
+            max_bars = 20
+            if str(symbol).startswith(("NG", "BR")):
+                max_bars = int(os.getenv("ENERGY_MAX_BARS_IN_TRADE", "60"))
+            engines[symbol] = ExitEngine(max_bars_in_trade=max_bars)
         return engines[symbol]
 
     def _exit_state_for_symbol(self, symbol: str) -> dict:
@@ -1781,6 +1785,39 @@ class PaperTradingPipeline:
                 "last_qty": 0.0,
             }
         return states[symbol]
+
+    def _mark_exit_closed_bar_v1(self, bar) -> None:
+        """Advance exit state only from the configured completed market bar."""
+        symbol = str(getattr(bar, "symbol", "") or "")
+        timeframe = str(getattr(bar, "timeframe", "") or "").upper()
+        expected_timeframe = "M1" if symbol.startswith(("NG", "BR")) else "M5"
+        if not symbol or timeframe != expected_timeframe:
+            return
+
+        self._restore_pm_position_from_projection_v1(symbol)
+        qty = float(self._position_qty_for_symbol(symbol) or 0.0)
+        if abs(qty) <= 1e-9:
+            return
+
+        state = self._exit_state_for_symbol(symbol)
+        previous_close = state.get("last_completed_bar_close")
+        state["bars_held"] = int(state.get("bars_held") or 0) + 1
+        state["closed_bar_pending"] = True
+        state["closed_bar_prev_close"] = previous_close
+        state["last_completed_bar_close"] = float(bar.close_price)
+
+        regime = self.candle_regime_engine_v2.evaluate(symbol, timeframe)
+        trend = str(getattr(regime, "trend", "") or "").lower()
+        confirmed = (
+            str(getattr(regime, "source_version", "") or "") == "CANDLE_REGIME_V3"
+            and bool(getattr(regime, "data_ready", False))
+            and not bool(getattr(regime, "stale", True))
+            and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
+        )
+        if confirmed and qty > 0 and trend in {"down", "trend_down"}:
+            state["regime_exit_reason"] = "regime_invalidation_long"
+        elif confirmed and qty < 0 and trend in {"up", "trend_up"}:
+            state["regime_exit_reason"] = "regime_invalidation_short"
 
 
     def _get_position_manager_for_exit(self):
@@ -2405,7 +2442,15 @@ class PaperTradingPipeline:
                     flush=True,
                 )
             else:
-                self._handle_trailing_replace_stop_decision(decision)
+                # Paper trailing is a virtual stop evaluated by ExitEngine.
+                # It must never enter broker cancel/replace bookkeeping.
+                exit_state = self._exit_state_for_symbol(decision.symbol)
+                exit_state["stop_price"] = decision.stop_price
+                print(
+                    f"PIPE_PAPER_TRAILING_STOP_APPLIED symbol={decision.symbol} "
+                    f"stop={decision.stop_price} reason={decision.reason}",
+                    flush=True,
+                )
 
 
     def _log_position_order_state_if_changed(self, symbol: str, qty: float) -> None:
@@ -2711,7 +2756,6 @@ class PaperTradingPipeline:
             # Русский комментарий: фиксируем момент открытия новой позиции для защиты от мгновенного time_exit.
             state["opened_at_ts"] = time.time()
 
-        state["bars_held"] = int(state.get("bars_held") or 0) + 1
         state["last_qty"] = float(qty)
 
         side = "BUY" if qty > 0 else "SELL"
@@ -2746,7 +2790,8 @@ class PaperTradingPipeline:
             )
         )
 
-        bars_for_exit = int(state["bars_held"])
+        is_completed_bar = bool(state.pop("closed_bar_pending", False))
+        bars_for_exit = int(state["bars_held"]) if is_completed_bar else 0
 
         # Quote-события приходят значительно чаще закрытия свечей, поэтому raw bars_held
         # нельзя использовать как торговые бары сразу после входа. Временные и stall-выходы
@@ -2780,9 +2825,13 @@ class PaperTradingPipeline:
             current_price=float(price),
             atr=effective_atr,
             bars_held=bars_for_exit,
-            prev_close=state.get("prev_close"),
+            prev_close=state.get("closed_bar_prev_close") if is_completed_bar else None,
             current_stop=state.get("stop_price"),
         )
+
+        regime_exit_reason = state.pop("regime_exit_reason", None) if is_completed_bar else None
+        if regime_exit_reason:
+            decision = ExitDecision(True, regime_exit_reason, decision.stop_price)
 
         state["prev_close"] = float(price)
         state["stop_price"] = decision.stop_price
@@ -8330,6 +8379,7 @@ class PaperTradingPipeline:
         features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
         symbol = str(intent.get("symbol") or "").strip().upper()
         side = str(intent.get("side") or "").strip().upper()
+        strategy = str(intent.get("strategy") or "").strip()
         timeframe = str(
             intent.get("timeframe")
             or features.get("regime_timeframe")
@@ -8371,11 +8421,13 @@ class PaperTradingPipeline:
                         """
                         SELECT countertrend_long_allowed, countertrend_short_allowed
                         FROM analytics.runtime_strategy_assignment_v1
-                        WHERE symbol = %s AND timeframe = %s AND enabled
-                        ORDER BY priority DESC, updated_at DESC
+                        WHERE symbol = %s
+                          AND enabled
+                          AND (timeframe = %s OR strategy_code = %s)
+                        ORDER BY (timeframe = %s) DESC, priority DESC, updated_at DESC
                         LIMIT 1
                         """,
-                        (symbol, timeframe),
+                        (symbol, timeframe, strategy, timeframe),
                     )
                     row = cur.fetchone()
             if row is None:

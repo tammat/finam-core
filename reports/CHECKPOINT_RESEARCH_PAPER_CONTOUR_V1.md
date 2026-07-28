@@ -3,7 +3,7 @@
 Дата: 28.07.2026, МСК
 Git branch: feature/exit-alpha-v1
 Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
-Статус: V5_CANONICAL_INDEX_VERIFIED
+Статус: V5_CANDLE_STATE_EXIT_VERIFIED_AWAITING_RELOAD
 
 ## Подтверждено
 
@@ -41,6 +41,18 @@ Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
 - Проверен отдельный checkout содержимого git index: `61 passed`.
 - Safety diff: execution/real execution только отключены; секреты не обнаружены.
 - Готов к созданию эталонного V5 commit.
+
+## Candle-state exit
+
+- Quote не увеличивает bars_held.
+- BR/NG exit-state: закрытые M1; остальные: закрытые M5.
+- Confirmed fresh CANDLE_REGIME_V3 invalidation закрывает позицию против режима.
+- Virtual Paper trailing применяется внутри ExitEngine без broker route.
+- Energy time limit: 60 completed M1 bars, только safety net.
+- NG M1 policy lookup исправлен через точное strategy assignment.
+- `TEST@MISX` удалён из V5 projection/lifecycle, verified 0/0.
+- Tests: 66 passed.
+- Требуется перезапуск только `finam-paper-pipeline.service` и runtime-проверка BR.
 
 ## Следующий checkpoint
 

@@ -165,4 +165,16 @@
 - Проверка staged diff не выявила секретов или включения real execution; safety-конфигурация закрепляет `EXECUTION_ENABLED=0` и `REAL_EXECUTION_ENABLED=0`.
 - Legacy/UI WIP и runtime-артефакты остаются вне manifest и вне эталонного коммита.
 
+## Exit по состоянию свечей 28.07.2026
+
+- Подтверждено первое чистое V5-закрытие: NGQ6, `range_normal_vol`, вход 20:07:01 МСК, выход 20:37:02 МСК, net PnL `+0.014536`.
+- Устранено доминирование quote-driven time exit: `bars_held` теперь увеличивается только закрытой M1-свечой для BR/NG и M5-свечой для остальных инструментов.
+- На каждом quote остаётся только проверка виртуального stop/trailing; stall/time оцениваются на событии закрытой свечи.
+- Добавлен fail-closed regime-invalidation: LONG закрывается при подтверждённом свежем `CANDLE_REGIME_V3 down`, SHORT — при `up`.
+- Energy time-exit переведён в аварийный предел 60 закрытых M1-баров (`ENERGY_MAX_BARS_IN_TRADE=60`).
+- Paper trailing в dry-run сохраняет виртуальный stop в ExitEngine и больше не вызывает broker cancel/replace.
+- NG direction policy lookup теперь может сопоставить стратегию `NG_CONSERVATIVE_BREAKOUT_M1` с DB timeframe M1, даже если quote intent имеет generic timeframe.
+- Тестовое загрязнение `TEST@MISX` удалено строго из V5 projection/lifecycle: по обеим таблицам осталось 0 строк.
+- Regression suite нового V5 exit-контура: `66 passed`.
+
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
