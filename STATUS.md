@@ -213,4 +213,13 @@
 - Отдельно подтверждён data-ingestion blocker: несуществующий `2xEQT@MISX` после шести retry завершает весь timeframe step ошибкой. Требуется fail-isolation инструмента.
 - `TEST@MISX` удалён из projection/lifecycle, verified `0/0`.
 
+## Runtime checkpoint 21:34–21:35 МСК
+
+- Исправленный pipeline загружен: PID `3770551`; первая котировка BRQ6 пришла в 21:34:11 без ожидания watchdog.
+- NGQ6 успешно восстановлена из projection: `old_qty=0`, `projection_qty=1`; placeholder error отсутствует, ExitEngine выполняет HOLD.
+- Persisted closed-bar reconstruction перед restore даёт `30` завершённых M1 после входа; reset bar-clock до `1` устранён.
+- Safety без изменений: Paper mode, execution/real trading disabled, trailing dry-run.
+- Ingestion fail-isolation подтверждён: `2xEQT@MISX` остановлен после первого `NOT_FOUND` как `SECURITY_NOT_FOUND`, после чего обработка продолжилась по следующим символам; BRQ6 M1 успешно обновлён.
+- Monotonic trailing code загружен, но нового улучшения virtual stop после этого reload ещё не было; runtime monotonic event требует наблюдения.
+
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».

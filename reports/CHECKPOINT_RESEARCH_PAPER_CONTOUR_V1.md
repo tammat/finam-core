@@ -3,7 +3,7 @@
 Дата: 28.07.2026, МСК
 Git branch: codex/research-edge-v5
 Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
-Статус: V5_CODE_VERIFIED_RUNTIME_MARKET_DATA_BLOCKED
+Статус: V5_RUNTIME_RESTORED_EDGE_ACCUMULATION_ACTIVE
 
 ## Подтверждено
 
@@ -65,6 +65,15 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Фактический in-memory log ожидается: provider не дал первой котировки, watchdog reconnect не восстановил события.
 - Ingestion также fail-stop на `2xEQT@MISX`; один invalid symbol блокирует успешное завершение timeframe/cycle.
 - Следующий приоритет: instrument-level fail isolation в ingestion, затем повторная runtime-проверка первого quote и monotonic trailing.
+
+## Runtime verification 21:34 МСК
+
+- Pipeline PID `3770551`, ingestion PID `3770566`, Paper Safe active.
+- Первая котировка пришла; NGQ6 projection восстановлена в PM с qty `1`.
+- Restore-query error устранён; persisted M1 clock reconstructs `30` bars after entry.
+- `2xEQT@MISX` fail-isolated после одного NOT_FOUND; следующие инструменты продолжают обновляться.
+- BRQ6 M1 ingestion успешен; equity M5 readiness контролируется отдельно.
+- Реальное исполнение отключено. Следующее доказательство: первое post-reload улучшение virtual stop и новое чистое intraday/equity закрытие.
 
 ## Candle-state exit
 
