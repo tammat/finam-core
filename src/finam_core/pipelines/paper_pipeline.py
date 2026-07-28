@@ -2441,6 +2441,14 @@ class PaperTradingPipeline:
             current_stop=current_stop,
         )
 
+        min_replace_step = max(0.0, float(os.getenv("TRAILING_ORDER_MIN_REPLACE_STEP", "0.10")))
+        if (
+            decision.action in ("PLACE_STOP", "REPLACE_STOP")
+            and current_stop is not None
+            and float(decision.stop_price or 0.0) < float(current_stop) + min_replace_step
+        ):
+            return
+
         if decision.action in ("PLACE_STOP", "REPLACE_STOP"):
             self._trailing_order_stop_by_symbol[symbol] = decision.stop_price
 

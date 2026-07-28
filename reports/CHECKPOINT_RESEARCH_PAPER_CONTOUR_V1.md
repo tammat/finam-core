@@ -3,7 +3,7 @@
 Дата: 28.07.2026, МСК
 Git branch: feature/exit-alpha-v1
 Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
-Статус: V5_CANDLE_STATE_EXIT_VERIFIED_AWAITING_RELOAD
+Статус: V5_CANDLE_STATE_EXIT_RUNTIME_VERIFIED
 
 ## Подтверждено
 
@@ -53,6 +53,15 @@ Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
 - `TEST@MISX` удалён из V5 projection/lifecycle, verified 0/0.
 - Tests: 66 passed.
 - Требуется перезапуск только `finam-paper-pipeline.service` и runtime-проверка BR.
+
+## Runtime 21:00:21 МСК
+
+- PID 3638452 active/running; real execution remains disabled.
+- BR: restored age 1365.959 sec, completed M1 bars=1, virtual stop applied.
+- NG: restored age 223.582 sec, pre-entry bar excluded, virtual stop applied.
+- No broker trailing block after new PID.
+- Clean V5 closed=1; open V5 futures positions: BR=1, NG=1.
+- Duplicate virtual-stop writes suppressed in code; requires one final reload for noise reduction only.
 
 ## Следующий checkpoint
 

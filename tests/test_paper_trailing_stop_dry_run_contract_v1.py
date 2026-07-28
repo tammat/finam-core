@@ -34,3 +34,19 @@ def test_position_lifecycle_service_uses_the_same_virtual_paper_stop_contract():
 
     assert "PIPE_PAPER_TRAILING_STOP_APPLIED" in method
     assert "p._handle_trailing_replace_stop_decision(decision)" not in method
+
+
+def test_duplicate_virtual_stops_are_suppressed_before_event_and_db_writes():
+    root = Path(__file__).parents[1]
+    for relative in (
+        "src/finam_core/pipelines/paper_pipeline.py",
+        "src/finam_core/execution/position_lifecycle_service.py",
+    ):
+        source = (root / relative).read_text(encoding="utf-8")
+        start = source.index("    def _evaluate_trailing_order_manager(")
+        end = source.index("\n    def ", start + 10)
+        method = source[start:end]
+        gate = method.index("min_replace_step = max(")
+        event_write = method.index("trailing_order_event_repository.log_event(")
+        assert gate < event_write
+        assert 'float(current_stop) + min_replace_step' in method

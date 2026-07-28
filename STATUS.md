@@ -176,5 +176,11 @@
 - NG direction policy lookup теперь может сопоставить стратегию `NG_CONSERVATIVE_BREAKOUT_M1` с DB timeframe M1, даже если quote intent имеет generic timeframe.
 - Тестовое загрязнение `TEST@MISX` удалено строго из V5 projection/lifecycle: по обеим таблицам осталось 0 строк.
 - Regression suite нового V5 exit-контура: `66 passed`.
+- Runtime reload 21:00:21 МСК подтверждён: новый PID 3638452, Paper/real safety flags не изменились.
+- BR восстановила фактический возраст позиции и получила первый persisted M1 bar (`raw_bars_held=1`); NG не получила бар до своего времени входа (`raw_bars_held=0`).
+- Virtual trailing фактически применяется для BR и NG; после нового PID broker `missing_old_stop_order` больше не возникает.
+- Исправлен второй trailing-route в `PositionLifecycleService` и добавлен persisted-regime fallback для websocket без trade progress.
+- Повторные одинаковые virtual-stop решения теперь подавляются до event/DB/log записи по `TRAILING_ORDER_MIN_REPLACE_STEP`.
+- Текущее чистое V5: 1 закрытие NG; открыты BR и новая NG Paper-позиции.
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
