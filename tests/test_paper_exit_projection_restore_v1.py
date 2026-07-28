@@ -33,6 +33,8 @@ def test_projection_restore_reconstructs_completed_bar_clock() -> None:
     body = source[start:end]
 
     assert "COUNT(*)::integer AS bars_held" in body
+    assert "LIKE 'NG%%'" in body and "LIKE 'BR%%'" in body
+    assert "LIKE 'NG%'" not in body and "LIKE 'BR%'" not in body
     assert "b.ts > lifecycle.created_at" in body
     assert "b.ts + CASE" in body
     assert 'exit_state["bars_held"] = max(' in body

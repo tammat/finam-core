@@ -6569,7 +6569,7 @@ class PaperTradingPipeline:
                         FROM market_bars b
                         WHERE b.symbol = p.symbol
                           AND b.timeframe = CASE
-                              WHEN p.symbol LIKE 'NG%' OR p.symbol LIKE 'BR%' THEN 'M1'
+                              WHEN p.symbol LIKE 'NG%%' OR p.symbol LIKE 'BR%%' THEN 'M1'
                               ELSE 'M5'
                           END
                           AND lifecycle.created_at IS NOT NULL
