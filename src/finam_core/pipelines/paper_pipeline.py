@@ -1800,13 +1800,62 @@ class PaperTradingPipeline:
             return
 
         state = self._exit_state_for_symbol(symbol)
+        bar_ts = getattr(bar, "ts", None)
+        bar_key = bar_ts.isoformat() if hasattr(bar_ts, "isoformat") else str(bar_ts or "")
+        if bar_key and state.get("last_exit_closed_bar_key") == bar_key:
+            return
+        opened_at_ts = float(state.get("opened_at_ts") or 0.0)
+        if opened_at_ts and hasattr(bar_ts, "timestamp") and float(bar_ts.timestamp()) <= opened_at_ts:
+            state["last_exit_closed_bar_key"] = bar_key
+            return
         previous_close = state.get("last_completed_bar_close")
         state["bars_held"] = int(state.get("bars_held") or 0) + 1
         state["closed_bar_pending"] = True
         state["closed_bar_prev_close"] = previous_close
         state["last_completed_bar_close"] = float(bar.close_price)
+        state["last_exit_closed_bar_key"] = bar_key
 
         regime = self.candle_regime_engine_v2.evaluate(symbol, timeframe)
+        trend = str(getattr(regime, "trend", "") or "").lower()
+        confirmed = (
+            str(getattr(regime, "source_version", "") or "") == "CANDLE_REGIME_V3"
+            and bool(getattr(regime, "data_ready", False))
+            and not bool(getattr(regime, "stale", True))
+            and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
+        )
+        if confirmed and qty > 0 and trend in {"down", "trend_down"}:
+            state["regime_exit_reason"] = "regime_invalidation_long"
+        elif confirmed and qty < 0 and trend in {"up", "trend_up"}:
+            state["regime_exit_reason"] = "regime_invalidation_short"
+
+    def _sync_exit_closed_bar_from_regime_v1(self, symbol: str) -> None:
+        """Use the persisted candle-regime bar as fallback when WS has no trade progress."""
+        timeframe = "M1" if str(symbol).startswith(("NG", "BR")) else "M5"
+        regime = self.candle_regime_engine_v2.evaluate(symbol, timeframe)
+        bar_ts = getattr(regime, "bar_ts", None)
+        if bar_ts is None:
+            return
+        state = self._exit_state_for_symbol(symbol)
+        bar_key = bar_ts.isoformat() if hasattr(bar_ts, "isoformat") else str(bar_ts)
+        if state.get("last_exit_closed_bar_key") == bar_key:
+            return
+        opened_at_ts = float(state.get("opened_at_ts") or 0.0)
+        if opened_at_ts and hasattr(bar_ts, "timestamp") and float(bar_ts.timestamp()) <= opened_at_ts:
+            state["last_exit_closed_bar_key"] = bar_key
+            return
+
+        qty = float(self._position_qty_for_symbol(symbol) or 0.0)
+        if abs(qty) <= 1e-9:
+            return
+        previous_close = state.get("last_completed_bar_close")
+        close_price = float(getattr(regime, "close_price", 0.0) or 0.0)
+        state["bars_held"] = int(state.get("bars_held") or 0) + 1
+        state["closed_bar_pending"] = True
+        state["closed_bar_prev_close"] = previous_close
+        if close_price > 0:
+            state["last_completed_bar_close"] = close_price
+        state["last_exit_closed_bar_key"] = bar_key
+
         trend = str(getattr(regime, "trend", "") or "").lower()
         confirmed = (
             str(getattr(regime, "source_version", "") or "") == "CANDLE_REGIME_V3"
@@ -2653,6 +2702,7 @@ class PaperTradingPipeline:
         # расчётом выхода: это не импортирует брокерскую/реальную позицию и позволяет
         # штатно дойти до stop/take/trailing и записи закрытой сделки.
         self._restore_pm_position_from_projection_v1(symbol)
+        self._sync_exit_closed_bar_from_regime_v1(symbol)
 
         state = self._exit_state_for_symbol(symbol)
 

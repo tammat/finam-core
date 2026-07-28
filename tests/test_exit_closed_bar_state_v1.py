@@ -41,3 +41,19 @@ def test_time_exit_is_a_long_horizon_safety_net_for_energy() -> None:
 
     assert 'os.getenv("ENERGY_MAX_BARS_IN_TRADE", "60")' in body
     assert "ExitEngine(max_bars_in_trade=max_bars)" in body
+
+
+def test_persisted_regime_bar_is_the_no_trade_progress_fallback() -> None:
+    source = PIPELINE.read_text(encoding="utf-8")
+    start = source.index("    def _sync_exit_closed_bar_from_regime_v1(")
+    end = source.index("\n    def ", start + 10)
+    body = source[start:end]
+
+    assert "candle_regime_engine_v2.evaluate(symbol, timeframe)" in body
+    assert "last_exit_closed_bar_key" in body
+    assert 'state["bars_held"] = int(state.get("bars_held") or 0) + 1' in body
+
+    exit_start = source.index("    def _build_exit_intent_if_any(")
+    exit_end = source.index("\n    def ", exit_start + 10)
+    exit_body = source[exit_start:exit_end]
+    assert "self._sync_exit_closed_bar_from_regime_v1(symbol)" in exit_body
