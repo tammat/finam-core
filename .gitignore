@@ -108,3 +108,8 @@ data/snapshot.json
 *.rej
 
 tmp/untracked_review_*/
+
+# Codex/local operator scratch and runtime state
+.codex-backup/
+runtime/locks/
+runtime/*.log
