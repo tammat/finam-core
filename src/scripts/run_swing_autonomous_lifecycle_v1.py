@@ -101,8 +101,8 @@ def main():
           count(*) FILTER(WHERE broker_order_sent OR runtime_allowed OR execution_enabled) unsafe
           FROM analytics.swing_shadow_observation_v1 WHERE swing_shadow_cohort_id=%s""",(process["shadow_cohort_id"],))
         e=dict(q.fetchone()); required=int(POLICY["minimum_closed_per_timeframe"])
-        e["profit_factor"]=float(e["wins"])/float(e["losses"]) if float(e["losses"]) else (999.0 if float(e["wins"]) else 0.0)
-        e["trailing_profit_factor"]=float(e["trailing_wins"])/float(e["trailing_losses"]) if float(e["trailing_losses"]) else (999.0 if float(e["trailing_wins"]) else 0.0)
+        e["profit_factor"]=float(e["wins"])/float(e["losses"]) if float(e["losses"]) else None
+        e["trailing_profit_factor"]=float(e["trailing_wins"])/float(e["trailing_losses"]) if float(e["trailing_losses"]) else None
         q.execute("SELECT fixed_net_pnl FROM analytics.swing_shadow_observation_v1 WHERE swing_shadow_cohort_id=%s AND observation_status='CLOSED' ORDER BY fixed_exit_ts",(process["shadow_cohort_id"],))
         cumulative=peak=max_drawdown=0.0
         for row in q.fetchall(): cumulative+=float(row["fixed_net_pnl"] or 0); peak=max(peak,cumulative); max_drawdown=max(max_drawdown,peak-cumulative)
@@ -111,8 +111,8 @@ def main():
         if int(e["closed"])<required or int(e["sessions"])<int(POLICY["minimum_trading_sessions"]):
           q.execute("UPDATE analytics.swing_candidate_lifecycle_v1 SET progress_pct=%s,gate_evidence=gate_evidence||%s,heartbeat_at=clock_timestamp(),updated_at=clock_timestamp() WHERE process_id=%s",(progress,psycopg2.extras.Json(safe({"shadow":e})),process["process_id"])); continue
         gates={"sample":int(e["closed"])>=required,"sessions":int(e["sessions"])>=int(POLICY["minimum_trading_sessions"]),
-          "fixed_pf":e["profit_factor"]>=float(POLICY["minimum_net_profit_factor"]),"fixed_expectancy":float(e["expectancy"])>float(POLICY["minimum_net_expectancy"]),
-          "trailing_complete":int(e["trailing_complete"])==int(e["closed"]),"trailing_pf":e["trailing_profit_factor"]>=float(POLICY["minimum_net_profit_factor"]),
+          "fixed_pf":e["profit_factor"] is not None and e["profit_factor"]>=float(POLICY["minimum_net_profit_factor"]),"fixed_expectancy":float(e["expectancy"])>float(POLICY["minimum_net_expectancy"]),
+          "trailing_complete":int(e["trailing_complete"])==int(e["closed"]),"trailing_pf":e["trailing_profit_factor"] is not None and e["trailing_profit_factor"]>=float(POLICY["minimum_net_profit_factor"]),
           "drawdown":max_drawdown<=10000.0,"safety":not int(e["unsafe"])}
         e["gates"]=gates; passed=all(gates.values())
         if not passed:

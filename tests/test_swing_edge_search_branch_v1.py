@@ -1,6 +1,9 @@
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
+
+from scripts.run_swing_paper_engine_v1 import swing_exit_decision
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,7 +56,7 @@ def test_swing_branch_schema_is_installed_in_postgres() -> None:
             cursor.execute("SELECT to_regclass('analytics.swing_edge_search_run_v1'), to_regclass('analytics.swing_edge_search_step_run_v1')")
             assert cursor.fetchone() == ("analytics.swing_edge_search_run_v1", "analytics.swing_edge_search_step_run_v1")
             cursor.execute("SELECT enabled,executor_code FROM analytics.system_job_schedule_v1 WHERE job_code='SWING_EDGE_SEARCH_WEEKEND'")
-            assert cursor.fetchone() == (True, "SWING_EDGE_SEARCH_CYCLE_V1")
+            assert cursor.fetchone() == (True, "SWING_CLOSED_BAR_SEARCH_V1")
 
 
 def test_swing_final_gate_uses_real_execution_and_portfolio_evidence() -> None:
@@ -135,8 +138,38 @@ def test_swing_paper_engine_is_risk_guarded_and_never_live() -> None:
     assert "live_allowed boolean NOT NULL DEFAULT false CHECK(NOT live_allowed)" in migration
     assert "SWING_PAPER_ENGINE_V1" in scheduler
     assert "Paper PnL" in page and "После налога" in page
+    assert "dynamic_exit_v1" in engine and "swing_exit_decision" in engine
+    assert "exit_max_holding_bars" in engine and "HOLDING_PERIOD_EXIT" not in engine
     sync = (ROOT / "src/scripts/sync_market_contract_specs_v1.py").read_text()
     assert "INITIALMARGIN" in sync and "BUYSELLFEE" in sync and "SCALPERFEE" in sync
+
+
+def test_swing_paper_dynamic_exit_waits_for_horizon_and_trails_both_sides() -> None:
+    started = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    params = {
+        "holding_bars": 2,
+        "exit_policy_code": "DYNAMIC_EXIT_V1",
+        "exit_max_holding_bars": 5,
+        "exit_stop_atr": 20,
+        "exit_trail_atr": 0.5,
+        "exit_trend_lookback": 20,
+        "exit_volatility_risk_multiplier": 100,
+        "exit_minimum_bars": 2,
+    }
+
+    def make_bars(prices):
+        return [{"ts": started + timedelta(hours=index), "close": price} for index, price in enumerate(prices)]
+
+    waiting = make_bars([95, 96, 97, 98, 99, 100, 101, 102])
+    assert swing_exit_decision(waiting, waiting[5]["ts"], "LONG", params) is None
+
+    long_bars = make_bars([95, 96, 97, 98, 99, 100, 105, 104])
+    long_exit = swing_exit_decision(long_bars, long_bars[5]["ts"], "LONG", params)
+    assert long_exit and long_exit[1] == "ATR_TRAIL" and long_exit[0]["close"] == 104
+
+    short_bars = make_bars([105, 104, 103, 102, 101, 100, 95, 96])
+    short_exit = swing_exit_decision(short_bars, short_bars[5]["ts"], "SHORT", params)
+    assert short_exit and short_exit[1] == "ATR_TRAIL" and short_exit[0]["close"] == 96
 
 
 def test_swing_paper_contract_is_installed_and_official_costs_are_ready() -> None:
@@ -181,10 +214,28 @@ def test_swing_regime_and_meta_filter_are_db_driven() -> None:
     runner = (ROOT / "src/scripts/run_swing_edge_search_cycle_v1.py").read_text()
     assert "swing_research_contract_v2" in migration and "REGIME_MOMENTUM" in migration
     assert "META_BREAKOUT" in migration and "gates\":\"unchanged" in migration
-    assert "db_contract_grids" in factory and "SWING_HYPOTHESIS_FACTORY_V4_DYNAMIC_ENTRY_EXIT" in factory
+    assert "db_contract_grids" in factory and "SWING_HYPOTHESIS_FACTORY_V6_DB_REGIME_ROUTER" in factory
     assert "_meta_filter" in validation and "trend * side > 0" in validation
-    assert "volume_ratio" in validation and "SWING_SELECTION_VALIDATION_ENGINE_V4_DYNAMIC_ENTRY_EXIT" in validation
-    assert "SWING_EDGE_SEARCH_V4_DYNAMIC_ENTRY_EXIT" in runner
+    assert "volume_ratio" in validation and "SWING_SELECTION_VALIDATION_ENGINE_V5_DB_REGIME_ROUTER" in validation
+    assert "SWING_EDGE_SEARCH_V5_DB_REGIME_ROUTER" in runner
+
+
+def test_swing_strategy_routing_is_separate_db_driven_and_symmetric() -> None:
+    migration = (ROOT / "sql/analytics/204_swing_regime_strategy_routing_v1.sql").read_text()
+    factory = (ROOT / "src/scripts/build_swing_hypothesis_factory_v1.py").read_text()
+    validation = (ROOT / "src/scripts/run_swing_selection_validation_engine_v1.py").read_text()
+    assert "swing_regime_strategy_routing_v1" in migration
+    assert "('H1'),('H4'),('D1')" in migration
+    assert "'TREND_UP','META_BREAKOUT','LONG'" in migration
+    assert "'TREND_DOWN','META_BREAKOUT','SHORT'" in migration
+    assert "'RANGE','SWING_MEAN_REVERSION','BOTH'" in migration
+    assert '"intraday_mixed":false' in migration
+    assert '"unknown_regime_allowed":false' in migration
+    assert "swing_regime_strategy_routing_v1" in factory
+    assert "required_regime_code" in factory and "allowed_side" in factory
+    assert "SWING_MEAN_REVERSION" in validation
+    assert "required_regime == \"TREND_UP\"" in validation
+    assert "required_regime == \"TREND_DOWN\"" in validation
 
 
 def test_swing_significance_uses_non_overlapping_trades() -> None:

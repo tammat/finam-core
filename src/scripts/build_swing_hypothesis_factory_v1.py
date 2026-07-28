@@ -13,7 +13,7 @@ from marketcore.research_window_guard_v1 import require_off_market_research_wind
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V5_MARKET_DIVERSITY"
+SOURCE_VERSION = "SWING_HYPOTHESIS_FACTORY_V6_DB_REGIME_ROUTER"
 NAMESPACE = uuid.UUID("66ee4a61-5af4-56dd-9f86-d7f77555a207")
 MAX_CANDIDATES = int(os.getenv("SWING_HYPOTHESIS_MAX_CANDIDATES", "360"))
 
@@ -73,11 +73,16 @@ def price_grid(timeframe: str, failure_reasons: list[str]) -> dict[str, tuple[di
     }
 
 
-def db_contract_grids(cur, timeframe: str, failure_reasons: list[str]) -> dict[str, tuple[dict, str]]:
-    cur.execute("""SELECT family_code,engine_code,parameter_grid
-        FROM analytics.swing_research_contract_v2
-        WHERE enabled AND (%s = '{}'::text[] OR failure_triggers && %s::text[])
-        ORDER BY priority,family_code""", (failure_reasons, failure_reasons))
+def db_contract_grids(cur, symbol: str, timeframe: str, failure_reasons: list[str]) -> dict[str, tuple[dict, str]]:
+    cur.execute("""SELECT c.family_code,c.engine_code,c.parameter_grid,
+                          r.regime_code,r.allowed_side
+        FROM analytics.swing_regime_strategy_routing_v1 r
+        JOIN analytics.swing_research_contract_v2 c
+          ON c.family_code=r.strategy_family AND c.enabled
+        WHERE r.enabled AND r.timeframe=%s AND %s LIKE r.symbol_pattern
+          AND (%s = '{}'::text[] OR c.failure_triggers && %s::text[])
+        ORDER BY r.priority,c.priority,c.family_code,r.regime_code""",
+        (timeframe, symbol, failure_reasons, failure_reasons))
     contract_rows = cur.fetchall()
     holds = {"H1": [12, 20, 40], "H4": [6, 10, 20], "D1": [4, 8, 12]}[timeframe]
     result = {}
@@ -87,9 +92,16 @@ def db_contract_grids(cur, timeframe: str, failure_reasons: list[str]) -> dict[s
     for row in contract_rows:
         grid = dict(row["parameter_grid"])
         grid["holding_bars"] = holds
+        grid["required_regime_code"] = [str(row["regime_code"])]
+        grid["allowed_side"] = [str(row["allowed_side"])]
+        if row["allowed_side"] in ("LONG", "SHORT"):
+            grid["direction"] = [str(row["allowed_side"])]
+        elif row["family_code"] == "SWING_MEAN_REVERSION":
+            grid["direction"] = ["LONG", "SHORT"]
         for key, value in {**(entry_exit.get("entry_policy") or {}), **(entry_exit.get("exit_policy") or {})}.items():
             grid[key] = value if isinstance(value, list) else [value]
-        result[str(row["family_code"])] = (grid, str(row["engine_code"]))
+        key = f"{row['family_code']}:{row['regime_code']}:{row['allowed_side']}"
+        result[key] = (grid, str(row["engine_code"]))
     return result
 
 
@@ -124,9 +136,9 @@ def main() -> None:
             """)
             candidates = []
             for symbol, timeframe in markets:
-                price_grids = {**price_grid(timeframe, failure_reasons),
-                               **db_contract_grids(cur, timeframe, failure_reasons)}
-                for family, (grid, engine) in price_grids.items():
+                routed_grids = db_contract_grids(cur, symbol, timeframe, failure_reasons)
+                for route_key, (grid, engine) in routed_grids.items():
+                    family = route_key.split(":", 1)[0]
                     keys = list(grid)
                     for values in itertools.product(*(grid[key] for key in keys)):
                         candidates.append((family,engine,symbol,timeframe,dict(zip(keys,values))))

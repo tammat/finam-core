@@ -21,6 +21,7 @@ EXECUTORS = {
     "INSTRUMENT_SCOUT_V1": "src/scripts/run_autonomous_instrument_scout_v1.py",
     "CONTRACT_SPEC_SYNC_V1": "src/scripts/sync_market_contract_specs_v1.py",
     "SWING_EDGE_SEARCH_CYCLE_V1": "src/scripts/run_swing_edge_search_cycle_v1.py",
+    "SWING_CLOSED_BAR_SEARCH_V1": "src/scripts/run_swing_closed_bar_search_v1.py",
     "SWING_BARS_REFRESH_V1": "src/scripts/build_canonical_swing_timeframes_v1.py",
     "SWING_NEXT_RESEARCH_PLAN_V1": "src/scripts/generate_next_swing_research_plan_v1.py",
     "SWING_FUTURE_EXECUTION_V1": "src/scripts/run_swing_future_execution_v1.py",

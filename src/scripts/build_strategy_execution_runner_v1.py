@@ -442,7 +442,10 @@ def build_trades(run: dict[str, Any], bars: list[Bar]) -> list[Trade]:
             i += 1
             continue
 
-        if not entry_allowed_v1(closes, volumes, i, side, params):
+        if not entry_allowed_v1(
+            closes, volumes, i, side, params,
+            session_code=bars[i].session_code, regime_code=bars[i].regime_code,
+        ):
             i += 1
             continue
         entry_index = i + latency

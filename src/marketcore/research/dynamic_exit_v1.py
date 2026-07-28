@@ -19,6 +19,7 @@ def _realized_volatility_bps(prices: Sequence[float], end: int, lookback: int) -
 
 def entry_allowed_v1(
     prices: Sequence[float], volumes: Sequence[float], index: int, side: int, policy: dict,
+    session_code: str = "UNKNOWN", regime_code: str = "UNKNOWN",
 ) -> bool:
     if str(policy.get("entry_policy_code", "NONE")) not in ("META_ENTRY_V1", "META_ENTRY_V2"):
         return True
@@ -37,11 +38,19 @@ def entry_allowed_v1(
     volume_allowed = volume_mode == "OBSERVE" or volume_ratio >= float(
         policy.get("entry_min_volume_ratio", policy.get("min_volume_ratio", 0.0))
     )
+    session_mode = str(policy.get("entry_session_mode", "OBSERVE"))
+    allowed_sessions = {str(value).upper() for value in policy.get("entry_allowed_sessions", [])}
+    session_allowed = session_mode == "OBSERVE" or str(session_code).upper() in allowed_sessions
+    regime_mode = str(policy.get("entry_regime_mode", "OBSERVE"))
+    allowed_regimes = {str(value).lower() for value in policy.get("entry_allowed_regimes", [])}
+    regime_allowed = regime_mode == "OBSERVE" or str(regime_code).lower() in allowed_regimes
     return (
         trend_allowed
         and volatility >= float(policy.get("entry_min_volatility_bps", policy.get("min_volatility_bps", 0.0)))
         and volatility <= float(policy.get("entry_max_volatility_bps", policy.get("max_volatility_bps", 10000.0)))
         and volume_allowed
+        and session_allowed
+        and regime_allowed
     )
 
 

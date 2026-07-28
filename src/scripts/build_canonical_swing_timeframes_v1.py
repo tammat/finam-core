@@ -45,12 +45,14 @@ def main() -> None:
                            (array_agg(close ORDER BY ts DESC))[1],sum(volume),'M5',%s
                     FROM public.market_bars WHERE timeframe='M5' AND symbol=ANY(%s) AND ts>=%s
                       AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL
+                      AND date_bin(%s::interval,ts,'2000-01-01 00:00:00+03'::timestamptz)
+                          + %s::interval <= clock_timestamp()
                     GROUP BY symbol,date_bin(%s::interval,ts,'2000-01-01 00:00:00+03'::timestamptz)
                     ON CONFLICT(symbol,timeframe,ts) DO UPDATE SET
                       open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,
                       volume=excluded.volume,source_timeframe=excluded.source_timeframe,
                       source_version=excluded.source_version""",
-                    (timeframe,interval,SOURCE_VERSION,symbols,cutoff,interval))
+                    (timeframe,interval,SOURCE_VERSION,symbols,cutoff,interval,interval,interval))
             cur.execute("SELECT coalesce(max(ts)-interval '2 days','2000-01-01'::timestamptz) cutoff FROM analytics.swing_market_bars_v1 WHERE timeframe='D1'")
             d1_cutoff = cur.fetchone()["cutoff"]
             cur.execute("""INSERT INTO analytics.swing_market_bars_v1
@@ -60,6 +62,8 @@ def main() -> None:
                        (array_agg(close ORDER BY ts DESC))[1],sum(volume),'M5',%s
                 FROM public.market_bars WHERE timeframe='M5' AND symbol=ANY(%s) AND ts>=%s
                   AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL
+                  AND ((ts AT TIME ZONE 'Europe/Moscow')::date + 1)::timestamp
+                      AT TIME ZONE 'Europe/Moscow' <= clock_timestamp()
                 GROUP BY symbol,(ts AT TIME ZONE 'Europe/Moscow')::date
                 ON CONFLICT(symbol,timeframe,ts) DO UPDATE SET
                   open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,
@@ -79,12 +83,14 @@ def main() -> None:
                                (array_agg(close ORDER BY ts DESC))[1],sum(volume),'M5',%s
                         FROM public.{table_name} WHERE ts>=%s AND open IS NOT NULL AND high IS NOT NULL
                           AND low IS NOT NULL AND close IS NOT NULL
+                          AND date_bin(%s::interval,ts,'2000-01-01 00:00:00+03'::timestamptz)
+                              + %s::interval <= clock_timestamp()
                         GROUP BY date_bin(%s::interval,ts,'2000-01-01 00:00:00+03'::timestamptz)
                         ON CONFLICT(symbol,timeframe,ts) DO UPDATE SET
                           open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,
                           volume=excluded.volume,source_timeframe=excluded.source_timeframe,
                           source_version=excluded.source_version""",
-                        (rolling_symbol,timeframe,interval,SOURCE_VERSION,cutoff,interval))
+                        (rolling_symbol,timeframe,interval,SOURCE_VERSION,cutoff,interval,interval,interval))
                 cur.execute("SELECT coalesce(max(ts)-interval '2 days','2000-01-01'::timestamptz) cutoff FROM analytics.swing_market_bars_v1 WHERE symbol=%s AND timeframe='D1'", (rolling_symbol,))
                 rolling_d1_cutoff = cur.fetchone()["cutoff"]
                 cur.execute(f"""INSERT INTO analytics.swing_market_bars_v1
@@ -94,6 +100,8 @@ def main() -> None:
                            (array_agg(close ORDER BY ts DESC))[1],sum(volume),'M5',%s
                     FROM public.{table_name} WHERE ts>=%s AND open IS NOT NULL AND high IS NOT NULL
                       AND low IS NOT NULL AND close IS NOT NULL
+                      AND ((ts AT TIME ZONE 'Europe/Moscow')::date + 1)::timestamp
+                          AT TIME ZONE 'Europe/Moscow' <= clock_timestamp()
                     GROUP BY (ts AT TIME ZONE 'Europe/Moscow')::date
                     ON CONFLICT(symbol,timeframe,ts) DO UPDATE SET
                       open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,

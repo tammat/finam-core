@@ -14,7 +14,7 @@ from marketcore.research_window_guard_v1 import require_off_market_research_wind
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "SWING_SELECTION_VALIDATION_ENGINE_V4_DYNAMIC_ENTRY_EXIT"
+SOURCE_VERSION = "SWING_SELECTION_VALIDATION_ENGINE_V5_DB_REGIME_ROUTER"
 COST_BPS = 8.0
 
 
@@ -57,8 +57,21 @@ def _meta_filter(params, i, side, prices, volumes):
     history_volume = volumes[i-volatility_lookback:i]
     mean_volume = statistics.fmean(history_volume) if history_volume else 0.0
     volume_ratio = volumes[i] / mean_volume if mean_volume > 0 else 0.0
+    required_regime = str(params.get("required_regime_code", "")).upper()
+    trend_floor = float(params.get("regime_trend_min_bps", 10.0)) / 10000.0
+    regime_ok = (
+        (required_regime == "TREND_UP" and trend >= trend_floor)
+        or (required_regime == "TREND_DOWN" and trend <= -trend_floor)
+        or (required_regime == "RANGE" and abs(trend) < trend_floor)
+        or not required_regime
+    )
+    allowed_side = str(params.get("allowed_side", "BOTH")).upper()
+    side_ok = allowed_side == "BOTH" or (allowed_side == "LONG" and side > 0) or (allowed_side == "SHORT" and side < 0)
+    trend_side_ok = required_regime == "RANGE" or trend * side > 0
     return (
-        trend * side > 0
+        regime_ok
+        and side_ok
+        and trend_side_ok
         and volatility_bps >= float(params.get("min_volatility_bps", 0.0))
         and volatility_bps <= float(params.get("max_volatility_bps", 10000.0))
         and volume_ratio >= float(params.get("min_volume_ratio", 0.0))
@@ -89,6 +102,17 @@ def trade_rows(family, params, timestamps, prices, source_prices=None, volumes=N
         elif family in ("BREAKOUT", "META_BREAKOUT"):
             window = prices[i-lookback:i]
             side = 1 if prices[i] > max(window) else (-1 if prices[i] < min(window) else 0)
+        elif family == "SWING_MEAN_REVERSION":
+            window = prices[i-lookback:i]
+            mean = statistics.fmean(window)
+            deviation = statistics.pstdev(window)
+            zscore = (prices[i] - mean) / deviation if deviation > 0 else 0.0
+            requested = str(params.get("direction", "")).upper()
+            threshold = float(params.get("entry_zscore", 1.5))
+            if requested == "LONG" and zscore <= -threshold:
+                side = 1
+            elif requested == "SHORT" and zscore >= threshold:
+                side = -1
         elif family == "RELATIVE_STRENGTH":
             target_change = prices[i] / prices[i-lookback] - 1.0
             source_change = source_prices[i] / source_prices[i-lookback] - 1.0
@@ -97,7 +121,7 @@ def trade_rows(family, params, timestamps, prices, source_prices=None, volumes=N
         else:
             impulse = source_prices[i] / source_prices[i-lookback] - 1.0
             side = 1 if impulse > 0 else (-1 if impulse < 0 else 0)
-        if family in ("REGIME_MOMENTUM", "META_BREAKOUT") and not _meta_filter(params, i, side, prices, volumes):
+        if family in ("REGIME_MOMENTUM", "META_BREAKOUT", "SWING_MEAN_REVERSION") and not _meta_filter(params, i, side, prices, volumes):
             side = 0
         if side:
             decision = dynamic_exit_v1(prices, entry_i, side, maximum_hold, params)
