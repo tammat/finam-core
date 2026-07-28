@@ -182,5 +182,6 @@
 - Исправлен второй trailing-route в `PositionLifecycleService` и добавлен persisted-regime fallback для websocket без trade progress.
 - Повторные одинаковые virtual-stop решения теперь подавляются до event/DB/log записи по `TRAILING_ORDER_MIN_REPLACE_STEP`.
 - Текущее чистое V5: 1 закрытие NG; открыты BR и новая NG Paper-позиции.
+- Контрольный reload 21:02:56 показал, что локальный trailing cache мог теряться между двумя lifecycle routes: stop повторно записывался и мог уменьшаться. Источник истины исправлен на общий ExitEngine state; long stop теперь монотонный, повтор требует улучшения минимум на configured step. Проверки: `12 passed`; требуется reload.
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».

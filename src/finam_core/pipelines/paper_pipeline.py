@@ -2434,6 +2434,11 @@ class PaperTradingPipeline:
         if current_stop is None and lifecycle_state.get("current_stop") is not None:
             current_stop = float(lifecycle_state["current_stop"])
 
+        exit_state = self._exit_state_for_symbol(symbol)
+        state_stop = exit_state.get("stop_price")
+        if state_stop is not None:
+            current_stop = max(float(current_stop), float(state_stop)) if current_stop is not None else float(state_stop)
+
         decision = self.trailing_order_manager.evaluate_long(
             symbol=symbol,
             qty=qty,
@@ -2501,7 +2506,6 @@ class PaperTradingPipeline:
             else:
                 # Paper trailing is a virtual stop evaluated by ExitEngine.
                 # It must never enter broker cancel/replace bookkeeping.
-                exit_state = self._exit_state_for_symbol(decision.symbol)
                 exit_state["stop_price"] = decision.stop_price
                 print(
                     f"PIPE_PAPER_TRAILING_STOP_APPLIED symbol={decision.symbol} "

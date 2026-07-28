@@ -50,3 +50,5 @@ def test_duplicate_virtual_stops_are_suppressed_before_event_and_db_writes():
         event_write = method.index("trailing_order_event_repository.log_event(")
         assert gate < event_write
         assert 'float(current_stop) + min_replace_step' in method
+        assert 'state_stop = exit_state.get("stop_price")' in method
+        assert "current_stop = max(float(current_stop), float(state_stop))" in method

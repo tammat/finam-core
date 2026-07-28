@@ -3,7 +3,7 @@
 Дата: 28.07.2026, МСК
 Git branch: feature/exit-alpha-v1
 Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
-Статус: V5_CANDLE_STATE_EXIT_RUNTIME_VERIFIED
+Статус: V5_MONOTONIC_VIRTUAL_STOP_AWAITING_RELOAD
 
 ## Подтверждено
 
@@ -62,6 +62,7 @@ Git HEAD: 50951c2ce1f20d8065a55707394708191e1f5b68
 - No broker trailing block after new PID.
 - Clean V5 closed=1; open V5 futures positions: BR=1, NG=1.
 - Duplicate virtual-stop writes suppressed in code; requires one final reload for noise reduction only.
+- Reload 21:02:56 выявил потерю local trailing cache между lifecycle routes; общий ExitEngine state назначен authoritative monotonic stop. Tests: 12 passed, awaiting reload.
 
 ## Следующий checkpoint
 
