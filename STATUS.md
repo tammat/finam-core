@@ -233,6 +233,22 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## V5 hierarchical evidence runtime 28.07.2026, 22:45–22:51 МСК
+
+- Migration 215 применена; `scope_code` и `timeframe_code` физически присутствуют.
+- Первый router-run завершён с `VERDICT=V5_HIERARCHICAL_EVIDENCE_ROUTER_V1_OK`:
+  18 groups — STRATEGY 3, INSTRUMENT_SIDE 4, COMPATIBLE_CONTEXT 5, EXACT_CONTEXT 6.
+- Все группы при текущих 9 clean trades имеют `DISCOVERY_ONLY`; early stop=0,
+  READY_FOR_OOS=0. Максимум: 5 trades на верхних уровнях, 4 на exact.
+- Runtime-аудит выявил и исправил transport marker `timeframe=LIVE`: evidence
+  теперь использует canonical clock BR/NG M1 и equities M5. LIVE/UNKNOWN rows=0.
+- UI PID после reload active; document `VERIFIED`, hierarchy отображается без
+  новых кнопок; nearest exact: BRQ6 breakout, 4/80, DISCOVERY_ONLY.
+- Safety не менялась: runtime/execution/orders/fills changed=0, live_allowed=0;
+  Paper execution flags остаются disabled.
+- Проверки после data-lineage fix: 13 passed; router повторно выполнен успешно.
+- Verdict: `V5_HIERARCHICAL_EVIDENCE_RUNTIME_VERIFIED`.
+
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 
 - Реализованы четыре изолированных уровня evidence: STRATEGY (scope × timeframe ×

@@ -203,3 +203,12 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Scheduler executor and button-free Control Center hierarchy summary added.
 - Validation: 17 focused tests passed.
 - Pending: migration 215 + first router run + UI reload and runtime verification.
+
+## V5 hierarchical evidence runtime verified 22:45–22:51 МСК
+
+- Migration applied; 18 V5 groups built across 4 hierarchy levels.
+- Current decisions: DISCOVERY_ONLY=18, EARLY_STOP=0, READY_FOR_OOS=0.
+- Canonical timeframe lineage fixed: BR/NG=M1, equities=M5; LIVE/UNKNOWN=0.
+- UI hierarchy verified without extra controls; nearest exact BRQ6=4/80.
+- 13 focused tests and repeated router run passed.
+- Verdict: `V5_HIERARCHICAL_EVIDENCE_RUNTIME_VERIFIED`.

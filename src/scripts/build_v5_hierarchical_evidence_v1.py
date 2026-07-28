@@ -95,6 +95,19 @@ def normalize_regime(raw: str, compatibility: dict[tuple[str, str], str]) -> tup
     return exact, compatibility.get(("REGIME", exact), exact)
 
 
+def evidence_timeframe(symbol: str, materialized: str, regime_timeframe: str) -> str:
+    # public.closed_trades.timeframe may contain the transport marker LIVE.
+    # V5 evidence follows the canonical closed-bar clock instead.
+    normalized_symbol = str(symbol or "").upper()
+    if normalized_symbol.startswith(("BR", "NG")) and normalized_symbol.endswith("@RTSX"):
+        return "M1"
+    regime = str(regime_timeframe or "").strip().upper()
+    if regime in {"M1", "M5", "M15", "H1", "H4", "D1"}:
+        return regime
+    materialized_value = str(materialized or "").strip().upper()
+    return materialized_value if materialized_value in {"M1", "M5", "M15", "H1", "H4", "D1"} else "UNKNOWN"
+
+
 def evidence_id(key: EvidenceKey) -> str:
     raw = "|".join((COHORT,key.level,key.scope,key.timeframe,key.strategy,key.symbol,
                     key.side,key.session,key.regime,key.exit_rule))
@@ -113,7 +126,8 @@ def main() -> int:
             }
             cursor.execute("""
                 SELECT portfolio_scope,symbol,upper(coalesce(side,'UNKNOWN')) side,
-                       coalesce(nullif(timeframe,''),payload->'context'->>'regime_timeframe','UNKNOWN') timeframe,
+                       timeframe AS materialized_timeframe,
+                       payload->'context'->>'regime_timeframe' AS regime_timeframe,
                        coalesce(nullif(strategy,''),'UNASSIGNED') strategy,
                        coalesce(payload->'context'->>'entry_session_msk','UNKNOWN') session,
                        coalesce(payload->'context'->>'entry_regime',entry_regime,'UNKNOWN') regime,
@@ -126,7 +140,8 @@ def main() -> int:
             for row in cursor.fetchall():
                 session, compatible_session = normalize_session(row["session"], compatibility)
                 regime, compatible_regime = normalize_regime(row["regime"], compatibility)
-                base = dict(scope=row["portfolio_scope"], timeframe=str(row["timeframe"]).upper(),
+                base = dict(scope=row["portfolio_scope"],
+                            timeframe=evidence_timeframe(row["symbol"],row["materialized_timeframe"],row["regime_timeframe"]),
                             strategy=row["strategy"], side=row["side"])
                 keys = (
                     EvidenceKey("STRATEGY", **base),

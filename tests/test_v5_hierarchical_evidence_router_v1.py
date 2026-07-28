@@ -54,3 +54,10 @@ def test_scope_and_timeframe_are_physical_dimensions() -> None:
 def test_scheduler_allowlists_the_implemented_router() -> None:
     scheduler = (ROOT / "src/scripts/run_db_job_scheduler_v1.py").read_text()
     assert '"HIERARCHICAL_EVIDENCE_ROUTER_V1": "src/scripts/build_v5_hierarchical_evidence_v1.py"' in scheduler
+
+
+def test_evidence_timeframe_rejects_live_transport_marker() -> None:
+    assert MODULE.evidence_timeframe("BRQ6@RTSX", "LIVE", "M5") == "M1"
+    assert MODULE.evidence_timeframe("NGQ6@RTSX", "LIVE", "M5") == "M1"
+    assert MODULE.evidence_timeframe("SBER@MISX", "LIVE", "M5") == "M5"
+    assert MODULE.evidence_timeframe("UNKNOWN", "LIVE", "") == "UNKNOWN"
