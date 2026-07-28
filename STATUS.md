@@ -233,6 +233,18 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## V5 fast bars runtime verification 28.07.2026, 22:34–22:36 МСК
+
+- `finam-v5-bars-fast.timer` installed, enabled и active/waiting.
+- Два последовательных автоматических oneshot cycle завершились успешно; каждый
+  обработал ровно 7/7 exact targets, без retry и без overlap.
+- Первый цикл занял около 9 секунд; exit status 0/SUCCESS.
+- После второго цикла фактический age: пять M1 series — `120` секунд, две M5
+  series — `360` секунд. Предыдущее M1 значение `226` секунд устранено.
+- Fast timer не меняет pipeline/execution; Paper safety остаётся
+  `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0`, trailing dry-run.
+- Verdict: `V5_FAST_BARS_REFRESH_RUNTIME_VERIFIED`.
+
 ## V5 fast bars refresh 28.07.2026, 22:18–22:23 МСК
 
 - Для устранения M1 age 226 sec подготовлен независимый fast refresh, не зависящий

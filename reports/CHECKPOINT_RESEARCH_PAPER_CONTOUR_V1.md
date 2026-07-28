@@ -186,3 +186,11 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Validation: 7 tests plus systemd unit verification passed.
 - Deployment pending: install/enable timer, then observe at least two cycles and
   require M1 age <=120 sec under normal vendor response.
+
+## V5 fast bars runtime verified 22:34–22:36 МСК
+
+- Timer enabled and active; two consecutive automatic cycles completed 7/7.
+- No retry, no self-overlap, first observed duration about 9 sec.
+- Freshness after cycle 2: M1=120 sec, M5=360 sec.
+- Previous M1 age 226 sec is eliminated; target contract is satisfied.
+- Verdict: `V5_FAST_BARS_REFRESH_RUNTIME_VERIFIED`.
