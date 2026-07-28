@@ -233,6 +233,25 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## Auto-edge/UI audit 28.07.2026, 22:02–22:08 МСК
+
+- Автоматический edge-контур уже имеет autorun, governed command worker,
+  market-universe queue, checkpointed walk-forward/OOS и команды UI run/cancel.
+- Подтверждён operational blocker: DB schedule содержит неподдерживаемый executor
+  `HIERARCHICAL_EVIDENCE_ROUTER_V1`, из-за которого общий scheduler прерывал все
+  последующие research jobs и `finam-market-universe-research-queue.service` падал.
+- Scheduler оставлен fail-closed по allowlist, но ошибка неизвестного executor
+  теперь сохраняется в job run/failure rollup и изолируется от остальных jobs.
+- Runtime подтверждение: scheduler больше не завершился на router и перешёл к
+  разрешённому `SESSION_EXECUTION_EDGE_V2`. Пять профильных тестов прошли.
+- UI-аудит: Research API отдаёт run/search/universe actions, однако основной
+  Control Center не показывает run/cancel, часть отображаемых actions не имеет
+  governed handler, прогресс edge search и trusted walk-forward источник не
+  полностью отражены. Статус UI пока `PARTIAL_CONTROL`, не production-complete.
+- Следующий этап: единый V5 Edge Control read model с состоянием scheduler,
+  очереди, текущего процесса, свежести, кандидатов/OOS/Paper evidence и только
+  allowlisted Paper/Research-командами. Live promotion остаётся запрещённым.
+
 ## Freshness checkpoint 28.07.2026, 21:52–21:57 МСК
 
 - Все четыре runtime-службы подтверждены как `active`; real execution остаётся

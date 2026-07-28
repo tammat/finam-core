@@ -113,7 +113,30 @@ def main() -> int:
             jobs = cursor.fetchall()
             for job in jobs:
                 if job["executor_code"] not in EXECUTORS:
-                    raise RuntimeError("SYSTEM_JOB_EXECUTOR_NOT_ALLOWED:"+job["executor_code"])
+                    # A stale or partially deployed research job must not stop
+                    # every other allowlisted job in the shared scheduler.  Keep
+                    # the fail-closed allowlist, persist the configuration error,
+                    # and continue with the remaining independent jobs.
+                    scheduler_run_id = uuid.uuid4()
+                    failure = "SYSTEM_JOB_EXECUTOR_NOT_ALLOWED:" + job["executor_code"]
+                    cursor.execute("""INSERT INTO analytics.system_job_run_v1(
+                        scheduler_run_id,job_code,executor_code,status_code,
+                        return_code,stderr_tail,finished_at)
+                        VALUES(%s,%s,%s,'FAILED',126,%s,clock_timestamp())""",
+                        (str(scheduler_run_id),job["job_code"],job["executor_code"],failure))
+                    cursor.execute("""INSERT INTO analytics.system_job_failure_rollup_v1(
+                        job_code,error_fingerprint,occurrences,first_seen_at,last_seen_at,
+                        return_code,stdout_sample,stderr_sample)
+                        VALUES(%s,md5(%s),1,clock_timestamp(),clock_timestamp(),126,'',%s)
+                        ON CONFLICT(job_code,error_fingerprint) DO UPDATE SET
+                          occurrences=analytics.system_job_failure_rollup_v1.occurrences+1,
+                          last_seen_at=clock_timestamp(),return_code=excluded.return_code,
+                          stderr_sample=excluded.stderr_sample,resolved_at=NULL""",
+                        (job["job_code"],failure,failure))
+                    connection.commit()
+                    launched += 1
+                    print(f"DB_JOB_SKIPPED job_code={job['job_code']} reason={failure}")
+                    continue
                 cursor.execute("SELECT max(started_at) last_started FROM analytics.system_job_run_v1 WHERE job_code=%s AND status_code='COMPLETE'", (job["job_code"],))
                 last_started = cursor.fetchone()["last_started"]
                 now = datetime.now(ZoneInfo("UTC"))

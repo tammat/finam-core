@@ -20,6 +20,14 @@ def test_db_is_the_schedule_source_and_executor_is_allowlisted() -> None:
     assert '"scheduler_job_code":"FORWARD_PASS_SHADOW_OBSERVER"' in migration
 
 
+def test_unknown_research_executor_is_isolated_and_persisted() -> None:
+    source=Path("src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert "DB_JOB_SKIPPED" in source
+    assert "status_code,\n                        return_code,stderr_tail,finished_at" in source
+    assert "SYSTEM_JOB_EXECUTOR_NOT_ALLOWED:" in source
+    assert "continue" in source
+
+
 def test_due_uses_database_window_and_interval() -> None:
     path=Path("src/scripts/run_db_job_scheduler_v1.py")
     spec=importlib.util.spec_from_file_location("scheduler",path)

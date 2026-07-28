@@ -143,3 +143,15 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Observed DB age: M1 137 sec, M5 197 sec at the same measurement point.
 - V5 freshness is no longer held behind unrelated slow or invalid instruments.
 - Verdict: `V5_FRESH_DATA_ACCUMULATION_ACTIVE`; real execution remains disabled.
+
+## Auto-edge and governed UI audit 22:02–22:08 МСК
+
+- Root scheduler blocker isolated: unsupported
+  `HIERARCHICAL_EVIDENCE_ROUTER_V1` is persisted as FAILED configuration evidence
+  without aborting independent allowlisted research jobs.
+- Runtime advanced to `SESSION_EXECUTION_EDGE_V2`; previous immediate queue-cycle
+  failure at the unsupported executor no longer occurs.
+- Tests: 5 passed; real execution and live promotion remain disabled.
+- UI verdict: `PARTIAL_CONTROL`. Research exposes several actions, but Control
+  Center lacks canonical run/cancel state and some rendered commands have no
+  governed handler. Next checkpoint is `V5_EDGE_CONTROL_READ_MODEL_V1`.
