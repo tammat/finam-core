@@ -3,7 +3,7 @@
 Дата: 28.07.2026, МСК
 Git branch: codex/research-edge-v5
 Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
-Статус: V5_CANONICAL_CLEAN_INTRADAY_AND_SWING_VERIFIED
+Статус: V5_CODE_VERIFIED_RUNTIME_MARKET_DATA_BLOCKED
 
 ## Подтверждено
 
@@ -56,6 +56,15 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Virtual stop/trailing проверяется на quote, но bar counters/regime invalidation не являются quote-driven.
 - Clean-tree acceptance: `34 passed` по regime, scope, direction, closed-bar exit, materializer, restart restore, virtual trailing и Paper safety.
 - Последний monotonic trailing code присутствует в canonical HEAD; runtime reload verification всё ещё требуется.
+
+## Runtime verification 21:27 МСК
+
+- PID `3754387`; pipeline и Paper Safe active.
+- `EXECUTION_MODE=paper`, `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0`.
+- Persisted-bar reconstruction для NGQ6: `30` завершённых M1 после входа; reset до `1` устранён в code/SQL path.
+- Фактический in-memory log ожидается: provider не дал первой котировки, watchdog reconnect не восстановил события.
+- Ingestion также fail-stop на `2xEQT@MISX`; один invalid symbol блокирует успешное завершение timeframe/cycle.
+- Следующий приоритет: instrument-level fail isolation в ingestion, затем повторная runtime-проверка первого quote и monotonic trailing.
 
 ## Candle-state exit
 

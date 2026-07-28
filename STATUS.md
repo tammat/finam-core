@@ -204,4 +204,13 @@
 - Acceptance на чистом canonical HEAD: `34 passed`.
 - Службы и runtime не запускались; применение последнего monotonic trailing commit после reload требует фактической проверки.
 
+## Runtime checkpoint 21:27–21:30 МСК
+
+- Pipeline reload применён: PID `3754387`, active; Paper Safe active.
+- Safety подтверждена: `EXECUTION_MODE=paper`, `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0`, trailing dry-run включён.
+- Restart closed-bar fix загружен. Read-only расчёт тем же контрактом БД восстанавливает для открытой NGQ6 `30` завершённых M1-баров после входа, а не `1`.
+- Runtime-подтверждение в памяти пока невозможно: после restart не пришёл `MD_FIRST_QUOTE`; watchdog в 21:29:28 выполнил reconnect, но поток снова остановился на `MD_SUBSCRIBE_OPENED`.
+- Отдельно подтверждён data-ingestion blocker: несуществующий `2xEQT@MISX` после шести retry завершает весь timeframe step ошибкой. Требуется fail-isolation инструмента.
+- `TEST@MISX` удалён из projection/lifecycle, verified `0/0`.
+
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
