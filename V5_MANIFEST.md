@@ -10,6 +10,13 @@ V5 — изолированный Research/Paper-контур накоплени
 закрытых сделок с точной атрибуцией, учётом издержек и последующим OOS.
 Он не является допуском к реальной торговле.
 
+Canonical V5 содержит два независимых исследовательских clock-контура:
+
+- intraday: закрытые M1 для BR/NG и M5 для остальных инструментов;
+- swing: закрытые H1/H4/D1.
+
+Swing не заменяет intraday и не использует его quote-driven lifecycle.
+
 ## Обязательные инварианты
 
 1. `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0` и отсутствие обхода Risk Engine.
@@ -40,6 +47,10 @@ V5 — изолированный Research/Paper-контур накоплени
 - `3def889f` — полный PostgreSQL contract централизованного portfolio risk.
 - `1b781d7c` — отдельный swing research/Paper-контур по закрытым H1/H4/D1-барам.
 - `810cb2cb` — корректный приоритет явных adaptive entry constraints над profile defaults.
+
+Intraday baseline и candle-state exits закреплены коммитами `a83ba1ce`,
+`c34220fe`, `3442002e`, `69c310e6`, `01ac1224`, `915a795d`.
+Чистый intraday acceptance на canonical HEAD: `34 passed`.
 
 Непроверенный UI/OOS/runtime WIP изолирован на
 `codex/quarantine-pre-v5-wip-20260728` (`f91941a7`) и в V5 не входит.

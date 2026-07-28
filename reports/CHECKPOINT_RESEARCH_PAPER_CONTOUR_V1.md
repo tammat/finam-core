@@ -3,7 +3,7 @@
 Дата: 28.07.2026, МСК
 Git branch: codex/research-edge-v5
 Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
-Статус: V5_CANONICAL_CLEAN_SWING_VERIFIED
+Статус: V5_CANONICAL_CLEAN_INTRADAY_AND_SWING_VERIFIED
 
 ## Подтверждено
 
@@ -48,6 +48,14 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - `810cb2cb`: explicit adaptive entry constraints имеют приоритет над DB profile defaults.
 - Финальный объединённый Swing/Risk acceptance: `47 passed`; master-context verifier OK.
 - Runtime/migrations/services не запускались.
+
+## Intraday canonical contour
+
+- Intraday M1/M5 является обязательной частью V5 наряду со swing H1/H4/D1.
+- BR/NG state exits используют завершённые M1; остальные intraday-инструменты — завершённые M5.
+- Virtual stop/trailing проверяется на quote, но bar counters/regime invalidation не являются quote-driven.
+- Clean-tree acceptance: `34 passed` по regime, scope, direction, closed-bar exit, materializer, restart restore, virtual trailing и Paper safety.
+- Последний monotonic trailing code присутствует в canonical HEAD; runtime reload verification всё ещё требуется.
 
 ## Candle-state exit
 

@@ -195,4 +195,13 @@
 - Runtime snapshots восстановлены к HEAD; backup/log перенесены в `/tmp/finam-core-local-archive-20260728`.
 - Службы, scheduler, миграции и торговое исполнение при нормализации не запускались.
 
+## Canonical Intraday V5 28.07.2026
+
+- Intraday сохранён как обязательный отдельный V5-контур и не заменён swing-логикой.
+- Clock: закрытые M1 для BR/NG, закрытые M5 для остальных инструментов.
+- Выходы: virtual stop/trailing на quote; regime invalidation и safety hold — только по завершённым configured bars.
+- Restart restore, portfolio scope, directional fail-closed gate, materialization и clean/excluded attribution входят в baseline.
+- Acceptance на чистом canonical HEAD: `34 passed`.
+- Службы и runtime не запускались; применение последнего monotonic trailing commit после reload требует фактической проверки.
+
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
