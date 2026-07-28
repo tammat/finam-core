@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh priority V5 market bars every minute
+
+[Timer]
+OnBootSec=15
+OnUnitInactiveSec=60
+AccuracySec=5s
+Persistent=true
+Unit=finam-v5-bars-fast.service
+
+[Install]
+WantedBy=timers.target

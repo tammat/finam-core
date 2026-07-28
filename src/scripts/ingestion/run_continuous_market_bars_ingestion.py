@@ -45,6 +45,20 @@ def valid_finam_symbol(symbol: str) -> bool:
     ticker, separator, mic = symbol.partition("@")
     return bool(ticker and separator and mic)
 
+
+def parse_target_specs(value: str) -> list[tuple[str, str]]:
+    targets: list[tuple[str, str]] = []
+    for raw in value.split(","):
+        item = raw.strip()
+        if not item:
+            continue
+        symbol, separator, timeframe = item.rpartition("=")
+        symbol, timeframe = symbol.strip(), timeframe.strip().upper()
+        if not separator or not symbol or timeframe not in {"M1", "M5", "M15", "H1", "H4", "D1"}:
+            raise ValueError(f"MARKET_BARS_TARGET_INVALID:{item}")
+        targets.append((symbol, timeframe))
+    return targets
+
 def run_backfill(symbol: str, timeframe: str, lookback_hours: int, step_timeout_sec: int) -> bool:
     cmd = [
         sys.executable,
@@ -76,6 +90,7 @@ def run_backfill(symbol: str, timeframe: str, lookback_hours: int, step_timeout_
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", default="")
+    parser.add_argument("--targets", default="")
     parser.add_argument("--timeframes", default="M1,M5,H1")
     parser.add_argument("--lookback-hours", type=int, default=2)
     parser.add_argument("--interval-sec", type=int, default=60)
@@ -84,6 +99,9 @@ def main() -> int:
     args = parser.parse_args()
 
     requested_symbols = [x.strip() for x in args.symbols.split(",") if x.strip()]
+    requested_targets = parse_target_specs(args.targets)
+    if requested_symbols and requested_targets:
+        parser.error("--symbols and --targets are mutually exclusive")
     timeframes = [x.strip() for x in args.timeframes.split(",") if x.strip()]
     cycle = 0
 
@@ -94,9 +112,9 @@ def main() -> int:
         # Reload the universe every cycle: the scout can add or disable instruments
         # without requiring a service restart.
         targets = (
-            [(symbol, timeframe) for timeframe in timeframes for symbol in requested_symbols]
-            if requested_symbols
-            else load_watch_targets()
+            requested_targets
+            or ([(symbol, timeframe) for timeframe in timeframes for symbol in requested_symbols]
+                if requested_symbols else load_watch_targets())
         )
         ok_all = True
         for symbol, timeframe in targets:

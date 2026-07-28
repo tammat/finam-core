@@ -177,3 +177,12 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Observed freshness: M1 226 sec (above 180-sec target), M5 346 sec (within
   420-sec threshold). Next checkpoint: independent fast V5 refresh subcycle.
 - Verdict: `V5_EDGE_CONTROL_UI_ACTIVE_AUTONOMOUS_MODE`.
+
+## V5 fast bars refresh prepared 22:18–22:23 МСК
+
+- Independent exact-target fast refresh prepared for five M1 and two M5 V5 series.
+- One-shot timer cadence: 60 sec after service completion; no self-overlap.
+- Per-target timeout 15 sec; full unit timeout 120 sec; no execution commands.
+- Validation: 7 tests plus systemd unit verification passed.
+- Deployment pending: install/enable timer, then observe at least two cycles and
+  require M1 age <=120 sec under normal vendor response.

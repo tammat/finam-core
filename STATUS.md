@@ -233,6 +233,19 @@
 
 Не записывать предположения как факты. Непроверенные сведения помечать словами «требует проверки».
 
+## V5 fast bars refresh 28.07.2026, 22:18–22:23 МСК
+
+- Для устранения M1 age 226 sec подготовлен независимый fast refresh, не зависящий
+  от длительности полного scout-universe cycle.
+- Exact targets: BRQ6/NGQ6/SBER/GAZP/LKOH M1 и NVTK/VTBR M5; cross-product
+  timeframes исключён новым параметром `--targets symbol=timeframe`.
+- `finam-v5-bars-fast.service` — research-only oneshot с timeout 15 sec на target
+  и общим 120 sec; timer использует `OnUnitInactiveSec=60`, поэтому экземпляры
+  одного fast service не перекрываются.
+- Проверки: Python compile, 7 tests, `systemd-analyze verify`, `git diff --check`.
+- Units ещё не установлены в `/etc/systemd/system`; runtime freshness после timer
+  требует операторской установки/старта и отдельного наблюдения минимум 2 цикла.
+
 ## V5 Edge Control UI runtime 28.07.2026, 22:15–22:17 МСК
 
 - UI reload применён: `marketcore-ui-shell` PID `3955695`, active/running.
