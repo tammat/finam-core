@@ -55,6 +55,7 @@ EXECUTORS = {
     "MICROSTRUCTURE_PRIORITY_REFRESH_V1": "src/scripts/refresh_microstructure_priority_v1.py",
     "M15_REBUILD_FROM_M5_V1": "src/scripts/rebuild_m15_from_m5_v1.py",
     "HIERARCHICAL_EVIDENCE_ROUTER_V1": "src/scripts/build_v5_hierarchical_evidence_v1.py",
+    "V5_ASSET_BRANCH_ROTATION_V1": "src/scripts/rotate_v5_asset_branch_timeframes_v1.py",
 }
 
 

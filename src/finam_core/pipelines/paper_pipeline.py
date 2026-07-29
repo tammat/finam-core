@@ -1786,11 +1786,31 @@ class PaperTradingPipeline:
             }
         return states[symbol]
 
+    def _exit_timeframe_for_symbol(self, symbol: str) -> str:
+        """Use the active asset branch clock; BR/NG keep their canonical M1 clock."""
+        symbol = str(symbol or "")
+        if symbol.startswith(("NG", "BR")):
+            return "M1"
+        if symbol in {"USDRUBF@RTSX", "CNYRUBF@RTSX", "GDU6@RTSX"}:
+            try:
+                with self.pg_logger._connect() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT timeframe FROM runtime_active_universe WHERE symbol=%s AND is_enabled",
+                            (symbol,),
+                        )
+                        row = cur.fetchone()
+                timeframe = str(row[0] if row else "M5").upper()
+                return timeframe if timeframe in {"M1", "M5"} else "M5"
+            except Exception:
+                return "M5"
+        return "M5"
+
     def _mark_exit_closed_bar_v1(self, bar) -> None:
         """Advance exit state only from the configured completed market bar."""
         symbol = str(getattr(bar, "symbol", "") or "")
         timeframe = str(getattr(bar, "timeframe", "") or "").upper()
-        expected_timeframe = "M1" if symbol.startswith(("NG", "BR")) else "M5"
+        expected_timeframe = self._exit_timeframe_for_symbol(symbol)
         if not symbol or timeframe != expected_timeframe:
             return
 
@@ -1830,7 +1850,7 @@ class PaperTradingPipeline:
 
     def _sync_exit_closed_bar_from_regime_v1(self, symbol: str) -> None:
         """Use the persisted candle-regime bar as fallback when WS has no trade progress."""
-        timeframe = "M1" if str(symbol).startswith(("NG", "BR")) else "M5"
+        timeframe = self._exit_timeframe_for_symbol(symbol)
         regime = self.candle_regime_engine_v2.evaluate(symbol, timeframe)
         bar_ts = getattr(regime, "bar_ts", None)
         if bar_ts is None:
@@ -4078,7 +4098,23 @@ class PaperTradingPipeline:
 
             static_atr_threshold = float(os.getenv("ATR_MIN_PCT", "0.002"))
 
-            if os.getenv("BR_ADAPTIVE_VOL_GATE_ENABLED", "1") == "1":
+            from finam_core.risk.asset_specific_volatility_gate_v1 import (
+                AssetSpecificVolatilityGateV1,
+            )
+            asset_vol_decision = AssetSpecificVolatilityGateV1().decide(
+                symbol=str(sym),
+                atr_pct=float(atr_pct or 0.0),
+                atr_percentile=float(getattr(regime, "atr_percentile", 0.0) or 0.0),
+                data_ready=bool(getattr(regime, "data_ready", False)),
+                stale=bool(getattr(regime, "stale", True)),
+            )
+
+            if asset_vol_decision.applies:
+                low_vol_block = not asset_vol_decision.allowed
+                effective_atr_threshold = asset_vol_decision.minimum_percentile
+                vol_gate_mode = asset_vol_decision.mode
+                vol_gate_reason = asset_vol_decision.reason_code
+            elif os.getenv("BR_ADAPTIVE_VOL_GATE_ENABLED", "1") == "1":
                 from finam_core.risk.br_adaptive_volatility_gate import BrAdaptiveVolatilityGate
 
                 if not hasattr(self, "br_adaptive_volatility_gate"):
@@ -4113,6 +4149,7 @@ class PaperTradingPipeline:
                         f"atr_pct={round(float(atr_pct or 0.0), 6)}",
                         f"threshold={round(float(effective_atr_threshold or 0.0), 6)}",
                         f"static_threshold={round(float(static_atr_threshold or 0.0), 6)}",
+                        f"atr_percentile={round(float(getattr(regime, 'atr_percentile', 0.0) or 0.0), 4)}",
                         f"mode={vol_gate_mode}",
                         f"reason={vol_gate_reason}",
                         f"atr={round(float(getattr(regime, 'atr', 0.0) or 0.0), 6)}",
@@ -4138,6 +4175,7 @@ class PaperTradingPipeline:
                             f"atr_pct={round(float(atr_pct or 0.0), 6)}",
                             f"threshold={round(float(effective_atr_threshold or 0.0), 6)}",
                             f"static_threshold={round(float(static_atr_threshold or 0.0), 6)}",
+                            f"atr_percentile={round(float(getattr(regime, 'atr_percentile', 0.0) or 0.0), 4)}",
                             f"mode={vol_gate_mode}",
                             f"reason={vol_gate_reason}",
                             f"atr={round(float(getattr(regime, 'atr', 0.0) or 0.0), 6)}",
@@ -4152,7 +4190,7 @@ class PaperTradingPipeline:
                             else self._strategy_name_for_symbol(str(sym))
                         )
                         print(
-                            f"PIPE_EQUITY_PRE_SIGNAL_GUARD_STRATEGY_RESOLVED "
+                            f"PIPE_PRE_SIGNAL_GUARD_STRATEGY_RESOLVED "
                             f"symbol={sym} block_type=VOL_LOW_BLOCK "
                             f"strategy={_pre_signal_guard_strategy}",
                             flush=True,
@@ -4173,11 +4211,16 @@ class PaperTradingPipeline:
                             payload={
                                 "static_threshold": static_atr_threshold,
                                 "vol_gate_mode": vol_gate_mode,
+                                "atr_percentile": float(getattr(regime, "atr_percentile", 0.0) or 0.0),
+                                "asset_code": asset_vol_decision.asset_code,
                                 "source": "paper_pipeline",
                             },
                         )
 
-                    if os.getenv("BR_COMPRESSION_WATCH_ENABLED", "1") == "1":
+                    if (
+                        str(sym).upper().startswith("BR")
+                        and os.getenv("BR_COMPRESSION_WATCH_ENABLED", "1") == "1"
+                    ):
                         from finam_core.risk.br_compression_watch import BrCompressionWatch
 
                         if not hasattr(self, "br_compression_watch"):
@@ -4212,7 +4255,7 @@ class PaperTradingPipeline:
                                     else self._strategy_name_for_symbol(str(sym))
                                 )
                                 print(
-                                    f"PIPE_EQUITY_PRE_SIGNAL_GUARD_STRATEGY_RESOLVED "
+                                    f"PIPE_PRE_SIGNAL_GUARD_STRATEGY_RESOLVED "
                                     f"symbol={sym} block_type=COMPRESSION_WATCH "
                                     f"strategy={_pre_signal_guard_strategy}",
                                     flush=True,
@@ -4255,6 +4298,26 @@ class PaperTradingPipeline:
                         )
                     else:
                         return
+
+            # === 2. Слишком высокая вола → шум
+            if (
+                asset_vol_decision.applies
+                and not is_exit_intent
+                and not is_force_intent
+            ):
+                contract_allowed, contract_reason = self._v5_asset_contract_allows_signal(
+                    str(sym)
+                )
+                if not contract_allowed:
+                    self._save_pre_signal_block_audit_v1(
+                        symbol=str(sym),
+                        strategy=self._strategy_name_for_symbol(str(sym)),
+                        timeframe=str(getattr(regime, "timeframe", "M5") or "M5"),
+                        block_type="CONTRACT_ROLLOVER",
+                        block_reason=contract_reason,
+                        payload={"asset_code": asset_vol_decision.asset_code},
+                    )
+                    return
 
             # === 2. Слишком высокая вола → шум
             if (not is_exit_intent) and (not is_force_intent) and atr_pct > 0.03:
@@ -10578,6 +10641,34 @@ class PaperTradingPipeline:
 
         cache[key] = (now, allowed, reason)
         return allowed, reason
+
+    def _v5_asset_contract_allows_signal(self, symbol: str) -> tuple[bool, str]:
+        """Fail closed when an isolated asset branch has no rollover readiness row."""
+        import time
+
+        cache = getattr(self, "_v5_asset_contract_cache", None)
+        if cache is None:
+            cache = {}
+            self._v5_asset_contract_cache = cache
+        now = time.monotonic()
+        cached = cache.get(str(symbol))
+        if cached and now-cached[0] < 60:
+            return cached[1],cached[2]
+        allowed,reason = False,"V5_ASSET_CONTRACT_READINESS_UNAVAILABLE"
+        try:
+            with self.pg_logger._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT allowed,reason FROM analytics.v5_asset_contract_entry_allowed_v1(%s)",
+                        (str(symbol),),
+                    )
+                    row = cur.fetchone()
+            if row:
+                allowed,reason = bool(row[0]),str(row[1])
+        except Exception as exc:
+            reason=f"V5_ASSET_CONTRACT_READINESS_ERROR:{type(exc).__name__}"
+        cache[str(symbol)]=(now,allowed,reason)
+        return allowed,reason
 
 
     def _process_ng_m1_closed_bar_for_paper_signal(self, bar) -> None:

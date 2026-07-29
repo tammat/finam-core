@@ -192,6 +192,57 @@ def _open_positions_section(rows):
                         children=tuple(children))
 
 
+def _multi_asset_section(rows, cny_spot_controls=()):
+    children = [
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.multi_asset.title",
+              "Валюты и золото", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "control.v3.multi_asset.note",
+              "Изолированные Paper-ветки · комиссии, сессии и направление обязательны"),
+    ]
+    grouped = {}
+    for row in rows:
+        grouped.setdefault((row.get("asset_code"), row.get("timeframe_code")), []).append(row)
+    asset_names = {"USD": "USD perpetual", "GOLD": "Gold dated", "CNY": "CNY perpetual"}
+    for index, ((asset, timeframe), branches) in enumerate(grouped.items(), start=1):
+        first = branches[0]
+        counts = {str(item.get("side_code")): int(item.get("closed_trades") or 0)
+                  for item in branches}
+        selected = str(first.get("active_timeframe") or "—") == str(timeframe)
+        fee = first.get("scalper_fee")
+        spread = first.get("spread_bps")
+        cost_text = f"fee {float(fee):g} {first.get('fee_currency') or 'RUB'}" if fee is not None else "fee —"
+        spread_text = f"spread {float(spread):.2f} bps" if spread is not None else "spread —"
+        carry = "funding required" if first.get("funding_cost_required") else "rollover required"
+        oos = "OOS ready" if first.get("oos_allowed") else "OOS blocked"
+        value = (f"LONG {counts.get('LONG', 0)} · SHORT {counts.get('SHORT', 0)} · "
+                 f"{cost_text} · {spread_text} · {carry} · {oos}")
+        children.append(RenderNodeV2(
+            RenderNodeTypeV2.METRIC_ROW,
+            f"control.v3.multi_asset.{index}",
+            state=RenderNodeStateV2(
+                status_code="OK" if selected and first.get("research_entry_allowed") else "WARNING",
+                source_identity="analytics.v5_asset_branch_policy_v1",
+                source_as_of=_utc(first.get("spread_observed_at") or first.get("cost_verified_at")),
+            ),
+            children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,
+                      f"control.v3.multi_asset.{index}.label",
+                      f"{asset_names.get(asset, asset)} · {timeframe}{' · active' if selected else ''}"),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,
+                      f"control.v3.multi_asset.{index}.value", value),
+            ),
+        ))
+    controls = {str(row.get("symbol")): row for row in cny_spot_controls}
+    control_text = " · ".join(
+        f"{symbol}: DATA/COST NOT READY" for symbol in ("CNYM@MISX", "CNYRUB_TOM@MISX")
+    )
+    if controls:
+        control_text += " · только контроль, не V5-ветка"
+    children.append(_leaf(RenderNodeTypeV2.TEXT, "control.v3.multi_asset.cny_controls", control_text))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.multi_asset",
+                        children=tuple(children))
+
+
 def _ru_status(value):
     code = str(value or "").upper()
     return {
@@ -483,6 +534,8 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
         _compact_state_section(snapshot, raw_process_status),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
+        _multi_asset_section(snapshot.get("asset_branches") or (),
+                             snapshot.get("cny_spot_controls") or ()),
         _open_positions_section(snapshot.get("open_position_diagnostics") or ()),
         _compact_control_section(snapshot),
     ))

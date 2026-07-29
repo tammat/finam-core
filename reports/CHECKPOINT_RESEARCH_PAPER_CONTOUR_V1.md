@@ -270,3 +270,16 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - Runtime reload completed at 06:46:06 MSK: five cards, five exact rows, open
   positions present, Refresh is the only command, and technical sections are absent.
   Paper safety remains unchanged. Compact UI deployment is complete.
+
+## Multi-asset V5 checkpoint 29.07.2026
+
+- Code and migrations prepared for isolated USD perpetual, Gold dated-contract and
+  CNY perpetual scopes, each with M1/M5 and symmetric LONG/SHORT branches.
+- Own-history volatility normalization, contract readiness, flat-only timeframe
+  rotation and candle/trailing exit clocks are wired into the Paper contour.
+- USD/CNY require funding cost before OOS; Gold requires verified rollover lineage.
+  Cost/session/direction guards were not relaxed and BR/NG results stay separate.
+- Main UI adds one compact multi-asset section and no commands. TOD/TOM are
+  non-branch controls only.
+- 41 focused tests passed. DB deployment is pending because the canonical resolver
+  function is postgres-owned; the failed alex migration was fully rolled back.

@@ -443,3 +443,19 @@
   задержки второстепенных инструментов больше не блокируют свежесть V5.
 - Safety подтверждена без изменений: Paper mode, execution/real trading disabled,
   trailing dry-run. Чистое накопление V5 активно.
+
+## V5 USD / Gold / CNY branches prepared 29.07.2026
+
+- Prepared 12 isolated branches: USD perpetual, dated Gold and CNY perpetual,
+  each as M1/M5 × LONG/SHORT. BR/NG evidence remains in its existing scope.
+- Asset-specific volatility gates use each instrument's own ATR percentile.
+  Existing cost, session and direction guards remain mandatory; candle-state and
+  symmetric trailing exits use the selected M1/M5 closed-bar clock.
+- USD/CNY funding and Gold rollover lineage are explicit OOS blockers.
+- Compact UI source adds a button-free `Валюты и золото` section with direction
+  progress, active timeframe, fees/spread and funding/rollover status. CNY TOD/TOM
+  remain display-only controls marked `DATA/COST NOT READY`.
+- Validation: 41 focused tests, source compilation and diff checks passed.
+- Deployment awaits an owner-level DB migration: the `alex` attempt rolled back
+  atomically because the canonical resolver is owned by `postgres`.
+- Safety unchanged: Paper mode, execution/real trading disabled, trailing dry-run.

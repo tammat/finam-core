@@ -7,7 +7,13 @@ import psycopg2.extras
 
 
 TARGET_TRADES = 80
-ACTIVE_SCOPES = ("FRESH_V5_CONFIRMED_EQUITY", "FRESH_V5_CONFIRMED_FUTURES")
+ACTIVE_SCOPES = (
+    "FRESH_V5_CONFIRMED_EQUITY",
+    "FRESH_V5_CONFIRMED_FUTURES",
+    "FRESH_V5_USD_PERPETUAL",
+    "FRESH_V5_GOLD_FUTURES",
+    "FRESH_V5_CNY_PERPETUAL",
+)
 
 
 class ControlCompactV3Resolver:
@@ -227,6 +233,48 @@ class ControlCompactV3Resolver:
                 hierarchy_top_exact = [dict(row) for row in cursor.fetchall()]
                 hierarchy_nearest = hierarchy_top_exact[0] if hierarchy_top_exact else {}
 
+                cursor.execute("""
+                    WITH exact AS (
+                      SELECT scope_code,timeframe_code,side_code,max(closed_trades)::int AS closed_trades
+                      FROM analytics.hierarchical_evidence_v1
+                      WHERE cohort_code='FRESH_V5_CONFIRM' AND level_code='EXACT_CONTEXT'
+                      GROUP BY 1,2,3
+                    )
+                    SELECT p.asset_code,p.symbol,p.scope_code,p.timeframe_code,p.side_code,
+                           p.strategy_code,coalesce(e.closed_trades,0)::int AS closed_trades,
+                           u.timeframe AS active_timeframe,
+                           r.rollover_mode,r.readiness_code,r.next_symbol,
+                           r.research_entry_allowed,r.oos_allowed,r.reason AS readiness_reason,
+                           p.funding_cost_required,
+                           c.buy_sell_fee,c.scalper_fee,c.fee_currency,c.verified_at AS cost_verified_at,
+                           m.spread_bps,m.observed_at AS spread_observed_at
+                    FROM analytics.v5_asset_branch_policy_v1 p
+                    JOIN analytics.v5_asset_contract_readiness_v1 r ON r.asset_code=p.asset_code
+                    LEFT JOIN exact e ON e.scope_code=p.scope_code
+                                     AND e.timeframe_code=p.timeframe_code
+                                     AND e.side_code=p.side_code
+                    LEFT JOIN runtime_active_universe u ON u.symbol=p.symbol AND u.is_enabled
+                    LEFT JOIN analytics.market_contract_cost_spec_v1 c ON c.symbol=p.symbol
+                    LEFT JOIN LATERAL (
+                      SELECT spread_bps,observed_at
+                      FROM analytics.market_microstructure_snapshot_v1
+                      WHERE symbol=p.symbol ORDER BY observed_at DESC LIMIT 1
+                    ) m ON true
+                    WHERE p.enabled
+                    ORDER BY array_position(ARRAY['USD','GOLD','CNY']::text[],p.asset_code),
+                             p.timeframe_code,p.side_code
+                """)
+                asset_branches = [dict(row) for row in cursor.fetchall()]
+
+                cursor.execute("""
+                    SELECT symbol,max(ts) AS latest_bar,
+                           extract(epoch FROM clock_timestamp()-max(ts))::int AS age_sec
+                    FROM market_bars
+                    WHERE symbol IN ('CNYM@MISX','CNYRUB_TOM@MISX')
+                    GROUP BY symbol ORDER BY symbol
+                """)
+                cny_spot_controls = [dict(row) for row in cursor.fetchall()]
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -295,4 +343,6 @@ class ControlCompactV3Resolver:
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,
             "hierarchy_top_exact": hierarchy_top_exact,
+            "asset_branches": asset_branches,
+            "cny_spot_controls": cny_spot_controls,
         }
