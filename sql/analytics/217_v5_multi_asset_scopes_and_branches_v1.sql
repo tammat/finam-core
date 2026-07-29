@@ -64,6 +64,23 @@ ON CONFLICT(asset_code,timeframe_code,side_code) DO UPDATE SET
 UPDATE analytics.v5_asset_branch_policy_v1
 SET funding_cost_required=(asset_code IN ('USD','CNY')),updated_at=clock_timestamp();
 
+-- The active-universe governance trigger requires a physical strategy policy
+-- for every selectable timeframe. Clone the already governed M5 definitions;
+-- this expands only the research clock and does not relax strategy controls.
+INSERT INTO analytics.runtime_strategy_policy_v2(
+ symbol,timeframe,regime_family,strategy_code,generator_code,enabled,
+ priority,assignment_reason,updated_at
+)
+SELECT symbol,'M1',regime_family,strategy_code,generator_code,enabled,
+       priority,assignment_reason||'; V5 M1 isolated branch',clock_timestamp()
+FROM analytics.runtime_strategy_policy_v2
+WHERE timeframe='M5' AND enabled
+  AND symbol IN ('USDRUBF@RTSX','CNYRUBF@RTSX','GDU6@RTSX')
+ON CONFLICT(symbol,timeframe,regime_family) DO UPDATE SET
+ strategy_code=excluded.strategy_code,generator_code=excluded.generator_code,
+ enabled=excluded.enabled,priority=excluded.priority,
+ assignment_reason=excluded.assignment_reason,updated_at=excluded.updated_at;
+
 CREATE OR REPLACE FUNCTION analytics.resolve_paper_portfolio_scope_v1(
     p_symbol text,
     p_execution_type text DEFAULT 'paper'

@@ -46,6 +46,8 @@ def test_three_assets_have_isolated_scopes_and_twelve_branches() -> None:
     for guard in ("cost_guard_required","session_guard_required","direction_guard_required",
                   "candle_exit_required","trailing_dry_run_required","funding_cost_required"):
         assert guard in sql
+    assert "runtime_strategy_policy_v2" in sql
+    assert "SELECT symbol,'M1',regime_family" in sql
 
 
 def test_asset_scopes_do_not_replace_br_ng_fallback_scope() -> None:

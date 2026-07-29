@@ -459,3 +459,6 @@
 - Deployment awaits an owner-level DB migration: the `alex` attempt rolled back
   atomically because the canonical resolver is owned by `postgres`.
 - Safety unchanged: Paper mode, execution/real trading disabled, trailing dry-run.
+- Post-deploy audit found the first flat-only M5→M1 rotation correctly blocked by
+  active-universe governance because only M5 strategy policies existed. Migration
+  217 now clones the governed policy for M1; no fills, orders or positions changed.

@@ -283,3 +283,6 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
   non-branch controls only.
 - 41 focused tests passed. DB deployment is pending because the canonical resolver
   function is postgres-owned; the failed alex migration was fully rolled back.
+- Runtime follow-up: scopes/UI deployed successfully. The first M1 rotation was
+  fail-closed due to missing M1 strategy policies; migration 217 was amended to add
+  those policies without changing any execution or risk guard.
