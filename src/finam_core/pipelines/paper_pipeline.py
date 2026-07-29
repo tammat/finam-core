@@ -2299,6 +2299,20 @@ class PaperTradingPipeline:
             if repo is None:
                 return
 
+            # A protective stop is monotonic for the lifetime of one position:
+            # LONG may only move up, SHORT may only move down. Merge here so all
+            # lifecycle writers (take-profit, profit-lock, trailing, ExitEngine)
+            # obey the same restart-safe rule.
+            if current_stop is not None:
+                previous = repo.load_state(symbol=symbol, strategy=strategy) or {}
+                previous_stop = previous.get("current_stop")
+                if previous_stop is not None:
+                    signed_qty = float(self._position_qty_for_symbol(symbol) or 0.0)
+                    if signed_qty > 0:
+                        current_stop = max(float(current_stop), float(previous_stop))
+                    elif signed_qty < 0:
+                        current_stop = min(float(current_stop), float(previous_stop))
+
             repo.upsert_state(
                 symbol=symbol,
                 strategy=strategy,
@@ -2339,12 +2353,13 @@ class PaperTradingPipeline:
                             updated_at=now()
                         WHERE portfolio_scope=analytics.resolve_paper_portfolio_scope_v1(%s, 'paper')
                           AND symbol=%s
+                          AND strategy=%s
                         """,
                         (
                             entry_price, initial_qty, remaining_qty,
                             tp1_done, tp2_done, profit_lock_done, trailing_active,
                             current_stop, current_take_profit,
-                            Jsonb({"lifecycle_source": source}), symbol, symbol,
+                            Jsonb({"lifecycle_source": source}), symbol, symbol, strategy,
                         ),
                     )
         except Exception as exc:
@@ -2912,6 +2927,21 @@ class PaperTradingPipeline:
             actual_qty=float(qty or 0.0),
             strategy=lifecycle_strategy,
         )
+
+        # Restore the effective stop before any observer recalculates levels.
+        # This applies to every Paper instrument and both position directions.
+        persisted_lifecycle = self._load_position_lifecycle_state_for_symbol(
+            symbol,
+            strategy=lifecycle_strategy,
+        ) or {}
+        persisted_stop = persisted_lifecycle.get("current_stop")
+        if persisted_stop is not None:
+            if state.get("stop_price") is None:
+                state["stop_price"] = float(persisted_stop)
+            elif float(qty) > 0:
+                state["stop_price"] = max(float(state["stop_price"]), float(persisted_stop))
+            else:
+                state["stop_price"] = min(float(state["stop_price"]), float(persisted_stop))
 
         now_ts = time.time()
         has_position = abs(float(qty or 0.0)) > 1e-9

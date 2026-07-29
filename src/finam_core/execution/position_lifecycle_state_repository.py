@@ -74,15 +74,15 @@ class PositionLifecycleStateRepository:
                         )
                         ON CONFLICT (portfolio_scope, symbol, strategy)
                         DO UPDATE SET
-                            entry_price = EXCLUDED.entry_price,
-                            initial_qty = EXCLUDED.initial_qty,
-                            remaining_qty = EXCLUDED.remaining_qty,
-                            tp1_done = EXCLUDED.tp1_done,
-                            tp2_done = EXCLUDED.tp2_done,
-                            profit_lock_done = EXCLUDED.profit_lock_done,
-                            trailing_active = EXCLUDED.trailing_active,
-                            current_stop = EXCLUDED.current_stop,
-                            current_take_profit = EXCLUDED.current_take_profit,
+                            entry_price = COALESCE(EXCLUDED.entry_price, paper_research_position_lifecycle_v1.entry_price),
+                            initial_qty = COALESCE(EXCLUDED.initial_qty, paper_research_position_lifecycle_v1.initial_qty),
+                            remaining_qty = COALESCE(EXCLUDED.remaining_qty, paper_research_position_lifecycle_v1.remaining_qty),
+                            tp1_done = COALESCE(EXCLUDED.tp1_done, paper_research_position_lifecycle_v1.tp1_done),
+                            tp2_done = COALESCE(EXCLUDED.tp2_done, paper_research_position_lifecycle_v1.tp2_done),
+                            profit_lock_done = COALESCE(EXCLUDED.profit_lock_done, paper_research_position_lifecycle_v1.profit_lock_done),
+                            trailing_active = COALESCE(EXCLUDED.trailing_active, paper_research_position_lifecycle_v1.trailing_active),
+                            current_stop = COALESCE(EXCLUDED.current_stop, paper_research_position_lifecycle_v1.current_stop),
+                            current_take_profit = COALESCE(EXCLUDED.current_take_profit, paper_research_position_lifecycle_v1.current_take_profit),
                             raw = COALESCE(paper_research_position_lifecycle_v1.raw, '{}'::jsonb)
                                   || COALESCE(EXCLUDED.raw, '{}'::jsonb),
                             updated_at = NOW()

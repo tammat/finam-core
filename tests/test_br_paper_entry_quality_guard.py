@@ -87,3 +87,33 @@ def test_non_br_is_unchanged():
         True,
         "BR_ENTRY_QUALITY_NOT_APPLICABLE",
     )
+
+
+class _LifecycleRepo:
+    def __init__(self, stop):
+        self.stop = stop
+        self.saved = None
+
+    def load_state(self, **_kwargs):
+        return {"current_stop": self.stop}
+
+    def upsert_state(self, **kwargs):
+        self.saved = kwargs
+
+
+def test_all_instruments_keep_long_stop_monotonic(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    pipeline = PaperTradingPipeline.__new__(PaperTradingPipeline)
+    pipeline.position_lifecycle_state_repository = _LifecycleRepo(101.0)
+    pipeline._position_qty_for_symbol = lambda _symbol: 1.0
+    pipeline._save_position_lifecycle_state(symbol="SBER@MISX", current_stop=99.0)
+    assert pipeline.position_lifecycle_state_repository.saved["current_stop"] == 101.0
+
+
+def test_all_instruments_keep_short_stop_monotonic(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    pipeline = PaperTradingPipeline.__new__(PaperTradingPipeline)
+    pipeline.position_lifecycle_state_repository = _LifecycleRepo(101.0)
+    pipeline._position_qty_for_symbol = lambda _symbol: -1.0
+    pipeline._save_position_lifecycle_state(symbol="NGQ6@RTSX", current_stop=103.0)
+    assert pipeline.position_lifecycle_state_repository.saved["current_stop"] == 101.0

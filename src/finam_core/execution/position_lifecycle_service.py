@@ -125,7 +125,13 @@ class PositionLifecycleService:
 
         except Exception as exc:
             print(f"PIPE_TAKE_PROFIT_ERROR symbol={symbol} error={exc}", flush=True)
-    def _evaluate_trailing_order_manager(self, symbol: str, qty: float, price: float) -> None:
+    def _evaluate_trailing_order_manager(
+        self,
+        symbol: str,
+        qty: float,
+        price: float,
+        strategy: str = "default",
+    ) -> None:
         """Русский комментарий: trailing stop lifecycle перенесён из PaperTradingPipeline."""
         p = self.pipeline
         if os.getenv("ENABLE_TRAILING_ORDER_MANAGER", "0") != "1":
@@ -156,11 +162,17 @@ class PositionLifecycleService:
         qty = float(qty or 0.0)
         price = float(price)
 
-        if qty <= 0:
+        if qty == 0:
             p._trailing_order_stop_by_symbol.pop(symbol, None)
             return
 
-        lifecycle_state = p._load_position_lifecycle_state_for_symbol(symbol) or {}
+        is_long = qty > 0
+        order_qty = abs(qty)
+
+        lifecycle_state = p._load_position_lifecycle_state_for_symbol(
+            symbol,
+            strategy=strategy,
+        ) or {}
         current_stop = p._trailing_order_stop_by_symbol.get(symbol)
 
         if current_stop is None and lifecycle_state.get("current_stop") is not None:
@@ -169,11 +181,21 @@ class PositionLifecycleService:
         exit_state = p._exit_state_for_symbol(symbol)
         state_stop = exit_state.get("stop_price")
         if state_stop is not None:
-            current_stop = max(float(current_stop), float(state_stop)) if current_stop is not None else float(state_stop)
+            if current_stop is None:
+                current_stop = float(state_stop)
+            elif is_long:
+                current_stop = max(float(current_stop), float(state_stop))
+            else:
+                current_stop = min(float(current_stop), float(state_stop))
 
-        decision = p.trailing_order_manager.evaluate_long(
+        evaluate = (
+            p.trailing_order_manager.evaluate_long
+            if is_long
+            else p.trailing_order_manager.evaluate_short
+        )
+        decision = evaluate(
             symbol=symbol,
-            qty=qty,
+            qty=order_qty,
             last_price=price,
             current_stop=current_stop,
         )
@@ -182,7 +204,10 @@ class PositionLifecycleService:
         if (
             decision.action in ("PLACE_STOP", "REPLACE_STOP")
             and current_stop is not None
-            and float(decision.stop_price or 0.0) < float(current_stop) + min_replace_step
+            and (
+                (is_long and float(decision.stop_price or 0.0) < float(current_stop) + min_replace_step)
+                or (not is_long and float(decision.stop_price or 0.0) > float(current_stop) - min_replace_step)
+            )
         ):
             return
 
@@ -213,6 +238,7 @@ class PositionLifecycleService:
 
             p._save_position_lifecycle_state(
                 symbol=decision.symbol,
+                strategy=strategy,
                 remaining_qty=decision.qty,
                 trailing_active=True,
                 current_stop=decision.stop_price,
@@ -284,6 +310,7 @@ class PositionLifecycleService:
         # Русский комментарий: trailing lifecycle теперь вызывается через сервис.
         self._evaluate_trailing_order_manager(
             data.symbol,
-            abs(float(data.qty)),
+            float(data.qty),
             float(data.price),
+            strategy=data.strategy,
         )
