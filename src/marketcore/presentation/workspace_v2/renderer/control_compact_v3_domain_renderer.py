@@ -196,62 +196,47 @@ def _multi_asset_section(rows, cny_spot_controls=()):
     children = [
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.multi_asset.title",
               "Валюты и золото", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "control.v3.multi_asset.note",
-              "Система отдельно проверяет покупки и продажи, учитывая торговые расходы и время торгов"),
     ]
     grouped = {}
     for row in rows:
-        grouped.setdefault((row.get("asset_code"), row.get("timeframe_code")), []).append(row)
+        grouped.setdefault(row.get("asset_code"), []).append(row)
     asset_names = {
-        "USD": "Доллар США · бессрочный фьючерс",
-        "GOLD": "Золото · контракт с датой окончания",
-        "CNY": "Китайский юань · бессрочный фьючерс",
+        "USD": "Доллар",
+        "GOLD": "Золото",
+        "CNY": "Юань",
     }
-    for index, ((asset, timeframe), branches) in enumerate(grouped.items(), start=1):
+    for index, (asset, branches) in enumerate(grouped.items(), start=1):
         first = branches[0]
-        counts = {str(item.get("side_code")): int(item.get("closed_trades") or 0)
-                  for item in branches}
-        selected = str(first.get("active_timeframe") or "—") == str(timeframe)
-        fee = first.get("scalper_fee")
-        spread = first.get("spread_bps")
-        cost_text = (f"комиссия {float(fee):g} {first.get('fee_currency') or 'руб.'}"
-                     if fee is not None else "комиссия ещё не получена")
-        spread_text = (f"разница цен {float(spread):.2f} б.п."
-                       if spread is not None else "разница цен ещё не получена")
-        carry = ("нужно учесть ежедневную плату за перенос"
-                 if first.get("funding_cost_required")
-                 else "нужно проверить переход на следующий контракт")
-        verification = ("можно начинать независимую проверку"
-                        if first.get("oos_allowed")
-                        else "независимая проверка пока запрещена")
-        value = (f"примеров покупки: {counts.get('LONG', 0)} · "
-                 f"примеров продажи: {counts.get('SHORT', 0)} · "
-                 f"{cost_text} · {spread_text} · {carry} · {verification}")
+        by_clock = {}
+        for item in branches:
+            clock = str(item.get("timeframe_code"))
+            by_clock.setdefault(clock, {})[str(item.get("side_code"))] = int(
+                item.get("closed_trades") or 0)
+        clock_text = " · ".join(
+            f"{clock[1:]}м: П {by_clock.get(clock, {}).get('LONG', 0)} / "
+            f"Пр {by_clock.get(clock, {}).get('SHORT', 0)}"
+            for clock in ("M1", "M5")
+        )
+        active = str(first.get("active_timeframe") or "M5").replace("M", "")
+        costs_ready = first.get("scalper_fee") is not None and first.get("spread_bps") is not None
+        value = (f"сейчас {active} мин · {clock_text} · "
+                 f"{'расходы видны' if costs_ready else 'расходы неполные'}")
         children.append(RenderNodeV2(
             RenderNodeTypeV2.METRIC_ROW,
             f"control.v3.multi_asset.{index}",
             state=RenderNodeStateV2(
-                status_code="OK" if selected and first.get("research_entry_allowed") else "WARNING",
+                status_code="OK" if first.get("research_entry_allowed") else "WARNING",
                 source_identity="analytics.v5_asset_branch_policy_v1",
                 source_as_of=_utc(first.get("spread_observed_at") or first.get("cost_verified_at")),
             ),
             children=(
                 _leaf(RenderNodeTypeV2.METRIC_LABEL,
                       f"control.v3.multi_asset.{index}.label",
-                      f"{asset_names.get(asset, asset)} · свечи {timeframe[1:]} мин."
-                      f"{' · система наблюдает сейчас' if selected else ' · ожидает своей очереди'}"),
+                      asset_names.get(asset, asset)),
                 _leaf(RenderNodeTypeV2.METRIC_VALUE,
                       f"control.v3.multi_asset.{index}.value", value),
             ),
         ))
-    controls = {str(row.get("symbol")): row for row in cny_spot_controls}
-    control_text = " · ".join(
-        f"{symbol}: недостаточно свежих данных и сведений о расходах"
-        for symbol in ("CNYM@MISX", "CNYRUB_TOM@MISX")
-    )
-    if controls:
-        control_text += " · используются только для сравнения, сделки по ним не моделируются"
-    children.append(_leaf(RenderNodeTypeV2.TEXT, "control.v3.multi_asset.cny_controls", control_text))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.multi_asset",
                         children=tuple(children))
 
@@ -456,29 +441,15 @@ def _compact_control_section(snapshot):
 
 
 def _priority_exact_section(rows):
-    columns = ("Одинаковые условия", "Завершённых примеров", "Средний результат", "Что делает система")
+    columns = ("Инструмент", "Направление", "Прогресс")
     header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.exact.header", children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.exact.header.{index}", label)
         for index, label in enumerate(columns, start=1)))
     body = []
-    decisions = {
-        "DISCOVERY_ONLY": "Собирает первые 20 примеров",
-        "COLLECT": "Продолжает сбор до 80 примеров",
-        "READY_FOR_OOS": "Начинает независимую проверку",
-    }
     for index, row in enumerate(rows, start=1):
         trades = int(row.get("closed_trades") or 0)
-        observable = bool(row.get("profit_factor_observable"))
-        expectancy = float(row.get("expectancy") or 0)
-        result = f"в среднем {expectancy:+.4f} · " + (
-            f"прибыль/убыток {float(row.get('profit_factor') or 0):.2f}" if observable
-            else "соотношение прибыли и убытка считать рано"
-        )
-        branch = " · ".join((
-            str(row.get("symbol_code")), str(row.get("timeframe_code")),
-            {"LONG":"покупка", "SHORT":"продажа"}.get(str(row.get("side_code")).upper(),
-                                                       str(row.get("side_code"))),
-        ))
+        direction = {"LONG":"Покупка", "SHORT":"Продажа"}.get(
+            str(row.get("side_code")).upper(), str(row.get("side_code")))
         body.append(RenderNodeV2(
             RenderNodeTypeV2.TABLE_ROW, f"control.v3.exact.row.{index}",
             state=RenderNodeStateV2(
@@ -487,12 +458,11 @@ def _priority_exact_section(rows):
                 source_as_of=_utc(row.get("updated_at")),
             ),
             children=(
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.branch", branch),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.branch",
+                      f"{row.get('symbol_code')} · {str(row.get('timeframe_code')).replace('M', '')} мин"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.direction", direction),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.trades",
                       f"{trades} / {20 if trades < 20 else 80}"),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.result", result),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.decision",
-                      decisions.get(str(row.get("decision_code")), "Остановлено")),
             ),
         ))
     table = RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.exact.table", children=(
@@ -501,10 +471,7 @@ def _priority_exact_section(rows):
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.exact", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.exact.title",
-              "Условия, по которым быстрее всего накапливаются примеры", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "control.v3.exact.explanation",
-              "Каждая строка — один инструмент, длительность свечи и направление. "
-              "Система не делает вывод до 20 одинаковых завершённых примеров."),
+              "Ближайшие к проверке", level="SECTION"),
         table,
     ))
 

@@ -472,3 +472,11 @@
   fee/spread and exact) is removed from the rendered primary page.
 - No controls were added; Refresh remains the only button. Autonomous behavior and
   all execution safety settings are unchanged. Validation: 26 focused tests passed.
+
+## Compact Russian UI follow-up 29.07.2026
+
+- Multi-asset display reduced from six verbose rows to three short asset rows.
+- Each row now shows only active minutes, M1/M5 purchase/sale counts and cost status.
+- Priority table reduced to instrument, direction and sample progress; long inline
+  explanations and professional performance abbreviations were removed.
+- No behavior or controls changed. Validation: 26 focused tests passed.
