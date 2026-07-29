@@ -125,6 +125,7 @@ from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.strategy.futures_adaptive_risk_policy import FuturesAdaptiveRiskPolicy
 from finam_core.strategy.futures.ng_conservative_breakout_m1 import NgConservativeBreakoutM1
+from finam_core.strategy.futures.ng_runtime_entry_guard import evaluate_ng_entry_guard
 from finam_core.research.runtime_selection_gate import RuntimeSelectionGate
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
@@ -1861,9 +1862,11 @@ class PaperTradingPipeline:
             and not bool(getattr(regime, "stale", True))
             and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
         )
-        if confirmed and qty > 0 and trend in {"down", "trend_down"}:
+        regime_exit_min_bars = int(os.getenv("ENERGY_REGIME_EXIT_MIN_BARS", "3"))
+        regime_exit_ready = int(state.get("bars_held") or 0) >= regime_exit_min_bars
+        if confirmed and regime_exit_ready and qty > 0 and trend in {"down", "trend_down"}:
             state["regime_exit_reason"] = "regime_invalidation_long"
-        elif confirmed and qty < 0 and trend in {"up", "trend_up"}:
+        elif confirmed and regime_exit_ready and qty < 0 and trend in {"up", "trend_up"}:
             state["regime_exit_reason"] = "regime_invalidation_short"
 
     def _sync_exit_closed_bar_from_regime_v1(self, symbol: str) -> None:
@@ -1901,9 +1904,11 @@ class PaperTradingPipeline:
             and not bool(getattr(regime, "stale", True))
             and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
         )
-        if confirmed and qty > 0 and trend in {"down", "trend_down"}:
+        regime_exit_min_bars = int(os.getenv("ENERGY_REGIME_EXIT_MIN_BARS", "3"))
+        regime_exit_ready = int(state.get("bars_held") or 0) >= regime_exit_min_bars
+        if confirmed and regime_exit_ready and qty > 0 and trend in {"down", "trend_down"}:
             state["regime_exit_reason"] = "regime_invalidation_long"
-        elif confirmed and qty < 0 and trend in {"up", "trend_up"}:
+        elif confirmed and regime_exit_ready and qty < 0 and trend in {"up", "trend_up"}:
             state["regime_exit_reason"] = "regime_invalidation_short"
 
 
@@ -4779,6 +4784,50 @@ class PaperTradingPipeline:
                             raw_intent.price = float(px)
         except Exception as e:
             print(f"PRICE_INJECT_ERROR {e}", flush=True)
+
+        # NG entry preflight: runtime_active_universe is the single contract
+        # authority. Block before signal persistence to avoid rejected-signal
+        # churn while governance or the kill switch has disabled entries.
+        raw_intent_type = (
+            raw_intent.get("intent_type", "ENTRY") if isinstance(raw_intent, dict)
+            else getattr(raw_intent, "intent_type", "ENTRY")
+        )
+        if str(sym).startswith("NG") and str(raw_intent_type).upper() != "EXIT":
+            try:
+                now_ts = time.time()
+                universe_cache = getattr(self, "_ng_enabled_contracts_cache_v1", ())
+                universe_cache_ts = float(getattr(self, "_ng_enabled_contracts_cache_ts_v1", 0.0) or 0.0)
+                if now_ts - universe_cache_ts >= 30:
+                    with self.pg_logger._connect() as ng_conn:
+                        with ng_conn.cursor() as ng_cursor:
+                            ng_cursor.execute("""SELECT symbol FROM runtime_active_universe
+                                WHERE is_enabled AND symbol LIKE 'NG%%@RTSX'
+                                  AND strategy='NG_CONSERVATIVE_BREAKOUT_M1'
+                                ORDER BY priority DESC,symbol""")
+                            universe_cache = tuple(str(row[0]) for row in ng_cursor.fetchall())
+                    self._ng_enabled_contracts_cache_v1 = universe_cache
+                    self._ng_enabled_contracts_cache_ts_v1 = now_ts
+                last_by_symbol = getattr(self, "_ng_last_allowed_entry_ts_v1", {})
+                last_ts = last_by_symbol.get(str(sym))
+                decision = evaluate_ng_entry_guard(
+                    symbol=str(sym), enabled_symbols=universe_cache,
+                    kill_switch_active=bool(getattr(self, "_kill_switch_active", False)),
+                    seconds_since_last=None if last_ts is None else now_ts-float(last_ts),
+                    cooldown_seconds=float(os.getenv("NG_ENTRY_COOLDOWN_SEC", "180")),
+                )
+                if not decision.allowed:
+                    self._log_dedup(
+                        f"PIPE_NG_ENTRY_PREFLIGHT_BLOCK:{decision.reason}:{sym}",
+                        f"PIPE_NG_ENTRY_PREFLIGHT_BLOCK symbol={sym} reason={decision.reason} "
+                        f"enabled={','.join(universe_cache) or 'NONE'} paper_only=1",
+                        heartbeat_sec=60,
+                    )
+                    return
+                last_by_symbol[str(sym)] = now_ts
+                self._ng_last_allowed_entry_ts_v1 = last_by_symbol
+            except Exception as exc:
+                print(f"PIPE_NG_ENTRY_PREFLIGHT_FAIL_CLOSED symbol={sym} error={type(exc).__name__}:{exc}", flush=True)
+                return
         # === INJECT FEATURES ===
         if isinstance(raw_intent, dict):
             raw_intent.setdefault("features", {})
