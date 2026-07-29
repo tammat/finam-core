@@ -1021,6 +1021,100 @@ class PaperTradingPipeline:
 
         return True, "ANTI_REENTRY_OK"
 
+    def _br_paper_entry_quality_allows_v1(self, symbol: str, side: str) -> tuple[bool, str]:
+        """Fail-closed BR Paper guard against stale/repeated regime-flip entries."""
+        if not str(symbol).upper().startswith("BR"):
+            return True, "BR_ENTRY_QUALITY_NOT_APPLICABLE"
+        if os.getenv("BR_PAPER_ENTRY_QUALITY_GUARD_ENABLED", "1") != "1":
+            return True, "BR_ENTRY_QUALITY_GUARD_DISABLED"
+
+        normalized_side = str(side or "").upper()
+        if normalized_side not in {"BUY", "SELL"}:
+            return False, "BR_ENTRY_SIDE_UNKNOWN"
+
+        try:
+            regime = self.candle_regime_engine_v2.evaluate(symbol, "M5")
+        except Exception as exc:
+            return False, f"BR_ENTRY_REGIME_ERROR:{type(exc).__name__}"
+
+        ready = (
+            str(getattr(regime, "source_version", "") or "") == "CANDLE_REGIME_V3"
+            and bool(getattr(regime, "data_ready", False))
+            and not bool(getattr(regime, "stale", True))
+            and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
+            and getattr(regime, "bar_ts", None) is not None
+        )
+        if not ready:
+            return False, "BR_ENTRY_REGIME_NOT_READY"
+
+        trend = str(getattr(regime, "trend", "") or "").lower()
+        slope = float(getattr(regime, "normalized_slope", 0.0) or 0.0)
+        slope_epsilon = max(0.0, float(os.getenv("BR_ENTRY_SLOPE_EPSILON", "0.02")))
+        if normalized_side == "BUY" and (trend in {"down", "trend_down"} or slope < -slope_epsilon):
+            return False, f"BR_LONG_SLOPE_NOT_CONFIRMED:slope={slope:.4f}:trend={trend}"
+        if normalized_side == "SELL" and (trend in {"up", "trend_up"} or slope > slope_epsilon):
+            return False, f"BR_SHORT_SLOPE_NOT_CONFIRMED:slope={slope:.4f}:trend={trend}"
+
+        fingerprint = f"{symbol}:{normalized_side}:{getattr(regime, 'bar_ts').isoformat()}"
+        consumed = getattr(self, "_br_consumed_entry_bar_fingerprints_v1", set())
+        if fingerprint in consumed:
+            return False, "BR_DUPLICATE_REGIME_BAR_FINGERPRINT"
+
+        minimum_bars = max(1, int(os.getenv("BR_REGIME_EXIT_COOLDOWN_BARS", "3")))
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            database_url = os.getenv("DATABASE_URL", "")
+            if not database_url:
+                return False, "BR_ENTRY_DATABASE_URL_MISSING"
+            with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                row = conn.execute(
+                    """
+                    WITH last_trade AS (
+                        SELECT NULLIF(payload->'context'->>'regime_bar_ts','')::timestamptz AS entry_regime_bar_ts
+                        FROM closed_trades
+                        WHERE symbol=%s
+                          AND portfolio_scope LIKE 'FRESH_V5%%'
+                          AND upper(side)=CASE WHEN %s='BUY' THEN 'LONG' ELSE 'SHORT' END
+                        ORDER BY exit_ts DESC NULLS LAST
+                        LIMIT 1
+                    ), last_exit AS (
+                        SELECT exit_ts,
+                               NULLIF(payload->'context'->>'regime_bar_ts','')::timestamptz AS regime_bar_ts
+                        FROM closed_trades
+                        WHERE symbol=%s
+                          AND portfolio_scope LIKE 'FRESH_V5%%'
+                          AND COALESCE(payload->'context'->>'actual_exit_reason','') IN
+                              ('regime_invalidation_long','regime_invalidation_short')
+                        ORDER BY exit_ts DESC NULLS LAST
+                        LIMIT 1
+                    )
+                    SELECT e.exit_ts,e.regime_bar_ts,t.entry_regime_bar_ts,
+                           (SELECT count(*)
+                              FROM market_bars b
+                             WHERE b.symbol=%s AND b.timeframe='M5'
+                               AND b.ts > e.exit_ts
+                               AND b.ts <= %s) AS closed_bars_after_exit
+                    FROM last_trade t
+                    LEFT JOIN last_exit e ON true
+                    """,
+                    (symbol, normalized_side, symbol, symbol, getattr(regime, "bar_ts")),
+                ).fetchone()
+        except Exception as exc:
+            return False, f"BR_ENTRY_EXIT_HISTORY_ERROR:{type(exc).__name__}"
+
+        if row and row.get("exit_ts") is not None:
+            bars_after_exit = int(row.get("closed_bars_after_exit") or 0)
+            if bars_after_exit < minimum_bars:
+                return False, f"BR_REGIME_EXIT_COOLDOWN:{bars_after_exit}/{minimum_bars}_M5_BARS"
+        if row:
+            previous_bar_ts = row.get("entry_regime_bar_ts")
+            if previous_bar_ts is not None and getattr(regime, "bar_ts") <= previous_bar_ts:
+                return False, "BR_DUPLICATE_REGIME_BAR_FINGERPRINT"
+
+        return True, f"BR_ENTRY_QUALITY_PASS:slope={slope:.4f}:trend={trend}"
+
     def _mark_anti_reentry_entry(self, symbol: str, side: str) -> None:
         """Русский комментарий: фиксирует успешный вход для cooldown."""
         state = getattr(self, "_anti_reentry_last_entry_ts", None)
@@ -1030,6 +1124,19 @@ class PaperTradingPipeline:
 
         state[f"{symbol}:{side}"] = time.monotonic()
         self._anti_reentry_entry_count = int(getattr(self, "_anti_reentry_entry_count", 0)) + 1
+
+        if str(symbol).upper().startswith("BR"):
+            try:
+                regime = self.candle_regime_engine_v2.evaluate(symbol, "M5")
+                bar_ts = getattr(regime, "bar_ts", None)
+                if bar_ts is not None:
+                    consumed = getattr(self, "_br_consumed_entry_bar_fingerprints_v1", None)
+                    if consumed is None:
+                        consumed = set()
+                        self._br_consumed_entry_bar_fingerprints_v1 = consumed
+                    consumed.add(f"{symbol}:{str(side).upper()}:{bar_ts.isoformat()}")
+            except Exception as exc:
+                print(f"PIPE_BR_ENTRY_FINGERPRINT_SAVE_FAILED symbol={symbol} error={exc}", flush=True)
 
 
     def _pipeline_log_throttle_allow(self, key: str, interval_sec: float | None = None) -> bool:
@@ -6224,6 +6331,18 @@ class PaperTradingPipeline:
 
             symbol_for_anti = str(intent.get("symbol") or "")
             side_for_anti = str(intent.get("side") or "")
+            br_quality_ok, br_quality_reason = self._br_paper_entry_quality_allows_v1(
+                symbol_for_anti,
+                side_for_anti,
+            )
+            if not br_quality_ok:
+                print(
+                    f"PIPE_BR_ENTRY_QUALITY_BLOCK symbol={symbol_for_anti} "
+                    f"side={side_for_anti} reason={br_quality_reason}",
+                    flush=True,
+                )
+                self._reject_persisted_signal_v1(intent, f"br_entry_quality:{br_quality_reason}")
+                return
             anti_ok, anti_reason = self._anti_reentry_allows(symbol_for_anti, side_for_anti)
             if not anti_ok:
                 self._anti_reentry_blocked_count = int(getattr(self, "_anti_reentry_blocked_count", 0)) + 1
