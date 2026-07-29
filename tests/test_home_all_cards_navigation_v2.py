@@ -1,4 +1,9 @@
-from marketcore.presentation.workspace_v2.domain_producer_registry_v2 import build_domain_document_v2
+from marketcore.presentation.workspace_v2.presenter.home_v2_presenter import HomeV2Presenter
+from marketcore.presentation.workspace_v2.renderer.home_v2_domain_renderer import render_home_domain_v2
+
+
+def build_legacy_home():
+    return render_home_domain_v2(HomeV2Presenter().load(), timezone_code="Europe/Moscow")
 from marketcore.presentation.render_tree.v2 import ActionKindV2, RenderNodeTypeV2
 
 
@@ -9,7 +14,7 @@ def _walk(node):
 
 
 def test_every_functional_home_card_has_navigation_or_command() -> None:
-    document = build_domain_document_v2("HOME")
+    document = build_legacy_home()
     cards = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD]
     missing = [card.node_id for card in cards if card.action is None]
     assert missing == []
@@ -17,7 +22,7 @@ def test_every_functional_home_card_has_navigation_or_command() -> None:
 
 
 def test_home_card_targets_match_operating_modes() -> None:
-    document = build_domain_document_v2("HOME")
+    document = build_legacy_home()
     cards = {node.node_id: node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.CARD}
     expected = {
         "home.traffic.data": "container.research",

@@ -12,4 +12,4 @@ def test_clean_mode_is_default_and_reversible():
 
 def test_clean_home_keeps_only_current_process_groups():
     assert '(operating_section, operator_actions_section, operator_section)' in SOURCE
-    assert '{"model_health", "edge_search", "signal_funnel"}' in SOURCE
+    assert '{"model_health", "edge_search", "signal_funnel", "diagnostic_funnels", "main_loss", "loss_solution"}' in SOURCE

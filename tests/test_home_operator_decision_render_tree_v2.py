@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from marketcore.presentation.render_tree.v2 import RenderNodeTypeV2
-from marketcore.presentation.workspace_v2.domain_producer_registry_v2 import build_domain_document_v2
+from marketcore.presentation.workspace_v2.presenter.home_v2_presenter import HomeV2Presenter
+from marketcore.presentation.workspace_v2.renderer.home_v2_domain_renderer import render_home_domain_v2
+
+
+def build_legacy_home():
+    return render_home_domain_v2(HomeV2Presenter().load(), timezone_code="Europe/Moscow")
 
 
 def _walk(node):
@@ -11,7 +16,7 @@ def _walk(node):
 
 
 def test_home_exposes_ranked_non_green_operator_actions() -> None:
-    document = build_domain_document_v2("HOME",timezone_code="Europe/Moscow")
+    document = build_legacy_home()
     rows = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.TABLE_ROW and node.node_id.startswith("home.operator.action.")]
     assert len(rows) == 4
     assert len({row.node_id for row in rows}) == len(rows)

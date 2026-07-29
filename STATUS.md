@@ -487,3 +487,17 @@
 - Home UI now excludes source-stale historical decisions while retaining them in
   the database and lineage audit. Expired decisions whose source is still current
   remain visible and disabled according to the existing lifecycle policy.
+
+## Three-section compact HOME 29.07.2026
+
+- Canonical HOME now uses a dedicated compact renderer backed by the verified V5
+  read model. The page contains only `Сейчас`, `Прогресс`, and `Нужно внимание`.
+- The main page has nine short metric rows and one governed Refresh command.
+  Technical tables, historical actions, strategy codes and performance shorthand
+  are no longer rendered on HOME.
+- Attention is based only on the current edge process and actual bar freshness;
+  the historical 24-hour failure counter is intentionally excluded.
+- The previous detailed HOME renderer remains available in source and retains
+  direct regression coverage as a legacy presentation contract.
+- No research, schedule, scope, execution or safety behavior changed. Validation:
+  43 focused tests passed.

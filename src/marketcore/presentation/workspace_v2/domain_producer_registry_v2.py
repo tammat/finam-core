@@ -25,6 +25,9 @@ from marketcore.presentation.workspace_v2.renderer.control_compact_v3_domain_ren
 from marketcore.presentation.workspace_v2.renderer.home_v2_domain_renderer import (
     render_home_domain_v2,
 )
+from marketcore.presentation.workspace_v2.renderer.home_compact_v1_domain_renderer import (
+    render_home_compact_v1,
+)
 from marketcore.presentation.workspace_v2.renderer.portfolio_v2_domain_renderer import (
     render_portfolio_domain_v2,
 )
@@ -68,9 +71,8 @@ class DomainProducerDefinitionV2:
 
 
 def _build_home(timezone_code: str) -> RenderDocumentV2:
-    return render_home_domain_v2(
-        HomeV2Presenter().load(),
-        timezone_code=timezone_code,
+    return render_home_compact_v1(
+        ControlCompactV3Resolver().resolve(), timezone_code=timezone_code
     )
 
 
