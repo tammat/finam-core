@@ -295,60 +295,70 @@ def _attention_section(snapshot):
 
 
 def _optimizer_section(snapshot):
-    rows = []
-    actions = []
-    labels = {"IMMEDIATE": "сразу", "CONFIRM_1": "подтверждение 1 свечой", "RETEST_3": "ретест до 3 свечей"}
-    statuses = {
-        "SHADOW_ACCUMULATION": "Shadow: накопление",
-        "KEEP_SHADOW": "оставить в Shadow",
-        "READY_FOR_PAPER_CONFIRMATION": "готово к подтверждению Paper",
-    }
+    cards = []
+    entry_labels = {"IMMEDIATE": "сразу после сигнала", "CONFIRM_1": "после подтверждения следующей свечой", "RETEST_3": "после ретеста в течение трёх свечей"}
+    instrument_labels = {"BR": "Нефть Brent", "GAZP": "Газпром", "LKOH": "Лукойл", "NVTK": "Новатэк", "SBER": "Сбербанк", "SBERP": "Сбербанк-п", "VTBR": "ВТБ"}
+    side_labels = {"LONG": "покупка", "SHORT": "продажа"}
     for index, item in enumerate(snapshot.get("entry_exit_recommendations") or (), start=1):
         metrics = item.get("metrics") or {}
-        details = (
-            f"вход: {labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}; "
-            f"стоп {float(item.get('stop_atr') or 0):.1f} ATR; "
-            f"цель {float(item.get('take_atr') or 0):.1f} ATR; "
-            f"пар {int(item.get('pairs') or 0)}, OOS {int(item.get('oos_pairs') or 0)}; "
-            f"{statuses.get(str(item.get('recommendation_status')), item.get('recommendation_status'))}"
-        ).replace(".", ",")
-        if metrics.get("shadow_oos_r") is not None:
-            details += f"; OOS {float(metrics['shadow_oos_r']):+.2f}R".replace(".", ",")
-        rows.append(_row(
-            f"optimizer.{index}",
-            f"{item.get('symbol_group')} · {item.get('side_code')}", details,
-            status="OK" if item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" else "WARNING",
-            source="analytics.entry_exit_recommendation_v1", source_as_of=item.get("generated_at"),
-        ))
         target = "|".join(str(item.get(key) or "") for key in ("strategy_code","symbol_group","side_code","candidate_code"))
         runtime_supported = str(item.get("entry_mode")) == "IMMEDIATE"
         ready = item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" and runtime_supported
         active = bool(item.get("is_active_paper"))
-        decisions = (
-            ("confirm", "Подтвердить Paper", "optimizer.confirm_paper", "OPTIMIZER.CONFIRM_PAPER", ready and not active,
-             ("Нужно пройти 80 пар и 20 OOS" if item.get("recommendation_status") != "READY_FOR_PAPER_CONFIRMATION"
-              else "Ретест/подтверждение пока доступны только в Shadow") if not ready else "Профиль уже активен"),
-            ("reject", "Отклонить", "optimizer.reject", "OPTIMIZER.REJECT", not active, "Сначала выполните откат"),
-            ("shadow", "Продолжить Shadow", "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW", not active, "Профиль уже активен"),
-            ("rollback", "Откатить Paper", "optimizer.rollback", "OPTIMIZER.ROLLBACK_PAPER", active, "Нет активного Paper-профиля"),
+        pairs, oos = int(item.get("pairs") or 0), int(item.get("oos_pairs") or 0)
+        if active:
+            status_text = "Параметры применяются в Paper. Реальная торговля выключена."
+        elif ready:
+            status_text = "Проверки пройдены. Можно подтвердить применение в Paper."
+        elif item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION":
+            status_text = "Статистика готова, но этот тип отложенного входа пока остаётся в наблюдении."
+        else:
+            status_text = f"Наблюдение: накоплено {pairs} из 80 пар; независимая проверка {oos} из 20."
+        stop_text = f"{float(item.get('stop_atr') or 0):.1f}".replace(".", ",")
+        take_text = f"{float(item.get('take_atr') or 0):.1f}".replace(".", ",")
+        parameters = (
+            f"Вход {entry_labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}. "
+            f"Стоп: {stop_text} среднего диапазона свечи; цель: {take_text}."
         )
-        for code,label,action_id,command,enabled,blocked in decisions:
-            actions.append(RenderNodeV2(
+        action_nodes = []
+        decisions = (
+            (("rollback", "Откатить параметры Paper", "optimizer.rollback", "OPTIMIZER.ROLLBACK_PAPER"),) if active else
+            (("confirm", "Применить в Paper", "optimizer.confirm_paper", "OPTIMIZER.CONFIRM_PAPER"),
+             ("reject", "Отклонить вариант", "optimizer.reject", "OPTIMIZER.REJECT"),
+             ("shadow", "Продолжить наблюдение", "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW")) if ready else
+            (("reject", "Отклонить вариант", "optimizer.reject", "OPTIMIZER.REJECT"),
+             ("shadow", "Продолжить наблюдение", "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW"))
+        )
+        for code,label,action_id,command in decisions:
+            action_nodes.append(RenderNodeV2(
                 RenderNodeTypeV2.ACTION, f"home.compact.optimizer.{index}.{code}",
-                content=RenderContentV2(value=f"{item.get('symbol_group')} {item.get('side_code')}: {label}"),
+                content=RenderContentV2(value=label),
                 action=RenderActionV2(
                     action_id, ActionKindV2.COMMAND, target_id=target, command_code=command,
-                    policy_class="PAPER_OPERATIONS", enabled=enabled,
-                    blocked_reason_code=None if enabled else blocked,
+                    policy_class="PAPER_OPERATIONS", enabled=True,
                     reversible=True, rollback_code="OPTIMIZER.ROLLBACK_PAPER", idempotency_key="client.request",
                 ),
             ))
-    if not rows:
-        rows.append(_row("optimizer.empty", "Оптимизация входа и выхода", "ожидает первый Shadow-расчёт", status="WARNING"))
+        group = str(item.get("symbol_group") or "")
+        cards.append(RenderNodeV2(
+            RenderNodeTypeV2.CARD, f"home.compact.optimizer.card.{index}",
+            state=RenderNodeStateV2(status_code="ACTIVE" if active else ("OK" if ready else "WARNING")),
+            children=(
+                _leaf(RenderNodeTypeV2.TITLE, f"home.compact.optimizer.card.{index}.title",
+                      f"{instrument_labels.get(group, group)} · {side_labels.get(str(item.get('side_code')), item.get('side_code'))}", level="CARD"),
+                _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.parameters", parameters),
+                _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.status", status_text),
+                *action_nodes,
+            ),
+        ))
+    if not cards:
+        cards.append(RenderNodeV2(RenderNodeTypeV2.CARD, "home.compact.optimizer.empty", children=(
+            _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.empty.text", "Первый расчёт ещё не завершён."),
+        )))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Рекомендации входа и выхода", level="SECTION"),
-        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.optimizer.metrics", children=tuple(rows)),
-        *actions,
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Двойной клик защищает от случайного изменения. Paper — учебные сделки; реальные сделки не включаются."),
+        RenderNodeV2(RenderNodeTypeV2.GRID, "home.compact.optimizer.cards", children=tuple(cards)),
     ))
 
 
