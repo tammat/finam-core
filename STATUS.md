@@ -501,3 +501,14 @@
   direct regression coverage as a legacy presentation contract.
 - No research, schedule, scope, execution or safety behavior changed. Validation:
   43 focused tests passed.
+
+## Contract specification sync recovery 29.07.2026
+
+- Repeated edge cycles stopped at `SYNC_CONTRACT_SPECS` because four historical
+  `-RM` foreign-share symbols no longer have an executable MOEX reference.
+- These symbols are now audited as `SKIPPED / MOEX_FOREIGN_SHARE_REFERENCE_UNAVAILABLE`
+  instead of failing the complete specification refresh. Active Russian equities
+  without TQBR data still fail closed.
+- Runtime verification: 38 symbols processed, 34 unchanged, 4 skipped, 0 failed,
+  sync status `SUCCEEDED`, return code 0. No execution state changed.
+- Validation: 46 focused tests passed. Paper safety remains unchanged.

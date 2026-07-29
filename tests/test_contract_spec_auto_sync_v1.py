@@ -9,8 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_futures_multiplier_comes_from_moex_step_value(monkeypatch) -> None:
     monkeypatch.setattr(sync, "_get", lambda _url: {"securities": {
-        "columns": ["SECID","SECNAME","LOTVOLUME","MINSTEP","STEPPRICE","DECIMALS"],
-        "data": [["BRQ6","Brent",1,0.01,7.95,2]],
+        "columns": ["SECID","SECNAME","LOTVOLUME","MINSTEP","STEPPRICE","DECIMALS",
+                    "INITIALMARGIN","BUYSELLFEE","SCALPERFEE"],
+        "data": [["BRQ6","Brent",1,0.01,7.95,2,10000,3.5,1.75]],
     }})
     spec = sync.fetch_spec("BRQ6@RTSX")
     assert spec.lot_size == Decimal("1")
@@ -44,6 +45,31 @@ def test_invalid_reference_is_never_replaced_with_one(monkeypatch) -> None:
         assert str(exc) == "INVALID_LOTSIZE"
     else:
         raise AssertionError("invalid source must fail closed")
+
+
+def test_unavailable_foreign_share_reference_is_not_an_edge_cycle_failure(monkeypatch) -> None:
+    monkeypatch.setattr(sync, "_get", lambda _url: {"securities": {
+        "columns": ["SECID", "BOARDID"], "data": [],
+    }})
+    try:
+        sync.fetch_spec("AAPL-RM@MISX")
+    except sync.SpecNotApplicable as exc:
+        assert str(exc) == "MOEX_FOREIGN_SHARE_REFERENCE_UNAVAILABLE"
+    else:
+        raise AssertionError("unavailable foreign reference must be explicitly skipped")
+
+
+def test_active_equity_missing_execution_board_still_fails_closed(monkeypatch) -> None:
+    monkeypatch.setattr(sync, "_get", lambda _url: {"securities": {
+        "columns": ["SECID", "BOARDID"], "data": [],
+    }})
+    try:
+        sync.fetch_spec("SBER@MISX")
+    except ValueError as exc:
+        assert not isinstance(exc, sync.SpecNotApplicable)
+        assert str(exc) == "MOEX_EXECUTION_BOARD_NOT_FOUND"
+    else:
+        raise AssertionError("active equity without TQBR reference must fail closed")
 
 
 def test_sync_is_db_audited_and_first_autonomous_step() -> None:

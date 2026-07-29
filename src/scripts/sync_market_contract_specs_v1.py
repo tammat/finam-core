@@ -17,6 +17,10 @@ SOURCE_VERSION = "MOEX_ISS_CONTRACT_SPEC_V1"
 TIMEOUT_SECONDS = float(os.getenv("CONTRACT_SPEC_HTTP_TIMEOUT_SECONDS", "15"))
 
 
+class SpecNotApplicable(ValueError):
+    """The symbol may remain in research history but has no executable MOEX spec."""
+
+
 @dataclass(frozen=True)
 class Spec:
     symbol: str
@@ -88,6 +92,8 @@ def fetch_spec(symbol: str) -> Spec:
     else:
         raise ValueError("INSTRUMENT_NOT_EXECUTABLE")
     if not row:
+        if symbol.endswith("-RM@MISX") and not rows:
+            raise SpecNotApplicable("MOEX_FOREIGN_SHARE_REFERENCE_UNAVAILABLE")
         raise ValueError("MOEX_EXECUTION_BOARD_NOT_FOUND")
     tick_size = _positive(row.get("MINSTEP"), "MINSTEP")
     return Spec(
@@ -107,7 +113,7 @@ def same_spec(row: dict[str, Any], spec: Spec) -> bool:
 
 def main() -> int:
     run_id = uuid.uuid4()
-    written = unchanged = failed = 0
+    written = unchanged = skipped = failed = 0
     with psycopg2.connect(DB) as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             cursor.execute("""INSERT INTO analytics.contract_spec_sync_run_v1(run_id,status_code)
@@ -183,6 +189,14 @@ def main() -> int:
                       VALUES(%s,%s,%s,'MOEX_ISS_VALIDATED',%s,%s::jsonb)""",
                       (str(run_id),symbol,outcome,SOURCE_VERSION,json.dumps(spec.source_payload,default=str)))
                     connection.commit()
+                except SpecNotApplicable as exc:
+                    connection.rollback()
+                    skipped += 1
+                    cursor.execute("""INSERT INTO analytics.contract_spec_sync_item_v1
+                      (run_id,symbol,status_code,reason_code,source_version,source_payload)
+                      VALUES(%s,%s,'SKIPPED',%s,%s,'{}'::jsonb)""",
+                      (str(run_id),symbol,str(exc)[:300],SOURCE_VERSION))
+                    connection.commit()
                 except Exception as exc:
                     connection.rollback()
                     failed += 1
@@ -196,11 +210,12 @@ def main() -> int:
             cursor.execute("""UPDATE analytics.contract_spec_sync_run_v1 SET status_code=%s,
                 symbols_total=%s,symbols_written=%s,symbols_unchanged=%s,symbols_failed=%s,
                 finished_at=clock_timestamp(),updated_at=clock_timestamp() WHERE run_id=%s""",
-                (status,len(symbols),written,unchanged,failed,str(run_id)))
+                (status,len(symbols),written,unchanged+skipped,failed,str(run_id)))
     print(f"spec_sync_run_id={run_id}")
     print(f"symbols={len(symbols)}")
     print(f"specs_written={written}")
     print(f"specs_unchanged={unchanged}")
+    print(f"specs_skipped={skipped}")
     print(f"specs_failed={failed}")
     print("runtime_changed=0")
     print("live_allowed=0")
