@@ -348,7 +348,7 @@ def _optimizer_section(snapshot):
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Рекомендации входа и выхода", level="SECTION"),
         RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.optimizer.metrics", children=tuple(rows)),
-        RenderNodeV2(RenderNodeTypeV2.GRID, "home.compact.optimizer.actions", children=tuple(actions)),
+        *actions,
     ))
 
 
