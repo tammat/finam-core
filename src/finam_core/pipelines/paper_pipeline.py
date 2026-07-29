@@ -3059,6 +3059,20 @@ class PaperTradingPipeline:
         state["prev_close"] = float(price)
         state["stop_price"] = decision.stop_price
 
+        # The ExitEngine owns the effective virtual stop. Persist every improved
+        # value under the real strategy key so a service restart cannot recreate
+        # a wider stop from the current quote. This is Paper state only.
+        if decision.stop_price is not None:
+            self._save_position_lifecycle_state(
+                symbol=symbol,
+                strategy=lifecycle_strategy,
+                entry_price=float(avg_price),
+                remaining_qty=abs(float(qty)),
+                trailing_active=True,
+                current_stop=float(decision.stop_price),
+                source="exit_engine_virtual_stop_v1",
+            )
+
         if not decision.should_exit:
             hold_key = f"EXIT_HOLD:{symbol}:{side}:{decision.reason}"
 
