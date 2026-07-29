@@ -79,3 +79,21 @@
 - Promotion is reversible: previous ACTIVE version becomes SUPERSEDED, historical pairs and versions remain immutable/auditable.
 - First cycle persisted paired evidence but promoted nothing because minimum sample/OOS guards failed.
 - Pending operator actions: replace the installed calibration service with the repository version, daemon-reload, restart timer; restart Paper once to load runtime-profile lookup code.
+
+## Runtime/UI checkpoint — 22:50 MSK
+
+- Verified services: `finam-paper-pipeline`, `marketcore-ui-shell`, and `finam-paper-safe` are active; the UI listens on internal port `8080` and is published externally on `18080`.
+- Verified safety: Paper only (`EXECUTION_MODE=paper`); execution and real-trading flags remain `0`.
+- HOME cold rendering was reduced to approximately `0.09–0.15 s` in a fresh process and approximately `0.006 s` from cache by replacing the tick-level floating-P&L lookup with indexed latest-bar lookup.
+- The governed optimizer actions are implemented and committed: confirm Paper, reject, continue Shadow, and rollback. Readiness/OOS gates remain mandatory; no action can promote to REAL.
+- A clearer card-based optimizer presentation is preserved as an undeployed local draft (`.codex-tmp/renderer_clarity.py`, `.codex-tmp/css_clarity.css`). It must be validated before deployment; the currently deployed flat button grid remains functionally correct but visually unclear.
+- NG entry admission is fail-closed. After the pipeline restart, runtime emitted `NG_RUNTIME_UNIVERSE_DISABLED enabled=NONE`; no new NG entry signals were generated. Existing-position EXIT handling remains available.
+- Liquidity evidence favors `NGQ6` over `NGU6` (M1 volume 457901 vs 51205), but `NGQ6` is still blocked by governance. Do not bypass this state by directly editing the enabled flag.
+- Branch checkpoint before this documentation commit: `codex/research-edge-v5` at `e230bbdb`, synchronized with origin.
+
+### Resume order
+
+1. Inspect `ng_live_runtime_state` and the state-machine/governance reason for `active_edge=false`.
+2. Select exactly one canonical NG contract through the governed state transition; keep entries blocked if the transition cannot pass.
+3. Deploy and test the card-based optimizer UI on desktop and mobile.
+4. Reconfirm Paper/REAL safety flags and save new runtime evidence.
