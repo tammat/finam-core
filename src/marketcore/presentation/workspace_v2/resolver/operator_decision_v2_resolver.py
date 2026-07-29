@@ -18,6 +18,7 @@ class OperatorDecisionV2Resolver:
                            baseline_value,measurement_due_at,measured_at,measurement_source_identity,
                            actual_result,feedback_status,quality_code,selection_status,updated_at
                     FROM analytics.operator_decision_workspace_v2
+                    WHERE freshness_code='CURRENT'
                     ORDER BY rank
                 """)
                 return tuple(dict(row) for row in cursor.fetchall())

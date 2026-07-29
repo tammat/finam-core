@@ -480,3 +480,10 @@
 - Priority table reduced to instrument, direction and sample progress; long inline
   explanations and professional performance abbreviations were removed.
 - No behavior or controls changed. Validation: 26 focused tests passed.
+
+## Current-only operator actions 29.07.2026
+
+- The one-minute operator-decision refresh timer is active and healthy.
+- Home UI now excludes source-stale historical decisions while retaining them in
+  the database and lineage audit. Expired decisions whose source is still current
+  remain visible and disabled according to the existing lifecycle policy.

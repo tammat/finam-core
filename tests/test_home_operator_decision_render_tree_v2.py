@@ -13,7 +13,7 @@ def _walk(node):
 def test_home_exposes_ranked_non_green_operator_actions() -> None:
     document = build_domain_document_v2("HOME",timezone_code="Europe/Moscow")
     rows = [node for node in _walk(document.root) if node.node_type is RenderNodeTypeV2.TABLE_ROW and node.node_id.startswith("home.operator.action.")]
-    assert len(rows) == 5
+    assert len(rows) == 4
     assert len({row.node_id for row in rows}) == len(rows)
     assert all(len(row.children) == 7 for row in rows)
     actions = [row.action for row in rows if row.action is not None]
@@ -39,6 +39,7 @@ def test_expired_operator_decisions_remain_visible_but_disabled() -> None:
     resolver_source = Path("src/marketcore/presentation/workspace_v2/resolver/operator_decision_v2_resolver.py").read_text()
     presenter_source = Path("src/marketcore/presentation/workspace_v2/presenter/home_v2_presenter.py").read_text()
     assert "WHERE expires_at > clock_timestamp()" not in resolver_source
+    assert "WHERE freshness_code='CURRENT'" in resolver_source
     assert 'lifecycle_status = "MEASUREMENT_DUE"' in presenter_source
     assert 'else "NO_EFFECT"' in presenter_source
     assert '"DEGRADED" if actual_result is not None and actual_result < 0' in presenter_source
