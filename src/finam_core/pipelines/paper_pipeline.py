@@ -123,6 +123,7 @@ from finam_core.regime.candle_regime_engine_v2 import CandleRegimeEngineV2
 from finam_core.data.mtf_aggregator import MTFBarAggregator
 from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
+from finam_core.strategy.futures_adaptive_risk_policy import FuturesAdaptiveRiskPolicy
 from finam_core.strategy.futures.ng_conservative_breakout_m1 import NgConservativeBreakoutM1
 from finam_core.research.runtime_selection_gate import RuntimeSelectionGate
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
@@ -5020,6 +5021,69 @@ class PaperTradingPipeline:
             return
 
         intent = routed.intent.to_dict()
+
+        # Единая адаптивная политика фьючерсного риска применяется только к
+        # Paper-входам. BR работает в ENFORCE, остальные активы сначала SHADOW.
+        if (
+            str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper"
+            and str(intent.get("intent_type") or "ENTRY").upper() != "EXIT"
+        ):
+            try:
+                adaptive_features = (
+                    intent.get("features") if isinstance(intent.get("features"), dict) else {}
+                )
+                adaptive_policy = getattr(self, "futures_adaptive_risk_policy", None)
+                if adaptive_policy is None:
+                    adaptive_policy = FuturesAdaptiveRiskPolicy()
+                    self.futures_adaptive_risk_policy = adaptive_policy
+                adaptive_symbol = str(intent.get("symbol") or sym or "")
+                adaptive_profile = adaptive_policy.profile_for(adaptive_symbol)
+                if adaptive_profile is not None:
+                    adaptive_mode = os.getenv(
+                        f"FUTURES_ADAPTIVE_{adaptive_profile.asset}_MODE",
+                        adaptive_profile.default_mode,
+                    ).upper()
+                    adaptive_atr = float(
+                        adaptive_features.get("atr")
+                        or st.get("atr")
+                        or getattr(regime, "atr", 0.0)
+                        or 0.0
+                    )
+                    adaptive_decision = adaptive_policy.evaluate(
+                        symbol=adaptive_symbol,
+                        side=str(intent.get("side") or ""),
+                        entry_price=float(intent.get("price") or st.get("last") or 0.0),
+                        atr=adaptive_atr,
+                        qty=float(intent.get("qty") or 0.0),
+                        breakout_level=adaptive_features.get("breakout_level"),
+                        volume_ratio=adaptive_features.get("volume_ratio"),
+                        roundtrip_cost_price=adaptive_features.get("roundtrip_cost_price"),
+                        mode=adaptive_mode,
+                    )
+                    intent.setdefault("features", {})["futures_adaptive_risk_v1"] = adaptive_decision.to_dict()
+                    if adaptive_mode == "ENFORCE" and adaptive_decision.allowed:
+                        intent["stop_loss"] = adaptive_decision.stop_price
+                        intent["take_profit"] = adaptive_decision.take_price
+                        intent["qty"] = adaptive_decision.qty
+                        intent["features"]["stop"] = adaptive_decision.stop_price
+                        intent["features"]["take"] = adaptive_decision.take_price
+                        intent["features"]["adaptive_risk_applied"] = True
+                    print(
+                        "PIPE_FUTURES_ADAPTIVE_RISK_V1 "
+                        f"symbol={adaptive_symbol} asset={adaptive_profile.asset} "
+                        f"mode={adaptive_mode} allowed={int(adaptive_decision.allowed)} "
+                        f"reason={adaptive_decision.reason} stop_atr={adaptive_decision.stop_atr} "
+                        f"take_atr={adaptive_decision.take_atr} reward_r={adaptive_decision.reward_r} "
+                        f"qty={adaptive_decision.qty} paper_only=1",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    "PIPE_FUTURES_ADAPTIVE_RISK_V1_ERROR "
+                    f"symbol={intent.get('symbol') or sym} error={type(exc).__name__}:{exc} "
+                    "paper_only=1",
+                    flush=True,
+                )
 
         # Русский комментарий: SIGNAL SNAPSHOT V1 — сохраняем наблюдаемый контекст сигнала до risk/order gate.
         try:

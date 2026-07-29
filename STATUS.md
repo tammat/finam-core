@@ -629,3 +629,13 @@
 - Weak or warming-up volume blocks a new adaptive BR entry; it never widens risk to force a trade.
 - Paper restarted successfully: active PID 3840830 since 20:31:43 MSK; remote compile passed and no startup traceback was observed.
 - Existing BR position remains open and anti-reentry blocks duplicate exposure; adaptive settings apply to the next new BR entry.
+### Multi-futures adaptive Paper policy — 29.07.2026 20:41 MSK
+
+- Added a shared pure `FuturesAdaptiveRiskPolicy` for BR, NG, USD, CNY and GOLD, with mirrored LONG/SHORT geometry.
+- BR runs in ENFORCE: 1.8–2.5 ATR structural stop, target >=2.5 ATR and >=1.5R.
+- NG runs in SHADOW: 1.5–2.2 ATR stop, 3.0 ATR target, >=1.7R, volume threshold 1.5x; risk-normalized qty is about 0.533 of the old 0.8 ATR reference.
+- USD runs in SHADOW: 1.2–1.8 ATR stop, 2.2 ATR target, >=1.5R; existing strict cost/funding gate remains authoritative.
+- CNY runs in SHADOW: 1.2–1.7 ATR stop, 2.0 ATR target, >=1.5R; runtime telemetry confirmed.
+- GOLD runs in SHADOW: 1.8–2.5 ATR stop, 3.5 ATR target, >=1.8R; dated-contract rollover controls remain authoritative.
+- Every profile rejects a candidate recommendation when target movement does not cover explicit round-trip costs by at least 3x.
+- REAL execution is untouched. Runtime active after restart: PID 3877920 since 20:39:55 MSK; BR/NG/CNY telemetry observed without import or startup errors.
