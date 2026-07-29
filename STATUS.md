@@ -300,6 +300,9 @@
   активном edge-job отключённая RUN-команда не имела обязательного
   `blocked_reason_code`. Команда теперь получает
   `RESEARCH_COMMAND_ALREADY_ACTIVE`; текущий DB-state render снова `VERIFIED`.
+- Повторный UI reload подтверждён в 06:29:01 МСК: HTTP quality `VERIFIED`, секция
+  open-position diagnostics и возраст в закрытых барах видимы; ровно две
+  research-команды, broker/live-команд 0. Safety flags без изменений.
 
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 

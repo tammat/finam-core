@@ -253,3 +253,6 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - UI reload audit: disabled RUN during an active autonomous job now carries the
   required `RESEARCH_COMMAND_ALREADY_ACTIVE` reason. State-dependent render is
   `VERIFIED`; one additional UI-only reload is required for this hotfix.
+- UI-only reload completed at 06:29:01 MSK. HTTP document is `VERIFIED`, open
+  position diagnostics are present, command surface remains RUN + REFRESH only,
+  and no broker/live commands are exposed. Deployment is complete.
