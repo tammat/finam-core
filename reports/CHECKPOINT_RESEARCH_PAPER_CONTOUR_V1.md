@@ -212,3 +212,25 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - UI hierarchy verified without extra controls; nearest exact BRQ6=4/80.
 - 13 focused tests and repeated router run passed.
 - Verdict: `V5_HIERARCHICAL_EVIDENCE_RUNTIME_VERIFIED`.
+
+## Accumulation snapshot 29.07.2026, 06:12 МСК
+
+- Runtime units: all five research/Paper/UI services and timer active.
+- Safety unchanged: Paper only; execution and real trading disabled; trailing
+  order path remains dry-run.
+- Clean `FRESH_V5_CONFIRM`: 11 closed trades, net PnL
+  `-0.24490380000000403`, last close 28.07.2026 23:13 МСК.
+- Open isolated Paper positions: 6 (NVTK, NGQ6, BRQ6, VTBR, LKOH, GAZP).
+- Evidence groups: Strategy 3, Instrument/Side 4, Compatible Context 6,
+  Exact Context 7; max exact sample remains 4/20.
+- Leading exact branch: BRQ6 M1 breakout long, off-main, range-normal,
+  regime-invalidation; 4 trades, expectancy `-0.165429375`, PF `0`,
+  `DISCOVERY_ONLY`.
+- OOS-ready branches: 0. Continue autonomous accumulation; next evidence
+  checkpoint is the first exact branch at 20 closed trades.
+- UI quality `VERIFIED`, autonomous mode enabled. UI last-hour closed count is 0;
+  this does not conflict with the total clean sample of 11.
+- Overnight raw bar age is session-bound and is not by itself evidence of a
+  failed refresh loop; all relevant units were active at the snapshot.
+- Source revision: `08ef6b274be6521e78049d22bb223391db4c8a9c` on
+  `codex/research-edge-v5`.

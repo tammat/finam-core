@@ -1,6 +1,6 @@
 # MarketCore — чекпоинт состояния
 
-Обновлено: 28.07.2026, МСК.
+Обновлено: 29.07.2026, 06:12 МСК.
 
 ## Главная цель
 
@@ -248,6 +248,31 @@
   Paper execution flags остаются disabled.
 - Проверки после data-lineage fix: 13 passed; router повторно выполнен успешно.
 - Verdict: `V5_HIERARCHICAL_EVIDENCE_RUNTIME_VERIFIED`.
+
+## V5 accumulation checkpoint 29.07.2026, 06:12 МСК
+
+- Все ключевые units active: `finam-v5-bars-fast.timer`,
+  `finam-market-bars-ingestion.service`, `finam-paper-pipeline.service`,
+  `finam-paper-safe.service`, `marketcore-ui-shell.service`.
+- Control Center quality `VERIFIED`; autonomous research mode enabled.
+- Safety подтверждена: `EXECUTION_MODE=paper`, `EXECUTION_ENABLED=0`,
+  `REAL_TRADING_ENABLED=0`, `TRAILING_ORDER_DRY_RUN=1`.
+- Чистая когорта `FRESH_V5_CONFIRM`: 11 закрытых сделок, суммарный net PnL
+  `-0.24490380000000403`; последнее закрытие — 28.07.2026 23:13 МСК.
+- Открыто 6 изолированных Paper-позиций: NVTK, NGQ6, BRQ6, VTBR, LKOH, GAZP.
+- Hierarchical evidence: Strategy 3 groups (max 5), Instrument/Side 4 (max 5),
+  Compatible Context 6 (max 4), Exact Context 7 (max 4).
+- Максимальная exact-ветка: BRQ6 M1 breakout long / off-main /
+  range-normal / regime-invalidation — 4 сделки, expectancy `-0.165429375`,
+  observable PF `0`, решение `DISCOVERY_ONLY`.
+- `READY_FOR_OOS=0`; первая контрольная граница 20 exact trades ещё не достигнута.
+- UI `closed=0` означает закрытия за последний час; полный clean V5 sample равен 11.
+- Ночной raw wall-clock age M1/M5 превышает дневные freshness thresholds из-за
+  отсутствия новых закрытых баров вне активной сессии; units остаются active.
+- Git: branch `codex/research-edge-v5`, HEAD
+  `08ef6b274be6521e78049d22bb223391db4c8a9c`; до сохранения checkpoint tree clean.
+- Текущий приоритет: автономно накопить первую exact-ветку до 20 закрытий,
+  затем оценить expectancy/PF и решение router без ослабления OOS-порога 80.
 
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 
