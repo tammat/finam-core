@@ -318,6 +318,9 @@
   visible commands: refresh 1 / run 0; visible technical sections 0.
 - 35 профильных тестов прошли. Safety без изменений: Paper only, execution/real
   trading disabled, trailing dry-run. Требуется UI-only reload.
+- UI reload подтверждён в 06:46:06 МСК: HTTP `VERIFIED`, cards 5, exact rows 5,
+  open-position section present, единственная команда `RESEARCH.REQUEST_REFRESH`,
+  technical sections 0. Compact Edge UI полностью загружен.
 
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 

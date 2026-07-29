@@ -267,3 +267,6 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
   are not rendered on the primary operator page.
 - Current DB-state render is `VERIFIED`; 35 focused tests passed. UI-only reload
   remains pending; execution safety was not changed.
+- Runtime reload completed at 06:46:06 MSK: five cards, five exact rows, open
+  positions present, Refresh is the only command, and technical sections are absent.
+  Paper safety remains unchanged. Compact UI deployment is complete.
