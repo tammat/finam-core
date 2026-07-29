@@ -42,6 +42,18 @@ def _age_text(seconds):
     return f"обновлены {seconds // 60} мин. назад"
 
 
+def _instrument_name(row):
+    symbol = str(row.get("symbol_code") or "")
+    ticker = symbol.split("@", 1)[0]
+    fallback = {
+        "NVTK": "Новатэк", "SBERP": "Сбербанк-п", "PLZL": "Полюс",
+        "OZON": "Озон", "SFIN": "ЭсЭфАй", "T": "Т-Технологии",
+        "X5": "Корпоративный центр ИКС 5", "EUTR": "ЕвроТранс",
+    }
+    name = str(row.get("instrument_name") or fallback.get(ticker) or ticker)
+    return f"{name} ({ticker})" if name != ticker else ticker
+
+
 def _now_section(snapshot):
     freshness = snapshot.get("freshness") or ()
     worst = max(freshness, key=lambda row: int(row.get("age_sec") or 0), default={})
@@ -82,7 +94,7 @@ def _progress_section(snapshot):
         side = direction.get(str(row.get("side_code") or "").upper(), "наблюдение")
         children.append(_row(
             f"progress.{index}",
-            f"{row.get('symbol_code')} · {side}",
+            f"{_instrument_name(row)} · {side}",
             f"{count} из {target} · осталось {max(0, target-count)}",
             status="OK" if count >= target else "WARNING",
             source="analytics.hierarchical_evidence_v1",

@@ -526,3 +526,10 @@
 - HOME progress now states the dynamic active-universe count, how many instruments
   already have clean closed V5 examples, and how many leaders are shown.
 - Counts are source-backed and not hard-coded; research behavior is unchanged.
+
+## Russian instrument labels 29.07.2026
+
+- Compact HOME progress uses the Russian instrument-reference name and keeps the
+  exchange ticker in parentheses for unambiguous identification.
+- A small presentation fallback covers active Russian shares whose reference name
+  is still equal to the raw symbol. Research data and routing are unchanged.

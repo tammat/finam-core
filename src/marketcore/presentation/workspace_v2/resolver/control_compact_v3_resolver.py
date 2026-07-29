@@ -220,14 +220,17 @@ class ControlCompactV3Resolver:
                 """)
                 hierarchy = {row["level_code"]: dict(row) for row in cursor.fetchall()}
                 cursor.execute("""
-                    SELECT scope_code,timeframe_code,strategy_code,symbol_code,side_code,
-                           session_code,regime_code,exit_rule,closed_trades,target_trades,
-                           expectancy,profit_factor,profit_factor_observable,
-                           decision_code,reason_code,updated_at
-                    FROM analytics.hierarchical_evidence_v1
-                    WHERE cohort_code='FRESH_V5_CONFIRM' AND level_code='EXACT_CONTEXT'
-                      AND decision_code<>'EARLY_STOP'
-                    ORDER BY closed_trades DESC,priority_score DESC
+                    SELECT h.scope_code,h.timeframe_code,h.strategy_code,h.symbol_code,h.side_code,
+                           h.session_code,h.regime_code,h.exit_rule,h.closed_trades,h.target_trades,
+                           h.expectancy,h.profit_factor,h.profit_factor_observable,
+                           h.decision_code,h.reason_code,h.updated_at,
+                           CASE WHEN r.display_name IS DISTINCT FROM h.symbol_code
+                                THEN r.display_name END AS instrument_name
+                    FROM analytics.hierarchical_evidence_v1 h
+                    LEFT JOIN marketcore.instrument_reference_v1 r ON r.symbol=h.symbol_code
+                    WHERE h.cohort_code='FRESH_V5_CONFIRM' AND h.level_code='EXACT_CONTEXT'
+                      AND h.decision_code<>'EARLY_STOP'
+                    ORDER BY h.closed_trades DESC,h.priority_score DESC
                     LIMIT 5
                 """)
                 hierarchy_top_exact = [dict(row) for row in cursor.fetchall()]

@@ -50,6 +50,19 @@ def test_home_explains_compact_universe_coverage() -> None:
     assert "на экране топ-" in coverage
 
 
+def test_home_uses_russian_instrument_names_with_ticker() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    values = [
+        str(node.content.value)
+        for node in walk(document.root)
+        if node.content and node.content.value
+    ]
+    progress_labels = [value for value in values if " · покупка" in value or " · продажа" in value]
+    assert progress_labels
+    assert all("(" in value and ")" in value for value in progress_labels)
+    assert any(any(char in value for char in "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ") for value in progress_labels)
+
+
 def test_metric_sections_survive_browser_empty_section_cleanup() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     nodes = {node.node_id: node for node in walk(document.root)}
