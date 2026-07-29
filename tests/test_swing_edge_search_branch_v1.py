@@ -48,6 +48,7 @@ def test_swing_future_executor_has_full_methodology_and_recovery() -> None:
     assert "holdout_fingerprint" in migration
     assert "heartbeat_at" in migration and "STALE_HEARTBEAT_RECOVERED" in monitor
     assert "SWING_FUTURE_EXECUTION_V1" in (ROOT/"src/scripts/run_db_job_scheduler_v1.py").read_text()
+    assert 'str(rid),str(i["plan_item_id"])' in executor
 
 
 def test_swing_branch_schema_is_installed_in_postgres() -> None:

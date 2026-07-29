@@ -1,6 +1,6 @@
 # MarketCore — чекпоинт состояния
 
-Обновлено: 29.07.2026, 08:55 МСК.
+Обновлено: 29.07.2026, 09:03 МСК.
 
 ## Главная цель
 
@@ -191,6 +191,15 @@
 - Штатный router самостоятельно перечитал код в 08:54 МСК. Лидирующая exact-ветка BR: `4/20`, `P&L net -0,662`, `P&L R -0,775`, `Exp/R -0,194`, `PF 0,00`.
 - Проверки hierarchy/HOME/iPhone: `22 passed`; ручной запуск router и торговое исполнение не выполнялись.
 - Для отображения изменения требуется restart только `marketcore-ui-shell.service`.
+
+## Checkpoint 29.07.2026, 09:03 МСК — очистка scheduler и Swing UUID
+
+- Семь legacy DB-заданий с исполнителями, отсутствующими в scheduler allowlist, точечно отключены и помечены `DISABLED_LEGACY_EXECUTOR_NOT_ALLOWED_V1`. Их определения сохранены для аудита; V5-задания не изменялись.
+- После отключения новых failure по этим семи job нет (`0`). Повторяющийся шум с return code `126` остановлен.
+- В `SWING_FUTURE_EXECUTION_V1` UUID результата и plan item явно преобразуются в строки перед передачей psycopg2; ошибка `can't adapt type UUID` устранена.
+- Контрольный Swing research evaluator обработал 3 элемента: `items_evaluated=3`, `pass=0`, `live_allowed=0`, verdict `OK`. В БД записаны 3 OOS-результата; отсутствие PASS является исследовательским результатом, а не технической ошибкой.
+- Проверки legacy-disable/Swing: `19 passed`; Python compile и SQL migration успешны.
+- Safety подтверждена: `EXECUTION_MODE=paper`, `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0`.
 
 ## Аудит незакоммиченных изменений 28.07.2026
 
