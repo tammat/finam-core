@@ -54,6 +54,7 @@ def _command(code, label, action_id, command_code, *, target_id=None,
             reversible=bool(rollback_code),
             rollback_code=rollback_code,
             idempotency_key="client.request",
+            blocked_reason_code=None if enabled else "RESEARCH_COMMAND_ALREADY_ACTIVE",
         ),
     )
 

@@ -296,6 +296,10 @@
   не выполнен, потому что sudo требует интерактивный пароль.
 - Safety и пороги не ослаблены: real execution запрещён, early-stop = 20,
   OOS = 80 exact trades.
+- Первый UI reload в 06:26 выявил state-dependent validation error: при уже
+  активном edge-job отключённая RUN-команда не имела обязательного
+  `blocked_reason_code`. Команда теперь получает
+  `RESEARCH_COMMAND_ALREADY_ACTIVE`; текущий DB-state render снова `VERIFIED`.
 
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 

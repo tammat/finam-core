@@ -250,3 +250,6 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
   quality `VERIFIED`.
 - Pending deployment step: operator restart of `marketcore-ui-shell.service`.
   No pipeline restart is required. Real execution remains disabled.
+- UI reload audit: disabled RUN during an active autonomous job now carries the
+  required `RESEARCH_COMMAND_ALREADY_ACTIVE` reason. State-dependent render is
+  `VERIFIED`; one additional UI-only reload is required for this hotfix.

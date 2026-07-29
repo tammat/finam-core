@@ -1,4 +1,6 @@
 from pathlib import Path
+import importlib.util
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +24,19 @@ def test_open_position_diagnostics_add_no_operator_buttons() -> None:
     assert "RenderActionV2" not in body
     assert "_command(" not in body
     assert "закрытых баров" in body
+
+
+def test_disabled_research_command_has_required_block_reason() -> None:
+    spec = importlib.util.spec_from_file_location("control_v3_renderer", RENDERER)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    node = module._command(
+        "edge_run", "Запустить edge search", "research.edge_search.run",
+        "RESEARCH.RUN_EDGE_SEARCH", enabled=False,
+    )
+    assert node.action.enabled is False
+    assert node.action.blocked_reason_code == "RESEARCH_COMMAND_ALREADY_ACTIVE"
 
 
 def test_runtime_priority_is_exact_fresh_v5_only() -> None:
