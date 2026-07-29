@@ -283,6 +283,15 @@ def _attention_section(snapshot):
             idempotency_key="client.request",
         ),
     )
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION, "home.compact.attention",
+        state=RenderNodeStateV2(status_code=status),
+        children=(
+            _leaf(RenderNodeTypeV2.TITLE, "home.compact.attention.title", "Нужно внимание", level="SECTION"),
+            _leaf(RenderNodeTypeV2.TEXT, "home.compact.attention.message", message),
+            refresh,
+        ),
+    )
 
 
 def _optimizer_section(snapshot):
@@ -316,15 +325,6 @@ def _optimizer_section(snapshot):
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Рекомендации входа и выхода", level="SECTION"),
         RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.optimizer.metrics", children=tuple(rows)),
     ))
-    return RenderNodeV2(
-        RenderNodeTypeV2.SECTION, "home.compact.attention",
-        state=RenderNodeStateV2(status_code=status),
-        children=(
-            _leaf(RenderNodeTypeV2.TITLE, "home.compact.attention.title", "Нужно внимание", level="SECTION"),
-            _leaf(RenderNodeTypeV2.TEXT, "home.compact.attention.message", message),
-            refresh,
-        ),
-    )
 
 
 def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):

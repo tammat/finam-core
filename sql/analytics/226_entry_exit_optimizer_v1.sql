@@ -41,3 +41,4 @@ CREATE TABLE IF NOT EXISTS analytics.entry_exit_recommendation_v1 (
 CREATE INDEX IF NOT EXISTS entry_exit_recommendation_status_v1_idx
 ON analytics.entry_exit_recommendation_v1(recommendation_status,generated_at DESC);
 GRANT SELECT ON analytics.entry_exit_shadow_pair_v1,analytics.entry_exit_recommendation_v1 TO finam;
+GRANT SELECT ON analytics.entry_exit_shadow_pair_v1,analytics.entry_exit_recommendation_v1 TO alex,finam_user;
