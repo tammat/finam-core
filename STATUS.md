@@ -639,3 +639,13 @@
 - GOLD runs in SHADOW: 1.8–2.5 ATR stop, 3.5 ATR target, >=1.8R; dated-contract rollover controls remain authoritative.
 - Every profile rejects a candidate recommendation when target movement does not cover explicit round-trip costs by at least 3x.
 - REAL execution is untouched. Runtime active after restart: PID 3877920 since 20:39:55 MSK; BR/NG/CNY telemetry observed without import or startup errors.
+### Daily futures risk calibrator — 29.07.2026 20:58 MSK
+
+- Added an advisory-only daily calibrator for BR/NG/USD/CNY/GOLD, split by LONG/SHORT.
+- Source is restricted to `trade_source='paper'` and `payload.context.cohort LIKE 'FRESH_V5%'`; legacy-derived trades are excluded.
+- MAE/MFE are reconstructed from M1/M5 market bars; zero placeholder fields in `closed_trades` are not trusted.
+- ATR is reconstructed from the 14 completed bars available at entry; entry volume is normalized to the prior 20-bar median.
+- Recommendation requires at least 20 valid paths and 8 profitable trades. At 50 paths status becomes `CANDIDATE_FOR_REVIEW`; nothing is applied automatically.
+- First trusted run: BR LONG 8/3 winners; NG LONG 5/1; NG SHORT 1/0; CNY LONG 1/0; other direction/asset buckets 0. All correctly remain `INSUFFICIENT_DATA` with no recommended values.
+- Results are stored in `analytics.futures_risk_calibration_v1`; unit tests pass.
+- Timer definition runs daily at 21:15 Europe/Moscow with a persistent two-minute randomized delay; system installation requires operator sudo.

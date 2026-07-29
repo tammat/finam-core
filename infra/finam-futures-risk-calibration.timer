@@ -1,0 +1,11 @@
+[Unit]
+Description=Run futures Paper risk calibration daily
+
+[Timer]
+OnCalendar=*-*-* 21:15:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=120
+Unit=finam-futures-risk-calibration.service
+
+[Install]
+WantedBy=timers.target

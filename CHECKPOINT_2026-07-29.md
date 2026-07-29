@@ -58,3 +58,14 @@
 - Runtime evidence: CNY SHADOW 1.2/2.0 ATR; BR ENFORCE 1.8/2.7 ATR; NG SHADOW 1.5/3.0 ATR with qty 0.533333.
 - Service verified active with PID 3877920; no Traceback, ImportError or SyntaxError after restart.
 - Promotion rule: do not move NG/USD/CNY/GOLD from SHADOW to ENFORCE before sufficient closed Paper evidence and MAE/MFE review.
+## Daily futures calibrator addendum — 20:58 MSK
+
+- New analytics module: `src/finam_core/analytics/futures_risk_calibrator.py`.
+- New job: `src/scripts/analytics/build_futures_risk_calibration_v1.py`.
+- New storage: `analytics.futures_risk_calibration_v1` from migration 224.
+- New units: `finam-futures-risk-calibration.service/.timer`, scheduled daily at 21:15 MSK.
+- Trusted cohort only: Paper + FRESH_V5; legacy data rejected after the initial data-quality audit exposed an invalid USD MAE of 3351 ATR.
+- No automatic parameter mutation. Output states are `INSUFFICIENT_DATA`, `ADVISORY_READY`, and `CANDIDATE_FOR_REVIEW`.
+- First trusted calculation persisted 10 asset/side rows; all are insufficient and therefore contain no recommendation.
+- Tests: 2 passed; database calculation and upsert verified.
+- Pending operator action: install the two unit files under `/etc/systemd/system`, daemon-reload, enable/start the timer.
