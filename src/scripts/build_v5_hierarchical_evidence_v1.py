@@ -38,8 +38,13 @@ class EvidenceStats:
     gross_loss: Decimal = Decimal("0")
     absolute_gross_move: Decimal = Decimal("0")
     execution_cost: Decimal = Decimal("0")
+    net_pnl_r: Decimal = Decimal("0")
+    r_observations: int = 0
 
-    def add(self, *, net_pnl: Decimal, gross_pnl: Decimal, commission: Decimal) -> None:
+    def add(
+        self, *, net_pnl: Decimal, gross_pnl: Decimal, commission: Decimal,
+        realized_r: Decimal | None = None,
+    ) -> None:
         self.trades += 1
         self.net_pnl += net_pnl
         self.absolute_gross_move += abs(gross_pnl)
@@ -48,6 +53,9 @@ class EvidenceStats:
             self.gross_profit += net_pnl
         elif net_pnl < 0:
             self.gross_loss += abs(net_pnl)
+        if realized_r is not None:
+            self.net_pnl_r += realized_r
+            self.r_observations += 1
 
 
 def classify(stats: EvidenceStats, *, exact: bool) -> tuple[str, str, Decimal, bool]:
@@ -163,10 +171,20 @@ def main() -> int:
                        coalesce(payload->'context'->>'actual_exit_reason',
                                 payload->'context'->>'exit_rule','UNKNOWN') exit_rule,
                        coalesce(net_pnl,0) net_pnl,coalesce(gross_pnl,0) gross_pnl,
-                       coalesce(commission,0) commission
+                       coalesce(commission,0) commission,entry_price,abs(qty) qty,
+                       nullif(payload->'context'->>'entry_stop_price','')::numeric entry_stop_price
                 FROM analytics.closed_trades_fresh_v5_confirmed
             """)
             for row in cursor.fetchall():
+                initial_risk = abs(
+                    Decimal(str(row["entry_price"] or 0))
+                    - Decimal(str(row["entry_stop_price"] or 0))
+                ) * Decimal(str(row["qty"] or 0))
+                realized_r = (
+                    Decimal(str(row["net_pnl"])) / initial_risk
+                    if row["entry_stop_price"] is not None and initial_risk > 0
+                    else None
+                )
                 session, compatible_session = normalize_session(row["session"], compatibility)
                 regime, compatible_regime = normalize_regime(row["regime"], compatibility)
                 base = dict(scope=row["portfolio_scope"],
@@ -185,6 +203,7 @@ def main() -> int:
                         net_pnl=Decimal(str(row["net_pnl"])),
                         gross_pnl=Decimal(str(row["gross_pnl"])),
                         commission=Decimal(str(row["commission"])),
+                        realized_r=realized_r,
                     )
 
             cursor.execute("DELETE FROM analytics.hierarchical_evidence_v1 WHERE cohort_code=%s", (COHORT,))
@@ -198,17 +217,22 @@ def main() -> int:
                 priority = evidence_priority_score(
                     stats, decision=decision, exact=key.level == "EXACT_CONTEXT"
                 )
+                expectancy_r = (
+                    stats.net_pnl_r / stats.r_observations
+                    if stats.r_observations else None
+                )
                 cursor.execute("""
                     INSERT INTO analytics.hierarchical_evidence_v1(
                       evidence_key,cohort_code,level_code,scope_code,timeframe_code,
                       strategy_code,symbol_code,side_code,session_code,regime_code,exit_rule,
                       closed_trades,target_trades,net_pnl,expectancy,profit_factor,
-                      profit_factor_observable,cost_ratio,priority_score,decision_code,reason_code)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,80,%s,%s,%s,%s,%s,%s,%s,%s)
+                      profit_factor_observable,cost_ratio,priority_score,decision_code,reason_code,
+                      net_pnl_r,expectancy_r,r_observable)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,80,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (evidence_id(key),COHORT,key.level,key.scope,key.timeframe,key.strategy,
                       key.symbol,key.side,key.session,key.regime,key.exit_rule,stats.trades,
                       stats.net_pnl,expectancy,profit_factor,observable,cost_ratio,priority,
-                      decision,reason))
+                      decision,reason,stats.net_pnl_r,expectancy_r,stats.r_observations==stats.trades))
     levels = {level: sum(1 for key in groups if key.level == level)
               for level in ("STRATEGY","INSTRUMENT_SIDE","COMPATIBLE_CONTEXT","EXACT_CONTEXT")}
     print(f"groups={len(groups)} levels={levels}")

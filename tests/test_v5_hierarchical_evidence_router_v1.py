@@ -94,3 +94,23 @@ def test_evidence_timeframe_rejects_live_transport_marker() -> None:
     assert MODULE.evidence_timeframe("NGQ6@RTSX", "LIVE", "M5") == "M1"
     assert MODULE.evidence_timeframe("SBER@MISX", "LIVE", "M5") == "M5"
     assert MODULE.evidence_timeframe("UNKNOWN", "LIVE", "") == "UNKNOWN"
+
+
+def test_r_metrics_use_net_pnl_over_initial_stop_risk() -> None:
+    sample = stats(0, "0", "0", "0", move=0, cost=0)
+    sample.add(
+        net_pnl=Decimal("15"), gross_pnl=Decimal("20"),
+        commission=Decimal("5"), realized_r=Decimal("0.5"),
+    )
+    sample.add(
+        net_pnl=Decimal("-5"), gross_pnl=Decimal("-3"),
+        commission=Decimal("2"), realized_r=Decimal("-0.25"),
+    )
+    assert sample.net_pnl_r == Decimal("0.25")
+    assert sample.net_pnl_r / sample.r_observations == Decimal("0.125")
+
+
+def test_router_persists_r_metrics_from_entry_stop() -> None:
+    source = PATH.read_text()
+    assert "entry_stop_price" in source
+    assert "net_pnl_r,expectancy_r,r_observable" in source

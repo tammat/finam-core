@@ -70,13 +70,15 @@ def test_home_progress_rows_show_source_backed_pnl() -> None:
         for node in walk(document.root)
         if node.content and node.content.value
     ]
-    progress = [value for value in values if " из " in value and "P&L " in value]
+    progress = [value for value in values if " из " in value and "P&L net " in value]
     assert progress
+    assert all("P&L R " in value and "Exp/R " in value and "PF " in value for value in progress)
     resolver = open(
         "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py",
         encoding="utf-8",
     ).read()
-    assert "h.net_pnl" in resolver
+    for field in ("h.net_pnl", "h.net_pnl_r", "h.expectancy_r", "h.r_observable"):
+        assert field in resolver
 
 
 def test_metric_sections_survive_browser_empty_section_cleanup() -> None:

@@ -54,9 +54,16 @@ def _instrument_name(row):
     return f"{name} ({ticker})" if name != ticker else ticker
 
 
-def _pnl_text(value):
-    amount = float(value or 0)
-    return f"P&L {amount:+.2f}".replace(".", ",")
+def _signed_metric(value, *, available=True):
+    if not available or value is None:
+        return "нет данных"
+    return f"{float(value):+.2f}".replace(".", ",")
+
+
+def _pf_text(row):
+    if not row.get("profit_factor_observable"):
+        return "нет данных"
+    return f"{float(row.get('profit_factor') or 0):.2f}".replace(".", ",")
 
 
 def _now_section(snapshot):
@@ -104,7 +111,10 @@ def _progress_section(snapshot):
         children.append(_row(
             f"progress.{index}",
             f"{_instrument_name(row)} · {side}",
-            f"{count} из {target} · {_pnl_text(row.get('net_pnl'))}",
+            f"{count} из {target} · P&L net {_signed_metric(row.get('net_pnl'))} · "
+            f"P&L R {_signed_metric(row.get('net_pnl_r'), available=row.get('r_observable'))} · "
+            f"Exp/R {_signed_metric(row.get('expectancy_r'), available=row.get('r_observable'))} · "
+            f"PF {_pf_text(row)}",
             status="OK" if count >= target else "WARNING",
             source="analytics.hierarchical_evidence_v1",
             source_as_of=row.get("updated_at"),

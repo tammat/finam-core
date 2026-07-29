@@ -228,7 +228,8 @@ class ControlCompactV3Resolver:
                 cursor.execute("""
                     SELECT h.scope_code,h.timeframe_code,h.strategy_code,h.symbol_code,h.side_code,
                            h.session_code,h.regime_code,h.exit_rule,h.closed_trades,h.target_trades,
-                           h.net_pnl,h.expectancy,h.profit_factor,h.profit_factor_observable,
+                           h.net_pnl,h.net_pnl_r,h.expectancy_r,h.r_observable,
+                           h.expectancy,h.profit_factor,h.profit_factor_observable,
                            h.decision_code,h.reason_code,h.updated_at,
                            CASE WHEN r.display_name IS DISTINCT FROM h.symbol_code
                                 THEN r.display_name END AS instrument_name
