@@ -157,7 +157,7 @@ def _hierarchy_section(snapshot):
 def _open_positions_section(rows):
     children = [
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.open_positions.title",
-              "Открытые Paper-позиции", level="SECTION")
+              "Открытые учебные позиции", level="SECTION")
     ]
     if not rows:
         children.append(_leaf(RenderNodeTypeV2.TEXT, "control.v3.open_positions.empty",
@@ -197,12 +197,16 @@ def _multi_asset_section(rows, cny_spot_controls=()):
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.multi_asset.title",
               "Валюты и золото", level="SECTION"),
         _leaf(RenderNodeTypeV2.TEXT, "control.v3.multi_asset.note",
-              "Изолированные Paper-ветки · комиссии, сессии и направление обязательны"),
+              "Система отдельно проверяет покупки и продажи, учитывая торговые расходы и время торгов"),
     ]
     grouped = {}
     for row in rows:
         grouped.setdefault((row.get("asset_code"), row.get("timeframe_code")), []).append(row)
-    asset_names = {"USD": "USD perpetual", "GOLD": "Gold dated", "CNY": "CNY perpetual"}
+    asset_names = {
+        "USD": "Доллар США · бессрочный фьючерс",
+        "GOLD": "Золото · контракт с датой окончания",
+        "CNY": "Китайский юань · бессрочный фьючерс",
+    }
     for index, ((asset, timeframe), branches) in enumerate(grouped.items(), start=1):
         first = branches[0]
         counts = {str(item.get("side_code")): int(item.get("closed_trades") or 0)
@@ -210,12 +214,19 @@ def _multi_asset_section(rows, cny_spot_controls=()):
         selected = str(first.get("active_timeframe") or "—") == str(timeframe)
         fee = first.get("scalper_fee")
         spread = first.get("spread_bps")
-        cost_text = f"fee {float(fee):g} {first.get('fee_currency') or 'RUB'}" if fee is not None else "fee —"
-        spread_text = f"spread {float(spread):.2f} bps" if spread is not None else "spread —"
-        carry = "funding required" if first.get("funding_cost_required") else "rollover required"
-        oos = "OOS ready" if first.get("oos_allowed") else "OOS blocked"
-        value = (f"LONG {counts.get('LONG', 0)} · SHORT {counts.get('SHORT', 0)} · "
-                 f"{cost_text} · {spread_text} · {carry} · {oos}")
+        cost_text = (f"комиссия {float(fee):g} {first.get('fee_currency') or 'руб.'}"
+                     if fee is not None else "комиссия ещё не получена")
+        spread_text = (f"разница цен {float(spread):.2f} б.п."
+                       if spread is not None else "разница цен ещё не получена")
+        carry = ("нужно учесть ежедневную плату за перенос"
+                 if first.get("funding_cost_required")
+                 else "нужно проверить переход на следующий контракт")
+        verification = ("можно начинать независимую проверку"
+                        if first.get("oos_allowed")
+                        else "независимая проверка пока запрещена")
+        value = (f"примеров покупки: {counts.get('LONG', 0)} · "
+                 f"примеров продажи: {counts.get('SHORT', 0)} · "
+                 f"{cost_text} · {spread_text} · {carry} · {verification}")
         children.append(RenderNodeV2(
             RenderNodeTypeV2.METRIC_ROW,
             f"control.v3.multi_asset.{index}",
@@ -227,17 +238,19 @@ def _multi_asset_section(rows, cny_spot_controls=()):
             children=(
                 _leaf(RenderNodeTypeV2.METRIC_LABEL,
                       f"control.v3.multi_asset.{index}.label",
-                      f"{asset_names.get(asset, asset)} · {timeframe}{' · active' if selected else ''}"),
+                      f"{asset_names.get(asset, asset)} · свечи {timeframe[1:]} мин."
+                      f"{' · система наблюдает сейчас' if selected else ' · ожидает своей очереди'}"),
                 _leaf(RenderNodeTypeV2.METRIC_VALUE,
                       f"control.v3.multi_asset.{index}.value", value),
             ),
         ))
     controls = {str(row.get("symbol")): row for row in cny_spot_controls}
     control_text = " · ".join(
-        f"{symbol}: DATA/COST NOT READY" for symbol in ("CNYM@MISX", "CNYRUB_TOM@MISX")
+        f"{symbol}: недостаточно свежих данных и сведений о расходах"
+        for symbol in ("CNYM@MISX", "CNYRUB_TOM@MISX")
     )
     if controls:
-        control_text += " · только контроль, не V5-ветка"
+        control_text += " · используются только для сравнения, сделки по ним не моделируются"
     children.append(_leaf(RenderNodeTypeV2.TEXT, "control.v3.multi_asset.cny_controls", control_text))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.multi_asset",
                         children=tuple(children))
@@ -433,7 +446,7 @@ def _compact_control_section(snapshot):
     refresh_active = int(state.get("refresh_active") or 0)
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.compact_control", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.compact_control.title",
-              "Автономный поиск edge", level="SECTION"),
+              "Автономный поиск устойчивого преимущества", level="SECTION"),
         _leaf(RenderNodeTypeV2.TEXT, "control.v3.compact_control.status",
               "Работает автономно — нажатия не требуются"),
         _command("refresh", "Обновить", "research.request.refresh",
@@ -443,27 +456,27 @@ def _compact_control_section(snapshot):
 
 
 def _priority_exact_section(rows):
-    columns = ("Ветка", "Сделок", "Результат", "Решение")
+    columns = ("Одинаковые условия", "Завершённых примеров", "Средний результат", "Что делает система")
     header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.exact.header", children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.exact.header.{index}", label)
         for index, label in enumerate(columns, start=1)))
     body = []
     decisions = {
-        "DISCOVERY_ONLY": "Накопление до 20",
-        "COLLECT": "Накопление до 80",
-        "READY_FOR_OOS": "Готово к OOS",
+        "DISCOVERY_ONLY": "Собирает первые 20 примеров",
+        "COLLECT": "Продолжает сбор до 80 примеров",
+        "READY_FOR_OOS": "Начинает независимую проверку",
     }
     for index, row in enumerate(rows, start=1):
         trades = int(row.get("closed_trades") or 0)
         observable = bool(row.get("profit_factor_observable"))
         expectancy = float(row.get("expectancy") or 0)
-        result = f"E {expectancy:+.4f} · " + (
-            f"PF {float(row.get('profit_factor') or 0):.2f}" if observable
-            else "PF — мало данных"
+        result = f"в среднем {expectancy:+.4f} · " + (
+            f"прибыль/убыток {float(row.get('profit_factor') or 0):.2f}" if observable
+            else "соотношение прибыли и убытка считать рано"
         )
         branch = " · ".join((
             str(row.get("symbol_code")), str(row.get("timeframe_code")),
-            {"LONG":"Long", "SHORT":"Short"}.get(str(row.get("side_code")).upper(),
+            {"LONG":"покупка", "SHORT":"продажа"}.get(str(row.get("side_code")).upper(),
                                                        str(row.get("side_code"))),
         ))
         body.append(RenderNodeV2(
@@ -488,7 +501,10 @@ def _priority_exact_section(rows):
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.exact", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.exact.title",
-              "Приоритетные exact-ветки", level="SECTION"),
+              "Условия, по которым быстрее всего накапливаются примеры", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "control.v3.exact.explanation",
+              "Каждая строка — один инструмент, длительность свечи и направление. "
+              "Система не делает вывод до 20 одинаковых завершённых примеров."),
         table,
     ))
 
@@ -519,18 +535,19 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         for row in freshness
     )
     cards = RenderNodeV2(RenderNodeTypeV2.GRID, "control.v3.summary", children=(
-        _card("mode", "Режим", "Автономный", "Paper research", "OK"),
+        _card("mode", "Режим", "Автономный", "Учебный режим: реальных сделок нет", "OK"),
         _card("data", "Данные", "Свежие" if fresh else "Ожидание бара",
               "Семь V5-серий", "OK" if fresh else "WARNING"),
-        _card("sample", "Закрыто V5", snapshot["closed_total"], "Чистая когорта", "OK"),
-        _card("best", "Лучшая ветка", f"{nearest_trades} / {nearest_target}",
+        _card("sample", "Завершено примеров", snapshot["closed_total"], "Только новые сопоставимые данные", "OK"),
+        _card("best", "Больше всего примеров", f"{nearest_trades} / {nearest_target}",
               str(nearest.get("symbol_code") or "Нет данных"), "WARNING"),
-        _card("ready", "OOS", f"{int(snapshot['ready_links'])} / 80",
-              "Exact only", "OK" if snapshot["ready_links"] else "WARNING"),
+        _card("ready", "Готово к независимой проверке", int(snapshot["ready_links"]),
+              "Только после 80 одинаковых примеров", "OK" if snapshot["ready_links"] else "WARNING"),
     ))
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "control.v3.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.title", "MarketCore", level="PAGE"),
-        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.subtitle", "Поиск edge · Paper safe"),
+        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.subtitle",
+              "Поиск устойчивого преимущества · без реальных сделок"),
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
         _compact_state_section(snapshot, raw_process_status),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),

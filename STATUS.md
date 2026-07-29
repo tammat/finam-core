@@ -462,3 +462,13 @@
 - Post-deploy audit found the first flat-only M5→M1 rotation correctly blocked by
   active-universe governance because only M5 strategy policies existed. Migration
   217 now clones the governed policy for M1; no fills, orders or positions changed.
+
+## Plain-Russian operator UI 29.07.2026
+
+- Main Control labels now explain system activity for a non-professional user:
+  completed examples, purchases/sales, current observation clock, trading costs,
+  daily carry, contract transition and the reason independent validation is blocked.
+- English research shorthand (edge, Paper, LONG/SHORT, OOS, funding, rollover,
+  fee/spread and exact) is removed from the rendered primary page.
+- No controls were added; Refresh remains the only button. Autonomous behavior and
+  all execution safety settings are unchanged. Validation: 26 focused tests passed.

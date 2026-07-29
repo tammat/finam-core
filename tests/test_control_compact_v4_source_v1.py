@@ -11,9 +11,9 @@ def test_control_uses_clean_v5_cohort_without_mixing_legacy_scopes() -> None:
     assert "FRESH_V5_CONFIRMED_EQUITY" in resolver
     assert "FRESH_V5_CONFIRMED_FUTURES" in resolver
     assert "closed_trades_active_v3" not in resolver
-    assert '"Закрыто V5"' in renderer
+    assert '"Завершено примеров"' in renderer
     assert '"excluded_closed"' in resolver
-    assert '"Открытые Paper-позиции"' in renderer
+    assert '"Открытые учебные позиции"' in renderer
     assert "def _utc(value):" in renderer
     assert "браузер показывает его в Europe/Moscow" in renderer
     assert '"hierarchy_top_exact"' in resolver

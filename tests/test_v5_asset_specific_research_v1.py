@@ -112,7 +112,19 @@ def test_compact_ui_shows_asset_branches_without_new_controls() -> None:
     assert '"cny_spot_controls": cny_spot_controls' in resolver
     section = renderer[renderer.index("def _multi_asset_section"):renderer.index("def _ru_status")]
     assert "Валюты и золото" in section
-    assert "LONG" in section and "SHORT" in section
-    assert "funding required" in section and "rollover required" in section
-    assert "DATA/COST NOT READY" in section
+    assert "примеров покупки" in section and "примеров продажи" in section
+    assert "ежедневную плату за перенос" in section
+    assert "переход на следующий контракт" in section
+    assert "недостаточно свежих данных" in section
     assert "_command(" not in section
+
+
+def test_main_ui_explains_research_in_plain_russian() -> None:
+    renderer = RENDERER.read_text()
+    for phrase in (
+        "Учебный режим: реальных сделок нет",
+        "Собирает первые 20 примеров",
+        "Только после 80 одинаковых примеров",
+        "Поиск устойчивого преимущества",
+    ):
+        assert phrase in renderer
