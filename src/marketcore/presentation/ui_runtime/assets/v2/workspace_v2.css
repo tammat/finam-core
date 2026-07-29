@@ -625,6 +625,32 @@ article[role="link"][data-mc-action-id]:focus {
     [data-mc-node-id^="home.compact."] [data-mc-node="metric_label"] { font-size: .82rem; }
     [data-mc-node-id^="home.compact."] [data-mc-node="metric_value"] { font-size: 1rem; line-height: 1.35; }
     [data-mc-node-id="home.compact.refresh"] { min-height: 48px; font-size: 1rem; }
+    [data-mc-node-id^="home.compact.trades."][data-mc-node="table"] {
+        min-width: 980px; font-size: .82rem;
+    }
+    [data-mc-node-id^="home.compact.trades."][data-mc-node="table_cell"],
+    [data-mc-node-id^="home.compact.trades."][data-mc-node="table_header_cell"] {
+        padding: 9px 8px; white-space: nowrap;
+    }
+    [data-mc-node-id^="home.compact.trades."][data-mc-node="table_cell"]:first-child,
+    [data-mc-node-id^="home.compact.trades."][data-mc-node="table_header_cell"]:first-child {
+        position: sticky; left: 0; z-index: 2; min-width: 152px;
+        background: var(--mc-surface);
+        box-shadow: 1px 0 0 var(--mc-border);
+    }
+    [data-mc-node-id^="home.compact.trades."][data-mc-node="table_header_cell"]:first-child {
+        z-index: 3; background: var(--mc-surface-header);
+    }
+    [data-mc-node-id="home.compact.optimizer.actions"] {
+        display: grid; grid-template-columns: 1fr; gap: 8px;
+    }
+    [data-mc-node-id^="home.compact.optimizer."][data-mc-node="action"] {
+        min-height: 52px; margin: 0; padding: 12px 14px; text-align: left;
+        font-size: .94rem; touch-action: manipulation;
+    }
+    [data-mc-node-id="home.compact.optimizer.metrics"] [data-mc-node="metric_row"] {
+        padding: 13px 0;
+    }
 }
 
 @media (max-width: 900px) {

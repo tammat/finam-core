@@ -93,7 +93,8 @@ class GovernedCommandWorkerV2:
 
     def run_once(self, *, request_id: str | None = None, request_kind: str | None = None) -> str | None:
         inline_commands = {"OPERATOR_DECISION_ACKNOWLEDGE", "OPERATOR_DECISION_MEASURE", "OPERATOR_DECISION_REFRESH", "EDGE_SEARCH_CANCEL",
-                           "RESEARCH_UNIVERSE_INCLUDE", "RESEARCH_UNIVERSE_EXCLUDE", "RESEARCH_UNIVERSE_PRIORITY"}
+                           "RESEARCH_UNIVERSE_INCLUDE", "RESEARCH_UNIVERSE_EXCLUDE", "RESEARCH_UNIVERSE_PRIORITY",
+                           "ENTRY_EXIT_CONFIRM_PAPER", "ENTRY_EXIT_REJECT", "ENTRY_EXIT_CONTINUE_SHADOW", "ENTRY_EXIT_ROLLBACK"}
         if request_kind is not None and request_kind not in COMMANDS and request_kind not in inline_commands:
             raise ValueError("WORKER_REQUEST_KIND_FORBIDDEN")
         with psycopg2.connect("postgresql:///finam_core") as connection:
@@ -134,6 +135,8 @@ class GovernedCommandWorkerV2:
             return self._cancel_edge_search(row)
         if str(row["request_kind"]).startswith("RESEARCH_UNIVERSE_"):
             return self._apply_universe_override(row)
+        if str(row["request_kind"]).startswith("ENTRY_EXIT_"):
+            return self._apply_entry_exit_decision(row)
         if command is None:
             return self._finish(row, False, None, "WORKER_REQUEST_KIND_FORBIDDEN")
         self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
@@ -262,6 +265,74 @@ class GovernedCommandWorkerV2:
                             (symbol,mode,row["request_id"],row["actor_id"]))
                         result = f"{mode.lower()}:{symbol}"
             return self._finish(row, True, result, None)
+        except Exception as exc:
+            return self._finish(row, False, None, str(exc)[:256])
+
+    def _apply_entry_exit_decision(self, row) -> str:
+        self._record(row, AuditStageV2.EXECUTION_STARTED, DispatchStatusV2.EXECUTED, "WORKER_STARTED")
+        parts = str(row["target_id"] or "").split("|", 3)
+        if len(parts) != 4 or any(not part.strip() for part in parts):
+            return self._finish(row, False, None, "ENTRY_EXIT_TARGET_INVALID")
+        strategy, group, side, candidate = (part.strip() for part in parts)
+        try:
+            with psycopg2.connect("postgresql:///finam_core") as connection:
+                with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""SELECT * FROM analytics.entry_exit_recommendation_v1
+                        WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s AND candidate_code=%s
+                        FOR UPDATE""", (strategy,group,side,candidate))
+                    recommendation = cursor.fetchone()
+                    if recommendation is None:
+                        raise ValueError("ENTRY_EXIT_RECOMMENDATION_NOT_FOUND")
+                    kind = str(row["request_kind"])
+                    decision = kind.removeprefix("ENTRY_EXIT_")
+                    reason = "OPERATOR_SELECTED"
+                    if kind == "ENTRY_EXIT_CONFIRM_PAPER":
+                        if recommendation["recommendation_status"] != "READY_FOR_PAPER_CONFIRMATION":
+                            raise ValueError("ENTRY_EXIT_GUARDS_NOT_PASSED")
+                        if recommendation["entry_mode"] != "IMMEDIATE":
+                            raise ValueError("ENTRY_EXIT_MODE_NOT_RUNTIME_SUPPORTED")
+                        cursor.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
+                            SET status='SUPERSEDED',deactivated_at=clock_timestamp()
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                              AND execution_mode='paper' AND status='ACTIVE'""", (strategy,group,side))
+                        cursor.execute("""INSERT INTO analytics.entry_exit_runtime_profile_v1
+                            (strategy_code,symbol_group,side_code,candidate_code,status,entry_mode,stop_atr,take_atr,
+                             trail_after_r,trail_atr,source_metrics,activated_by)
+                            VALUES(%s,%s,%s,%s,'ACTIVE',%s,%s,%s,%s,%s,%s,%s) RETURNING profile_id""",
+                            (strategy,group,side,candidate,recommendation["entry_mode"],recommendation["stop_atr"],
+                             recommendation["take_atr"],recommendation["trail_after_r"],recommendation["trail_atr"],
+                             psycopg2.extras.Json(recommendation["metrics"]),row["actor_id"]))
+                        reason = f"PAPER_PROFILE_ACTIVE:{cursor.fetchone()['profile_id']}"
+                    elif kind == "ENTRY_EXIT_ROLLBACK":
+                        cursor.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
+                            SET status='ROLLED_BACK',deactivated_at=clock_timestamp()
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s AND candidate_code=%s
+                              AND execution_mode='paper' AND status='ACTIVE' RETURNING profile_id""",
+                            (strategy,group,side,candidate))
+                        active = cursor.fetchone()
+                        if active is None:
+                            raise ValueError("ENTRY_EXIT_ACTIVE_PROFILE_NOT_FOUND")
+                        cursor.execute("""UPDATE analytics.entry_exit_runtime_profile_v1 SET status='ACTIVE',deactivated_at=NULL
+                            WHERE profile_id=(SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
+                              WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s AND execution_mode='paper'
+                                AND status='SUPERSEDED' ORDER BY deactivated_at DESC LIMIT 1)
+                            RETURNING profile_id""", (strategy,group,side))
+                        previous = cursor.fetchone()
+                        reason = f"ROLLED_BACK:{active['profile_id']}:RESTORED:{previous['profile_id'] if previous else 'BASELINE'}"
+                    elif kind == "ENTRY_EXIT_REJECT":
+                        if recommendation.get("operator_decision") == "CONFIRM_PAPER":
+                            raise ValueError("ENTRY_EXIT_ACTIVE_PROFILE_MUST_ROLLBACK")
+                    elif kind != "ENTRY_EXIT_CONTINUE_SHADOW":
+                        raise ValueError("ENTRY_EXIT_DECISION_FORBIDDEN")
+                    cursor.execute("""UPDATE analytics.entry_exit_recommendation_v1
+                        SET operator_decision=%s,operator_decided_at=clock_timestamp()
+                        WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s AND candidate_code=%s""",
+                        (decision,strategy,group,side,candidate))
+                    cursor.execute("""INSERT INTO analytics.entry_exit_operator_decision_v1
+                        (strategy_code,symbol_group,side_code,candidate_code,decision_code,actor_id,request_id,reason_code)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s::uuid,%s)""",
+                        (strategy,group,side,candidate,decision,row["actor_id"],row["request_id"],reason))
+            return self._finish(row, True, f"{decision.lower()}:{strategy}:{group}:{side}:{candidate}", None)
         except Exception as exc:
             return self._finish(row, False, None, str(exc)[:256])
 

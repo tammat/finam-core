@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 from typing import Callable, Mapping
+from threading import Lock
+from time import monotonic
 
 from marketcore.presentation.render_tree.v2 import (
     RenderDocumentV2,
@@ -62,6 +64,25 @@ class DomainProducerRegistryErrorV2(ValueError):
     pass
 
 
+_COMPACT_CACHE_LOCK = Lock()
+_COMPACT_CACHE: tuple[float, dict] | None = None
+
+
+def _compact_snapshot() -> dict:
+    global _COMPACT_CACHE
+    now = monotonic()
+    cached = _COMPACT_CACHE
+    if cached is not None and now - cached[0] < 5.0:
+        return cached[1]
+    with _COMPACT_CACHE_LOCK:
+        cached = _COMPACT_CACHE
+        if cached is not None and now - cached[0] < 5.0:
+            return cached[1]
+        snapshot = ControlCompactV3Resolver().resolve()
+        _COMPACT_CACHE = (monotonic(), snapshot)
+        return snapshot
+
+
 @dataclass(frozen=True, slots=True)
 class DomainProducerDefinitionV2:
     producer_code: DomainProducerCodeV2
@@ -72,7 +93,7 @@ class DomainProducerDefinitionV2:
 
 def _build_home(timezone_code: str) -> RenderDocumentV2:
     return render_home_compact_v1(
-        ControlCompactV3Resolver().resolve(), timezone_code=timezone_code
+        _compact_snapshot(), timezone_code=timezone_code
     )
 
 
@@ -86,7 +107,7 @@ def _build_portfolio(timezone_code: str) -> RenderDocumentV2:
 
 def _build_control_center(timezone_code: str) -> RenderDocumentV2:
     return render_control_compact_v3(
-        ControlCompactV3Resolver().resolve(),
+        _compact_snapshot(),
         timezone_code=timezone_code,
         document_id="operator.control_center.v2",
     )

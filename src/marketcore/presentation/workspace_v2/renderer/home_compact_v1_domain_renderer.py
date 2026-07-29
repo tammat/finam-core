@@ -296,6 +296,7 @@ def _attention_section(snapshot):
 
 def _optimizer_section(snapshot):
     rows = []
+    actions = []
     labels = {"IMMEDIATE": "сразу", "CONFIRM_1": "подтверждение 1 свечой", "RETEST_3": "ретест до 3 свечей"}
     statuses = {
         "SHADOW_ACCUMULATION": "Shadow: накопление",
@@ -319,11 +320,35 @@ def _optimizer_section(snapshot):
             status="OK" if item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" else "WARNING",
             source="analytics.entry_exit_recommendation_v1", source_as_of=item.get("generated_at"),
         ))
+        target = "|".join(str(item.get(key) or "") for key in ("strategy_code","symbol_group","side_code","candidate_code"))
+        runtime_supported = str(item.get("entry_mode")) == "IMMEDIATE"
+        ready = item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" and runtime_supported
+        active = bool(item.get("is_active_paper"))
+        decisions = (
+            ("confirm", "Подтвердить Paper", "optimizer.confirm_paper", "OPTIMIZER.CONFIRM_PAPER", ready and not active,
+             ("Нужно пройти 80 пар и 20 OOS" if item.get("recommendation_status") != "READY_FOR_PAPER_CONFIRMATION"
+              else "Ретест/подтверждение пока доступны только в Shadow") if not ready else "Профиль уже активен"),
+            ("reject", "Отклонить", "optimizer.reject", "OPTIMIZER.REJECT", not active, "Сначала выполните откат"),
+            ("shadow", "Продолжить Shadow", "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW", not active, "Профиль уже активен"),
+            ("rollback", "Откатить Paper", "optimizer.rollback", "OPTIMIZER.ROLLBACK_PAPER", active, "Нет активного Paper-профиля"),
+        )
+        for code,label,action_id,command,enabled,blocked in decisions:
+            actions.append(RenderNodeV2(
+                RenderNodeTypeV2.ACTION, f"home.compact.optimizer.{index}.{code}",
+                content=RenderContentV2(value=f"{item.get('symbol_group')} {item.get('side_code')}: {label}"),
+                action=RenderActionV2(
+                    action_id, ActionKindV2.COMMAND, target_id=target, command_code=command,
+                    policy_class="PAPER_OPERATIONS", enabled=enabled,
+                    blocked_reason_code=None if enabled else blocked,
+                    reversible=True, rollback_code="OPTIMIZER.ROLLBACK_PAPER", idempotency_key="client.request",
+                ),
+            ))
     if not rows:
         rows.append(_row("optimizer.empty", "Оптимизация входа и выхода", "ожидает первый Shadow-расчёт", status="WARNING"))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Рекомендации входа и выхода", level="SECTION"),
         RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.optimizer.metrics", children=tuple(rows)),
+        RenderNodeV2(RenderNodeTypeV2.GRID, "home.compact.optimizer.actions", children=tuple(actions)),
     ))
 
 

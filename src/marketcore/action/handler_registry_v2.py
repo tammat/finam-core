@@ -49,6 +49,22 @@ _DEFINITIONS: Mapping[str, StateChangingActionDefinitionV2] = MappingProxyType({
         "paper.request.observation", "PAPER.REQUEST_OBSERVATION", "PAPER_OPERATIONS",
         "paper:write", "PAPER.CANCEL_PENDING_REQUEST", "PAPER_OBSERVATION",
     ),
+    "optimizer.confirm_paper": StateChangingActionDefinitionV2(
+        "optimizer.confirm_paper", "OPTIMIZER.CONFIRM_PAPER", "PAPER_OPERATIONS",
+        "paper:write", "OPTIMIZER.ROLLBACK_PAPER", "ENTRY_EXIT_CONFIRM_PAPER",
+    ),
+    "optimizer.reject": StateChangingActionDefinitionV2(
+        "optimizer.reject", "OPTIMIZER.REJECT", "PAPER_OPERATIONS",
+        "paper:write", "OPTIMIZER.CONTINUE_SHADOW", "ENTRY_EXIT_REJECT",
+    ),
+    "optimizer.continue_shadow": StateChangingActionDefinitionV2(
+        "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW", "PAPER_OPERATIONS",
+        "paper:write", "OPTIMIZER.REJECT", "ENTRY_EXIT_CONTINUE_SHADOW",
+    ),
+    "optimizer.rollback": StateChangingActionDefinitionV2(
+        "optimizer.rollback", "OPTIMIZER.ROLLBACK_PAPER", "PAPER_OPERATIONS",
+        "paper:write", "OPTIMIZER.CONFIRM_PAPER", "ENTRY_EXIT_ROLLBACK",
+    ),
     "operator.decision.acknowledge": StateChangingActionDefinitionV2(
         "operator.decision.acknowledge", "OPERATOR.ACKNOWLEDGE_DECISION", "OPERATOR_FEEDBACK",
         "operator:write", "OPERATOR.CANCEL_PENDING_ACKNOWLEDGEMENT", "OPERATOR_DECISION_ACKNOWLEDGE",

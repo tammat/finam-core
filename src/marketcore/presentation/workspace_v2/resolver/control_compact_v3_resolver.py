@@ -414,8 +414,13 @@ class ControlCompactV3Resolver:
                     SELECT DISTINCT ON (strategy_code,symbol_group,side_code)
                            strategy_code,symbol_group,side_code,candidate_code,
                            recommendation_status,pairs,oos_pairs,entry_mode,
-                           stop_atr,take_atr,trail_after_r,trail_atr,metrics,generated_at
-                    FROM analytics.entry_exit_recommendation_v1
+                           stop_atr,take_atr,trail_after_r,trail_atr,metrics,generated_at,
+                           operator_decision,operator_decided_at,
+                           EXISTS(SELECT 1 FROM analytics.entry_exit_runtime_profile_v1 p
+                             WHERE p.strategy_code=r.strategy_code AND p.symbol_group=r.symbol_group
+                               AND p.side_code=r.side_code AND p.candidate_code=r.candidate_code
+                               AND p.execution_mode='paper' AND p.status='ACTIVE') AS is_active_paper
+                    FROM analytics.entry_exit_recommendation_v1 r
                     ORDER BY strategy_code,symbol_group,side_code,
                              CASE recommendation_status
                                WHEN 'READY_FOR_PAPER_CONFIRMATION' THEN 0

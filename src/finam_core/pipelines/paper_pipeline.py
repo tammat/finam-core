@@ -5131,6 +5131,64 @@ class PaperTradingPipeline:
                     flush=True,
                 )
 
+        # Подтверждённый оператором профиль оптимизатора применяется только к
+        # Paper ENTRY. REAL этим контуром принципиально не обслуживается.
+        if (
+            str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper"
+            and str(intent.get("intent_type") or "ENTRY").upper() != "EXIT"
+        ):
+            try:
+                strategy_code = str(intent.get("strategy") or "")
+                symbol_code = str(intent.get("symbol") or sym or "")
+                side_code = str(intent.get("side") or "").upper().replace("BUY", "LONG").replace("SELL", "SHORT")
+                if strategy_code in {"MEAN_REVERSION_EQUITY", "BR_CONSERVATIVE_BREAKOUT"}:
+                    symbol_group = "BR" if strategy_code == "BR_CONSERVATIVE_BREAKOUT" else symbol_code.split("@", 1)[0]
+                    cache = getattr(self, "_entry_exit_profile_cache_v1", {})
+                    cache_ts = float(getattr(self, "_entry_exit_profile_cache_ts_v1", 0.0) or 0.0)
+                    if time.time() - cache_ts >= 60:
+                        refreshed = {}
+                        with self.pg_logger._connect() as profile_conn:
+                            with profile_conn.cursor() as profile_cursor:
+                                profile_cursor.execute("""SELECT profile_id,strategy_code,symbol_group,side_code,
+                                    candidate_code,entry_mode,stop_atr,take_atr,trail_after_r,trail_atr
+                                    FROM analytics.entry_exit_runtime_profile_v1
+                                    WHERE execution_mode='paper' AND status='ACTIVE'""")
+                                for row in profile_cursor.fetchall():
+                                    refreshed[(str(row[1]),str(row[2]),str(row[3]))] = {
+                                        "profile_id": row[0], "candidate_code": row[4], "entry_mode": row[5],
+                                        "stop_atr": float(row[6]), "take_atr": float(row[7]),
+                                        "trail_after_r": None if row[8] is None else float(row[8]),
+                                        "trail_atr": None if row[9] is None else float(row[9]),
+                                    }
+                        cache = refreshed
+                        self._entry_exit_profile_cache_v1 = cache
+                        self._entry_exit_profile_cache_ts_v1 = time.time()
+                    approved = cache.get((strategy_code,symbol_group,side_code))
+                    if approved:
+                        if approved["entry_mode"] != "IMMEDIATE":
+                            raise RuntimeError("NON_IMMEDIATE_PROFILE_CANNOT_BE_ENFORCED")
+                        features = intent.setdefault("features", {})
+                        atr_value = float(features.get("atr") or st.get("atr") or getattr(regime,"atr",0.0) or 0.0)
+                        entry_value = float(intent.get("price") or st.get("last") or 0.0)
+                        if atr_value <= 0 or entry_value <= 0:
+                            raise RuntimeError("APPROVED_PROFILE_ATR_OR_PRICE_MISSING")
+                        direction = 1.0 if side_code == "LONG" else -1.0
+                        stop_price = entry_value - direction * atr_value * approved["stop_atr"]
+                        take_price = entry_value + direction * atr_value * approved["take_atr"]
+                        intent["stop_loss"] = round(stop_price,8)
+                        intent["take_profit"] = round(take_price,8)
+                        features.update({
+                            "stop": intent["stop_loss"], "take": intent["take_profit"],
+                            "entry_exit_profile_id": approved["profile_id"],
+                            "entry_exit_candidate_code": approved["candidate_code"],
+                            "entry_exit_profile_source": "OPERATOR_CONFIRMED_PAPER",
+                            "trail_after_r": approved["trail_after_r"], "trail_atr": approved["trail_atr"],
+                        })
+                        print(f"PIPE_ENTRY_EXIT_PROFILE_APPLIED strategy={strategy_code} symbol={symbol_code} "
+                              f"side={side_code} profile_id={approved['profile_id']} paper_only=1", flush=True)
+            except Exception as exc:
+                print(f"PIPE_ENTRY_EXIT_PROFILE_FALLBACK error={type(exc).__name__}:{exc} paper_only=1", flush=True)
+
         # Русский комментарий: SIGNAL SNAPSHOT V1 — сохраняем наблюдаемый контекст сигнала до risk/order gate.
         try:
             features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
