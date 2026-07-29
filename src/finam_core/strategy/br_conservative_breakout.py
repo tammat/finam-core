@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from statistics import median
 
 
 @dataclass
@@ -26,6 +27,10 @@ class BrSignal:
     take: float
     ts: datetime
     reason: str
+    atr: float = 0.0
+    stop_atr_used: float = 0.0
+    take_atr_used: float = 0.0
+    volume_ratio: float = 0.0
 
 
 class BrConservativeBreakout:
@@ -48,6 +53,13 @@ class BrConservativeBreakout:
         regime_max_atr_pct: float = 0.005,
         signal_cooldown_bars: int = 12,
         enable_rsi_filter: bool = True,
+        enable_paper_adaptive_risk: bool = False,
+        volume_window: int = 20,
+        min_volume_ratio: float = 1.3,
+        min_stop_atr: float = 1.8,
+        max_stop_atr: float = 2.5,
+        structure_buffer_atr: float = 0.25,
+        min_reward_r: float = 1.5,
     ) -> None:
         self.symbol = symbol
         self.breakout_window = breakout_window
@@ -64,6 +76,16 @@ class BrConservativeBreakout:
         # Русский комментарий: подавление повторных сигналов в одном и том же режиме рынка.
         self.signal_cooldown_bars = signal_cooldown_bars
         self.enable_rsi_filter = enable_rsi_filter
+        self.enable_paper_adaptive_risk = bool(enable_paper_adaptive_risk)
+        self.volume_window = max(5, int(volume_window))
+        self.min_volume_ratio = max(1.0, float(min_volume_ratio))
+        self.min_stop_atr = max(0.1, float(min_stop_atr))
+        self.max_stop_atr = max(self.min_stop_atr, float(max_stop_atr))
+        self.structure_buffer_atr = max(0.0, float(structure_buffer_atr))
+        self.min_reward_r = max(1.0, float(min_reward_r))
+        self.volumes: deque[float] = deque(maxlen=self.volume_window)
+        self.last_volume_ratio: float = 0.0
+        self.volume_filter_reason: str = "DISABLED"
         self.cooldown_counter = 0
         self.last_signal_side: str | None = None
         self.last_signal_regime_direction: int | None = None
@@ -260,6 +282,8 @@ class BrConservativeBreakout:
         if not self.current_params.allow_trade:
             self.highs.append(high)
             self.lows.append(low)
+            if float(volume or 0.0) > 0:
+                self.volumes.append(float(volume))
             return None
 
         if len(self.highs) >= self.breakout_window and len(self.lows) >= self.breakout_window and len(self.tr_values) >= self.atr_period:
@@ -269,31 +293,81 @@ class BrConservativeBreakout:
             stop_atr = self.current_params.stop_atr
             take_atr = self.current_params.take_atr
 
-            if close > range_high and self.regime_direction == 1 and not self._signal_blocked_by_cooldown("BUY"):
+            volume_ratio = 0.0
+            volume_confirmed = True
+            if self.enable_paper_adaptive_risk:
+                positive_history = [value for value in self.volumes if value > 0]
+                if len(positive_history) < self.volume_window:
+                    volume_confirmed = False
+                    self.volume_filter_reason = "VOLUME_WARMUP"
+                else:
+                    baseline_volume = float(median(positive_history))
+                    volume_ratio = float(volume) / baseline_volume if baseline_volume > 0 else 0.0
+                    volume_confirmed = volume_ratio >= self.min_volume_ratio
+                    self.volume_filter_reason = (
+                        "VOLUME_CONFIRMED" if volume_confirmed else "VOLUME_BELOW_THRESHOLD"
+                    )
+                self.last_volume_ratio = volume_ratio
+
+            if close > range_high and self.regime_direction == 1 and not self._signal_blocked_by_cooldown("BUY") and volume_confirmed:
+                if self.enable_paper_adaptive_risk:
+                    structural_distance = close - (range_high - atr * self.structure_buffer_atr)
+                    stop_distance = min(
+                        max(structural_distance, atr * self.min_stop_atr),
+                        atr * self.max_stop_atr,
+                    )
+                    take_distance = max(atr * take_atr, stop_distance * self.min_reward_r)
+                    stop_atr = stop_distance / atr
+                    take_atr = take_distance / atr
+                else:
+                    stop_distance = atr * stop_atr
+                    take_distance = atr * take_atr
                 signal = BrSignal(
                     symbol=self.symbol,
                     side="BUY",
                     price=close,
-                    stop=close - atr * stop_atr,
-                    take=close + atr * take_atr,
+                    stop=close - stop_distance,
+                    take=close + take_distance,
                     ts=ts,
                     reason=f"BR_M5_BREAKOUT_UP_{self.current_params.mode}_{self.current_params.reason}",
+                    atr=atr,
+                    stop_atr_used=stop_atr,
+                    take_atr_used=take_atr,
+                    volume_ratio=volume_ratio,
                 )
                 self._register_signal("BUY")
 
-            elif close < range_low and self.regime_direction == -1 and not self._signal_blocked_by_cooldown("SELL"):
+            elif close < range_low and self.regime_direction == -1 and not self._signal_blocked_by_cooldown("SELL") and volume_confirmed:
+                if self.enable_paper_adaptive_risk:
+                    structural_distance = (range_low + atr * self.structure_buffer_atr) - close
+                    stop_distance = min(
+                        max(structural_distance, atr * self.min_stop_atr),
+                        atr * self.max_stop_atr,
+                    )
+                    take_distance = max(atr * take_atr, stop_distance * self.min_reward_r)
+                    stop_atr = stop_distance / atr
+                    take_atr = take_distance / atr
+                else:
+                    stop_distance = atr * stop_atr
+                    take_distance = atr * take_atr
                 signal = BrSignal(
                     symbol=self.symbol,
                     side="SELL",
                     price=close,
-                    stop=close + atr * stop_atr,
-                    take=close - atr * take_atr,
+                    stop=close + stop_distance,
+                    take=close - take_distance,
                     ts=ts,
                     reason=f"BR_M5_BREAKOUT_DOWN_{self.current_params.mode}_{self.current_params.reason}",
+                    atr=atr,
+                    stop_atr_used=stop_atr,
+                    take_atr_used=take_atr,
+                    volume_ratio=volume_ratio,
                 )
                 self._register_signal("SELL")
 
         self.highs.append(high)
         self.lows.append(low)
+        if float(volume or 0.0) > 0:
+            self.volumes.append(float(volume))
 
         return signal

@@ -169,10 +169,20 @@ class Collector:
             WHERE selected_for_detail
             ORDER BY priority_rank
         """)
+        asset_branches = query("V5_ASSET_BRANCHES", """
+            SELECT symbol
+            FROM analytics.v5_asset_branch_policy_v1
+            WHERE enabled AND asset_code IN ('USD', 'GOLD', 'CNY')
+            ORDER BY array_position(ARRAY['USD','GOLD','CNY']::text[], asset_code),
+                     timeframe_code, side_code
+        """)
         # The first symbols receive ORDER_BOOK and trade-tape subscriptions.
         # Keep active OOS instruments ahead of opportunistic Paper traffic so a
         # busy signal stream cannot evict the cohort that must be validated.
-        return merge_symbols(dynamic_priority, recent_fills, shadow, SYMBOLS, watched)
+        # USD/GOLD/CNY are explicitly shown as accumulation branches in the UI.
+        # Keep them in the bounded subscription set so they cannot be evicted by
+        # opportunistic recent fills from unrelated symbols.
+        return merge_symbols(asset_branches, dynamic_priority, recent_fills, shadow, SYMBOLS, watched)
 
     def close(self) -> None:
         self.token_manager.close()

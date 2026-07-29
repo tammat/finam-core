@@ -226,18 +226,33 @@ class ControlCompactV3Resolver:
                 """)
                 hierarchy = {row["level_code"]: dict(row) for row in cursor.fetchall()}
                 cursor.execute("""
-                    SELECT h.scope_code,h.timeframe_code,h.strategy_code,h.symbol_code,h.side_code,
-                           h.session_code,h.regime_code,h.exit_rule,h.closed_trades,h.target_trades,
-                           h.net_pnl,h.net_pnl_r,h.expectancy_r,h.r_observable,
-                           h.expectancy,h.profit_factor,h.profit_factor_observable,
-                           h.decision_code,h.reason_code,h.updated_at,
+                    SELECT CASE WHEN h.symbol_code LIKE '%@RTSX' THEN 'FRESH_V5_CONFIRMED_FUTURES'
+                                ELSE 'FRESH_V5_CONFIRMED_EQUITY' END AS scope_code,
+                           max(h.timeframe_code) AS timeframe_code,
+                           CASE WHEN count(DISTINCT h.strategy_code)=1 THEN max(h.strategy_code)
+                                ELSE 'MULTIPLE_STRATEGIES' END AS strategy_code,
+                           h.symbol_code,h.side_code,
+                           'ALL'::text AS session_code,'ALL'::text AS regime_code,
+                           'ALL'::text AS exit_rule,sum(h.closed_trades)::int AS closed_trades,
+                           20::int AS target_trades,sum(h.net_pnl) AS net_pnl,
+                           sum(h.net_pnl_r) FILTER (WHERE h.r_observable) AS net_pnl_r,
+                           CASE WHEN sum(h.closed_trades) FILTER (WHERE h.r_observable)>0
+                                THEN sum(h.net_pnl_r) FILTER (WHERE h.r_observable)
+                                     / sum(h.closed_trades) FILTER (WHERE h.r_observable) END AS expectancy_r,
+                           bool_or(h.r_observable) AS r_observable,
+                           sum(h.net_pnl)/nullif(sum(h.closed_trades),0) AS expectancy,
+                           NULL::numeric AS profit_factor,false AS profit_factor_observable,
+                           'DISCOVERY_ONLY'::text AS decision_code,
+                           'AGGREGATED_BY_INSTRUMENT_SIDE'::text AS reason_code,
+                           max(h.updated_at) AS updated_at,
                            CASE WHEN r.display_name IS DISTINCT FROM h.symbol_code
                                 THEN r.display_name END AS instrument_name
                     FROM analytics.hierarchical_evidence_v1 h
                     LEFT JOIN marketcore.instrument_reference_v1 r ON r.symbol=h.symbol_code
                     WHERE h.cohort_code='FRESH_V5_CONFIRM' AND h.level_code='EXACT_CONTEXT'
                       AND h.decision_code<>'EARLY_STOP'
-                    ORDER BY h.closed_trades DESC,h.priority_score DESC
+                    GROUP BY h.symbol_code,h.side_code,r.display_name
+                    ORDER BY closed_trades DESC,net_pnl DESC
                     LIMIT 5
                 """)
                 hierarchy_top_exact = [dict(row) for row in cursor.fetchall()]
@@ -289,10 +304,111 @@ class ControlCompactV3Resolver:
                     SELECT
                       (SELECT count(DISTINCT symbol)::int
                        FROM runtime_active_universe WHERE is_enabled) AS active_instruments,
-                      (SELECT count(DISTINCT symbol)::int
-                       FROM analytics.closed_trades_fresh_v5_confirmed) AS instruments_with_closed_v5
+                      (SELECT count(DISTINCT symbol_code)::int
+                       FROM analytics.hierarchical_evidence_v1
+                       WHERE cohort_code='FRESH_V5_CONFIRM' AND level_code='EXACT_CONTEXT') AS instruments_with_closed_v5,
+                      (SELECT count(*)::int
+                       FROM closed_trades
+                       WHERE coalesce(closed_at,exit_ts,created_at) >= current_date
+                         AND coalesce(payload->'context'->>'cohort','') LIKE 'FRESH_V5%') AS closed_v5_today
                 """)
                 universe_summary = dict(cursor.fetchone() or {})
+
+                cursor.execute("""
+                    WITH recent_events AS (
+                      SELECT coalesce(c.closed_at,c.exit_ts,c.created_at) AS event_ts,
+                             c.symbol,'CLOSED'::text AS event_status,
+                             c.side AS direction,
+                             c.entry_price,c.exit_price,
+                             CASE WHEN c.symbol LIKE '%@RTSX'
+                                        AND nullif(s.source_payload->>'MINSTEP','')::numeric > 0
+                                        AND nullif(s.source_payload->>'STEPPRICE','')::numeric > 0
+                                  THEN ((c.exit_price-c.entry_price)
+                                        * CASE WHEN c.side='LONG' THEN 1 ELSE -1 END * c.qty
+                                        * nullif(s.source_payload->>'STEPPRICE','')::numeric
+                                        / nullif(s.source_payload->>'MINSTEP','')::numeric)
+                                       - (2 * coalesce(s.buy_sell_fee,0) * c.qty)
+                                  ELSE c.net_pnl END AS net_pnl,
+                             coalesce(c.holding_seconds,c.hold_seconds)::bigint AS holding_seconds,
+                             c.strategy AS entry_signal,
+                             coalesce(c.payload->'context'->>'actual_exit_reason',
+                                      c.payload->'context'->>'exit_rule', 'unknown') AS exit_reason
+                      FROM closed_trades c
+                      LEFT JOIN analytics.market_contract_cost_spec_v1 s ON s.symbol=c.symbol
+                      WHERE coalesce(c.closed_at,c.exit_ts,c.created_at) >= current_date
+                      UNION ALL
+                      SELECT s.created_at AS event_ts,s.symbol,'ACTIVE'::text AS event_status,
+                             CASE WHEN s.side IN ('BUY','LONG') THEN 'LONG' ELSE 'SHORT' END AS direction,
+                             coalesce(sf.price,s.entry_price) AS entry_price,
+                             CASE WHEN s.side IN ('BUY','LONG')
+                                  THEN coalesce(q.best_bid,b.close,sf.price,s.entry_price)
+                                  ELSE coalesce(q.best_ask,b.close,sf.price,s.entry_price) END AS exit_price,
+                             CASE WHEN s.symbol LIKE '%@RTSX'
+                                        AND nullif(cs.source_payload->>'MINSTEP','')::numeric > 0
+                                        AND nullif(cs.source_payload->>'STEPPRICE','')::numeric > 0
+                                  THEN ((CASE WHEN s.side IN ('BUY','LONG')
+                                              THEN coalesce(q.best_bid,b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
+                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(q.best_ask,b.close,sf.price,s.entry_price) END)
+                                        * coalesce(sf.qty,s.qty,0)
+                                        * nullif(cs.source_payload->>'STEPPRICE','')::numeric
+                                        / nullif(cs.source_payload->>'MINSTEP','')::numeric)
+                                       - (2 * coalesce(cs.buy_sell_fee,0) * coalesce(sf.qty,s.qty,0))
+                                  ELSE (CASE WHEN s.side IN ('BUY','LONG')
+                                              THEN coalesce(q.best_bid,b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
+                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(q.best_ask,b.close,sf.price,s.entry_price) END)
+                                       * coalesce(sf.qty,s.qty,0) END AS net_pnl,
+                             extract(epoch FROM clock_timestamp()-s.created_at)::bigint AS holding_seconds,
+                             s.strategy AS entry_signal,
+                             'position_open'::text AS exit_reason
+                      FROM signals s
+                      LEFT JOIN LATERAL (
+                        SELECT qty,price
+                        FROM signal_fills f
+                        WHERE f.signal_id=s.signal_id
+                        ORDER BY f.created_at DESC LIMIT 1
+                      ) sf ON true
+                      LEFT JOIN analytics.market_contract_cost_spec_v1 cs ON cs.symbol=s.symbol
+                      LEFT JOIN LATERAL (
+                        SELECT best_bid,best_ask
+                        FROM analytics.market_microstructure_snapshot_v1 m
+                        WHERE m.symbol=s.symbol
+                          AND m.observed_at >= clock_timestamp()-interval '5 minutes'
+                        ORDER BY m.observed_at DESC LIMIT 1
+                      ) q ON true
+                      LEFT JOIN LATERAL (
+                        SELECT close
+                        FROM market_bars mb
+                        WHERE mb.symbol=s.symbol
+                        ORDER BY mb.ts DESC LIMIT 1
+                      ) b ON true
+                      WHERE s.status='FILLED'
+                        AND s.created_at >= current_date
+                        AND coalesce(s.payload->>'intent_type','ENTRY')='ENTRY'
+                        AND NOT EXISTS (
+                          SELECT 1 FROM closed_trades c
+                          WHERE c.signal_id=s.signal_id
+                        )
+                    ), ranked AS (
+                      SELECT e.*,
+                             CASE WHEN e.symbol LIKE '%@RTSX' THEN true ELSE false END AS is_futures,
+                             row_number() OVER (ORDER BY e.event_ts DESC) AS overall_rank,
+                             row_number() OVER (
+                               PARTITION BY (e.symbol LIKE '%@RTSX') ORDER BY e.event_ts DESC
+                             ) AS class_rank
+                      FROM recent_events e
+                    )
+                    SELECT x.event_ts,x.symbol,x.event_status,x.direction,
+                           x.entry_price,x.exit_price,x.net_pnl,x.holding_seconds,x.entry_signal,x.exit_reason,
+                           x.is_futures,
+                           CASE WHEN r.display_name IS DISTINCT FROM x.symbol
+                                THEN r.display_name END AS instrument_name
+                    FROM ranked x
+                    LEFT JOIN marketcore.instrument_reference_v1 r ON r.symbol=x.symbol
+                    WHERE x.overall_rank <= 16 OR (x.is_futures AND x.class_rank <= 4)
+                    ORDER BY event_ts DESC
+                    LIMIT 24
+                """)
+                recent_trade_events = [dict(row) for row in cursor.fetchall()]
 
         for row in links:
             count = int(row["accumulated"] or 0)
@@ -366,4 +482,5 @@ class ControlCompactV3Resolver:
             "asset_branches": asset_branches,
             "cny_spot_controls": cny_spot_controls,
             "universe_summary": universe_summary,
+            "recent_trade_events": recent_trade_events,
         }

@@ -590,3 +590,42 @@
   exchange ticker in parentheses for unambiguous identification.
 - A small presentation fallback covers active Russian shares whose reference name
   is still equal to the raw symbol. Research data and routing are unchanged.
+
+## Runtime/UI synchronization checkpoint 29.07.2026 15:15 MSK
+
+- Active market-bar refresh covers the complete enabled M5 universe; HOME reports
+  16 fresh instruments with zero stale rows during the verified session.
+- USD, CNY and Gold are included in the microstructure subscription priority list.
+  A missing SELECT privilege on `analytics.market_contract_cost_spec_v1` for the
+  `finam` role was corrected; the next eligible CNY trend-up signal passed the cost
+  gate and produced a Paper fill at 14:00:36 MSK.
+- V5 progress is aggregated by instrument and direction instead of exposing one
+  exact-context bucket as though it were the instrument total. Verified leaders
+  changed from misleading 4/2/2 to BR 6, NG 4 and NVTK 4; HOME also reports the
+  current daily V5 count.
+- HOME contains separate collapsible Equity and Futures trade tables. Both support
+  header sorting and show Russian labels, LONG/SHORT, entry, closed exit price or
+  signed current P&L in the exit column, holding time, reason, state and RUB P&L.
+- Trailing-order source supports BR/NG LONG and SHORT. It remains Paper dry-run;
+  LIVE and real execution remain disabled.
+- Deferred: `RANGE_BOUNDARY_SHADOW_V1`; operator-confirmed soft TIME_EXIT with a
+  hard fail-safe; audited Paper close/modify commands and UI controls; further HOME
+  mark-to-market query optimization.
+### Runtime recovery and UI correction — 29.07.2026 18:10 MSK
+
+- PAPER pipeline restored from Git HEAD after an incomplete file transfer; remote `py_compile` passes, service is `active`, PID `2973679`.
+- PAPER `TIME_EXIT` now requires explicit per-symbol operator approval; stop-loss and trailing exits remain automatic.
+- Home render route verified independently: HTTP 200, document `operator.home.v2`.
+- Progress view expanded from top-3 to top-5.
+- Active position rows use supported `RenderNodeStateV2(status_code="ACTIVE")` and receive a distinct background.
+- Obsolete Back/Home buttons are hidden in the workspace shell.
+- UI service must be restarted after deployment so the running Python process reloads the corrected renderer.
+### Adaptive Brent Paper risk — 29.07.2026 20:33 MSK
+
+- Enabled for both LONG and SHORT in Paper only.
+- Structural stop is clamped to 1.8–2.5 ATR with a 0.25 ATR level buffer.
+- Target is at least 2.5 ATR and at least 1.5R.
+- Entry requires current M5 volume >= 1.3x median of the previous 20 positive-volume M5 bars.
+- Weak or warming-up volume blocks a new adaptive BR entry; it never widens risk to force a trade.
+- Paper restarted successfully: active PID 3840830 since 20:31:43 MSK; remote compile passed and no startup traceback was observed.
+- Existing BR position remains open and anti-reentry blocks duplicate exposure; adaptive settings apply to the next new BR entry.

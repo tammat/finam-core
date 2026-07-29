@@ -21,6 +21,7 @@ class ExitEngine:
         trailing_atr_k: float = 1.5,
         stall_atr_k: float = 0.2,
         min_bars_before_stall_exit: int = 3,
+        enable_stall_exit: bool = True,
     ) -> None:
         self.max_bars_in_trade = int(max_bars_in_trade)
         self.breakeven_atr_k = float(breakeven_atr_k)
@@ -28,6 +29,7 @@ class ExitEngine:
         self.stall_atr_k = float(stall_atr_k)
         # Русский комментарий: stall-exit не должен закрывать только что открытую позицию.
         self.min_bars_before_stall_exit = int(min_bars_before_stall_exit)
+        self.enable_stall_exit = bool(enable_stall_exit)
 
     def evaluate(
         self,
@@ -66,6 +68,8 @@ class ExitEngine:
                 stop = max(stop or entry, price - self.trailing_atr_k * atr)
 
             if (
+                self.enable_stall_exit
+                and
                 bars_held >= self.min_bars_before_stall_exit
                 and prev_close is not None
                 and abs(price - float(prev_close)) < self.stall_atr_k * atr
@@ -90,6 +94,8 @@ class ExitEngine:
                 stop = min(stop or entry, price + self.trailing_atr_k * atr)
 
             if (
+                self.enable_stall_exit
+                and
                 bars_held >= self.min_bars_before_stall_exit
                 and prev_close is not None
                 and abs(price - float(prev_close)) < self.stall_atr_k * atr

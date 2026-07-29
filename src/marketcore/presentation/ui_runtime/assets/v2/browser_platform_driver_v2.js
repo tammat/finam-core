@@ -797,6 +797,60 @@
             this.nodesRendered += 1;
         }
 
+        enhanceRecentTradeTables() {
+            this.mountElement.querySelectorAll('[data-mc-node-id^="home.compact.trades."][data-mc-node="section"]').forEach((section) => {
+                const table = section.querySelector('[data-mc-node="table"]');
+                const title = section.querySelector(':scope > [data-mc-node="title"]');
+                if (!table || !title) return;
+                const storageKey = `marketcore.home.${section.dataset.mcNodeId}.collapsed`;
+                const setCollapsed = (collapsed) => {
+                    section.dataset.mcCollapsed = String(collapsed);
+                    title.setAttribute("aria-expanded", String(!collapsed));
+                    try { globalObject.localStorage.setItem(storageKey, String(collapsed)); } catch (error) {}
+                };
+                title.setAttribute("role", "button");
+                title.setAttribute("tabindex", "0");
+                title.setAttribute("title", "Нажмите, чтобы свернуть или раскрыть таблицу");
+                try { setCollapsed(globalObject.localStorage.getItem(storageKey) === "true"); }
+                catch (error) { setCollapsed(false); }
+                const toggle = () => setCollapsed(section.dataset.mcCollapsed !== "true");
+                title.addEventListener("click", toggle);
+                title.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); }
+                });
+                const body = table.tBodies[0];
+                const headers = table.tHead ? Array.from(table.tHead.querySelectorAll("th")) : [];
+                const originalRows = body ? Array.from(body.rows) : [];
+                const value = (row, index) => {
+                    const raw = row.cells[index]?.textContent?.trim() || "";
+                    const numeric = Number(raw.replace(/\s/g, "").replace(",", "."));
+                    return Number.isFinite(numeric) && raw !== "" && raw !== "—" ? numeric : raw.toLocaleLowerCase("ru-RU");
+                };
+                headers.forEach((header, columnIndex) => {
+                    header.setAttribute("role", "button"); header.setAttribute("tabindex", "0");
+                    header.setAttribute("title", "Клик: по возрастанию; второй клик: по убыванию");
+                    const sort = () => {
+                        const current = header.dataset.mcSort || "none";
+                        const next = current === "none" ? "asc" : current === "asc" ? "desc" : "none";
+                        headers.forEach((item) => { item.dataset.mcSort = "none"; item.removeAttribute("aria-sort"); });
+                        header.dataset.mcSort = next;
+                        if (next !== "none") header.setAttribute("aria-sort", next === "asc" ? "ascending" : "descending");
+                        const rows = [...originalRows];
+                        if (next !== "none") rows.sort((left, right) => {
+                            const a=value(left,columnIndex), b=value(right,columnIndex);
+                            const result = typeof a === "number" && typeof b === "number" ? a-b : String(a).localeCompare(String(b),"ru-RU",{numeric:true});
+                            return next === "asc" ? result : -result;
+                        });
+                        rows.forEach((row) => body.appendChild(row));
+                    };
+                    header.addEventListener("click", sort);
+                    header.addEventListener("keydown", (event) => {
+                        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); sort(); }
+                    });
+                });
+            });
+        }
+
         endDocument() {
             this.mountElement.querySelectorAll('[data-mc-node="table"]').forEach((table) => {
                 if (!table.querySelector('tbody [data-mc-node="table_row"]')) table.remove();
@@ -821,6 +875,7 @@
                 }
             });
             this.groupControlCenterSections();
+            this.enhanceRecentTradeTables();
             return Object.freeze({driverVersion: DRIVER_VERSION, nodesRendered: this.nodesRendered});
         }
     }

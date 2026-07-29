@@ -45,7 +45,9 @@ SELECT symbol,timeframe,session_open,latest_bar,
        CASE
          WHEN NOT session_open THEN 'OUT_OF_SESSION'
          WHEN latest_bar IS NULL OR bar_count<3 THEN 'NO_COMPLETED_BARS'
-         WHEN extract(epoch FROM(now_utc-latest_bar)) > CASE WHEN timeframe='M1' THEN 180 ELSE 420 END THEN 'STALE'
+         -- latest_bar is the bar-open timestamp. For M5, allow the bar duration,
+         -- one refresh cycle, and two minutes of ingestion/API jitter.
+         WHEN extract(epoch FROM(now_utc-latest_bar)) > CASE WHEN timeframe='M1' THEN 180 ELSE 720 END THEN 'STALE'
          WHEN maximum_gap_seconds > interval_seconds*1.5 THEN 'GAP'
          WHEN symbol LIKE '%@RTSX' AND (verified_at IS NULL OR verified_at < now_utc-interval '48 hours') THEN 'COST_SPEC_STALE'
          ELSE 'READY'

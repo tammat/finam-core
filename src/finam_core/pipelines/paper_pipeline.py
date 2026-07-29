@@ -794,7 +794,18 @@ class PaperTradingPipeline:
             and os.getenv("ENABLE_BR_CONSERVATIVE_BREAKOUT", "0") == "1"
         )
         self.br_breakout_symbol = os.getenv("BR_BREAKOUT_SYMBOL", "BRM6@RTSX")
-        self.br_breakout = BrConservativeBreakout(symbol=self.br_breakout_symbol) if self.br_breakout_enabled else None
+        self.br_breakout = (
+            BrConservativeBreakout(
+                symbol=self.br_breakout_symbol,
+                enable_paper_adaptive_risk=True,
+                min_volume_ratio=float(os.getenv("BR_PAPER_MIN_VOLUME_RATIO", "1.3")),
+                min_stop_atr=float(os.getenv("BR_PAPER_MIN_STOP_ATR", "1.8")),
+                max_stop_atr=float(os.getenv("BR_PAPER_MAX_STOP_ATR", "2.5")),
+                structure_buffer_atr=float(os.getenv("BR_PAPER_STRUCTURE_BUFFER_ATR", "0.25")),
+                min_reward_r=float(os.getenv("BR_PAPER_MIN_REWARD_R", "1.5")),
+            )
+            if self.br_breakout_enabled else None
+        )
 
         # Русский комментарий: NG_CONSERVATIVE_BREAKOUT_M1 работает только в PAPER и только как генератор M1-сигналов.
         self.ng_m1_breakout_enabled = (
@@ -1771,7 +1782,10 @@ class PaperTradingPipeline:
             max_bars = 20
             if str(symbol).startswith(("NG", "BR")):
                 max_bars = int(os.getenv("ENERGY_MAX_BARS_IN_TRADE", "60"))
-            engines[symbol] = ExitEngine(max_bars_in_trade=max_bars)
+            engines[symbol] = ExitEngine(
+                max_bars_in_trade=max_bars,
+                enable_stall_exit=os.getenv("ENABLE_STALL_EXIT_IN_PAPER", "0") == "1",
+            )
         return engines[symbol]
 
     def _exit_state_for_symbol(self, symbol: str) -> dict:
@@ -2447,9 +2461,11 @@ class PaperTradingPipeline:
         qty = float(qty or 0.0)
         price = float(price)
 
-        if qty <= 0:
+        if qty == 0:
             self._trailing_order_stop_by_symbol.pop(symbol, None)
             return
+        is_long = qty > 0
+        order_qty = abs(qty)
 
         lifecycle_state = self._load_position_lifecycle_state_for_symbol(symbol) or {}
         current_stop = self._trailing_order_stop_by_symbol.get(symbol)
@@ -2460,11 +2476,17 @@ class PaperTradingPipeline:
         exit_state = self._exit_state_for_symbol(symbol)
         state_stop = exit_state.get("stop_price")
         if state_stop is not None:
-            current_stop = max(float(current_stop), float(state_stop)) if current_stop is not None else float(state_stop)
+            if current_stop is None:
+                current_stop = float(state_stop)
+            elif is_long:
+                current_stop = max(float(current_stop), float(state_stop))
+            else:
+                current_stop = min(float(current_stop), float(state_stop))
 
-        decision = self.trailing_order_manager.evaluate_long(
+        evaluate = self.trailing_order_manager.evaluate_long if is_long else self.trailing_order_manager.evaluate_short
+        decision = evaluate(
             symbol=symbol,
-            qty=qty,
+            qty=order_qty,
             last_price=price,
             current_stop=current_stop,
         )
@@ -2473,7 +2495,10 @@ class PaperTradingPipeline:
         if (
             decision.action in ("PLACE_STOP", "REPLACE_STOP")
             and current_stop is not None
-            and float(decision.stop_price or 0.0) < float(current_stop) + min_replace_step
+            and (
+                (is_long and float(decision.stop_price or 0.0) < float(current_stop) + min_replace_step)
+                or (not is_long and float(decision.stop_price or 0.0) > float(current_stop) - min_replace_step)
+            )
         ):
             return
 
@@ -2504,7 +2529,7 @@ class PaperTradingPipeline:
 
             self._save_position_lifecycle_state(
                 symbol=decision.symbol,
-                remaining_qty=decision.qty,
+                remaining_qty=qty,
                 trailing_active=True,
                 current_stop=decision.stop_price,
                 source="trailing_order_manager",
@@ -2932,6 +2957,35 @@ class PaperTradingPipeline:
                 )
 
             return None
+
+        # Paper TIME_EXIT — только аварийный кандидат, требующий явного
+        # подтверждения оператора для конкретного символа.
+        if (
+            str(decision.reason).lower() == "time_exit"
+            and str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper"
+            and os.getenv("PAPER_TIME_EXIT_REQUIRE_OPERATOR_APPROVAL", "1") == "1"
+        ):
+            approved_symbols = {
+                value.strip().upper()
+                for value in os.getenv("PAPER_TIME_EXIT_OPERATOR_APPROVED_SYMBOLS", "").split(",")
+                if value.strip()
+            }
+            symbol_upper = str(symbol).upper()
+            root_symbol_upper = symbol_upper.split("@")[0]
+            approved = (
+                "*" in approved_symbols
+                or symbol_upper in approved_symbols
+                or root_symbol_upper in approved_symbols
+            )
+            if not approved:
+                if self._runtime_log_allowed(f"TIME_EXIT_OPERATOR_BLOCK:{symbol}", ttl_seconds=60):
+                    print(
+                        "PIPE_TIME_EXIT_OPERATOR_CONFIRMATION_REQUIRED "
+                        f"symbol={symbol} side={close_side} qty={abs(float(qty))} "
+                        f"bars_held={int(state['bars_held'])} paper_only=1",
+                        flush=True,
+                    )
+                return None
 
         try:
             self.exit_state_machine.on_position(symbol, float(qty))
@@ -8181,7 +8235,15 @@ class PaperTradingPipeline:
                 else:
                     self.br_breakout_symbol = active_br
                     self.br_breakout = (
-                        BrConservativeBreakout(symbol=active_br)
+                        BrConservativeBreakout(
+                            symbol=active_br,
+                            enable_paper_adaptive_risk=True,
+                            min_volume_ratio=float(os.getenv("BR_PAPER_MIN_VOLUME_RATIO", "1.3")),
+                            min_stop_atr=float(os.getenv("BR_PAPER_MIN_STOP_ATR", "1.8")),
+                            max_stop_atr=float(os.getenv("BR_PAPER_MAX_STOP_ATR", "2.5")),
+                            structure_buffer_atr=float(os.getenv("BR_PAPER_STRUCTURE_BUFFER_ATR", "0.25")),
+                            min_reward_r=float(os.getenv("BR_PAPER_MIN_REWARD_R", "1.5")),
+                        )
                         if self.br_breakout_enabled else None
                     )
                     print(
@@ -10967,6 +11029,10 @@ class PaperTradingPipeline:
             "selected_window": getattr(current_params, "breakout_window", None),
             "selected_stop_atr": getattr(current_params, "stop_atr", None),
             "selected_take_atr": getattr(current_params, "take_atr", None),
+            "actual_stop_atr": getattr(br_signal, "stop_atr_used", None),
+            "actual_take_atr": getattr(br_signal, "take_atr_used", None),
+            "volume_ratio": getattr(br_signal, "volume_ratio", None),
+            "volume_filter_reason": getattr(self.br_breakout, "volume_filter_reason", None),
             "regime_direction": getattr(self.br_breakout, "regime_direction", None),
             "regime_atr_pct": getattr(self.br_breakout, "regime_atr_pct", None),
             "regime_strength": getattr(self.br_breakout, "regime_strength", None),

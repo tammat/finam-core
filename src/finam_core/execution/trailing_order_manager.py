@@ -76,3 +76,29 @@ class TrailingOrderManager:
             return TrailingOrderDecision("HOLD", symbol, "SELL", qty, old_stop, "replace_step_too_small")
 
         return TrailingOrderDecision("REPLACE_STOP", symbol, "SELL", qty, new_stop, "trailing_stop_improved")
+
+    def evaluate_short(
+        self,
+        *,
+        symbol: str,
+        qty: float,
+        last_price: float,
+        current_stop: float | None = None,
+    ) -> TrailingOrderDecision:
+        qty = abs(float(qty or 0.0))
+        last = float(last_price)
+        parameters = self._parameters(symbol)
+        if parameters is None:
+            return TrailingOrderDecision("HOLD", symbol, "BUY", qty, current_stop, "policy_not_configured")
+        trail_abs, min_replace_step, price_precision = parameters
+        if qty <= 0:
+            return TrailingOrderDecision("HOLD", symbol, "BUY", qty, current_stop, "no_short_position")
+        new_stop = round(last + trail_abs, price_precision)
+        if current_stop is None:
+            return TrailingOrderDecision("PLACE_STOP", symbol, "BUY", qty, new_stop, "initial_trailing_stop_short")
+        old_stop = float(current_stop)
+        if new_stop >= old_stop:
+            return TrailingOrderDecision("HOLD", symbol, "BUY", qty, old_stop, "stop_not_improved")
+        if old_stop - new_stop < min_replace_step:
+            return TrailingOrderDecision("HOLD", symbol, "BUY", qty, old_stop, "replace_step_too_small")
+        return TrailingOrderDecision("REPLACE_STOP", symbol, "BUY", qty, new_stop, "trailing_stop_improved_short")
