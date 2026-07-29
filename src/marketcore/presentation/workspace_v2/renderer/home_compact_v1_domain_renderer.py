@@ -283,6 +283,39 @@ def _attention_section(snapshot):
             idempotency_key="client.request",
         ),
     )
+
+
+def _optimizer_section(snapshot):
+    rows = []
+    labels = {"IMMEDIATE": "сразу", "CONFIRM_1": "подтверждение 1 свечой", "RETEST_3": "ретест до 3 свечей"}
+    statuses = {
+        "SHADOW_ACCUMULATION": "Shadow: накопление",
+        "KEEP_SHADOW": "оставить в Shadow",
+        "READY_FOR_PAPER_CONFIRMATION": "готово к подтверждению Paper",
+    }
+    for index, item in enumerate(snapshot.get("entry_exit_recommendations") or (), start=1):
+        metrics = item.get("metrics") or {}
+        details = (
+            f"вход: {labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}; "
+            f"стоп {float(item.get('stop_atr') or 0):.1f} ATR; "
+            f"цель {float(item.get('take_atr') or 0):.1f} ATR; "
+            f"пар {int(item.get('pairs') or 0)}, OOS {int(item.get('oos_pairs') or 0)}; "
+            f"{statuses.get(str(item.get('recommendation_status')), item.get('recommendation_status'))}"
+        ).replace(".", ",")
+        if metrics.get("shadow_oos_r") is not None:
+            details += f"; OOS {float(metrics['shadow_oos_r']):+.2f}R".replace(".", ",")
+        rows.append(_row(
+            f"optimizer.{index}",
+            f"{item.get('symbol_group')} · {item.get('side_code')}", details,
+            status="OK" if item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" else "WARNING",
+            source="analytics.entry_exit_recommendation_v1", source_as_of=item.get("generated_at"),
+        ))
+    if not rows:
+        rows.append(_row("optimizer.empty", "Оптимизация входа и выхода", "ожидает первый Shadow-расчёт", status="WARNING"))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Рекомендации входа и выхода", level="SECTION"),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.optimizer.metrics", children=tuple(rows)),
+    ))
     return RenderNodeV2(
         RenderNodeTypeV2.SECTION, "home.compact.attention",
         state=RenderNodeStateV2(status_code=status),
@@ -303,6 +336,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),
+        _optimizer_section(snapshot),
         _attention_section(snapshot),
     ))
     document = RenderDocumentV2(

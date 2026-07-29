@@ -410,6 +410,22 @@ class ControlCompactV3Resolver:
                 """)
                 recent_trade_events = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""
+                    SELECT DISTINCT ON (strategy_code,symbol_group,side_code)
+                           strategy_code,symbol_group,side_code,candidate_code,
+                           recommendation_status,pairs,oos_pairs,entry_mode,
+                           stop_atr,take_atr,trail_after_r,trail_atr,metrics,generated_at
+                    FROM analytics.entry_exit_recommendation_v1
+                    ORDER BY strategy_code,symbol_group,side_code,
+                             CASE recommendation_status
+                               WHEN 'READY_FOR_PAPER_CONFIRMATION' THEN 0
+                               WHEN 'KEEP_SHADOW' THEN 1 ELSE 2 END,
+                             coalesce((metrics->>'shadow_oos_r')::numeric,-999) DESC,
+                             generated_at DESC
+                    LIMIT 12
+                """)
+                entry_exit_recommendations = [dict(row) for row in cursor.fetchall()]
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -483,4 +499,5 @@ class ControlCompactV3Resolver:
             "cny_spot_controls": cny_spot_controls,
             "universe_summary": universe_summary,
             "recent_trade_events": recent_trade_events,
+            "entry_exit_recommendations": entry_exit_recommendations,
         }
