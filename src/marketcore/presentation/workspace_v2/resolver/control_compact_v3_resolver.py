@@ -279,7 +279,11 @@ class ControlCompactV3Resolver:
                                      AND e.timeframe_code=p.timeframe_code
                                      AND e.side_code=p.side_code
                     LEFT JOIN runtime_active_universe u ON u.symbol=p.symbol AND u.is_enabled
-                    LEFT JOIN analytics.market_contract_cost_spec_v1 c ON c.symbol=p.symbol
+                    LEFT JOIN LATERAL (
+                      SELECT buy_sell_fee,scalper_fee,fee_currency,verified_at,source_payload
+                      FROM analytics.market_contract_cost_spec_v1 cost
+                      WHERE cost.symbol=p.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
+                    ) c ON true
                     LEFT JOIN LATERAL (
                       SELECT spread_bps,observed_at
                       FROM analytics.market_microstructure_snapshot_v1
@@ -334,28 +338,30 @@ class ControlCompactV3Resolver:
                              coalesce(c.payload->'context'->>'actual_exit_reason',
                                       c.payload->'context'->>'exit_rule', 'unknown') AS exit_reason
                       FROM closed_trades c
-                      LEFT JOIN analytics.market_contract_cost_spec_v1 s ON s.symbol=c.symbol
+                      LEFT JOIN LATERAL (
+                        SELECT buy_sell_fee,source_payload
+                        FROM analytics.market_contract_cost_spec_v1 cost
+                        WHERE cost.symbol=c.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
+                      ) s ON true
                       WHERE coalesce(c.closed_at,c.exit_ts,c.created_at) >= current_date
                       UNION ALL
                       SELECT s.created_at AS event_ts,s.symbol,'ACTIVE'::text AS event_status,
                              CASE WHEN s.side IN ('BUY','LONG') THEN 'LONG' ELSE 'SHORT' END AS direction,
                              coalesce(sf.price,s.entry_price) AS entry_price,
-                             CASE WHEN s.side IN ('BUY','LONG')
-                                  THEN coalesce(q.best_bid,b.close,sf.price,s.entry_price)
-                                  ELSE coalesce(q.best_ask,b.close,sf.price,s.entry_price) END AS exit_price,
+                             coalesce(b.close,sf.price,s.entry_price) AS exit_price,
                              CASE WHEN s.symbol LIKE '%@RTSX'
                                         AND nullif(cs.source_payload->>'MINSTEP','')::numeric > 0
                                         AND nullif(cs.source_payload->>'STEPPRICE','')::numeric > 0
                                   THEN ((CASE WHEN s.side IN ('BUY','LONG')
-                                              THEN coalesce(q.best_bid,b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
-                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(q.best_ask,b.close,sf.price,s.entry_price) END)
+                                              THEN coalesce(b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
+                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(b.close,sf.price,s.entry_price) END)
                                         * coalesce(sf.qty,s.qty,0)
                                         * nullif(cs.source_payload->>'STEPPRICE','')::numeric
                                         / nullif(cs.source_payload->>'MINSTEP','')::numeric)
                                        - (2 * coalesce(cs.buy_sell_fee,0) * coalesce(sf.qty,s.qty,0))
                                   ELSE (CASE WHEN s.side IN ('BUY','LONG')
-                                              THEN coalesce(q.best_bid,b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
-                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(q.best_ask,b.close,sf.price,s.entry_price) END)
+                                              THEN coalesce(b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
+                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(b.close,sf.price,s.entry_price) END)
                                        * coalesce(sf.qty,s.qty,0) END AS net_pnl,
                              extract(epoch FROM clock_timestamp()-s.created_at)::bigint AS holding_seconds,
                              s.strategy AS entry_signal,
@@ -367,14 +373,11 @@ class ControlCompactV3Resolver:
                         WHERE f.signal_id=s.signal_id
                         ORDER BY f.created_at DESC LIMIT 1
                       ) sf ON true
-                      LEFT JOIN analytics.market_contract_cost_spec_v1 cs ON cs.symbol=s.symbol
                       LEFT JOIN LATERAL (
-                        SELECT best_bid,best_ask
-                        FROM analytics.market_microstructure_snapshot_v1 m
-                        WHERE m.symbol=s.symbol
-                          AND m.observed_at >= clock_timestamp()-interval '5 minutes'
-                        ORDER BY m.observed_at DESC LIMIT 1
-                      ) q ON true
+                        SELECT buy_sell_fee,source_payload
+                        FROM analytics.market_contract_cost_spec_v1 cost
+                        WHERE cost.symbol=s.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
+                      ) cs ON true
                       LEFT JOIN LATERAL (
                         SELECT close
                         FROM market_bars mb
