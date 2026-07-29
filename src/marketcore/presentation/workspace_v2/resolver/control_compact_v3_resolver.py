@@ -38,6 +38,49 @@ class ControlCompactV3Resolver:
                       AND coalesce(nullif(state->>'qty','')::numeric,0) <> 0
                 """, (ACTIVE_SCOPES,))
                 open_positions = int((cursor.fetchone() or {}).get("open_positions") or 0)
+                cursor.execute("""
+                    SELECT p.portfolio_scope AS scope_code,
+                           p.symbol,
+                           COALESCE(u.strategy, lifecycle.strategy, 'UNASSIGNED') AS strategy,
+                           NULLIF(p.state->>'qty','')::numeric AS qty,
+                           NULLIF(p.state->>'avg_price','')::numeric AS entry_price,
+                           COALESCE(lifecycle.created_at,p.updated_at) AS opened_at,
+                           COALESCE(closed_bars.bars_held,0)::int AS bars_held,
+                           closed_bars.last_bar_at,
+                           CASE
+                             WHEN closed_bars.last_bar_at IS NULL THEN 'WAITING_FIRST_CLOSED_BAR'
+                             WHEN clock_timestamp()-closed_bars.last_bar_at >
+                                  CASE WHEN p.symbol LIKE 'BR%%@RTSX' OR p.symbol LIKE 'NG%%@RTSX'
+                                       THEN interval '3 minutes' ELSE interval '10 minutes' END
+                               THEN 'SESSION_IDLE_OR_DATA_STALE'
+                             ELSE 'CANDLE_EXIT_MONITOR_ACTIVE'
+                           END AS exit_monitor_code
+                    FROM analytics.paper_research_position_projection_v1 p
+                    LEFT JOIN runtime_active_universe u ON u.symbol=p.symbol AND u.is_enabled
+                    LEFT JOIN LATERAL (
+                        SELECT l.strategy,l.created_at
+                        FROM analytics.paper_research_position_lifecycle_v1 l
+                        WHERE l.portfolio_scope=p.portfolio_scope AND l.symbol=p.symbol
+                          AND COALESCE(l.remaining_qty,0)<>0
+                        ORDER BY l.created_at ASC LIMIT 1
+                    ) lifecycle ON true
+                    LEFT JOIN LATERAL (
+                        SELECT count(*)::int AS bars_held,max(b.ts) AS last_bar_at
+                        FROM market_bars b
+                        WHERE b.symbol=p.symbol
+                          AND b.timeframe=CASE
+                              WHEN p.symbol LIKE 'BR%%@RTSX' OR p.symbol LIKE 'NG%%@RTSX'
+                                THEN 'M1' ELSE 'M5' END
+                          AND b.ts>COALESCE(lifecycle.created_at,p.updated_at)
+                          AND b.ts+CASE
+                              WHEN b.timeframe='M1' THEN interval '1 minute'
+                              ELSE interval '5 minutes' END<=clock_timestamp()
+                    ) closed_bars ON true
+                    WHERE p.portfolio_scope IN %s
+                      AND COALESCE(NULLIF(p.state->>'qty','')::numeric,0)<>0
+                    ORDER BY bars_held DESC,p.symbol
+                """, (ACTIVE_SCOPES,))
+                open_position_diagnostics = [dict(row) for row in cursor.fetchall()]
 
                 cursor.execute("""
                     WITH grouped AS (
@@ -236,6 +279,7 @@ class ControlCompactV3Resolver:
             "closed_hour": closed_hour,
             "excluded_closed": excluded_closed,
             "open_positions": open_positions,
+            "open_position_diagnostics": open_position_diagnostics,
             "ready_links": ready,
             "oos_pass": oos_pass,
             "process": process,

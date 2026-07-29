@@ -234,3 +234,19 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
   failed refresh loop; all relevant units were active at the snapshot.
 - Source revision: `08ef6b274be6521e78049d22bb223391db4c8a9c` on
   `codex/research-edge-v5`.
+
+## Evidence-driven acceleration 29.07.2026
+
+- Exact evidence priority bands implemented: 20–79, 10–19, 5–9, 3–4,
+  then 1–2 observations; early-stopped branches receive negative priority.
+- Supporting hierarchy cannot outrank exact evidence. Runtime priority view is
+  physically restricted to clean `FRESH_V5_CONFIRM` / `EXACT_CONTEXT` rows.
+- Migration 216 applied and router rebuilt. Current runtime order starts with
+  BRQ6 4 trades / score 304, then NGQ6 2 / 102, NVTK and VTBR 1 / 101.
+- Open-position diagnostics added without buttons. Verified current completed-bar
+  ages: BRQ6 31 M1, NGQ6 25 M1, VTBR 11 M5, NVTK 3 M5; GAZP/LKOH wait for the
+  first completed M5 bar after the recoverable opening-time fallback.
+- Validation: 24 focused tests; source compile; DB router verdict OK; render-tree
+  quality `VERIFIED`.
+- Pending deployment step: operator restart of `marketcore-ui-shell.service`.
+  No pipeline restart is required. Real execution remains disabled.

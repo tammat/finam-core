@@ -42,6 +42,39 @@ def test_persistent_negative_instrument_can_stop_after_twenty() -> None:
     assert (decision, reason) == ("EARLY_STOP", "V5_PERSISTENT_NEGATIVE_EXPECTANCY")
 
 
+def test_exact_collection_priority_favors_existing_evidence() -> None:
+    score_1 = MODULE.evidence_priority_score(
+        stats(1,"0","0","0"), decision="DISCOVERY_ONLY", exact=True
+    )
+    score_5 = MODULE.evidence_priority_score(
+        stats(5,"0","0","0"), decision="DISCOVERY_ONLY", exact=True
+    )
+    score_10 = MODULE.evidence_priority_score(
+        stats(10,"0","0","0"), decision="DISCOVERY_ONLY", exact=True
+    )
+    score_20 = MODULE.evidence_priority_score(
+        stats(20,"1","2","1"), decision="COLLECT", exact=True
+    )
+    assert score_20 > score_10 > score_5 > score_1
+
+
+def test_supporting_level_never_outranks_exact_branch() -> None:
+    supporting = MODULE.evidence_priority_score(
+        stats(80,"20","30","10"), decision="COLLECT", exact=False
+    )
+    exact = MODULE.evidence_priority_score(
+        stats(1,"0","0","0"), decision="DISCOVERY_ONLY", exact=True
+    )
+    assert exact > supporting
+
+
+def test_early_stop_is_removed_from_collection_priority() -> None:
+    stopped = MODULE.evidence_priority_score(
+        stats(20,"-8","2","10"), decision="EARLY_STOP", exact=True
+    )
+    assert stopped < 0
+
+
 def test_scope_and_timeframe_are_physical_dimensions() -> None:
     migration = (ROOT / "sql/analytics/215_v5_hierarchical_evidence_router_v1.sql").read_text()
     assert "scope_code" in migration and "timeframe_code" in migration

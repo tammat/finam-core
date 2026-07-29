@@ -77,6 +77,35 @@ def classify(stats: EvidenceStats, *, exact: bool) -> tuple[str, str, Decimal, b
     return "READY_FOR_OOS", "V5_EXACT_CONTEXT_COST_ADJUSTED_EDGE", profit_factor, observable
 
 
+def evidence_priority_score(
+    stats: EvidenceStats, *, decision: str, exact: bool
+) -> Decimal:
+    """Prioritize the cheapest next independent evidence, not small-sample PnL.
+
+    Exact branches already carrying observations are more informative than a new
+    one-trade branch.  A branch that survives the 20-trade early-stop gate remains
+    the first collection priority until the immutable 80-trade OOS threshold.
+    Supporting hierarchy levels can guide interpretation but must not outrank an
+    exact branch in the runtime universe.
+    """
+    trades = max(0, int(stats.trades))
+    if decision == "EARLY_STOP":
+        return Decimal("-1000") + Decimal(trades)
+    if not exact:
+        return Decimal("10") + min(Decimal(trades), Decimal("80")) / Decimal("100")
+    if decision == "READY_FOR_OOS":
+        return Decimal("1000") + Decimal(trades)
+    if trades >= EARLY_STOP_MIN_TRADES:
+        return Decimal("600") + min(Decimal(trades), Decimal("79"))
+    if trades >= 10:
+        return Decimal("500") + Decimal(trades)
+    if trades >= 5:
+        return Decimal("400") + Decimal(trades)
+    if trades >= 3:
+        return Decimal("300") + Decimal(trades)
+    return Decimal("100") + Decimal(trades)
+
+
 def normalize_session(raw: str, compatibility: dict[tuple[str, str], str]) -> tuple[str, str]:
     value = str(raw or "UNKNOWN").strip().upper()
     if value in {"ВНЕ_ОСНОВНОЙ_СЕССИИ", "OFF_MAIN", "OUTSIDE_SESSION"}:
@@ -166,10 +195,9 @@ def main() -> int:
                 expectancy = stats.net_pnl / stats.trades
                 cost_ratio = (stats.execution_cost / stats.absolute_gross_move
                               if stats.absolute_gross_move > 0 else Decimal("0"))
-                priority = min(Decimal("80"), Decimal(stats.trades)) + {
-                    "READY_FOR_OOS": Decimal("20"), "COLLECT": Decimal("10"),
-                    "DISCOVERY_ONLY": Decimal("0"), "EARLY_STOP": Decimal("-20"),
-                }[decision]
+                priority = evidence_priority_score(
+                    stats, decision=decision, exact=key.level == "EXACT_CONTEXT"
+                )
                 cursor.execute("""
                     INSERT INTO analytics.hierarchical_evidence_v1(
                       evidence_key,cohort_code,level_code,scope_code,timeframe_code,

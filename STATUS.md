@@ -1,6 +1,6 @@
 # MarketCore — чекпоинт состояния
 
-Обновлено: 29.07.2026, 06:12 МСК.
+Обновлено: 29.07.2026, 06:25 МСК.
 
 ## Главная цель
 
@@ -273,6 +273,29 @@
   `08ef6b274be6521e78049d22bb223391db4c8a9c`; до сохранения checkpoint tree clean.
 - Текущий приоритет: автономно накопить первую exact-ветку до 20 закрытий,
   затем оценить expectancy/PF и решение router без ослабления OOS-порога 80.
+
+## Evidence-driven acceleration 29.07.2026
+
+- Приоритет router больше не равен простому числу сделок: exact-ветки ранжируются
+  по стоимости следующего полезного наблюдения — 20–79, 10–19, 5–9, 3–4,
+  затем новые ветки. `EARLY_STOP` получает отрицательный score.
+- Supporting hierarchy оставлена для анализа, но её score ограничен и она больше
+  не может вытеснить exact-контекст из runtime universe.
+- Миграция `216_v5_evidence_driven_runtime_priority_v1.sql` применена; runtime-view
+  читает только `FRESH_V5_CONFIRM` + `EXACT_CONTEXT` и исключает `EARLY_STOP`.
+- Router пересобран без изменения runtime/execution/orders/fills. Фактический
+  приоритет: BRQ6 4 trades = 304; NGQ6 2 trades = 102; NVTK/VTBR 1 trade = 101.
+- Control Center дополнен read-only диагностикой каждой открытой Paper-позиции:
+  стратегия, qty, возраст в завершённых барах и состояние candle-exit monitor.
+- Runtime read-only проверка: BRQ6 31 M1, NGQ6 25 M1, VTBR 11 M5, NVTK 3 M5;
+  GAZP/LKOH ожидают первый завершённый M5 после точки восстановления.
+- UI сохраняет минимальное управление: диагностическая секция не добавляет кнопок.
+- 24 профильных теста и server-side render прошли; документ `VERIFIED`.
+- Для загрузки нового UI-кода требуется операторский
+  `sudo systemctl restart marketcore-ui-shell.service`; автоматический restart
+  не выполнен, потому что sudo требует интерактивный пароль.
+- Safety и пороги не ослаблены: real execution запрещён, early-stop = 20,
+  OOS = 80 exact trades.
 
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 

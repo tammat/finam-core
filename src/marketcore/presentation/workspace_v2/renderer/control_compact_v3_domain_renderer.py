@@ -153,6 +153,47 @@ def _hierarchy_section(snapshot):
                         children=tuple(children))
 
 
+def _open_positions_section(rows):
+    children = [
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.open_positions.title",
+              "Открытые Paper-позиции", level="SECTION")
+    ]
+    if not rows:
+        children.append(_leaf(RenderNodeTypeV2.TEXT, "control.v3.open_positions.empty",
+                              "Открытых исследовательских позиций нет"))
+        return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.open_positions",
+                            children=tuple(children))
+    labels = {
+        "WAITING_FIRST_CLOSED_BAR": "ожидается первый закрытый бар",
+        "SESSION_IDLE_OR_DATA_STALE": "вне сессии или нет нового бара",
+        "CANDLE_EXIT_MONITOR_ACTIVE": "candle-exit активен",
+    }
+    for index, row in enumerate(rows, start=1):
+        monitor = str(row.get("exit_monitor_code") or "UNKNOWN")
+        value = (
+            f"{row.get('symbol')} · {_strategy_ru(row.get('strategy'))} · "
+            f"qty {row.get('qty')} · закрытых баров {int(row.get('bars_held') or 0)} · "
+            f"{labels.get(monitor, monitor.lower())}"
+        )
+        children.append(RenderNodeV2(
+            RenderNodeTypeV2.METRIC_ROW,
+            f"control.v3.open_positions.{index}",
+            state=RenderNodeStateV2(
+                status_code="WARNING" if monitor != "CANDLE_EXIT_MONITOR_ACTIVE" else "OK",
+                source_identity="analytics.paper_research_position_projection_v1",
+                source_as_of=_utc(row.get("last_bar_at") or row.get("opened_at")),
+            ),
+            children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL,
+                      f"control.v3.open_positions.{index}.label", str(index)),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE,
+                      f"control.v3.open_positions.{index}.value", value),
+            ),
+        ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.open_positions",
+                        children=tuple(children))
+
+
 def _ru_status(value):
     code = str(value or "").upper()
     return {
@@ -387,6 +428,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         _freshness_section(snapshot.get("freshness") or ()),
         _jobs_section(snapshot.get("recent_jobs") or ()),
         _hierarchy_section(snapshot),
+        _open_positions_section(snapshot.get("open_position_diagnostics") or ()),
         _scope_section("FRESH_V5_CONFIRMED_EQUITY", "Акции", snapshot),
         _scope_section("FRESH_V5_CONFIRMED_FUTURES", "Фьючерсы", snapshot),
         _branch_plan_section(snapshot.get("branch_plan") or ()),
