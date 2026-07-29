@@ -31,13 +31,15 @@ def test_edge_control_only_exposes_governed_research_actions() -> None:
     assert "MICRO_LIVE" not in source
 
 
-def test_edge_control_has_only_two_contextual_buttons() -> None:
+def test_main_control_has_one_refresh_button() -> None:
     source = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_compact_v3_domain_renderer.py").read_text()
-    section = source[source.index("def _edge_control_section"):source.index("def _freshness_section")]
-    assert section.count("_command(") == 3  # two alternatives for one slot + refresh
-    assert "universe_include" not in section
-    assert "universe_exclude" not in section
-    assert "universe_priority" not in section
+    page = source[source.index("page = RenderNodeV2"):source.index("root = RenderNodeV2")]
+    assert "_compact_control_section(snapshot)" in page
+    assert "_edge_control_section(snapshot)" not in page
+    section = source[source.index("def _compact_control_section"):source.index("def _priority_exact_section")]
+    assert section.count("_command(") == 1
+    assert "RESEARCH.REQUEST_REFRESH" in section
+    assert "RESEARCH.RUN_EDGE_SEARCH" not in section
 
 
 def test_manual_control_does_not_disable_or_cancel_autorun() -> None:
@@ -49,11 +51,23 @@ def test_manual_control_does_not_disable_or_cancel_autorun() -> None:
     assert "actor_id=%s" in worker
 
 
-def test_control_center_exposes_hierarchy_without_more_buttons() -> None:
+def test_control_center_exposes_top_five_exact_without_hierarchy_noise() -> None:
     resolver = (ROOT / "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py").read_text()
     renderer = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_compact_v3_domain_renderer.py").read_text()
     assert "FRESH_V5_CONFIRM" in resolver
     assert "EXACT_CONTEXT" in resolver
-    assert "control.v3.hierarchy" in renderer
-    section = renderer[renderer.index("def _hierarchy_section"):renderer.index("def _ru_status")]
+    assert "hierarchy_top_exact" in resolver
+    page = renderer[renderer.index("page = RenderNodeV2"):renderer.index("root = RenderNodeV2")]
+    assert "_priority_exact_section" in page
+    assert "_hierarchy_section(snapshot)" not in page
+    section = renderer[renderer.index("def _priority_exact_section"):renderer.index("def _compact_state_section")]
     assert "_command(" not in section
+
+
+def test_main_page_has_five_cards_and_no_technical_sections() -> None:
+    source = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_compact_v3_domain_renderer.py").read_text()
+    body = source[source.index("cards = RenderNodeV2"):source.index("page = RenderNodeV2")]
+    assert body.count("_card(") == 5
+    page = source[source.index("page = RenderNodeV2"):source.index("root = RenderNodeV2")]
+    for hidden in ("_jobs_section", "_freshness_section", "_branch_plan_section", "_scope_section"):
+        assert hidden not in page

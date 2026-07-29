@@ -256,3 +256,14 @@ Verified code HEAD: 810cb2cb96fb24e158520cdac19fc9a395fe00c0
 - UI-only reload completed at 06:29:01 MSK. HTTP document is `VERIFIED`, open
   position diagnostics are present, command surface remains RUN + REFRESH only,
   and no broker/live commands are exposed. Deployment is complete.
+
+## Compact Edge UI 29.07.2026
+
+- Main render now contains five summary cards, top-five exact evidence branches,
+  compact open-position bar ages, one conditional state line and one Refresh action.
+- Manual RUN remains governed in backend but is intentionally absent from the main
+  screen; autonomous scheduling is unchanged.
+- Technical jobs/freshness/hierarchy/archive/scope sections remain queryable but
+  are not rendered on the primary operator page.
+- Current DB-state render is `VERIFIED`; 35 focused tests passed. UI-only reload
+  remains pending; execution safety was not changed.

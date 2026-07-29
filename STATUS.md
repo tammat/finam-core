@@ -304,6 +304,21 @@
   open-position diagnostics и возраст в закрытых барах видимы; ровно две
   research-команды, broker/live-команд 0. Safety flags без изменений.
 
+## Compact Edge UI 29.07.2026
+
+- Главный экран сокращён с 8 карточек и 9 крупных секций до 5 карточек,
+  top-5 exact-веток, компактных открытых позиций, одной строки состояния и одной
+  видимой кнопки `Обновить`.
+- RUN удалён только из main render; governed backend и автономный scheduler не
+  изменены. Если оператор ничего не нажимает, накопление продолжается.
+- Jobs, raw freshness, hierarchy levels, archive plan и раздельные scope-таблицы
+  больше не рендерятся на главной, но остаются в read model/API для диагностики.
+- Exact-таблица показывает ветку, прогресс 20/80, expectancy/PF и решение router.
+- Текущий DB-state render: `VERIFIED`, top exact rows 5, open positions 6,
+  visible commands: refresh 1 / run 0; visible technical sections 0.
+- 35 профильных тестов прошли. Safety без изменений: Paper only, execution/real
+  trading disabled, trailing dry-run. Требуется UI-only reload.
+
 ## V5 hierarchical evidence router 28.07.2026, 22:38–22:47 МСК
 
 - Реализованы четыре изолированных уровня evidence: STRATEGY (scope × timeframe ×

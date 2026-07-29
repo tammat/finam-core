@@ -217,14 +217,15 @@ class ControlCompactV3Resolver:
                     SELECT scope_code,timeframe_code,strategy_code,symbol_code,side_code,
                            session_code,regime_code,exit_rule,closed_trades,target_trades,
                            expectancy,profit_factor,profit_factor_observable,
-                           decision_code,reason_code
+                           decision_code,reason_code,updated_at
                     FROM analytics.hierarchical_evidence_v1
                     WHERE cohort_code='FRESH_V5_CONFIRM' AND level_code='EXACT_CONTEXT'
                       AND decision_code<>'EARLY_STOP'
                     ORDER BY closed_trades DESC,priority_score DESC
-                    LIMIT 1
+                    LIMIT 5
                 """)
-                hierarchy_nearest = dict(cursor.fetchone() or {})
+                hierarchy_top_exact = [dict(row) for row in cursor.fetchall()]
+                hierarchy_nearest = hierarchy_top_exact[0] if hierarchy_top_exact else {}
 
         for row in links:
             count = int(row["accumulated"] or 0)
@@ -293,4 +294,5 @@ class ControlCompactV3Resolver:
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,
+            "hierarchy_top_exact": hierarchy_top_exact,
         }

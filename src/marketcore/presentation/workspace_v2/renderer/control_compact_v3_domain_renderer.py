@@ -171,11 +171,8 @@ def _open_positions_section(rows):
     }
     for index, row in enumerate(rows, start=1):
         monitor = str(row.get("exit_monitor_code") or "UNKNOWN")
-        value = (
-            f"{row.get('symbol')} · {_strategy_ru(row.get('strategy'))} · "
-            f"qty {row.get('qty')} · закрытых баров {int(row.get('bars_held') or 0)} · "
-            f"{labels.get(monitor, monitor.lower())}"
-        )
+        value = (f"{row.get('symbol')} · {int(row.get('bars_held') or 0)} баров · "
+                 f"{labels.get(monitor, monitor.lower())}")
         children.append(RenderNodeV2(
             RenderNodeTypeV2.METRIC_ROW,
             f"control.v3.open_positions.{index}",
@@ -380,61 +377,114 @@ def _branch_plan_section(rows):
     ))
 
 
+def _compact_control_section(snapshot):
+    state = snapshot["command_state"]
+    refresh_active = int(state.get("refresh_active") or 0)
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.compact_control", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.compact_control.title",
+              "Автономный поиск edge", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "control.v3.compact_control.status",
+              "Работает автономно — нажатия не требуются"),
+        _command("refresh", "Обновить", "research.request.refresh",
+                 "RESEARCH.REQUEST_REFRESH", enabled=refresh_active == 0,
+                 rollback_code="RESEARCH.CANCEL_PENDING_REQUEST"),
+    ))
+
+
+def _priority_exact_section(rows):
+    columns = ("Ветка", "Сделок", "Результат", "Решение")
+    header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.exact.header", children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.exact.header.{index}", label)
+        for index, label in enumerate(columns, start=1)))
+    body = []
+    decisions = {
+        "DISCOVERY_ONLY": "Накопление до 20",
+        "COLLECT": "Накопление до 80",
+        "READY_FOR_OOS": "Готово к OOS",
+    }
+    for index, row in enumerate(rows, start=1):
+        trades = int(row.get("closed_trades") or 0)
+        observable = bool(row.get("profit_factor_observable"))
+        expectancy = float(row.get("expectancy") or 0)
+        result = f"E {expectancy:+.4f} · " + (
+            f"PF {float(row.get('profit_factor') or 0):.2f}" if observable
+            else "PF — мало данных"
+        )
+        branch = " · ".join((
+            str(row.get("symbol_code")), str(row.get("timeframe_code")),
+            {"LONG":"Long", "SHORT":"Short"}.get(str(row.get("side_code")).upper(),
+                                                       str(row.get("side_code"))),
+        ))
+        body.append(RenderNodeV2(
+            RenderNodeTypeV2.TABLE_ROW, f"control.v3.exact.row.{index}",
+            state=RenderNodeStateV2(
+                status_code="OK" if row.get("decision_code") == "READY_FOR_OOS" else "WARNING",
+                source_identity="analytics.hierarchical_evidence_v1",
+                source_as_of=_utc(row.get("updated_at")),
+            ),
+            children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.branch", branch),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.trades",
+                      f"{trades} / {20 if trades < 20 else 80}"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.result", result),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.exact.row.{index}.decision",
+                      decisions.get(str(row.get("decision_code")), "Остановлено")),
+            ),
+        ))
+    table = RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.exact.table", children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.exact.head", children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.exact.body", children=tuple(body)),
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.exact", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.exact.title",
+              "Приоритетные exact-ветки", level="SECTION"),
+        table,
+    ))
+
+
+def _compact_state_section(snapshot, raw_process_status):
+    failures = int(snapshot["command_state"].get("failed_24h") or 0)
+    failed_process = raw_process_status in {"FAILED", "ERROR", "STALLED", "BLOCKED"}
+    if failures or failed_process:
+        status, text = "BLOCKED", "Есть ошибка research-процесса — откройте диагностику"
+    else:
+        status, text = "OK", "Система работает автономно, действий не требуется"
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.state",
+        state=RenderNodeStateV2(status_code=status), children=(
+            _leaf(RenderNodeTypeV2.TITLE, "control.v3.state.title", "Состояние", level="SECTION"),
+            _leaf(RenderNodeTypeV2.TEXT, "control.v3.state.value", text),
+        ))
+
+
 def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", document_id="operator.control.v3"):
     process = snapshot["process"]
-    process_status = _ru_status(process.get("status_code"))
-    process_progress = float(process.get("progress_pct") or 0)
     raw_process_status = str(process.get("status_code") or "").upper()
-    process_action = ("Проверить причину и повторить" if raw_process_status in {"FAILED", "ERROR", "STALLED", "BLOCKED"}
-                      else "Дождаться завершения" if raw_process_status in {"RUNNING", "ACTIVE", "IN_PROGRESS", "PROCESSING"}
-                      else "Дождаться запуска" if raw_process_status in {"PENDING", "QUEUED", "WAITING", "SCHEDULED"}
-                      else "Действий не требуется")
+    nearest = snapshot.get("hierarchy_nearest") or {}
+    nearest_trades = int(nearest.get("closed_trades") or 0)
+    nearest_target = 20 if nearest_trades < 20 else 80
+    freshness = snapshot.get("freshness") or ()
+    fresh = bool(freshness) and all(
+        int(row.get("age_sec") or 0) <= (180 if row.get("timeframe") == "M1" else 420)
+        for row in freshness
+    )
     cards = RenderNodeV2(RenderNodeTypeV2.GRID, "control.v3.summary", children=(
-        _card("closed", "Закрыто", snapshot["closed_hour"], "За час", "OK" if snapshot["closed_hour"] else "WARNING"),
-        _card("sample", "V5 всего", snapshot["closed_total"], "Подтверждённая режимная когорта", "OK" if snapshot["closed_total"] else "WARNING"),
-        _card("excluded", "Исключено", snapshot["excluded_closed"], "Закрытия вне чистой методологии", "WARNING" if snapshot["excluded_closed"] else "OK"),
-        _card("open", "Открыто Paper", snapshot["open_positions"], "Изолированный research scope", "WARNING" if snapshot["open_positions"] else "OK"),
-        _card("ready", "OOS готово", snapshot["ready_links"], f"Цель {snapshot['target_trades']}", "OK" if snapshot["ready_links"] else "WARNING"),
-        _card("process", "Процесс", process_status, f"{process_progress:.0f}%", "BLOCKED" if raw_process_status in {"FAILED", "ERROR", "STALLED", "BLOCKED"} else "OK" if process_status == "Готово" else "WARNING"),
-        _card("constraint", "Ограничение", snapshot["constraint"], "Свежие данные", "BLOCKED" if snapshot["closed_total"] == 0 else "WARNING"),
-        _card("next", "Что делать", process_action if process_action != "Действий не требуется" else snapshot["next_action"], "Автоматически", "OK" if process_status == "Готово" else "WARNING"),
-    ))
-    process_section = RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.process", children=(
-        _leaf(RenderNodeTypeV2.TITLE, "control.v3.process.title", "Текущий процесс", level="SECTION"),
-        _metric_row("status", "Статус", process_status),
-        _metric_row("step", "Этап", str(process.get("current_step") or "Нет данных").replace("_", " ")),
-        _metric_row("progress", "Прогресс, %", process_progress),
-    ))
-    opportunities = RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.opportunities", children=(
-        _leaf(RenderNodeTypeV2.TITLE, "control.v3.opportunities.title", "Ближе к PASS", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "control.v3.opportunities.value",
-              (f"{snapshot['nearest']['symbol']} · {_strategy_ru(snapshot['nearest']['strategy'])} · "
-               f"{snapshot['nearest']['accumulated']} из {snapshot['target_trades']}"
-               if snapshot["nearest"] else "Свежих связок пока нет")),
-    ))
-    attention = RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.attention", children=(
-        _leaf(RenderNodeTypeV2.TITLE, "control.v3.attention.title", "Требует внимания", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "control.v3.attention.value", snapshot["constraint"]),
-    ))
-    archive = RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.archive", children=(
-        _leaf(RenderNodeTypeV2.TITLE, "control.v3.archive.title", "Архив и диагностика", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "control.v3.archive.value",
-              "Старые данные используются только для диагностики и генерации гипотез, но не для нового PASS"),
+        _card("mode", "Режим", "Автономный", "Paper research", "OK"),
+        _card("data", "Данные", "Свежие" if fresh else "Ожидание бара",
+              "Семь V5-серий", "OK" if fresh else "WARNING"),
+        _card("sample", "Закрыто V5", snapshot["closed_total"], "Чистая когорта", "OK"),
+        _card("best", "Лучшая ветка", f"{nearest_trades} / {nearest_target}",
+              str(nearest.get("symbol_code") or "Нет данных"), "WARNING"),
+        _card("ready", "OOS", f"{int(snapshot['ready_links'])} / 80",
+              "Exact only", "OK" if snapshot["ready_links"] else "WARNING"),
     ))
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "control.v3.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.title", "MarketCore", level="PAGE"),
-        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.subtitle", "Контроль · чистая статистика · готовность к OOS"),
-        RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards, opportunities, attention)),
-        _edge_control_section(snapshot),
-        _freshness_section(snapshot.get("freshness") or ()),
-        _jobs_section(snapshot.get("recent_jobs") or ()),
-        _hierarchy_section(snapshot),
+        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.subtitle", "Поиск edge · Paper safe"),
+        RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
+        _compact_state_section(snapshot, raw_process_status),
+        _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
         _open_positions_section(snapshot.get("open_position_diagnostics") or ()),
-        _scope_section("FRESH_V5_CONFIRMED_EQUITY", "Акции", snapshot),
-        _scope_section("FRESH_V5_CONFIRMED_FUTURES", "Фьючерсы", snapshot),
-        _branch_plan_section(snapshot.get("branch_plan") or ()),
-        process_section,
-        archive,
+        _compact_control_section(snapshot),
     ))
     root = RenderNodeV2(RenderNodeTypeV2.WORKSPACE, "control.v3.workspace", children=(page,))
     document = RenderDocumentV2(document_id=document_id, root=root, locale_code="ru-RU",

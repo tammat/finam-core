@@ -23,7 +23,7 @@ def test_open_position_diagnostics_add_no_operator_buttons() -> None:
     body = source[source.index("def _open_positions_section"):source.index("def _ru_status")]
     assert "RenderActionV2" not in body
     assert "_command(" not in body
-    assert "закрытых баров" in body
+    assert "баров" in body
 
 
 def test_disabled_research_command_has_required_block_reason() -> None:

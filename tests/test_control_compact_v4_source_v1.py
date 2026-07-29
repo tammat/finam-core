@@ -11,12 +11,12 @@ def test_control_uses_clean_v5_cohort_without_mixing_legacy_scopes() -> None:
     assert "FRESH_V5_CONFIRMED_EQUITY" in resolver
     assert "FRESH_V5_CONFIRMED_FUTURES" in resolver
     assert "closed_trades_active_v3" not in resolver
-    assert '"V5 всего"' in renderer
-    assert '"Исключено"' in renderer
-    assert '"Открыто Paper"' in renderer
+    assert '"Закрыто V5"' in renderer
+    assert '"excluded_closed"' in resolver
+    assert '"Открытые Paper-позиции"' in renderer
     assert "def _utc(value):" in renderer
     assert "браузер показывает его в Europe/Moscow" in renderer
-    assert '_scope_section("FRESH_V5_CONFIRMED_EQUITY"' in renderer
+    assert '"hierarchy_top_exact"' in resolver
 
 
 def test_v4_read_access_is_explicitly_read_only() -> None:
