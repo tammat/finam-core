@@ -8084,6 +8084,36 @@ class PaperTradingPipeline:
             # Русский комментарий: runtime MarketData resubscribe без restart pipeline.
             self._runtime_active_symbols = decision.active_symbols
 
+            # Flat-only rollover может заменить BR-контракт в runtime-universe без
+            # restart процесса. Не переносим состояние breakout между контрактами
+            # и дополнительно отказываемся менять генератор при локальной позиции.
+            active_br = next(
+                (str(symbol) for symbol in decision.active_symbols if str(symbol).startswith("BR")),
+                "",
+            )
+            if active_br and active_br != str(getattr(self, "br_breakout_symbol", "")):
+                previous_br = str(getattr(self, "br_breakout_symbol", ""))
+                positions = getattr(getattr(self, "position_manager", None), "positions", {}) or {}
+                previous_position = positions.get(previous_br)
+                previous_qty = float(getattr(previous_position, "qty", 0.0) or 0.0)
+                if abs(previous_qty) > 1e-9:
+                    print(
+                        "PIPE_BR_RUNTIME_CONTRACT_SWITCH_BLOCKED_OPEN_POSITION "
+                        f"current={previous_br} candidate={active_br} qty={previous_qty}",
+                        flush=True,
+                    )
+                else:
+                    self.br_breakout_symbol = active_br
+                    self.br_breakout = (
+                        BrConservativeBreakout(symbol=active_br)
+                        if self.br_breakout_enabled else None
+                    )
+                    print(
+                        "PIPE_BR_RUNTIME_CONTRACT_SWITCH "
+                        f"previous={previous_br} current={active_br} state_reset=1",
+                        flush=True,
+                    )
+
             try:
                 marketdata = getattr(self, "marketdata", None)
 

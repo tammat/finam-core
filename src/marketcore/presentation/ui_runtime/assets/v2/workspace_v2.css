@@ -574,6 +574,26 @@ article[role="link"][data-mc-action-id]:focus {
     [data-mc-node="action"] { display: block; width: 100%; margin: 8px 0 0; white-space: normal; }
 }
 
+@media (max-width: 600px) {
+    [data-mc-node-id="home.compact.workspace"] { padding: 12px 10px 72px; }
+    [data-mc-node-id="home.compact.page"] { width: 100%; min-width: 0; }
+    [data-mc-node-id="home.compact.title"] { margin-bottom: 4px; font-size: 1.65rem; }
+    [data-mc-node-id="home.compact.subtitle"] { margin-bottom: 16px; font-size: .92rem; }
+    [data-mc-node-id^="home.compact."][data-mc-node="section"] {
+        width: 100%; min-width: 0; padding: 14px; border-radius: 14px;
+    }
+    [data-mc-node-id^="home.compact."][data-mc-node="metric_row"] {
+        display: grid; grid-template-columns: 1fr; gap: 4px; padding: 11px 0;
+    }
+    [data-mc-node-id^="home.compact."] [data-mc-node="metric_label"],
+    [data-mc-node-id^="home.compact."] [data-mc-node="metric_value"] {
+        width: 100%; min-width: 0; text-align: left; overflow-wrap: anywhere;
+    }
+    [data-mc-node-id^="home.compact."] [data-mc-node="metric_label"] { font-size: .82rem; }
+    [data-mc-node-id^="home.compact."] [data-mc-node="metric_value"] { font-size: 1rem; line-height: 1.35; }
+    [data-mc-node-id="home.compact.refresh"] { min-height: 48px; font-size: 1rem; }
+}
+
 @media (max-width: 900px) {
     .mc-control-group-grid { grid-template-columns: 1fr; }
     .mc-control-group-grid [data-mc-section-group][open] { grid-column: auto; }

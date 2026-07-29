@@ -56,6 +56,7 @@ EXECUTORS = {
     "M15_REBUILD_FROM_M5_V1": "src/scripts/rebuild_m15_from_m5_v1.py",
     "HIERARCHICAL_EVIDENCE_ROUTER_V1": "src/scripts/build_v5_hierarchical_evidence_v1.py",
     "V5_ASSET_BRANCH_ROTATION_V1": "src/scripts/rotate_v5_asset_branch_timeframes_v1.py",
+    "V5_FUTURES_FLAT_LIQUIDITY_ROLLOVER_V1": "src/scripts/run_v5_futures_rollover_v1.py",
 }
 
 
@@ -71,6 +72,7 @@ def research_cpu_limit(now: datetime) -> int:
 
 EXECUTOR_ARGUMENTS = {
     "PAPER_CLOSED_TRADE_MATERIALIZER_V2": ["--apply"],
+    "V5_FUTURES_FLAT_LIQUIDITY_ROLLOVER_V1": ["--apply"],
 }
 
 # Закрытия Paper влияют на свежий риск и expectancy, поэтому не получают
