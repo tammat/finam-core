@@ -520,3 +520,9 @@
   RenderTree `metric_list` container.
 - Both sections now use the canonical container and have a regression test for
   browser empty-section cleanup. Research logic and safety are unchanged.
+
+## Compact universe coverage line 29.07.2026
+
+- HOME progress now states the dynamic active-universe count, how many instruments
+  already have clean closed V5 examples, and how many leaders are shown.
+- Counts are source-backed and not hard-coded; research behavior is unchanged.

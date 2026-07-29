@@ -35,7 +35,19 @@ def test_home_progress_is_bounded_to_six_rows() -> None:
     progress = next(node for node in nodes if node.node_id == "home.compact.progress")
     metric_list = next(child for child in progress.children if child.node_type is RenderNodeTypeV2.METRIC_LIST)
     metric_rows = [child for child in metric_list.children if child.node_type is RenderNodeTypeV2.METRIC_ROW]
-    assert 3 <= len(metric_rows) <= 6
+    assert 4 <= len(metric_rows) <= 7
+
+
+def test_home_explains_compact_universe_coverage() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    values = [
+        str(node.content.value)
+        for node in walk(document.root)
+        if node.content and node.content.value
+    ]
+    coverage = next(value for value in values if value.startswith("активно "))
+    assert "сделки есть у" in coverage
+    assert "на экране топ-" in coverage
 
 
 def test_metric_sections_survive_browser_empty_section_cleanup() -> None:

@@ -275,6 +275,15 @@ class ControlCompactV3Resolver:
                 """)
                 cny_spot_controls = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""
+                    SELECT
+                      (SELECT count(DISTINCT symbol)::int
+                       FROM runtime_active_universe WHERE is_enabled) AS active_instruments,
+                      (SELECT count(DISTINCT symbol)::int
+                       FROM analytics.closed_trades_fresh_v5_confirmed) AS instruments_with_closed_v5
+                """)
+                universe_summary = dict(cursor.fetchone() or {})
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -345,4 +354,5 @@ class ControlCompactV3Resolver:
             "hierarchy_top_exact": hierarchy_top_exact,
             "asset_branches": asset_branches,
             "cny_spot_controls": cny_spot_controls,
+            "universe_summary": universe_summary,
         }

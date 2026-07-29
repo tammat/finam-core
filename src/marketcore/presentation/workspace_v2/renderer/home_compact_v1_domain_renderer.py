@@ -65,6 +65,16 @@ def _progress_section(snapshot):
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.progress.title", "Прогресс", level="SECTION")
     ]
     rows = list(snapshot.get("hierarchy_top_exact") or ())[:3]
+    universe = snapshot.get("universe_summary") or {}
+    children.append(_row(
+        "universe",
+        "Охват",
+        f"активно {int(universe.get('active_instruments') or 0)} · "
+        f"сделки есть у {int(universe.get('instruments_with_closed_v5') or 0)} · "
+        f"на экране топ-{len(rows)}",
+        source="runtime_active_universe",
+        source_as_of=snapshot.get("generated_at"),
+    ))
     direction = {"LONG": "покупка", "SHORT": "продажа"}
     for index, row in enumerate(rows, start=1):
         count = int(row.get("closed_trades") or 0)
