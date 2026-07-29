@@ -33,8 +33,19 @@ def test_home_progress_is_bounded_to_six_rows() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     nodes = list(walk(document.root))
     progress = next(node for node in nodes if node.node_id == "home.compact.progress")
-    metric_rows = [child for child in progress.children if child.node_type is RenderNodeTypeV2.METRIC_ROW]
+    metric_list = next(child for child in progress.children if child.node_type is RenderNodeTypeV2.METRIC_LIST)
+    metric_rows = [child for child in metric_list.children if child.node_type is RenderNodeTypeV2.METRIC_ROW]
     assert 3 <= len(metric_rows) <= 6
+
+
+def test_metric_sections_survive_browser_empty_section_cleanup() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    nodes = {node.node_id: node for node in walk(document.root)}
+    for section_id in ("home.compact.now", "home.compact.progress"):
+        assert any(
+            child.node_type is RenderNodeTypeV2.METRIC_LIST
+            for child in nodes[section_id].children
+        )
 
 
 def test_attention_ignores_historical_failure_counter() -> None:

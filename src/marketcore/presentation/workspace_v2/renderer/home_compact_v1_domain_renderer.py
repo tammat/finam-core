@@ -47,13 +47,16 @@ def _now_section(snapshot):
     worst = max(freshness, key=lambda row: int(row.get("age_sec") or 0), default={})
     age = worst.get("age_sec")
     data_ok = bool(freshness) and int(age or 0) <= 420
-    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(
-        _leaf(RenderNodeTypeV2.TITLE, "home.compact.now.title", "Сейчас", level="SECTION"),
+    metrics = RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.now.metrics", children=(
         _row("mode", "Система", "Собирает примеры автоматически"),
         _row("data", "Данные", _age_text(age),
              status="OK" if data_ok else "WARNING",
              source="market_bars", source_as_of=worst.get("latest_bar")),
         _row("safety", "Реальные сделки", "Выключены"),
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.now.title", "Сейчас", level="SECTION"),
+        metrics,
     ))
 
 
@@ -91,7 +94,13 @@ def _progress_section(snapshot):
         ))
     if not rows:
         children.append(_row("progress.empty", "Примеры", "Пока нет завершённых" ,status="WARNING"))
-    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.progress", children=tuple(children))
+    title, *metrics = children
+    metric_list = RenderNodeV2(
+        RenderNodeTypeV2.METRIC_LIST, "home.compact.progress.metrics", children=tuple(metrics)
+    )
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION, "home.compact.progress", children=(title, metric_list)
+    )
 
 
 def _attention_section(snapshot):

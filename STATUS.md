@@ -512,3 +512,11 @@
 - Runtime verification: 38 symbols processed, 34 unchanged, 4 skipped, 0 failed,
   sync status `SUCCEEDED`, return code 0. No execution state changed.
 - Validation: 46 focused tests passed. Paper safety remains unchanged.
+
+## Compact HOME browser rendering fix 29.07.2026
+
+- HOME API contained all three sections, but the browser removed `Сейчас` and
+  `Прогресс` because their metric rows were not wrapped in the required
+  RenderTree `metric_list` container.
+- Both sections now use the canonical container and have a regression test for
+  browser empty-section cleanup. Research logic and safety are unchanged.
