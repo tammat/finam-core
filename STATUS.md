@@ -1,6 +1,6 @@
 # MarketCore — чекпоинт состояния
 
-Обновлено: 29.07.2026, 09:03 МСК.
+Обновлено: 29.07.2026, 09:09 МСК.
 
 ## Главная цель
 
@@ -200,6 +200,14 @@
 - Контрольный Swing research evaluator обработал 3 элемента: `items_evaluated=3`, `pass=0`, `live_allowed=0`, verdict `OK`. В БД записаны 3 OOS-результата; отсутствие PASS является исследовательским результатом, а не технической ошибкой.
 - Проверки legacy-disable/Swing: `19 passed`; Python compile и SQL migration успешны.
 - Safety подтверждена: `EXECUTION_MODE=paper`, `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0`.
+
+## Checkpoint 29.07.2026, 09:09 МСК — stale RUNNING reconciliation
+
+- Исправлен общий lifecycle DB scheduler: после получения advisory lock он автоматически переводит осиротевшие `RUNNING` старше `timeout_seconds + 60` в `TIMEOUT` с return code `-2` и причиной `SCHEDULER_RESTART_STALE_RUNNING_RECONCILED`.
+- Условие lock гарантирует, что активный scheduler не помечается stale; история run не удаляется.
+- Зависшая запись `FORWARD_REMEDIATION_SCENARIOS` от 25.07 переведена в `TIMEOUT`; текущих `RUNNING` для job осталось `0`.
+- Сам research executor проверен отдельно: `scenarios=0`, причина `FORWARD_REMEDIATION_NO_READINESS_DATA`, verdict `OK`. Stage 5 корректно находится в `WAITING/AWAITING_FORWARD_READINESS`.
+- Профильные проверки scheduler/reconciliation: `8 passed`; торговое исполнение не запускалось.
 
 ## Аудит незакоммиченных изменений 28.07.2026
 

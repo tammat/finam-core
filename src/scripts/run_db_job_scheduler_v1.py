@@ -105,6 +105,23 @@ def due(row: dict, now: datetime, last_started: datetime | None) -> bool:
     return last_started is None or (now-last_started).total_seconds() >= row["interval_minutes"]*60
 
 
+def reconcile_stale_running_jobs(cursor) -> list[dict]:
+    """The scheduler lock proves no live scheduler owns an old RUNNING row."""
+    cursor.execute("""
+        UPDATE analytics.system_job_run_v1 run
+        SET status_code='TIMEOUT',return_code=-2,finished_at=clock_timestamp(),
+            stderr_tail=concat_ws(E'\n',nullif(run.stderr_tail,''),
+              'SCHEDULER_RESTART_STALE_RUNNING_RECONCILED')
+        FROM analytics.system_job_schedule_v1 schedule
+        WHERE run.job_code=schedule.job_code
+          AND run.status_code='RUNNING'
+          AND run.started_at < clock_timestamp()
+              - ((schedule.timeout_seconds + 60) * interval '1 second')
+        RETURNING run.job_code,run.executor_code,run.scheduler_run_id,run.stderr_tail
+    """)
+    return [dict(row) for row in cursor.fetchall()]
+
+
 def main() -> int:
     launched = 0
     with psycopg2.connect(DB) as connection:
@@ -113,6 +130,10 @@ def main() -> int:
             if not cursor.fetchone()["locked"]:
                 print("VERDICT=DB_JOB_SCHEDULER_ALREADY_RUNNING")
                 return 0
+            stale_runs = reconcile_stale_running_jobs(cursor)
+            connection.commit()
+            if stale_runs:
+                print(f"DB_JOB_STALE_RUNNING_RECONCILED count={len(stale_runs)}")
             cursor.execute("SELECT * FROM analytics.system_job_schedule_v1 WHERE enabled ORDER BY priority,job_code")
             jobs = cursor.fetchall()
             for job in jobs:
