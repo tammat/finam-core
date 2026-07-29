@@ -81,3 +81,14 @@ def test_attention_ignores_historical_failure_counter() -> None:
     section = source[source.index("def _attention_section"):source.index("def render_home_compact_v1")]
     assert "failed_24h" not in section
     assert "process_failed" in section and "data_stale" in section
+
+
+def test_home_explains_data_quality_in_one_short_line() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    values = [
+        str(node.content.value)
+        for node in walk(document.root)
+        if node.content and node.content.value
+    ]
+    quality = next(value for value in values if value.startswith("свежие "))
+    assert "задержка" in quality and "вне сессии" in quality

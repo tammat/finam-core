@@ -194,20 +194,26 @@ class ControlCompactV3Resolver:
                 recent_jobs = [dict(row) for row in cursor.fetchall()]
 
                 cursor.execute("""
-                    SELECT symbol,timeframe,max(ts) AS latest_bar,
-                           extract(epoch FROM clock_timestamp()-max(ts))::int AS age_sec
-                    FROM market_bars
-                    WHERE (symbol,timeframe) IN (
-                      ('BRQ6@RTSX','M1'),('NGQ6@RTSX','M1'),
-                      ('SBER@MISX','M1'),('GAZP@MISX','M1'),('LKOH@MISX','M1'),
-                      ('NVTK@MISX','M5'),('VTBR@MISX','M5')
-                    )
-                    GROUP BY symbol,timeframe
-                    ORDER BY array_position(
-                      ARRAY['BRQ6@RTSX','NGQ6@RTSX','SBER@MISX','GAZP@MISX',
-                            'LKOH@MISX','NVTK@MISX','VTBR@MISX']::text[],symbol)
+                    SELECT symbol,timeframe,latest_bar,age_seconds AS age_sec,
+                           session_open,bar_count,maximum_gap_seconds,
+                           cost_verified_at,quality_code
+                    FROM analytics.runtime_market_data_quality_v1
+                    ORDER BY CASE quality_code
+                      WHEN 'STALE' THEN 1 WHEN 'GAP' THEN 2
+                      WHEN 'NO_COMPLETED_BARS' THEN 3 WHEN 'COST_SPEC_STALE' THEN 4
+                      WHEN 'READY' THEN 5 ELSE 6 END,symbol
                 """)
                 freshness = [dict(row) for row in cursor.fetchall()]
+                data_quality_summary = {
+                    "ready": sum(row.get("quality_code") == "READY" for row in freshness),
+                    "attention": sum(row.get("quality_code") in {
+                        "STALE", "GAP", "NO_COMPLETED_BARS", "COST_SPEC_STALE"
+                    } for row in freshness),
+                    "out_of_session": sum(
+                        row.get("quality_code") == "OUT_OF_SESSION" for row in freshness
+                    ),
+                    "total": len(freshness),
+                }
 
                 cursor.execute("""
                     SELECT level_code,count(*)::int AS groups,
@@ -351,6 +357,7 @@ class ControlCompactV3Resolver:
             "command_state": command_state,
             "recent_jobs": recent_jobs,
             "freshness": freshness,
+            "data_quality_summary": data_quality_summary,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,

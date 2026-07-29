@@ -57,11 +57,15 @@ def _instrument_name(row):
 def _now_section(snapshot):
     freshness = snapshot.get("freshness") or ()
     worst = max(freshness, key=lambda row: int(row.get("age_sec") or 0), default={})
-    age = worst.get("age_sec")
-    data_ok = bool(freshness) and int(age or 0) <= 420
+    summary = snapshot.get("data_quality_summary") or {}
+    ready = int(summary.get("ready") or 0)
+    attention = int(summary.get("attention") or 0)
+    outside = int(summary.get("out_of_session") or 0)
+    data_ok = bool(freshness) and attention == 0
+    quality_text = f"свежие {ready} · задержка {attention} · вне сессии {outside}"
     metrics = RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.now.metrics", children=(
         _row("mode", "Система", "Собирает примеры автоматически"),
-        _row("data", "Данные", _age_text(age),
+        _row("data", "Данные", quality_text,
              status="OK" if data_ok else "WARNING",
              source="market_bars", source_as_of=worst.get("latest_bar")),
         _row("safety", "Реальные сделки", "Выключены"),
@@ -131,10 +135,8 @@ def _attention_section(snapshot):
     process_code = str((snapshot.get("process") or {}).get("status_code") or "").upper()
     process_failed = process_code in {"FAILED", "ERROR", "STALLED", "BLOCKED"}
     freshness = snapshot.get("freshness") or ()
-    data_stale = bool(freshness) and any(
-        int(row.get("age_sec") or 0) > (180 if row.get("timeframe") == "M1" else 420)
-        for row in freshness
-    )
+    blocking_quality_codes = {"STALE", "GAP", "NO_COMPLETED_BARS", "COST_SPEC_STALE"}
+    data_stale = any(row.get("quality_code") in blocking_quality_codes for row in freshness)
     if process_failed:
         message, status = "Текущий поиск остановился. Откройте диагностику.", "BLOCKED"
     elif data_stale:

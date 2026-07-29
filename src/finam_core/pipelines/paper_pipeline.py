@@ -71,6 +71,9 @@ from finam_core.execution.entry_cost_gate_v1 import evaluate_entry_cost_gate_v1
 from finam_core.execution.futures_entry_cost_gate_v1 import (
     evaluate_futures_entry_cost_gate_v1,
 )
+from finam_core.execution.entry_data_quality_gate_v1 import (
+    evaluate_entry_data_quality_v1,
+)
 from finam_core.execution.execution_symbol_resolver import ExecutionSymbolResolver
 from finam_core.instruments.instrument_spec_registry import InstrumentSpecRegistry
 from finam_core.execution.position_lifecycle_service import PositionLifecycleInput, PositionLifecycleService
@@ -6150,6 +6153,10 @@ class PaperTradingPipeline:
             print("PIPE_EXEC_BLOCK invalid_qty", flush=True)
             self._reject_persisted_signal_v1(intent, "execution_invalid_qty")
             return
+        quality_allowed, quality_reason = self._entry_data_quality_gate_v1(intent, st)
+        if not quality_allowed:
+            self._reject_persisted_signal_v1(intent, f"entry_data_quality:{quality_reason}")
+            return
         if not self._usd_paper_pilot_allows_intent_v1(intent):
             self._reject_persisted_signal_v1(intent, "usd_paper_pilot_gate")
             return
@@ -7922,6 +7929,75 @@ class PaperTradingPipeline:
                 f"PIPE_ADAPTIVE_POSITION_SIZE_ERROR {type(exc).__name__}:{exc}",
                 heartbeat_sec=300,
             )
+
+    def _entry_data_quality_gate_v1(self, intent: dict, market_state: dict) -> tuple[bool, str]:
+        if not isinstance(intent, dict) or intent.get("intent_type") == "EXIT":
+            return True, "EXIT_MANAGEMENT_ALLOWED"
+        if os.getenv("ENABLE_ENTRY_DATA_QUALITY_GATE_V1", "1") != "1":
+            return True, "ENTRY_DATA_QUALITY_DISABLED"
+        if self.runtime_config.get_bool("SIMULATE_MARKET", False) or str(
+            os.getenv("FINAM_CORE_FEED", "live")
+        ).lower() in {"sim", "simulation", "replay", "historical", "test"}:
+            return True, "NON_LIVE_RESEARCH_SOURCE"
+
+        symbol = str(intent.get("symbol") or market_state.get("symbol") or "")
+        timeframe = str(
+            intent.get("timeframe")
+            or (intent.get("features") or {}).get("timeframe")
+            or ("M1" if symbol.startswith(("BR", "NG")) else "M5")
+        ).upper()
+        if timeframe not in {"M1", "M5"}:
+            timeframe = "M5"
+        interval_seconds = 60 if timeframe == "M1" else 300
+        session = self.session.get_regime(symbol, market_data_live=True)
+        try:
+            pg_logger = getattr(self, "pg_logger", None)
+            if pg_logger is None or not hasattr(pg_logger, "_connect"):
+                raise RuntimeError("POSTGRES_LOGGER_UNAVAILABLE")
+            with pg_logger._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT ts FROM market_bars
+                        WHERE symbol=%s AND timeframe=%s
+                          AND ts + (%s * interval '1 second') <= clock_timestamp()
+                        ORDER BY ts DESC LIMIT 4
+                        """,
+                        (symbol, timeframe, interval_seconds),
+                    )
+                    completed_bars = [row[0] for row in cursor.fetchall()]
+                    cost_verified_at = None
+                    if symbol.endswith("@RTSX"):
+                        cursor.execute(
+                            "SELECT verified_at FROM analytics.market_contract_cost_spec_v1 WHERE symbol=%s",
+                            (symbol,),
+                        )
+                        row = cursor.fetchone()
+                        cost_verified_at = row[0] if row else None
+            decision = evaluate_entry_data_quality_v1(
+                timeframe=timeframe,
+                completed_bar_times=completed_bars,
+                session_open=bool(session.get("allow_entries", False)),
+                is_futures=symbol.endswith("@RTSX"),
+                cost_verified_at=cost_verified_at,
+            )
+        except Exception as exc:
+            self._log_dedup(
+                f"PIPE_ENTRY_DATA_QUALITY_GATE_ERROR:{symbol}",
+                f"PIPE_ENTRY_DATA_QUALITY_GATE_ERROR symbol={symbol} error={type(exc).__name__}:{exc}",
+                heartbeat_sec=60,
+            )
+            return False, "ENTRY_DATA_QUALITY_GATE_ERROR"
+
+        intent.setdefault("features", {})["entry_data_quality_reason"] = decision.reason_code
+        intent["features"]["completed_bar_age_seconds"] = decision.latest_bar_age_seconds
+        if not decision.allowed:
+            self._log_dedup(
+                f"PIPE_ENTRY_DATA_QUALITY_BLOCK:{symbol}:{decision.reason_code}",
+                f"PIPE_ENTRY_DATA_QUALITY_BLOCK symbol={symbol} timeframe={timeframe} reason={decision.reason_code}",
+                heartbeat_sec=60,
+            )
+        return decision.allowed, decision.reason_code
 
     def _entry_confidence_gate_if_enabled(self, intent: dict, market_state: dict) -> bool:
         """Русский комментарий: confirmation gate перед Risk/Execution для новых входов."""
