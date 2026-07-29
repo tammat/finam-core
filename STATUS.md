@@ -1,6 +1,6 @@
 # MarketCore — чекпоинт состояния
 
-Обновлено: 29.07.2026, 08:32 МСК.
+Обновлено: 29.07.2026, 08:43 МСК.
 
 ## Главная цель
 
@@ -175,6 +175,13 @@
 - Профильные проверки нового контура: `14 passed`; расширенный набор дал 39 успешных и 2 старых несвязанных contract failure (порядок runtime-символов и субботняя session-политика).
 - Safety подтверждена: `EXECUTION_MODE=paper`, `EXECUTION_ENABLED=0`, `REAL_TRADING_ENABLED=0`.
 - Для загрузки pipeline gate и обновлённого HOME требуется штатный restart `finam-paper-pipeline.service` и `marketcore-ui-shell.service` оператором.
+
+## Checkpoint 29.07.2026, 08:43 МСК — P&L в компактном HOME
+
+- В каждой строке топ exact-веток рядом с прогрессом показан накопленный source-backed `P&L`, например `4 из 20 · P&L -0,66`.
+- Значение берётся из `analytics.hierarchical_evidence_v1.net_pnl`; знак валюты не подставляется, чтобы не смешивать разные единицы инструментов.
+- Исследовательская логика, ранжирование и safety не изменены. Проверки HOME/iPhone/data-quality: `12 passed`.
+- Для отображения изменения требуется restart только `marketcore-ui-shell.service`.
 
 ## Аудит незакоммиченных изменений 28.07.2026
 

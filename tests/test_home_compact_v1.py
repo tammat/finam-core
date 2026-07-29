@@ -63,6 +63,22 @@ def test_home_uses_russian_instrument_names_with_ticker() -> None:
     assert any(any(char in value for char in "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЭЮЯ") for value in progress_labels)
 
 
+def test_home_progress_rows_show_source_backed_pnl() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    values = [
+        str(node.content.value)
+        for node in walk(document.root)
+        if node.content and node.content.value
+    ]
+    progress = [value for value in values if " из " in value and "P&L " in value]
+    assert progress
+    resolver = open(
+        "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py",
+        encoding="utf-8",
+    ).read()
+    assert "h.net_pnl" in resolver
+
+
 def test_metric_sections_survive_browser_empty_section_cleanup() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     nodes = {node.node_id: node for node in walk(document.root)}

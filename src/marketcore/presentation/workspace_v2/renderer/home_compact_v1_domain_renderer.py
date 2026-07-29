@@ -54,6 +54,11 @@ def _instrument_name(row):
     return f"{name} ({ticker})" if name != ticker else ticker
 
 
+def _pnl_text(value):
+    amount = float(value or 0)
+    return f"P&L {amount:+.2f}".replace(".", ",")
+
+
 def _now_section(snapshot):
     freshness = snapshot.get("freshness") or ()
     worst = max(freshness, key=lambda row: int(row.get("age_sec") or 0), default={})
@@ -99,7 +104,7 @@ def _progress_section(snapshot):
         children.append(_row(
             f"progress.{index}",
             f"{_instrument_name(row)} · {side}",
-            f"{count} из {target} · осталось {max(0, target-count)}",
+            f"{count} из {target} · {_pnl_text(row.get('net_pnl'))}",
             status="OK" if count >= target else "WARNING",
             source="analytics.hierarchical_evidence_v1",
             source_as_of=row.get("updated_at"),
