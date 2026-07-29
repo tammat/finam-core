@@ -69,3 +69,13 @@
 - First trusted calculation persisted 10 asset/side rows; all are insufficient and therefore contain no recommendation.
 - Tests: 2 passed; database calculation and upsert verified.
 - Pending operator action: install the two unit files under `/etc/systemd/system`, daemon-reload, enable/start the timer.
+## Shadow-to-Paper automation addendum — 21:12 MSK
+
+- New module: `src/finam_core/analytics/futures_shadow_promotion.py`.
+- New daily stage: `src/scripts/analytics/build_futures_shadow_promotion_v1.py` runs after calibration.
+- New storage migration 225: paired Shadow outcomes and versioned Paper runtime profiles.
+- Auto-promotion boundary is PAPER only; REAL cannot be activated by this job.
+- V5 integrity: Shadow rows are external to `closed_trades`; actual Paper closes retain normal V5 counting and carry `risk_profile_version` for cohort attribution.
+- Promotion is reversible: previous ACTIVE version becomes SUPERSEDED, historical pairs and versions remain immutable/auditable.
+- First cycle persisted paired evidence but promoted nothing because minimum sample/OOS guards failed.
+- Pending operator actions: replace the installed calibration service with the repository version, daemon-reload, restart timer; restart Paper once to load runtime-profile lookup code.

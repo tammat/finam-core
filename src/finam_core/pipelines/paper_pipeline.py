@@ -5039,9 +5039,48 @@ class PaperTradingPipeline:
                 adaptive_symbol = str(intent.get("symbol") or sym or "")
                 adaptive_profile = adaptive_policy.profile_for(adaptive_symbol)
                 if adaptive_profile is not None:
+                    runtime_override = None
+                    runtime_mode = None
+                    try:
+                        cache = getattr(self, "_futures_risk_runtime_profile_cache_v1", {})
+                        cache_ts = float(getattr(self, "_futures_risk_runtime_profile_cache_ts_v1", 0.0) or 0.0)
+                        if time.time() - cache_ts >= 300:
+                            refreshed = {}
+                            with self.pg_logger._connect() as profile_conn:
+                                with profile_conn.cursor() as profile_cursor:
+                                    profile_cursor.execute(
+                                        """
+                                        SELECT asset_code,side_code,min_stop_atr,max_stop_atr,
+                                               target_atr,min_reward_r,min_volume_ratio,mode,version
+                                        FROM analytics.futures_risk_runtime_profile_v1
+                                        WHERE status='ACTIVE' AND execution_mode='paper'
+                                        """
+                                    )
+                                    for profile_row in profile_cursor.fetchall():
+                                        refreshed[(str(profile_row[0]), str(profile_row[1]))] = {
+                                            "min_stop_atr": profile_row[2],
+                                            "max_stop_atr": profile_row[3],
+                                            "target_atr": profile_row[4],
+                                            "min_reward_r": profile_row[5],
+                                            "min_volume_ratio": profile_row[6],
+                                            "mode": profile_row[7],
+                                            "runtime_profile_version": profile_row[8],
+                                        }
+                            cache = refreshed
+                            self._futures_risk_runtime_profile_cache_v1 = cache
+                            self._futures_risk_runtime_profile_cache_ts_v1 = time.time()
+                        runtime_override = cache.get((adaptive_profile.asset, str(intent.get("side") or "").upper().replace("BUY", "LONG").replace("SELL", "SHORT")))
+                        runtime_mode = runtime_override.get("mode") if runtime_override else None
+                    except Exception as profile_exc:
+                        if self._runtime_log_allowed("FUTURES_RISK_PROFILE_FALLBACK", ttl_seconds=300):
+                            print(
+                                "PIPE_FUTURES_RISK_PROFILE_FALLBACK "
+                                f"error={type(profile_exc).__name__}:{profile_exc} paper_only=1",
+                                flush=True,
+                            )
                     adaptive_mode = os.getenv(
                         f"FUTURES_ADAPTIVE_{adaptive_profile.asset}_MODE",
-                        adaptive_profile.default_mode,
+                        runtime_mode or adaptive_profile.default_mode,
                     ).upper()
                     adaptive_atr = float(
                         adaptive_features.get("atr")
@@ -5059,8 +5098,15 @@ class PaperTradingPipeline:
                         volume_ratio=adaptive_features.get("volume_ratio"),
                         roundtrip_cost_price=adaptive_features.get("roundtrip_cost_price"),
                         mode=adaptive_mode,
+                        profile_override=runtime_override,
                     )
                     intent.setdefault("features", {})["futures_adaptive_risk_v1"] = adaptive_decision.to_dict()
+                    intent["features"]["risk_profile_version"] = (
+                        runtime_override.get("runtime_profile_version") if runtime_override else "BUILTIN_V1"
+                    )
+                    intent["features"]["risk_profile_source"] = (
+                        "AUTO_PROMOTED_PAPER" if runtime_override else "BUILTIN"
+                    )
                     if adaptive_mode == "ENFORCE" and adaptive_decision.allowed:
                         intent["stop_loss"] = adaptive_decision.stop_price
                         intent["take_profit"] = adaptive_decision.take_price

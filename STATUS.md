@@ -649,3 +649,14 @@
 - First trusted run: BR LONG 8/3 winners; NG LONG 5/1; NG SHORT 1/0; CNY LONG 1/0; other direction/asset buckets 0. All correctly remain `INSUFFICIENT_DATA` with no recommended values.
 - Results are stored in `analytics.futures_risk_calibration_v1`; unit tests pass.
 - Timer definition runs daily at 21:15 Europe/Moscow with a persistent two-minute randomized delay; system installation requires operator sudo.
+### Automated futures Shadow-to-Paper promotion — 29.07.2026 21:12 MSK
+
+- Added conservative paired Shadow lifecycle reconstruction for every trusted FRESH_V5 Paper close.
+- Same entry/horizon are used; if stop and take are touched in one bar, stop wins to prevent optimistic bias.
+- Promotion requires >=80 paired trades, >=20 OOS, shadow expectancy >= baseline +0.10R, positive shadow/OOS expectancy, drawdown not worse, OOS improvement, and largest-win concentration <=35%.
+- Auto-promotion writes a versioned `ACTIVE` profile for execution_mode=paper only. REAL is excluded and still requires operator approval through future REAL_DRY_RUN/REAL_MICRO workflow.
+- Paper runtime reads only ACTIVE Paper profiles with a 5-minute cache and falls back to built-in parameters on any DB error.
+- Every Paper futures intent records `risk_profile_version` and source, keeping V5 evidence attributable across promotions/rollbacks.
+- Shadow pairs are stored separately and never increment V5 trade counters.
+- First run: BR LONG 8 pairs/OOS 1; NG LONG 5/1; NG SHORT 1/0; CNY LONG 1/0; all promotion guards correctly blocked.
+- Five tests passed; no runtime profile was activated.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -70,11 +70,20 @@ class FuturesAdaptiveRiskPolicy:
         volume_ratio: float | None = None,
         roundtrip_cost_price: float | None = None,
         mode: str | None = None,
+        profile_override: dict | None = None,
     ) -> FuturesRiskDecision:
         profile = self.profile_for(symbol)
         if profile is None:
             return FuturesRiskDecision(False, None, "OFF", True, "PROFILE_NOT_FOUND")
 
+        if profile_override:
+            allowed_fields = {
+                "min_stop_atr", "max_stop_atr", "target_atr", "min_reward_r",
+                "structure_buffer_atr", "min_volume_ratio", "reference_stop_atr",
+            }
+            clean = {key: float(value) for key, value in profile_override.items()
+                     if key in allowed_fields and value is not None}
+            profile = replace(profile, **clean)
         effective_mode = str(mode or profile.default_mode).upper()
         side_u = str(side or "").upper()
         if side_u in {"LONG", "BUY"}:
