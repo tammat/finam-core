@@ -14,30 +14,44 @@ class ExitDecision:
 
 def hard_exit_limit_seconds(symbol: str) -> float:
     """Absolute Paper holding limit; malformed configuration fails safely."""
-    code = str(symbol or "").upper().split("@", 1)[0]
+    full_code = str(symbol or "").upper()
+    code = full_code.split("@", 1)[0]
     if code.startswith("NG"):
         key, default = "NG_HARD_MAX_HOLD_SEC", 21600.0
     elif code.startswith("BR"):
         key, default = "BR_HARD_MAX_HOLD_SEC", 43200.0
     elif code.startswith("CNY"):
         key, default = "CNY_HARD_MAX_HOLD_SEC", 28800.0
+    elif code.startswith("USD"):
+        key, default = "USD_HARD_MAX_HOLD_SEC", 28800.0
+    elif code.startswith(("GD", "GL")):
+        key, default = "METALS_HARD_MAX_HOLD_SEC", 36000.0
+    elif code.startswith("MX"):
+        key, default = "INDEX_HARD_MAX_HOLD_SEC", 28800.0
+    elif full_code.endswith("@MISX"):
+        key, default = "EQUITY_HARD_MAX_HOLD_SEC", 28800.0
     else:
         key, default = "PAPER_HARD_MAX_HOLD_SEC", 28800.0
     try:
-        configured = float(os.getenv(key, str(default)))
+        configured = float(os.getenv(key, os.getenv("PAPER_HARD_MAX_HOLD_SEC", str(default))))
     except (TypeError, ValueError):
         configured = default
     return max(3600.0, configured)
 
 
 def apply_hard_max_hold(*, decision: ExitDecision, symbol: str,
-                        position_age_sec: float) -> ExitDecision:
-    """Stop/regime exits win; ordinary time/hold becomes unconditional hard exit."""
-    if float(position_age_sec) < hard_exit_limit_seconds(symbol):
+                        position_age_sec: float,
+                        favorable_trend_confirmed: bool = False) -> ExitDecision:
+    """Two-stage Paper safety net; a fresh favorable trend may extend to 2x."""
+    limit = hard_exit_limit_seconds(symbol)
+    age = float(position_age_sec)
+    if age < limit:
         return decision
     reason = str(decision.reason or "").lower()
     if decision.should_exit and reason != "time_exit":
         return decision
+    if favorable_trend_confirmed and age < limit * 2.0:
+        return ExitDecision(False, "hard_max_hold_trend_extension", decision.stop_price)
     return ExitDecision(True, "hard_max_hold_exit", decision.stop_price)
 
 

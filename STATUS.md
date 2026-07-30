@@ -861,3 +861,15 @@
 - Governed order is RVI (60), context V2 (61), MX observer (62). Latest verified
   context: 10:45 MSK, MX bar 10:40, causal RVI 10:37, `rvi_fresh=true`.
 - Validation: 19 focused tests passed. Migrations: 238 and 239.
+### Trend-aware Paper hard holding limit — 30.07.2026
+
+- Hard max hold is now a two-stage Paper safety net for every asset class.
+  Protective stop, target, trailing and regime invalidation retain priority.
+- At the nominal limit a fresh confirmed trend aligned with the position extends
+  holding; the absolute 2x limit always closes the position. Defaults are NG
+  6/12h, BR 12/24h, FX 8/16h, metals 10/20h and equities 8/16h.
+- The holding clock continues to use the persisted opening fill after restart.
+  Russian UI labels distinguish trend extension from emergency holding exit.
+- Optimizer cards no longer present Shadow stop/target values as current Paper.
+  They explicitly report when no optimized Paper DB profile is active.
+- Validation: 17 exit tests and direct UI resolver/render passed. REAL unchanged.

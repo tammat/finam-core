@@ -33,3 +33,29 @@ def test_energy_limits_are_separate(monkeypatch):
     monkeypatch.delenv("BR_HARD_MAX_HOLD_SEC", raising=False)
     assert hard_exit_limit_seconds("NGQ6@RTSX") == 21600
     assert hard_exit_limit_seconds("BRQ6@RTSX") == 43200
+
+
+def test_favorable_trend_extends_only_to_absolute_limit(monkeypatch):
+    monkeypatch.setenv("METALS_HARD_MAX_HOLD_SEC", "36000")
+    extended = apply_hard_max_hold(
+        decision=ExitDecision(True, "time_exit", 99), symbol="GDU6@RTSX",
+        position_age_sec=36001, favorable_trend_confirmed=True,
+    )
+    assert not extended.should_exit
+    assert extended.reason == "hard_max_hold_trend_extension"
+    absolute = apply_hard_max_hold(
+        decision=ExitDecision(False, "hold_long", 101), symbol="GDU6@RTSX",
+        position_age_sec=72001, favorable_trend_confirmed=True,
+    )
+    assert absolute.should_exit
+    assert absolute.reason == "hard_max_hold_exit"
+
+
+def test_asset_class_limits_are_explicit(monkeypatch):
+    for key in ("USD_HARD_MAX_HOLD_SEC", "METALS_HARD_MAX_HOLD_SEC",
+                "INDEX_HARD_MAX_HOLD_SEC", "EQUITY_HARD_MAX_HOLD_SEC"):
+        monkeypatch.delenv(key, raising=False)
+    assert hard_exit_limit_seconds("USDRUBF@RTSX") == 28800
+    assert hard_exit_limit_seconds("GDU6@RTSX") == 36000
+    assert hard_exit_limit_seconds("MXU6@RTSX") == 28800
+    assert hard_exit_limit_seconds("SBER@MISX") == 28800

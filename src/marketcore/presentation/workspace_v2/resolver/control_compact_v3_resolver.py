@@ -423,6 +423,11 @@ class ControlCompactV3Resolver:
                            cc.paper_metrics AS challenger_paper_metrics,
                            cc.champion_metrics,cc.consecutive_degraded_cycles,
                            cc.rollback_reason,cc.last_transition_at,
+                           paper.entry_mode AS paper_entry_mode,
+                           paper.stop_atr AS paper_stop_atr,
+                           paper.take_atr AS paper_take_atr,
+                           paper.trail_after_r AS paper_trail_after_r,
+                           paper.trail_atr AS paper_trail_atr,
                            EXISTS(SELECT 1 FROM analytics.entry_exit_runtime_profile_v1 p
                              WHERE p.strategy_code=r.strategy_code AND p.symbol_group=r.symbol_group
                                AND p.side_code=r.side_code AND p.candidate_code=r.candidate_code
@@ -431,6 +436,9 @@ class ControlCompactV3Resolver:
                     LEFT JOIN analytics.entry_exit_champion_challenger_v1 cc
                       ON cc.strategy_code=r.strategy_code AND cc.symbol_group=r.symbol_group
                      AND cc.side_code=r.side_code
+                    LEFT JOIN analytics.entry_exit_runtime_profile_v1 paper
+                      ON paper.profile_id=cc.champion_profile_id
+                     AND paper.execution_mode='paper' AND paper.status='ACTIVE'
                     ORDER BY r.strategy_code,r.symbol_group,r.side_code,
                              (r.candidate_code=cc.challenger_candidate_code) DESC,
                              CASE r.recommendation_status

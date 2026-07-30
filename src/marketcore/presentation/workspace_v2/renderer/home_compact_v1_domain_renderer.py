@@ -178,6 +178,8 @@ def _exit_reason_text(reason, active=False):
         "regime_invalidation_long": "смена режима", "regime_invalidation_short": "смена режима",
         "stall_exit_long": "выход из-за отсутствия движения",
         "stall_exit_short": "выход из-за отсутствия движения",
+        "hard_max_hold_exit": "аварийный лимит удержания",
+        "hard_max_hold_trend_extension": "удержание продлено по подтверждённому тренду",
     }
     return labels.get(str(reason or ""), str(reason or "не указана").replace("_", " "))
 
@@ -354,13 +356,47 @@ def _optimizer_section(snapshot):
                 status_text += " Предварительные данные есть, но продвижение ещё запрещено."
         stop_text = f"{float(item.get('stop_atr') or 0):.1f}".replace(".", ",")
         take_text = f"{float(item.get('take_atr') or 0):.1f}".replace(".", ",")
+        trail_after = item.get("trail_after_r")
+        trail_atr = item.get("trail_atr")
+        trail_text = ""
+        if trail_after is not None and trail_atr is not None:
+            trail_after_text = f"{float(trail_after):.1f}".replace(".", ",")
+            trail_atr_text = f"{float(trail_atr):.1f}".replace(".", ",")
+            trail_text = f" Трейлинг после {trail_after_text}R, дистанция {trail_atr_text} ATR."
         parameters = (
-            f"Вход {entry_labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}. "
-            f"Стоп: {stop_text} среднего диапазона свечи; цель: {take_text}."
+            f"Кандидат Shadow: вход {entry_labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}; "
+            f"стоп {stop_text} ATR; цель {take_text} ATR.{trail_text}"
         )
         champion_code = str(item.get("champion_candidate_code") or "CURRENT_PAPER")
         challenger_code = str(item.get("challenger_candidate_code") or item.get("candidate_code") or "—")
-        comparison = f"Текущий Paper: {champion_code}. Challenger: {challenger_code}."
+        paper_stop = item.get("paper_stop_atr")
+        paper_take = item.get("paper_take_atr")
+        if paper_stop is None or paper_take is None:
+            paper_description = (
+                "Действующий Paper: встроенный профиль стратегии; оптимизированный профиль "
+                "в БД ещё не назначен"
+            )
+        else:
+            paper_entry = entry_labels.get(str(item.get("paper_entry_mode")), item.get("paper_entry_mode"))
+            paper_description = (
+                f"Действующий Paper: {champion_code}; вход {paper_entry}; "
+                f"стоп {float(paper_stop):.1f} ATR; цель {float(paper_take):.1f} ATR"
+            ).replace(".", ",")
+            if item.get("paper_trail_after_r") is not None and item.get("paper_trail_atr") is not None:
+                paper_description += (
+                    f"; трейлинг после {float(item['paper_trail_after_r']):.1f}R, "
+                    f"дистанция {float(item['paper_trail_atr']):.1f} ATR"
+                ).replace(".", ",")
+        hard_limits = {
+            "BR": "аварийный предел 12 ч, в подтверждённом тренде до 24 ч",
+            "NG": "аварийный предел 6 ч, в подтверждённом тренде до 12 ч",
+            "CNY": "аварийный предел 8 ч, в подтверждённом тренде до 16 ч",
+            "USD": "аварийный предел 8 ч, в подтверждённом тренде до 16 ч",
+            "GOLD": "аварийный предел 10 ч, в подтверждённом тренде до 20 ч",
+        }
+        hard_limit_text = hard_limits.get(str(item.get("symbol_group") or "").upper(),
+                                          "аварийный предел 8 ч, в подтверждённом тренде до 16 ч")
+        comparison = f"{paper_description}. {hard_limit_text}. Challenger: {challenger_code}."
         actual_exp = paper_metrics.get("actual_expectancy_r", metrics.get("actual_expectancy_r"))
         challenger_exp = paper_metrics.get("challenger_expectancy_r", metrics.get("shadow_expectancy_r"))
         delta = paper_metrics.get("expectancy_delta_r")

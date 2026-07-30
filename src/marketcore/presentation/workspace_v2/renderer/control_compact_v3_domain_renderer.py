@@ -292,6 +292,8 @@ def _exit_ru(value):
         "STOP_TAKE": "Стоп или цель",
         "DYNAMIC_20": "Динамический · до 20 баров",
         "TIME_EXIT": "Выход по времени",
+        "HARD_MAX_HOLD_EXIT": "Аварийный лимит удержания",
+        "HARD_MAX_HOLD_TREND_EXTENSION": "Продление по подтверждённому тренду",
     }.get(str(value or "").upper(), str(value or "Выход не определён").replace("_", " "))
 
 

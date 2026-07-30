@@ -1145,6 +1145,7 @@ class PaperTradingPipeline:
             "stop_price": None,
             "last_qty": 0.0,
             "opened_at_ts": time.time(),
+            "favorable_trend_confirmed": False,
         })
 
         if str(symbol).upper().startswith(("BR", "NG")):
@@ -1936,6 +1937,7 @@ class PaperTradingPipeline:
                 "prev_close": None,
                 "stop_price": None,
                 "last_qty": 0.0,
+                "favorable_trend_confirmed": False,
             }
         return states[symbol]
 
@@ -1996,6 +1998,12 @@ class PaperTradingPipeline:
             and not bool(getattr(regime, "stale", True))
             and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
         )
+        state["favorable_trend_confirmed"] = bool(
+            confirmed and (
+                (qty > 0 and trend in {"up", "trend_up"})
+                or (qty < 0 and trend in {"down", "trend_down"})
+            )
+        )
         regime_exit_min_bars = int(os.getenv("ENERGY_REGIME_EXIT_MIN_BARS", "3"))
         regime_exit_ready = int(state.get("bars_held") or 0) >= regime_exit_min_bars
         if confirmed and regime_exit_ready and qty > 0 and trend in {"down", "trend_down"}:
@@ -2037,6 +2045,12 @@ class PaperTradingPipeline:
             and bool(getattr(regime, "data_ready", False))
             and not bool(getattr(regime, "stale", True))
             and int(getattr(regime, "confirmed_bars", 0) or 0) >= 3
+        )
+        state["favorable_trend_confirmed"] = bool(
+            confirmed and (
+                (qty > 0 and trend in {"up", "trend_up"})
+                or (qty < 0 and trend in {"down", "trend_down"})
+            )
         )
         regime_exit_min_bars = int(os.getenv("ENERGY_REGIME_EXIT_MIN_BARS", "3"))
         regime_exit_ready = int(state.get("bars_held") or 0) >= regime_exit_min_bars
@@ -3125,7 +3139,19 @@ class PaperTradingPipeline:
         decision_before_hard_exit = decision
         decision = apply_hard_max_hold(
             decision=decision, symbol=symbol, position_age_sec=position_age_sec,
+            favorable_trend_confirmed=bool(state.get("favorable_trend_confirmed", False)),
         )
+        if (
+            decision.reason == "hard_max_hold_trend_extension"
+            and decision_before_hard_exit.reason != decision.reason
+            and self._runtime_log_allowed(f"HARD_MAX_HOLD_TREND_EXTENSION:{symbol}", ttl_seconds=300)
+        ):
+            print(
+                "PIPE_HARD_MAX_HOLD_TREND_EXTENSION "
+                f"symbol={symbol} age_sec={round(position_age_sec, 3)} "
+                f"absolute_limit_sec={hard_exit_limit_seconds(symbol) * 2.0} paper_only=1",
+                flush=True,
+            )
         if decision.reason == "hard_max_hold_exit" and decision_before_hard_exit.reason != decision.reason:
             print(
                 "PIPE_HARD_MAX_HOLD_EXIT "

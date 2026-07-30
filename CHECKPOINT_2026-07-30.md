@@ -182,3 +182,11 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
   valid V2 collection restarted at zero.
 - Scheduler priority is RVI 60, context V2 61, MX observer 62. Latest verified
   V2 context was causal and fresh at 10:45 MSK. Focused tests: 19 passed.
+## Trend-aware Paper hard max hold
+
+- All Paper asset classes have explicit nominal/absolute holding limits. A fresh
+  favorable trend may extend only from nominal to 2x; the absolute limit closes
+  unconditionally. Stop, target, trailing and adverse regime remain higher priority.
+- UI reasons are Russian and Paper/Shadow parameters are separated truthfully.
+  No optimized Paper runtime profile existed at checkpoint; strategy defaults
+  remain active. REAL was not changed. Exit tests: 17; direct UI render passed.
