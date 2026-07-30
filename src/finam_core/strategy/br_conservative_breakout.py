@@ -100,7 +100,12 @@ class BrConservativeBreakout:
         self.regime_ema_fast: float | None = None
         self.regime_ema_slow: float | None = None
         self.regime_tr_values: deque[float] = deque(maxlen=14)
+        self.regime_closes: deque[float] = deque(maxlen=15)
         self.regime_prev_close: float | None = None
+        self.regime_rsi: float | None = None
+        self.regime_rsi_state: str = "WARMUP"
+        self.rsi_filter_passed: bool = False
+        self.rsi_filter_reason: str = "RSI_WARMUP"
         self.regime_direction: int = 0
         self.current_params = BrOnlineParams(
             mode="initial",
@@ -202,6 +207,14 @@ class BrConservativeBreakout:
         tr = self._true_range(high, low, self.regime_prev_close)
         self.regime_prev_close = close
         self.regime_tr_values.append(tr)
+        self.regime_closes.append(float(close))
+        if len(self.regime_closes) >= 15:
+            changes = [current - previous for previous, current in
+                       zip(self.regime_closes, list(self.regime_closes)[1:])]
+            gains = sum(max(change, 0.0) for change in changes) / len(changes)
+            losses = sum(max(-change, 0.0) for change in changes) / len(changes)
+            self.regime_rsi = 100.0 if losses == 0 else 100.0 - 100.0 / (1.0 + gains / losses)
+            self.regime_rsi_state = "READY"
 
         self.regime_ema_fast = self._ema(self.regime_ema_fast, close, self.regime_fast)
         self.regime_ema_slow = self._ema(self.regime_ema_slow, close, self.regime_slow)
@@ -261,10 +274,8 @@ class BrConservativeBreakout:
         return False
 
     def _signal_blocked_by_cooldown(self, side: str) -> bool:
-        """Русский комментарий: блокируем повторный сигнал в ту же сторону до смены режима."""
-        if self.last_signal_side != side:
-            return False
-        return self.last_signal_regime_direction == self.regime_direction
+        """Русский комментарий: блокируем повторный сигнал на заданное число M5-свечей."""
+        return self.last_signal_side == side and self.cooldown_counter > 0
 
     def _register_signal(self, side: str) -> None:
         """Русский комментарий: фиксируем сторону сигнала до смены режима."""
@@ -273,6 +284,8 @@ class BrConservativeBreakout:
         self.cooldown_counter = self.signal_cooldown_bars
 
     def on_signal_bar(self, ts: datetime, open_: float, high: float, low: float, close: float, volume: float = 0.0) -> BrSignal | None:
+        if self.cooldown_counter > 0:
+            self.cooldown_counter -= 1
         tr = self._true_range(high, low, self.prev_close)
         self.prev_close = close
         self.tr_values.append(tr)
@@ -309,7 +322,9 @@ class BrConservativeBreakout:
                     )
                 self.last_volume_ratio = volume_ratio
 
-            if close > range_high and self.regime_direction == 1 and not self._signal_blocked_by_cooldown("BUY") and volume_confirmed:
+            if (close > range_high and self.regime_direction == 1
+                    and self._rsi_filter_allows("BUY")
+                    and not self._signal_blocked_by_cooldown("BUY") and volume_confirmed):
                 if self.enable_paper_adaptive_risk:
                     structural_distance = close - (range_high - atr * self.structure_buffer_atr)
                     stop_distance = min(
@@ -337,7 +352,9 @@ class BrConservativeBreakout:
                 )
                 self._register_signal("BUY")
 
-            elif close < range_low and self.regime_direction == -1 and not self._signal_blocked_by_cooldown("SELL") and volume_confirmed:
+            elif (close < range_low and self.regime_direction == -1
+                    and self._rsi_filter_allows("SELL")
+                    and not self._signal_blocked_by_cooldown("SELL") and volume_confirmed):
                 if self.enable_paper_adaptive_risk:
                     structural_distance = (range_low + atr * self.structure_buffer_atr) - close
                     stop_distance = min(

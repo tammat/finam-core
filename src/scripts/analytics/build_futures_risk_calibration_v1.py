@@ -124,18 +124,25 @@ def main() -> int:
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
             """
-            SELECT symbol,upper(side) AS side,entry_price,net_pnl,
-                   coalesce(entry_ts,opened_at,created_at) AS entry_ts,
-                   coalesce(closed_at,exit_ts,created_at) AS exit_ts
-            FROM closed_trades
-            WHERE symbol LIKE '%%@RTSX'
-              AND trade_source='paper'
-              AND coalesce(payload->'context'->>'cohort','') LIKE 'FRESH_V5%%'
-              AND coalesce(entry_ts,opened_at,created_at) IS NOT NULL
-              AND coalesce(closed_at,exit_ts,created_at) IS NOT NULL
-              AND coalesce(closed_at,exit_ts,created_at) >= current_date - interval '180 days'
-            ORDER BY coalesce(closed_at,exit_ts,created_at) DESC
-            LIMIT 1000
+            WITH ranked AS (
+              SELECT symbol,upper(side) AS side,entry_price,net_pnl,
+                     coalesce(entry_ts,opened_at,created_at) AS entry_ts,
+                     coalesce(closed_at,exit_ts,created_at) AS exit_ts,
+                     row_number() OVER (
+                       PARTITION BY coalesce(nullif(root_symbol,''),split_part(symbol,'@',1)),upper(side)
+                       ORDER BY coalesce(closed_at,exit_ts,created_at) DESC
+                     ) AS sample_rank
+              FROM closed_trades
+              WHERE symbol LIKE '%%@RTSX'
+                AND trade_source='paper'
+                AND coalesce(payload->'context'->>'cohort','') LIKE 'FRESH_V5%%'
+                AND coalesce(entry_ts,opened_at,created_at) IS NOT NULL
+                AND coalesce(closed_at,exit_ts,created_at) IS NOT NULL
+                AND coalesce(closed_at,exit_ts,created_at) >= current_date - interval '180 days'
+            )
+            SELECT symbol,side,entry_price,net_pnl,entry_ts,exit_ts
+            FROM ranked WHERE sample_rank <= 250
+            ORDER BY exit_ts DESC
             """
         )
         for trade in cursor.fetchall():

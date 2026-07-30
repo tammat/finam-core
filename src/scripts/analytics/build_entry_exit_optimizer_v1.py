@@ -202,7 +202,16 @@ def main() -> int:
                         float(shadow_metrics.get("shadow_drawdown_r") or 0), 0.01)
                     champion_metrics = evaluate_active_paper_champion(champion_rows, validated_dd)
                     health = champion_metrics["status"]
-                    degraded_cycles = degraded_cycles + 1 if health == "DEGRADED" else 0
+                    from datetime import date
+                    evaluation_date = date.today().isoformat()
+                    previous_evaluation_date = str(
+                        (state.get("champion_metrics") or {}).get("evaluation_date") or ""
+                    )
+                    champion_metrics["evaluation_date"] = evaluation_date
+                    if health == "DEGRADED" and previous_evaluation_date != evaluation_date:
+                        degraded_cycles += 1
+                    elif health != "DEGRADED":
+                        degraded_cycles = 0
                     must_rollback = health == "ROLLBACK_NOW" or degraded_cycles >= 2
                     if must_rollback:
                         rollback_reason = champion_metrics["reason"]

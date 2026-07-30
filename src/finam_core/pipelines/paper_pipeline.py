@@ -3107,7 +3107,7 @@ class PaperTradingPipeline:
         )
 
         regime_exit_reason = state.pop("regime_exit_reason", None) if is_completed_bar else None
-        if regime_exit_reason and position_age_sec >= min_hold_sec:
+        if regime_exit_reason and position_age_sec >= min_hold_sec and not decision.should_exit:
             decision = ExitDecision(True, regime_exit_reason, decision.stop_price)
         elif regime_exit_reason and self._runtime_log_allowed(
             f"REGIME_EXIT_MIN_HOLD_GUARD:{symbol}", ttl_seconds=60
