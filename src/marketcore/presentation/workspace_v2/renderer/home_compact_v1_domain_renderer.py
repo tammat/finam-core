@@ -337,7 +337,10 @@ def _optimizer_section(snapshot):
         paper_metrics = item.get("challenger_paper_metrics") or {}
         champion_metrics = item.get("champion_metrics") or {}
         challenger_status = str(item.get("challenger_status") or item.get("recommendation_status") or "")
-        runtime_supported = str(item.get("entry_mode")) == "IMMEDIATE"
+        runtime_supported = (
+            str(item.get("symbol_group")) in {"GAZP", "LKOH", "NVTK", "SBER", "SBERP", "VTBR"}
+            and str(item.get("entry_mode")) in {"IMMEDIATE", "ADAPTIVE"}
+        )
         ready = challenger_status == "READY_FOR_CHAMPION_CONFIRMATION" and runtime_supported
         active = bool(item.get("is_active_paper"))
         pairs, oos = int(item.get("pairs") or 0), int(item.get("oos_pairs") or 0)

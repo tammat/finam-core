@@ -32,6 +32,10 @@ def main() -> None:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             print("=== PAPER_EDGE_DISCOVERY_MARKET_UNIVERSE_CANDIDATES_V1 ===")
 
+            # Timer and DB scheduler can overlap.  Serialize the replace cycle
+            # inside PostgreSQL so DELETE + ranked INSERT is atomic to readers.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (SOURCE_VERSION,))
+
             cur.execute("DELETE FROM marketcore_ui.paper_edge_market_universe_candidates_v1;")
 
             cur.execute("""

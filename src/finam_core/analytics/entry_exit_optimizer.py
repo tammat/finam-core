@@ -248,7 +248,8 @@ def adaptive_shadow_gate(rows: list[dict]) -> dict:
 
 
 def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
-                          min_oos: int | None = None) -> dict:
+                          min_oos: int | None = None,
+                          oos_rows: list[dict] | None = None) -> dict:
     """Rank only by the chronological OOS tail and apply promotion guards."""
     entered = [row for row in rows if row.get("shadow_r") is not None]
     gate = adaptive_shadow_gate(entered)
@@ -261,8 +262,17 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
                 "pairs": len(entered), "oos_pairs": provisional_oos,
                 "oos_provisional": True,
                 "reason": f"requires paired trades>={min_pairs}", "adaptive_gate": gate}
-    oos_size = max(min_oos, len(entered) // 5)
-    oos = entered[-oos_size:]
+    if oos_rows is None:
+        oos_size = max(min_oos, len(entered) // 5)
+        oos = entered[-oos_size:]
+    else:
+        oos = [row for row in oos_rows if row.get("shadow_r") is not None]
+        oos_size = len(oos)
+        if oos_size < min_oos:
+            return {"status": "SHADOW_ACCUMULATION", "pairs": len(entered),
+                    "oos_pairs": oos_size, "oos_provisional": True,
+                    "reason": f"requires purged OOS trades>={min_oos}",
+                    "adaptive_gate": gate}
     actual = [float(row["actual_r"]) for row in entered]
     shadow = [float(row["shadow_r"]) for row in entered]
     actual_oos = [float(row["actual_r"]) for row in oos]

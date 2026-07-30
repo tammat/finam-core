@@ -15,6 +15,7 @@ from finam_core.runtime.portfolio_governance_repository import PortfolioGovernan
 from finam_core.runtime.runtime_governance_coordinator_v2 import RuntimeGovernanceCoordinatorV2
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
+from finam_core.analytics.entry_exit_optimizer import EntryContext, adaptive_entry_decision
 
 from finam_core.runtime.trend_gate_service import TrendGateService
 
@@ -5507,13 +5508,80 @@ class PaperTradingPipeline:
                             # and Shadow, do not let a generic profile overwrite
                             # a contract-aware futures risk decision.
                             raise RuntimeError("FUTURES_PROFILE_REQUIRES_UNIFIED_RISK_RUNTIME")
-                        if approved["entry_mode"] != "IMMEDIATE":
-                            raise RuntimeError("NON_IMMEDIATE_PROFILE_CANNOT_BE_ENFORCED")
                         features = intent.setdefault("features", {})
                         atr_value = float(features.get("atr") or st.get("atr") or getattr(regime,"atr",0.0) or 0.0)
                         entry_value = float(intent.get("price") or st.get("last") or 0.0)
                         if atr_value <= 0 or entry_value <= 0:
                             raise RuntimeError("APPROVED_PROFILE_ATR_OR_PRICE_MISSING")
+                        effective_entry_mode = str(approved["entry_mode"])
+                        entry_route_reason = "FIXED_ENTRY_MODE"
+                        context_payload = {
+                            "atr_percentile": float(features.get("atr_percentile") or 0.5),
+                            "relative_volume": float(features.get("relative_volume") or
+                                                     features.get("volume_ratio") or 1.0),
+                            "regime": str(features.get("regime_trend") or
+                                          features.get("regime") or getattr(regime,"trend","UNKNOWN")),
+                            "cost_to_atr": float(features.get("cost_to_atr") or 0.0),
+                            "strategy": strategy_code,
+                        }
+                        if effective_entry_mode == "ADAPTIVE":
+                            effective_entry_mode, entry_route_reason = adaptive_entry_decision(
+                                EntryContext(**context_payload), take_atr=float(approved["take_atr"]))
+                        if effective_entry_mode == "SKIP":
+                            with self.pg_logger._connect() as pending_conn:
+                                with pending_conn.cursor() as pending_cursor:
+                                    pending_cursor.execute("""INSERT INTO analytics.entry_exit_pending_entry_v1
+                                      (profile_id,candidate_code,strategy_code,symbol_group,symbol_code,side_code,
+                                       entry_mode,signal_id,signal_ts,signal_price,atr,timeframe,entry_context,
+                                       intent_payload,status,decision_reason)
+                                      VALUES(%s,%s,%s,%s,%s,%s,'SKIP',%s,clock_timestamp(),%s,%s,%s,%s::jsonb,
+                                             %s::jsonb,'SKIPPED',%s)""",
+                                      (approved["profile_id"],approved["candidate_code"],strategy_code,symbol_group,
+                                       symbol_code,side_code,str(intent.get("signal_id") or f"adaptive-skip-{time.time_ns()}"),
+                                       entry_value,atr_value,"M1" if symbol_code.upper().endswith("@RTSX") else "M5",
+                                       json.dumps(context_payload),json.dumps(intent,default=str),entry_route_reason))
+                                pending_conn.commit()
+                            return
+                        if effective_entry_mode in {"CONFIRM_1", "RETEST_3"}:
+                            with self.pg_logger._connect() as pending_conn:
+                                with pending_conn.cursor() as pending_cursor:
+                                    pending_cursor.execute("""SELECT pending_id,status,resolved_entry_price,
+                                             decision_reason FROM analytics.entry_exit_pending_entry_v1
+                                      WHERE profile_id=%s AND symbol_code=%s AND side_code=%s
+                                        AND status IN ('PENDING','READY')
+                                      ORDER BY created_at LIMIT 1 FOR UPDATE""",
+                                      (approved["profile_id"],symbol_code,side_code))
+                                    pending = pending_cursor.fetchone()
+                                    if pending and str(pending[1]) == "READY":
+                                        entry_value = float(pending[2])
+                                        intent["price"] = entry_value
+                                        intent["entry_price"] = entry_value
+                                        pending_cursor.execute("""UPDATE analytics.entry_exit_pending_entry_v1
+                                          SET status='CONSUMED',updated_at=clock_timestamp()
+                                          WHERE pending_id=%s""", (pending[0],))
+                                        features["adaptive_entry_runtime_reason"] = str(pending[3])
+                                    elif pending:
+                                        pending_conn.commit()
+                                        return
+                                    else:
+                                        timeframe = str(intent.get("timeframe") or features.get("timeframe") or
+                                                        ("M1" if symbol_code.upper().endswith("@RTSX") else "M5")).upper()
+                                        if timeframe not in {"M1", "M5"}:
+                                            timeframe = "M1" if symbol_code.upper().endswith("@RTSX") else "M5"
+                                        pending_cursor.execute("""INSERT INTO analytics.entry_exit_pending_entry_v1
+                                          (profile_id,candidate_code,strategy_code,symbol_group,symbol_code,side_code,
+                                           entry_mode,signal_id,signal_ts,signal_price,atr,timeframe,entry_context,
+                                           intent_payload,status,decision_reason)
+                                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),%s,%s,%s,%s::jsonb,
+                                                 %s::jsonb,'PENDING',%s)""",
+                                          (approved["profile_id"],approved["candidate_code"],strategy_code,symbol_group,
+                                           symbol_code,side_code,effective_entry_mode,
+                                           str(intent.get("signal_id") or f"adaptive-pending-{time.time_ns()}"),
+                                           entry_value,atr_value,timeframe,json.dumps(context_payload),
+                                           json.dumps(intent,default=str),entry_route_reason))
+                                        pending_conn.commit()
+                                        return
+                                pending_conn.commit()
                         direction = 1.0 if side_code == "LONG" else -1.0
                         stop_price = entry_value - direction * atr_value * approved["stop_atr"]
                         take_price = entry_value + direction * atr_value * approved["take_atr"]
@@ -5524,12 +5592,19 @@ class PaperTradingPipeline:
                             "entry_exit_profile_id": approved["profile_id"],
                             "entry_exit_candidate_code": approved["candidate_code"],
                             "entry_exit_profile_source": "AUTO_CHAMPION_CHALLENGER_PAPER",
+                            "adaptive_entry_effective_mode": effective_entry_mode,
+                            "adaptive_entry_route_reason": entry_route_reason,
                             "trail_after_r": approved["trail_after_r"], "trail_atr": approved["trail_atr"],
                         })
                         print(f"PIPE_ENTRY_EXIT_PROFILE_APPLIED strategy={strategy_code} symbol={symbol_code} "
                               f"side={side_code} profile_id={approved['profile_id']} paper_only=1", flush=True)
             except Exception as exc:
                 print(f"PIPE_ENTRY_EXIT_PROFILE_FALLBACK error={type(exc).__name__}:{exc} paper_only=1", flush=True)
+                # An ACTIVE optimized profile is authoritative.  Never turn a
+                # runtime/profile error into an unprofiled immediate entry.
+                if "approved" in locals() and approved:
+                    print("PIPE_ENTRY_EXIT_PROFILE_FAIL_CLOSED paper_only=1", flush=True)
+                    return
 
         # Русский комментарий: SIGNAL SNAPSHOT V1 — сохраняем наблюдаемый контекст сигнала до risk/order gate.
         try:

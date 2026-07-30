@@ -963,3 +963,31 @@
   the governed 60/15 Shadow and subsequent 30/10 forward gates are satisfied.
 - Validation: 48 focused optimizer, promotion and integrity tests passed. UI is
   active after reload. Commits: `10ce2783`, `3116f8e9`.
+
+### Adaptive V5 gap closure — 30.07.2026
+
+- Pre-entry volume and volatility context now excludes the candle containing the
+  signal using the timeframe close boundary, matching causal ATR calculation.
+- Entry/OOS evaluation uses the shared purged temporal splitter. The complete
+  label horizon is purged on both sides of the 80/20 boundary and used as the
+  embargo; overlapping outcomes cannot enter train and OOS together.
+- The authoritative source is now the complete frozen Fresh V5 signal funnel,
+  including both `FILLED` and `RISK_REJECTED` signals. Incumbent Paper and every
+  Shadow candidate are simulated on the same later completed bars with identical
+  conservative costs. USD and GOLD are included.
+- First V2 rebuild: 173 independent signals, 2,076 candidate pairs; 169 signals
+  had been rejected by Paper and four filled. OOS remains zero because no sample
+  exists beyond the full purge/embargo boundary; promotion correctly remains
+  blocked.
+- Persistent Paper pending-entry runtime supports adaptive `IMMEDIATE`, `SKIP`,
+  `CONFIRM_1` and `RETEST_3` for equities. A governed DB worker evaluates only
+  completed bars and survives restart. Profile/runtime failures now fail closed
+  instead of silently reverting to an immediate unprofiled entry.
+- Generic optimizer profiles remain blocked for futures until contract-aware
+  sizing and stop geometry share one risk object. Their Adaptive candidates keep
+  accumulating in Shadow without unsafe Paper promotion.
+- The market-universe replace cycle has a PostgreSQL advisory lock, eliminating
+  duplicate-rank races between timer and DB scheduler. Automatic rerun and the
+  adaptive pending worker both completed successfully; failed systemd units: 0.
+- Validation: 76 focused methodology, purging, promotion, pending-runtime and
+  integrity tests passed. REAL remains disabled; active Adaptive Paper profiles: 0.

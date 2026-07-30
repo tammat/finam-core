@@ -296,7 +296,11 @@ class GovernedCommandWorkerV2:
                                 or challenger["challenger_status"] != "READY_FOR_CHAMPION_CONFIRMATION"
                                 or challenger["challenger_candidate_code"] != candidate):
                             raise ValueError("ENTRY_EXIT_GUARDS_NOT_PASSED")
-                        if recommendation["entry_mode"] != "IMMEDIATE":
+                        runtime_supported = (
+                            group in {"GAZP", "LKOH", "NVTK", "SBER", "SBERP", "VTBR"}
+                            and recommendation["entry_mode"] in {"IMMEDIATE", "ADAPTIVE"}
+                        )
+                        if not runtime_supported:
                             raise ValueError("ENTRY_EXIT_MODE_NOT_RUNTIME_SUPPORTED")
                         cursor.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
                             SET status='SUPERSEDED',deactivated_at=clock_timestamp()

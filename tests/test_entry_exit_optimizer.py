@@ -116,6 +116,17 @@ def test_standard_gate_requires_time_and_regime_diversity():
     assert evaluate_walk_forward(rows)["status"] == "READY_FOR_PAPER_CONFIRMATION"
 
 
+def test_explicit_purged_oos_must_meet_its_own_minimum():
+    rows = [{"actual_r": -0.1, "shadow_r": 0.2,
+             "trade_date": f"2026-01-{index % 10 + 1:02d}",
+             "regime": ("range", "trend_up")[index % 2]}
+            for index in range(60)]
+    result = evaluate_walk_forward(rows, oos_rows=rows[-5:])
+    assert result["status"] == "SHADOW_ACCUMULATION"
+    assert result["oos_pairs"] == 5
+    assert "purged OOS" in result["reason"]
+
+
 def test_search_space_is_bounded():
     assert len(default_variants("MEAN_REVERSION_EQUITY")) == 12
     assert len(default_variants("BR_CONSERVATIVE_BREAKOUT")) == 12
@@ -169,6 +180,25 @@ def test_adaptive_retest_rejects_unknown_runaway_then_retest_order():
     assert not out.entered
     assert out.entry_decision == "RETEST_3"
     assert out.entry_decision_reason.endswith("RUNAWAY_OR_AMBIGUOUS_BAR")
+
+
+def test_entry_context_query_requires_completed_bar_cutoff():
+    source = open(
+        "src/scripts/analytics/build_entry_exit_optimizer_v1.py", encoding="utf-8"
+    ).read()
+    assert 'completed_cutoff = trade["entry_ts"] - timeframe_delta(timeframe)' in source
+    assert "ts <= %s" in source
+
+
+def test_optimizer_uses_complete_v5_signal_funnel_and_purged_split():
+    source = open(
+        "src/scripts/analytics/build_entry_exit_optimizer_v1.py", encoding="utf-8"
+    ).read()
+    assert "FROM signals s" in source
+    assert "s.status IN ('FILLED','RISK_REJECTED')" in source
+    assert "entry_exit_signal_shadow_pair_v2" in source
+    assert "purged_temporal_split(" in source
+    assert "embargo=horizon" in source
 
 
 def test_paper_challenger_requires_fresh_forward_sample():

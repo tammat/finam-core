@@ -61,6 +61,7 @@ EXECUTORS = {
     "MX_INDEX_SHADOW_OBSERVER_V1": "src/scripts/build_mx_index_shadow_observer_v1.py",
     "RVI_REGIME_FEATURE_V1": "src/scripts/build_rvi_regime_feature_v1.py",
     "MARKET_REGIME_CONTEXT_V2": "src/scripts/build_market_regime_context_v2.py",
+    "ADAPTIVE_PENDING_ENTRY_V1": "src/scripts/run_adaptive_pending_entry_worker_v1.py",
 }
 
 

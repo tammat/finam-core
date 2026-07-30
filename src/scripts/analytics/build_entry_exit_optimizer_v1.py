@@ -4,16 +4,18 @@ from __future__ import annotations
 import json
 import os
 from collections import Counter, defaultdict
+from datetime import datetime
 from statistics import median
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, EntryContext, default_variants, evaluate_active_paper_champion, evaluate_paper_challenger,
+    Bar, EntryContext, Variant, default_variants, evaluate_active_paper_champion, evaluate_paper_challenger,
     evaluate_walk_forward, simulate_variant,
 )
-from scripts.analytics.build_futures_risk_calibration_v1 import atr_at_entry
+from finam_core.research.purged_split import purged_temporal_split
+from scripts.analytics.build_futures_risk_calibration_v1 import atr_at_entry, timeframe_delta
 
 SUPPORTED = {
     "MEAN_REVERSION_EQUITY": "M5",
@@ -21,6 +23,8 @@ SUPPORTED = {
     "BR_CONSERVATIVE_BREAKOUT": "M5",
     "NG_CONSERVATIVE_BREAKOUT_M1": "M1",
     "CNY_REGIME_FUTURES": "M1",
+    "USD_REGIME_FUTURES": "M1",
+    "GOLD_TREND_BREAKOUT": "M1",
 }
 
 # Independent candidate horizon.  It is intentionally defined in completed
@@ -31,7 +35,17 @@ SHADOW_HORIZON_BARS = {
     "BR_CONSERVATIVE_BREAKOUT": 72,    # six hours on M5
     "NG_CONSERVATIVE_BREAKOUT_M1": 180,
     "CNY_REGIME_FUTURES": 180,
+    "USD_REGIME_FUTURES": 180,
+    "GOLD_TREND_BREAKOUT": 240,
 }
+
+GENERIC_PAPER_RUNTIME_GROUPS = {"GAZP", "LKOH", "NVTK", "SBER", "SBERP", "VTBR"}
+
+
+def paper_runtime_supported(group: str, entry_mode: str) -> bool:
+    # Futures use their contract-aware calibrator until one unified risk object
+    # owns both sizing and adaptive stop geometry.
+    return group in GENERIC_PAPER_RUNTIME_GROUPS and entry_mode in {"IMMEDIATE", "ADAPTIVE"}
 
 
 def execution_economics(cursor, trade: dict) -> dict | None:
@@ -75,16 +89,21 @@ def symbol_group(strategy: str, symbol: str) -> str:
         return "NG"
     if strategy == "CNY_REGIME_FUTURES":
         return "CNY"
+    if strategy == "USD_REGIME_FUTURES":
+        return "USD"
+    if strategy == "GOLD_TREND_BREAKOUT":
+        return "GOLD"
     return symbol.split("@", 1)[0]
 
 
 def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
                             roundtrip_cost_price: float) -> EntryContext:
     """Build context strictly from bars completed before the signal timestamp."""
+    completed_cutoff = trade["entry_ts"] - timeframe_delta(timeframe)
     cursor.execute("""SELECT open::float8,high::float8,low::float8,close::float8,volume::float8
-                      FROM market_bars WHERE symbol=%s AND timeframe=%s AND ts < %s
+                      FROM market_bars WHERE symbol=%s AND timeframe=%s AND ts <= %s
                       ORDER BY ts DESC LIMIT 80""",
-                   (trade["symbol"], timeframe, trade["entry_ts"]))
+                   (trade["symbol"], timeframe, completed_cutoff))
     history = list(reversed(cursor.fetchall()))
     ranges = [max(float(row["high"]) - float(row["low"]), 0.0) for row in history]
     atr_percentile = (sum(value <= atr for value in ranges) / len(ranges)) if ranges else 0.5
@@ -104,21 +123,28 @@ def main() -> int:
     with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("select pg_advisory_xact_lock(hashtext('entry_exit_optimizer_v1'))")
         cur.execute("""
-          SELECT id,symbol,strategy,upper(side) side,qty,entry_price,exit_price,
-                 gross_pnl,commission,net_pnl,
-                 coalesce(entry_ts,opened_at,created_at) entry_ts,
-                 coalesce(closed_at,exit_ts,created_at) exit_ts,
-                 coalesce(payload->'context'->>'regime_trend',
-                          payload->'context'->>'regime',
-                          payload->>'regime','UNKNOWN') regime
-          FROM closed_trades
-          WHERE trade_source='paper'
-            AND coalesce(payload->'context'->>'cohort','') LIKE 'FRESH_V5%%'
-            AND payload->'pnl_units'->>'version'='PNL_UNITS_V2_RUB'
-            AND strategy=ANY(%s)
-            AND coalesce(entry_ts,opened_at,created_at) IS NOT NULL
-            AND coalesce(closed_at,exit_ts,created_at) IS NOT NULL
-          ORDER BY coalesce(entry_ts,opened_at,created_at)
+          SELECT s.id,coalesce(nullif(s.signal_id,''),'signal-row:'||s.id::text) signal_id,
+                 c.id AS trade_id,s.symbol,s.strategy,
+                 upper(s.side) side,coalesce(s.qty,c.qty,1) qty,
+                 s.entry_price,s.stop_loss,s.take_profit,
+                 coalesce(c.commission,0) commission,
+                 coalesce(s.ts,s.created_at) entry_ts,
+                 s.status AS source_status,
+                 coalesce(s.payload->'context'->>'regime_trend',
+                          s.payload->'context'->>'regime',s.regime,'UNKNOWN') regime
+          FROM signals s
+          LEFT JOIN LATERAL (
+            SELECT ct.id,ct.commission,ct.qty FROM closed_trades ct
+            WHERE ct.signal_id=s.signal_id AND ct.trade_source='paper'
+            ORDER BY coalesce(ct.entry_ts,ct.opened_at,ct.created_at) LIMIT 1
+          ) c ON true
+          WHERE coalesce(s.payload->'context'->>'cohort',s.payload->>'portfolio_scope','')
+                LIKE 'FRESH_V5%%'
+            AND s.status IN ('FILLED','RISK_REJECTED')
+            AND s.strategy=ANY(%s)
+            AND coalesce(s.ts,s.created_at) IS NOT NULL
+            AND s.entry_price IS NOT NULL AND s.entry_price>0
+          ORDER BY coalesce(s.ts,s.created_at),s.id
         """, (list(SUPPORTED),))
         groups = defaultdict(list)
         independent_signals = set()
@@ -136,10 +162,12 @@ def main() -> int:
             economics = execution_economics(cur, trade)
             if not economics:
                 continue
+            completed_horizon_cutoff = datetime.now(
+                trade["entry_ts"].tzinfo) - timeframe_delta(SUPPORTED[strategy])
             cur.execute("""SELECT open::float8,high::float8,low::float8,close::float8 FROM market_bars
-                           WHERE symbol=%s AND timeframe=%s AND ts > %s
+                           WHERE symbol=%s AND timeframe=%s AND ts > %s AND ts <= %s
                            ORDER BY ts LIMIT %s""",
-                        (trade["symbol"], SUPPORTED[strategy], trade["entry_ts"],
+                        (trade["symbol"], SUPPORTED[strategy], trade["entry_ts"],completed_horizon_cutoff,
                          SHADOW_HORIZON_BARS[strategy]))
             bars = [Bar(float(r["high"]),float(r["low"]),float(r["close"]),float(r["open"]))
                     for r in cur.fetchall()]
@@ -149,19 +177,50 @@ def main() -> int:
             if not bars:
                 continue
             independent_signals.add(independent_key)
+            trade["exit_ts"] = trade["entry_ts"] + (
+                timeframe_delta(SUPPORTED[strategy]) * SHADOW_HORIZON_BARS[strategy])
             entry_context = entry_context_at_signal(
                 cur, trade, SUPPORTED[strategy], float(atr), economics["roundtrip_cost_price"])
             groups[(strategy,group,side)].append(
                 (trade,float(atr),bars,economics,horizon_complete,entry_context))
 
         for (strategy,group,side), trades in groups.items():
+            horizon = timeframe_delta(SUPPORTED[strategy]) * SHADOW_HORIZON_BARS[strategy]
+            split = (purged_temporal_split(
+                        trades,
+                        train_ratio=0.80,
+                        start=lambda bundle: bundle[0]["entry_ts"],
+                        end=lambda bundle: bundle[0]["entry_ts"] + horizon,
+                        embargo=horizon,
+                     ) if len(trades) >= 2 else None)
+            eligible_ids = ({int(bundle[0]["id"]) for bundle in (*split.train, *split.test)}
+                            if split else {int(trades[0][0]["id"])})
+            oos_ids = ({int(bundle[0]["id"]) for bundle in split.test} if split else set())
             candidate_results = []
             for variant in default_variants(strategy):
                 rows = []
                 for trade,atr,bars,economics,horizon_complete,entry_context in trades:
                     risk = atr * variant.stop_atr
-                    cash_risk = risk * economics["qty"] * economics["multiplier"]
-                    actual_r = float(trade["net_pnl"]) / cash_risk
+                    direction = 1 if side == "LONG" else -1
+                    fallback = default_variants(strategy)[0]
+                    signal_stop = float(trade.get("stop_loss") or 0.0)
+                    signal_take = float(trade.get("take_profit") or 0.0)
+                    baseline_stop_atr = (abs(float(trade["entry_price"]) - signal_stop) / atr
+                                         if signal_stop > 0 else fallback.stop_atr)
+                    baseline_take_atr = (direction * (signal_take - float(trade["entry_price"])) / atr
+                                         if signal_take > 0 else fallback.take_atr)
+                    if baseline_stop_atr <= 0 or baseline_take_atr <= 0:
+                        baseline_stop_atr, baseline_take_atr = fallback.stop_atr, fallback.take_atr
+                    baseline = simulate_variant(
+                        signal_price=float(trade["entry_price"]), side=side, atr=atr, bars=bars,
+                        variant=Variant("CURRENT_PAPER", "IMMEDIATE", baseline_stop_atr, baseline_take_atr),
+                        entry_context=entry_context,
+                        roundtrip_cost_price=economics["roundtrip_cost_price"],
+                        tick_size=economics["tick_size"],
+                        stop_slippage_ticks=float(os.getenv("SHADOW_STOP_SLIPPAGE_TICKS", "1")))
+                    baseline_net_move = (direction * (float(baseline.exit_price) - float(trade["entry_price"]))
+                                         - economics["roundtrip_cost_price"])
+                    actual_r = baseline_net_move / risk
                     outcome = simulate_variant(signal_price=float(trade["entry_price"]), side=side, atr=atr,
                                                bars=bars, variant=variant,
                                                entry_context=entry_context,
@@ -176,21 +235,27 @@ def main() -> int:
                                  "trade_date":trade["entry_ts"].date().isoformat(),
                                  "regime":str(trade.get("regime") or "UNKNOWN"),
                                  "entry_decision":outcome.entry_decision,
-                                 "entry_decision_reason":outcome.entry_decision_reason})
-                    cur.execute("""INSERT INTO analytics.entry_exit_shadow_pair_v1
-                      (trade_id,strategy_code,symbol_code,side_code,candidate_code,entry_mode,stop_atr,take_atr,
-                       trail_after_r,trail_atr,actual_net_r,shadow_entered,shadow_net_r,shadow_exit_reason,
-                       entry_decision,entry_decision_reason,entry_context)
-                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-                      ON CONFLICT(trade_id,candidate_code) DO UPDATE SET
+                                 "entry_decision_reason":outcome.entry_decision_reason,
+                                 "source_id":int(trade["id"])})
+                    label_end = trade["entry_ts"] + horizon
+                    cur.execute("""INSERT INTO analytics.entry_exit_signal_shadow_pair_v2
+                      (source_signal_id,signal_id,incumbent_trade_id,source_status,strategy_code,
+                       symbol_code,side_code,candidate_code,entry_mode,stop_atr,take_atr,
+                       actual_net_r,shadow_entered,shadow_net_r,shadow_exit_reason,
+                       entry_decision,entry_decision_reason,entry_context,label_start_ts,label_end_ts)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                      ON CONFLICT(source_signal_id,candidate_code) DO UPDATE SET
                        actual_net_r=excluded.actual_net_r,shadow_entered=excluded.shadow_entered,
                        shadow_net_r=excluded.shadow_net_r,shadow_exit_reason=excluded.shadow_exit_reason,
                        entry_decision=excluded.entry_decision,
                        entry_decision_reason=excluded.entry_decision_reason,
                        entry_context=excluded.entry_context,
+                       source_status=excluded.source_status,label_start_ts=excluded.label_start_ts,
+                       label_end_ts=excluded.label_end_ts,
                        generated_at=clock_timestamp()""",
-                      (trade["id"],strategy,trade["symbol"],side,variant.code,variant.entry_mode,
-                       variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
+                      (trade["id"],trade["signal_id"],trade.get("trade_id"),trade["source_status"],
+                       strategy,trade["symbol"],side,variant.code,variant.entry_mode,
+                       variant.stop_atr,variant.take_atr,
                        actual_r,outcome.entered,outcome.net_r if horizon_complete else None,
                        outcome.reason if horizon_complete else "PARTIAL_INDEPENDENT_HORIZON",
                        outcome.entry_decision,outcome.entry_decision_reason,
@@ -198,23 +263,32 @@ def main() -> int:
                                    "relative_volume":entry_context.relative_volume,
                                    "regime":entry_context.regime,
                                    "cost_to_atr":entry_context.cost_to_atr,
-                                   "strategy":entry_context.strategy})))
-                metrics = evaluate_walk_forward(rows)
+                                   "strategy":entry_context.strategy}),trade["entry_ts"],label_end))
+                evaluation_rows = [row for row in rows if row["source_id"] in eligible_ids]
+                explicit_oos = [row for row in rows if row["source_id"] in oos_ids]
+                metrics = evaluate_walk_forward(evaluation_rows, oos_rows=explicit_oos)
+                metrics["purged_split"] = {
+                    "enabled": True,
+                    "boundary": split.boundary.isoformat() if split else None,
+                    "test_start": split.test_start.isoformat() if split else None,
+                    "purged": split.purged if split else 0,
+                    "embargoed": split.embargoed if split else 0,
+                    "embargo_seconds": int(horizon.total_seconds()),
+                }
                 metrics["entry_decisions"] = dict(Counter(
                     row["entry_decision"] for row in rows))
                 metrics["entry_decision_reasons"] = dict(Counter(
                     row["entry_decision_reason"] for row in rows))
-                candidate_results.append((variant, metrics, rows))
-                oos = int(metrics.get("oos_pairs") or 0)
+                candidate_results.append((variant, metrics, evaluation_rows))
                 all_ids = [int(item[0]["id"]) for item in trades]
                 if all_ids:
-                    cur.execute("""UPDATE analytics.entry_exit_shadow_pair_v1 SET is_oos=false
-                                   WHERE candidate_code=%s AND trade_id=ANY(%s)""",
+                    cur.execute("""UPDATE analytics.entry_exit_signal_shadow_pair_v2 SET is_oos=false
+                                   WHERE candidate_code=%s AND source_signal_id=ANY(%s)""",
                                 (variant.code, all_ids))
-                if oos:
-                    ids = [int(item[0]["id"]) for item in trades[-oos:]]
-                    cur.execute("""UPDATE analytics.entry_exit_shadow_pair_v1 SET is_oos=true
-                                   WHERE candidate_code=%s AND trade_id=ANY(%s)""", (variant.code,ids))
+                if oos_ids:
+                    ids = list(oos_ids)
+                    cur.execute("""UPDATE analytics.entry_exit_signal_shadow_pair_v2 SET is_oos=true
+                                   WHERE candidate_code=%s AND source_signal_id=ANY(%s)""", (variant.code,ids))
                 cur.execute("""INSERT INTO analytics.entry_exit_recommendation_v1
                   (strategy_code,symbol_group,side_code,candidate_code,recommendation_status,pairs,oos_pairs,
                    entry_mode,stop_atr,take_atr,trail_after_r,trail_atr,metrics)
@@ -222,7 +296,8 @@ def main() -> int:
                   ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
                    recommendation_status=excluded.recommendation_status,pairs=excluded.pairs,oos_pairs=excluded.oos_pairs,
                    metrics=excluded.metrics,generated_at=clock_timestamp()""",
-                  (strategy,group,side,variant.code,metrics["status"],metrics["pairs"],oos,
+                  (strategy,group,side,variant.code,metrics["status"],metrics["pairs"],
+                   int(metrics.get("oos_pairs") or 0),
                    variant.entry_mode,variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
                    json.dumps(metrics)))
                 print("ENTRY_EXIT_SHADOW",strategy,group,side,variant.code,json.dumps(metrics,sort_keys=True))
@@ -237,7 +312,7 @@ def main() -> int:
                         (strategy,group,side))
             state = cur.fetchone()
             ready = [item for item in candidate_results
-                     if item[0].entry_mode == "IMMEDIATE"
+                     if paper_runtime_supported(group, item[0].entry_mode)
                      and item[1].get("status") == "READY_FOR_PAPER_CONFIRMATION"]
             ready.sort(key=lambda item: (
                 float(item[1].get("shadow_oos_r") or -999),
@@ -302,7 +377,8 @@ def main() -> int:
                     elif health in {"HEALTHY", "MONITOR"}:
                         fresh_ready = []
                         for item in candidate_results:
-                            if item[0].code == active_code or item[0].entry_mode != "IMMEDIATE":
+                            if (item[0].code == active_code
+                                    or not paper_runtime_supported(group, item[0].entry_mode)):
                                 continue
                             fresh_rows = [row for row, trade_bundle in zip(item[2], trades)
                                           if trade_bundle[0]["exit_ts"] >= active_activated_at]
