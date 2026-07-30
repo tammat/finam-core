@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import os
 import time
 
+from finam_core.strategy.exit_engine import apply_hard_max_hold, hard_exit_limit_seconds
+
 
 @dataclass(frozen=True)
 class ExitLifecycleInput:
@@ -217,6 +219,19 @@ class ExitLifecycleManager:
             current_stop=state.get("stop_price"),
         )
 
+        decision_before_hard_exit = decision
+        decision = apply_hard_max_hold(
+            decision=decision, symbol=symbol, position_age_sec=position_age_sec,
+        )
+        if decision.reason == "hard_max_hold_exit" and decision_before_hard_exit.reason != decision.reason:
+            print(
+                "PIPE_HARD_MAX_HOLD_EXIT "
+                f"symbol={symbol} side={close_side} qty={abs(float(qty))} "
+                f"age_sec={round(position_age_sec, 3)} "
+                f"limit_sec={hard_exit_limit_seconds(symbol)} paper_only=1",
+                flush=True,
+            )
+
         if is_new_completed_bar or state.get("prev_close") is None:
             state["prev_close"] = float(price)
         state["stop_price"] = decision.stop_price
@@ -282,5 +297,7 @@ class ExitLifecycleManager:
                 "bars_held": int(state["bars_held"]),
                 "stop": decision.stop_price,
                 "exit_engine": True,
+                "hard_max_hold_sec": hard_exit_limit_seconds(symbol),
+                "position_age_sec": position_age_sec,
             },
         }

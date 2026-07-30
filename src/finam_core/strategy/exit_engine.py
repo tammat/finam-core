@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 
 
 @dataclass(frozen=True)
@@ -9,6 +10,35 @@ class ExitDecision:
     should_exit: bool
     reason: str
     stop_price: float | None = None
+
+
+def hard_exit_limit_seconds(symbol: str) -> float:
+    """Absolute Paper holding limit; malformed configuration fails safely."""
+    code = str(symbol or "").upper().split("@", 1)[0]
+    if code.startswith("NG"):
+        key, default = "NG_HARD_MAX_HOLD_SEC", 21600.0
+    elif code.startswith("BR"):
+        key, default = "BR_HARD_MAX_HOLD_SEC", 43200.0
+    elif code.startswith("CNY"):
+        key, default = "CNY_HARD_MAX_HOLD_SEC", 28800.0
+    else:
+        key, default = "PAPER_HARD_MAX_HOLD_SEC", 28800.0
+    try:
+        configured = float(os.getenv(key, str(default)))
+    except (TypeError, ValueError):
+        configured = default
+    return max(3600.0, configured)
+
+
+def apply_hard_max_hold(*, decision: ExitDecision, symbol: str,
+                        position_age_sec: float) -> ExitDecision:
+    """Stop/regime exits win; ordinary time/hold becomes unconditional hard exit."""
+    if float(position_age_sec) < hard_exit_limit_seconds(symbol):
+        return decision
+    reason = str(decision.reason or "").lower()
+    if decision.should_exit and reason != "time_exit":
+        return decision
+    return ExitDecision(True, "hard_max_hold_exit", decision.stop_price)
 
 
 class ExitEngine:
