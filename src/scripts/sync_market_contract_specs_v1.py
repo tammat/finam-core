@@ -199,6 +199,18 @@ def main() -> int:
                     connection.commit()
                 except Exception as exc:
                     connection.rollback()
+                    if str(exc) == "MOEX_SECURITY_NOT_FOUND":
+                        cursor.execute("""SELECT EXISTS(SELECT 1 FROM runtime_active_universe
+                          WHERE symbol=%s AND is_enabled) active""", (symbol,))
+                        active = bool(cursor.fetchone()["active"])
+                        if not active:
+                            skipped += 1
+                            cursor.execute("""INSERT INTO analytics.contract_spec_sync_item_v1
+                              (run_id,symbol,status_code,reason_code,source_version,source_payload)
+                              VALUES(%s,%s,'SKIPPED','EXPIRED_OR_INACTIVE_CONTRACT',%s,'{}'::jsonb)""",
+                              (str(run_id),symbol,SOURCE_VERSION))
+                            connection.commit()
+                            continue
                     failed += 1
                     cursor.execute("""INSERT INTO analytics.contract_spec_sync_item_v1
                       (run_id,symbol,status_code,reason_code,source_version,source_payload)

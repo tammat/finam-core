@@ -126,17 +126,30 @@ def _progress_section(snapshot):
     for row in snapshot.get("asset_branches") or ():
         asset = str(row.get("asset_code"))
         assets.setdefault(asset, 0)
-        assets[asset] += int(row.get("closed_trades") or 0)
+        assets[asset] = max(assets[asset], int(row.get("closed_trades") or 0))
     names = {"USD": "Доллар", "GOLD": "Золото", "CNY": "Юань"}
     for index, asset in enumerate(("USD", "GOLD", "CNY"), start=1):
         count = assets.get(asset, 0)
+        if count == 0:
+            progress_text = (
+                "0 из 20 · вне Top‑5: нет допустимых закрытых V5-сделок · "
+                "следующий шаг: устранить блокировки и продолжать Paper"
+            )
+        elif count < 20:
+            progress_text = (
+                f"{count} из 20 · вне Top‑5: выборка пока мала · "
+                "следующий шаг: продолжать Paper на новых сигналах"
+            )
+        elif count < 80:
+            progress_text = (
+                f"{count} из 80 · базовая выборка собрана · следующий шаг: накопление до OOS"
+            )
+        else:
+            progress_text = f"{count} из 80 · выборка готова к OOS-допуску"
         children.append(_row(
             f"asset.{index}", names[asset],
-            (
-                "завершённых примеров: 0 · ожидает первый допустимый сигнал"
-                if count == 0 else f"завершено примеров: {count}"
-            ),
-            status="WARNING",
+            progress_text,
+            status="OK" if count >= 80 else "WARNING",
             source="analytics.v5_asset_branch_policy_v1",
         ))
     if not rows:
@@ -246,6 +259,22 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.pnl", number(pnl), status=pnl_status),
             ),
         ))
+    daily_total = next((item.get("daily_net_pnl") for item in items
+                        if item.get("daily_net_pnl") is not None), None)
+    total_status = "PROFIT" if daily_total is not None and float(daily_total) > 0 else (
+        "LOSS" if daily_total is not None and float(daily_total) < 0 else None
+    )
+    total_text = "—" if daily_total is None else f"{float(daily_total):+.2f}".replace(".", ",")
+    rows.append(RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW, f"home.compact.trades.{code}.daily_total",
+        children=(
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.daily_total.label", "Итого за сегодня"),
+            *tuple(_leaf(RenderNodeTypeV2.TABLE_CELL,
+                         f"home.compact.trades.{code}.daily_total.blank.{i}", "") for i in range(8)),
+            _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.daily_total.pnl",
+                  total_text, status=total_status),
+        ),
+    ))
     table = RenderNodeV2(RenderNodeTypeV2.TABLE, f"home.compact.trades.{code}.table", children=(
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, f"home.compact.trades.{code}.head", children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, f"home.compact.trades.{code}.body", children=tuple(rows)),

@@ -21,6 +21,9 @@ def classify_cluster(symbol: str) -> str:
     if "USD" in s or "RUB" in s:
         return "FX"
 
+    if s.startswith(("GD", "GL", "PLZL")):
+        return "METALS"
+
     return "EQUITIES"
 
 
@@ -29,36 +32,32 @@ def main() -> int:
         with conn.cursor() as cur:
 
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS portfolio_risk_state (
-                    id BIGSERIAL PRIMARY KEY,
-                    cluster_name TEXT NOT NULL,
-                    total_positions INTEGER NOT NULL,
-                    total_heat NUMERIC NOT NULL,
-                    avg_risk_multiplier NUMERIC NOT NULL,
-                    max_risk_multiplier NUMERIC NOT NULL,
-                    portfolio_share NUMERIC NOT NULL,
-                    risk_state TEXT NOT NULL,
-                    reason TEXT NOT NULL,
-                    calculated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    UNIQUE(cluster_name)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_portfolio_risk_state_cluster
-                ON portfolio_risk_state(cluster_name);
-            """)
-
-            cur.execute("""
-                SELECT
-                    symbol,
-                    capital_weight,
-                    risk_multiplier,
-                    allocator_decision
-                FROM runtime_capital_allocator
+                SELECT p.symbol,
+                       abs((p.state->>'qty')::numeric)
+                       * coalesce(b.close,(p.state->>'avg_price')::numeric,0)
+                       * coalesce(spec.contract_multiplier,1) AS capital_weight,
+                       1::numeric AS risk_multiplier,
+                       'OPEN_V5_PAPER_POSITION' AS allocator_decision
+                FROM analytics.paper_research_position_projection_v1 p
+                LEFT JOIN LATERAL (
+                    SELECT close FROM market_bars b WHERE b.symbol=p.symbol
+                    ORDER BY ts DESC LIMIT 1
+                ) b ON true
+                LEFT JOIN LATERAL (
+                    SELECT contract_multiplier FROM analytics.market_contract_spec_v1 s
+                    WHERE s.symbol=p.symbol AND s.is_active ORDER BY valid_from DESC LIMIT 1
+                ) spec ON true
+                WHERE p.portfolio_scope LIKE 'FRESH_V5%'
+                  AND p.symbol NOT LIKE 'TEST@%'
+                  AND abs(coalesce(nullif(p.state->>'qty','')::numeric,0))>0
             """)
 
             rows = cur.fetchall()
 
-            clusters = {}
+            clusters = {
+                name: {"positions": 0, "heat": 0.0, "risk_sum": 0.0, "max_risk": 0.0}
+                for name in ("COMMODITIES", "EQUITIES", "FX", "METALS")
+            }
 
             total_heat = 0.0
 

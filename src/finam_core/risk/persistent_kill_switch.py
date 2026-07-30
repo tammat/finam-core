@@ -46,8 +46,6 @@ class PersistentKillSwitch:
         symbol: str | None = None,
         source: str = "system",
     ) -> KillSwitchState:
-        self.ensure_schema()
-
         scope = str(scope or "GLOBAL").upper()
         symbol_value = symbol if symbol else None
 
@@ -94,8 +92,6 @@ class PersistentKillSwitch:
         reason: str = "manual_clear",
         source: str = "operator",
     ) -> KillSwitchState:
-        self.ensure_schema()
-
         scope = str(scope or "GLOBAL").upper()
         symbol_value = symbol if symbol else None
 
@@ -135,8 +131,6 @@ class PersistentKillSwitch:
         return state
 
     def get_state(self, *, scope: str = "GLOBAL", symbol: str | None = None) -> KillSwitchState:
-        self.ensure_schema()
-
         scope = str(scope or "GLOBAL").upper()
         symbol_value = symbol if symbol else None
 

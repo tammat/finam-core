@@ -873,3 +873,31 @@
 - Optimizer cards no longer present Shadow stop/target values as current Paper.
   They explicitly report when no optimized Paper DB profile is active.
 - Validation: 17 exit tests and direct UI resolver/render passed. REAL unchanged.
+
+### Critical runtime and UI integrity closure — 30.07.2026
+
+- Portfolio cluster risk now uses only actual non-zero Fresh V5 Paper positions;
+  disabled, blocked, test and legacy allocator rows cannot create false exposure.
+  Current measured state is EQUITIES 2 positions, FX 1, METALS 1 and no
+  commodity position; FX is correctly marked overexposed by contract notional.
+- Contract-spec synchronization treats missing inactive/expired contracts as an
+  audited skip instead of a scheduler failure. The verified pass completed with
+  33 unchanged, 5 skipped and 0 failed instruments.
+- Data-quality rejection no longer activates the global kill switch. Real
+  drawdown/daily-loss trips are persisted in PostgreSQL and survive restart;
+  runtime reads and writes no longer execute DDL.
+- Required runtime grants for strategy assignment, routing policy, materializer
+  checkpoint and kill-switch state are installed. The closed-trade materializer
+  completed with 3,185 trades and 915 attribution updates.
+- Legacy/test projections are quarantined in audit. All 79 Fresh V5 signals that
+  used the non-analytical `LIVE` timeframe were audited and normalized to M1 for
+  gas and M5 for other instruments; new signals are normalized at persistence.
+- Home UI explains why dollar, gold and yuan remain outside Top-5, shows a
+  green/red daily P&L total for stocks and futures, and caches the compact
+  snapshot for 15 seconds. Cold render is about 0.55 s; cached responses are
+  about 1-5 ms.
+- OOS admission completed normally: 23 legacy hypotheses wait for fresh data,
+  V5 OOS runs and OOS PASS remain zero. New closed V5 trades enter training;
+  OOS consumes only events strictly after each frozen confirmation boundary.
+- Validation: 20 focused tests passed. Paper services are active; REAL remains
+  disabled and no live order permission was changed.

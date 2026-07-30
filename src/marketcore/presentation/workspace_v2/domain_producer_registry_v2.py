@@ -66,17 +66,18 @@ class DomainProducerRegistryErrorV2(ValueError):
 
 _COMPACT_CACHE_LOCK = Lock()
 _COMPACT_CACHE: tuple[float, dict] | None = None
+_COMPACT_CACHE_TTL_SECONDS = 15.0
 
 
 def _compact_snapshot() -> dict:
     global _COMPACT_CACHE
     now = monotonic()
     cached = _COMPACT_CACHE
-    if cached is not None and now - cached[0] < 5.0:
+    if cached is not None and now - cached[0] < _COMPACT_CACHE_TTL_SECONDS:
         return cached[1]
     with _COMPACT_CACHE_LOCK:
         cached = _COMPACT_CACHE
-        if cached is not None and now - cached[0] < 5.0:
+        if cached is not None and now - cached[0] < _COMPACT_CACHE_TTL_SECONDS:
             return cached[1]
         snapshot = ControlCompactV3Resolver().resolve()
         _COMPACT_CACHE = (monotonic(), snapshot)

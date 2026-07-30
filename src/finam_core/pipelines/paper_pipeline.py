@@ -34,6 +34,7 @@ from finam_core.governance.ng_time_exit_hold_bucket_policy_v1 import NgTimeExitH
 from finam_core.risk.ng_smart_entry_quality_gate_v1 import NgSmartEntryQualityGateV1
 from finam_core.config.runtime_config import RuntimeConfig
 from finam_core.risk.portfolio_risk_gate import PortfolioRiskGate
+from finam_core.risk.persistent_kill_switch import PersistentKillSwitch
 from finam_core.notifications.risk_notification_bridge_v1 import RiskNotificationBridgeV1, RiskNotificationInputV1
 from finam_core.execution.session_side_execution_gate_v1 import SessionSideExecutionGateV1
 from finam_core.execution.edge_gate_strict_mode_v1 import EdgeGateStrictModeV1
@@ -6469,7 +6470,6 @@ class PaperTradingPipeline:
                         f"drawdown={getattr(decision, 'drawdown_pct', None)}",
                         flush=True,
                     )
-                    self._kill_switch_active = True
                     self._reject_persisted_signal_v1(
                         intent,
                         f"portfolio_risk:{getattr(decision, 'reason', 'blocked')}",
@@ -6605,6 +6605,12 @@ class PaperTradingPipeline:
                 max_daily_loss = float(os.getenv("MAX_DAILY_LOSS", "-0.02"))  # -2%
 
                 # === HARD LOCK (ONCE TRIGGERED) ===
+                persistent_kill_switch = getattr(self, "_persistent_paper_kill_switch", None)
+                if persistent_kill_switch is None:
+                    persistent_kill_switch = PersistentKillSwitch(os.getenv("DATABASE_URL"))
+                    self._persistent_paper_kill_switch = persistent_kill_switch
+                if persistent_kill_switch.is_active(symbol=str(intent.get("symbol") or "")):
+                    self._kill_switch_active = True
                 if getattr(self, "_kill_switch_active", False):
                     print("PIPE_KILL_SWITCH_ACTIVE", flush=True)
                     self._reject_persisted_signal_v1(intent, "kill_switch_active")
@@ -6613,19 +6619,20 @@ class PaperTradingPipeline:
                 if dd < max_dd:
                     print(f"PIPE_KILL_SWITCH_DD dd={round(dd, 4)}", flush=True)
                     self._kill_switch_active = True
+                    persistent_kill_switch.activate(
+                        reason=f"paper_drawdown:{dd:.6f}", source="paper_pipeline_v1"
+                    )
                     self._reject_persisted_signal_v1(intent, "kill_switch_drawdown")
                     return
 
                 if realized < max_daily_loss * peak:
                     print(f"PIPE_KILL_SWITCH_DAILY pnl={round(realized, 2)}", flush=True)
                     self._kill_switch_active = True
+                    persistent_kill_switch.activate(
+                        reason=f"paper_daily_loss:{realized:.6f}", source="paper_pipeline_v1"
+                    )
                     self._reject_persisted_signal_v1(intent, "kill_switch_daily_loss")
                     return
-                if realized < max_daily_loss * peak:
-                    print(f"PIPE_KILL_SWITCH_DAILY pnl={round(realized,2)}", flush=True)
-                    self._reject_persisted_signal_v1(intent, "kill_switch_daily_loss")
-                    return
-
             except Exception as e:
                 print(f"PIPE_KILL_SWITCH_ERROR {e}", flush=True)
 

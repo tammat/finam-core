@@ -33,6 +33,13 @@ class SignalRepository:
 
     def save_signal(self, intent: dict) -> str:
         signal_id = str(intent.get("signal_id") or uuid.uuid4())
+        symbol = str(intent.get("symbol") or "")
+        raw_timeframe = str(intent.get("timeframe") or "").upper()
+        normalized_timeframe = (
+            ("M1" if symbol.upper().startswith("NG") else "M5")
+            if raw_timeframe in {"", "LIVE"} else raw_timeframe
+        )
+        intent["timeframe"] = normalized_timeframe
 
         entry_price = (
             intent.get("entry_price")
@@ -92,7 +99,7 @@ class SignalRepository:
                     intent.get("side"),
                     intent.get("strategy"),
                     intent.get("horizon") or intent.get("signal_horizon") or "INTRADAY",
-                    intent.get("timeframe"),
+                    normalized_timeframe,
                     intent.get("regime"),
                     entry_price,
                     stop_loss,

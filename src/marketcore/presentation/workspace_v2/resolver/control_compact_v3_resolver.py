@@ -260,10 +260,11 @@ class ControlCompactV3Resolver:
 
                 cursor.execute("""
                     WITH exact AS (
-                      SELECT scope_code,timeframe_code,side_code,max(closed_trades)::int AS closed_trades
-                      FROM analytics.hierarchical_evidence_v1
-                      WHERE cohort_code='FRESH_V5_CONFIRM' AND level_code='EXACT_CONTEXT'
-                      GROUP BY 1,2,3
+                      SELECT portfolio_scope AS scope_code,
+                             upper(side) AS side_code,count(*)::int AS closed_trades
+                      FROM analytics.closed_trades_fresh_v5_confirmed
+                      WHERE portfolio_scope LIKE 'FRESH_V5%'
+                      GROUP BY 1,2
                     )
                     SELECT p.asset_code,p.symbol,p.scope_code,p.timeframe_code,p.side_code,
                            p.strategy_code,coalesce(e.closed_trades,0)::int AS closed_trades,
@@ -275,9 +276,7 @@ class ControlCompactV3Resolver:
                            m.spread_bps,m.observed_at AS spread_observed_at
                     FROM analytics.v5_asset_branch_policy_v1 p
                     JOIN analytics.v5_asset_contract_readiness_v1 r ON r.asset_code=p.asset_code
-                    LEFT JOIN exact e ON e.scope_code=p.scope_code
-                                     AND e.timeframe_code=p.timeframe_code
-                                     AND e.side_code=p.side_code
+                    LEFT JOIN exact e ON e.scope_code=p.scope_code AND e.side_code=p.side_code
                     LEFT JOIN runtime_active_universe u ON u.symbol=p.symbol AND u.is_enabled
                     LEFT JOIN LATERAL (
                       SELECT buy_sell_fee,scalper_fee,fee_currency,verified_at,source_payload
@@ -396,12 +395,15 @@ class ControlCompactV3Resolver:
                              row_number() OVER (ORDER BY e.event_ts DESC) AS overall_rank,
                              row_number() OVER (
                                PARTITION BY (e.symbol LIKE '%@RTSX') ORDER BY e.event_ts DESC
-                             ) AS class_rank
+                             ) AS class_rank,
+                             sum(e.net_pnl) FILTER (
+                               WHERE e.event_ts>=date_trunc('day',clock_timestamp())
+                             ) OVER (PARTITION BY (e.symbol LIKE '%@RTSX')) AS daily_net_pnl
                       FROM recent_events e
                     )
                     SELECT x.event_ts,x.symbol,x.event_status,x.direction,
                            x.entry_price,x.exit_price,x.net_pnl,x.holding_seconds,x.entry_signal,x.exit_reason,
-                           x.is_futures,
+                           x.is_futures,x.daily_net_pnl,
                            CASE WHEN r.display_name IS DISTINCT FROM x.symbol
                                 THEN r.display_name END AS instrument_name
                     FROM ranked x

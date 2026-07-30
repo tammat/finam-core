@@ -190,3 +190,23 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - UI reasons are Russian and Paper/Shadow parameters are separated truthfully.
   No optimized Paper runtime profile existed at checkpoint; strategy defaults
   remain active. REAL was not changed. Exit tests: 17; direct UI render passed.
+
+## Critical runtime and UI integrity closure
+
+- Runtime risk is derived from actual Fresh V5 Paper positions, with explicit
+  commodity, equity, FX and metals rows. Legacy/test/disabled allocator records
+  are excluded.
+- Inactive expired contracts are scheduler skips, not failures. Required runtime
+  database grants are installed; materialization and contract synchronization
+  both complete successfully.
+- Persistent kill switch is checked on every Paper entry without runtime DDL.
+  Only genuine drawdown or daily-loss breaches activate it; restart does not
+  clear a trip.
+- Fresh V5 timeframe integrity is restored (79 audited repairs; no remaining
+  `LIVE` rows), and future persistence normalizes gas to M1 and other instruments
+  to M5 when a producer supplies an empty/LIVE timeframe.
+- UI now has truthful outside-Top-5 explanations, a colored daily total for both
+  trade tables, active unrealized P&L and a 15-second compact snapshot cache.
+- OOS truth: 23 admissions remain `WAITING_FRESH_DATA`, V5 OOS runs 0 and OOS
+  PASS 0. The worker remains future-only after the frozen confirmation boundary.
+- Focused validation: 20 passed. REAL remains disabled.
