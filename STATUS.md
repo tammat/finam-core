@@ -673,3 +673,36 @@
 - Shadow pairs are stored separately and never increment V5 trade counters.
 - First run: BR LONG 8 pairs/OOS 1; NG LONG 5/1; NG SHORT 1/0; CNY LONG 1/0; all promotion guards correctly blocked.
 - Five tests passed; no runtime profile was activated.
+
+## Champion–Challenger, energy guards and calibration schedule — 30.07.2026
+
+- Recent deals no longer disappear at the date boundary: closed events use a
+  rolling 24-hour window and active positions remain visible across midnight.
+- Added the Paper-only Champion–Challenger lifecycle for equities, Brent, natural
+  gas and CNY, including LONG/SHORT where evidence exists. Shadow needs 80 paired
+  trades and 20 OOS; the selected Paper Challenger then needs 30 new paired trades
+  and 10 OOS before operator-confirmed promotion to the main Paper profile.
+- Challenger selection compares net expectancy in R, OOS expectancy, drawdown and
+  largest-win concentration. Promotion to REAL is not implemented and all real
+  execution flags remain disabled.
+- The UI now shows current Paper versus Challenger, parameters, sample/OOS
+  progress, expectancy delta, state, confirmation and rollback actions.
+- Current evidence is insufficient: 13 strategy/instrument/direction states are
+  accumulating; the largest sample is Brent LONG with 11/80 pairs, OOS 0. No
+  Paper Challenger or Champion is statistically admitted yet.
+- Ten historical regime-invalidation exits occurred before ten minutes (five BR,
+  five NG). Root cause was an unconditional regime decision overriding the
+  minimum-hold guard. Regime exits now respect the energy 1,800-second minimum;
+  protective stop-loss remains active immediately.
+- A new entry resets bars, pending regime state and holding clock, preventing a
+  rapid re-entry from inheriting the previous position lifecycle.
+- NG directional entry is fail-closed: LONG requires positive fresh confirmed M5
+  slope, SHORT requires negative slope, and one M5 regime candle cannot open the
+  same side twice. This blocks the historical range/negative-slope LONG pattern.
+- Full daily calibration is scheduled for 00:30 MSK after the 23:50 session end.
+  A lightweight optimizer-only control is scheduled for 06:15 MSK before the
+  06:50 opening auction. Repository unit files are ready; system installation
+  still requires operator sudo.
+- Validation: 26 focused tests passed for the final entry/exit and UI contracts;
+  systemd unit verification passed. Commits: `2d0abff0`, `ecbb5d0d`, `85ab2214`,
+  `fb6911ce`.
