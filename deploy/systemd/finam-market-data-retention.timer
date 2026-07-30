@@ -1,0 +1,12 @@
+[Unit]
+Description=Run aggregate-first market data retention outside trading hours
+
+[Timer]
+OnCalendar=*-*-* 01:30:00 Europe/Moscow
+OnCalendar=*-*-* 05:30:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=120
+Unit=finam-market-data-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Finam aggregate-first market data retention
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/run_market_data_retention_v1.py
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=45min
+NoNewPrivileges=true
+
