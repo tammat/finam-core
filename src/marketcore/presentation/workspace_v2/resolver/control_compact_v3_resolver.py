@@ -343,7 +343,8 @@ class ControlCompactV3Resolver:
                         FROM analytics.market_contract_cost_spec_v1 cost
                         WHERE cost.symbol=c.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
                       ) s ON true
-                      WHERE coalesce(c.closed_at,c.exit_ts,c.created_at) >= current_date
+                      WHERE coalesce(c.closed_at,c.exit_ts,c.created_at)
+                            >= clock_timestamp() - interval '24 hours'
                       UNION ALL
                       SELECT s.created_at AS event_ts,s.symbol,'ACTIVE'::text AS event_status,
                              CASE WHEN s.side IN ('BUY','LONG') THEN 'LONG' ELSE 'SHORT' END AS direction,
@@ -385,7 +386,6 @@ class ControlCompactV3Resolver:
                         ORDER BY mb.ts DESC LIMIT 1
                       ) b ON true
                       WHERE s.status='FILLED'
-                        AND s.created_at >= current_date
                         AND coalesce(s.payload->>'intent_type','ENTRY')='ENTRY'
                         AND NOT EXISTS (
                           SELECT 1 FROM closed_trades c
