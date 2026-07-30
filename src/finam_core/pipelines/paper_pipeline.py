@@ -125,7 +125,9 @@ from core.instrument_resolver import InstrumentResolver
 from finam_core.strategy.br_conservative_breakout import BrConservativeBreakout
 from finam_core.strategy.futures_adaptive_risk_policy import FuturesAdaptiveRiskPolicy
 from finam_core.strategy.futures.ng_conservative_breakout_m1 import NgConservativeBreakoutM1
-from finam_core.strategy.futures.ng_runtime_entry_guard import evaluate_ng_entry_guard
+from finam_core.strategy.futures.ng_runtime_entry_guard import (
+    evaluate_ng_directional_entry_guard, evaluate_ng_entry_guard,
+)
 from finam_core.research.runtime_selection_gate import RuntimeSelectionGate
 from finam_core.risk.finam_limits_adapter import FinamLimitsAdapter
 from finam_core.risk.regime_policy import RegimePolicy, SymbolDrawdownGuard, SymbolLossStreakGuard, PortfolioGuard
@@ -1125,18 +1127,40 @@ class PaperTradingPipeline:
         state[f"{symbol}:{side}"] = time.monotonic()
         self._anti_reentry_entry_count = int(getattr(self, "_anti_reentry_entry_count", 0)) + 1
 
-        if str(symbol).upper().startswith("BR"):
+        # A new entry owns a new holding clock. A fast close/re-entry can happen
+        # before a flat quote reaches ExitEngine, so never inherit bars or a
+        # pending regime decision from the previous position.
+        exit_state = self._exit_state_for_symbol(symbol)
+        exit_state.update({
+            "bars_held": 0,
+            "prev_close": None,
+            "closed_bar_pending": False,
+            "closed_bar_prev_close": None,
+            "last_completed_bar_close": None,
+            "last_exit_closed_bar_key": None,
+            "regime_exit_reason": None,
+            "stop_price": None,
+            "last_qty": 0.0,
+            "opened_at_ts": time.time(),
+        })
+
+        if str(symbol).upper().startswith(("BR", "NG")):
             try:
                 regime = self.candle_regime_engine_v2.evaluate(symbol, "M5")
                 bar_ts = getattr(regime, "bar_ts", None)
                 if bar_ts is not None:
-                    consumed = getattr(self, "_br_consumed_entry_bar_fingerprints_v1", None)
+                    attr = (
+                        "_br_consumed_entry_bar_fingerprints_v1"
+                        if str(symbol).upper().startswith("BR")
+                        else "_ng_consumed_entry_bar_fingerprints_v1"
+                    )
+                    consumed = getattr(self, attr, None)
                     if consumed is None:
                         consumed = set()
-                        self._br_consumed_entry_bar_fingerprints_v1 = consumed
+                        setattr(self, attr, consumed)
                     consumed.add(f"{symbol}:{str(side).upper()}:{bar_ts.isoformat()}")
             except Exception as exc:
-                print(f"PIPE_BR_ENTRY_FINGERPRINT_SAVE_FAILED symbol={symbol} error={exc}", flush=True)
+                print(f"PIPE_ENTRY_FINGERPRINT_SAVE_FAILED symbol={symbol} error={exc}", flush=True)
 
 
     def _pipeline_log_throttle_allow(self, key: str, interval_sec: float | None = None) -> bool:
@@ -3083,8 +3107,17 @@ class PaperTradingPipeline:
         )
 
         regime_exit_reason = state.pop("regime_exit_reason", None) if is_completed_bar else None
-        if regime_exit_reason:
+        if regime_exit_reason and position_age_sec >= min_hold_sec:
             decision = ExitDecision(True, regime_exit_reason, decision.stop_price)
+        elif regime_exit_reason and self._runtime_log_allowed(
+            f"REGIME_EXIT_MIN_HOLD_GUARD:{symbol}", ttl_seconds=60
+        ):
+            print(
+                f"PIPE_REGIME_EXIT_MIN_HOLD_GUARD symbol={symbol} "
+                f"reason={regime_exit_reason} age_sec={round(position_age_sec, 3)} "
+                f"min_hold_sec={min_hold_sec}",
+                flush=True,
+            )
 
         state["prev_close"] = float(price)
         state["stop_price"] = decision.stop_price
@@ -5007,6 +5040,36 @@ class PaperTradingPipeline:
             )
             raw_intent["features"]["regime_label"] = regime_label
             raw_intent["regime"] = regime_label
+
+            # A range label alone is not directional confirmation. NG LONG
+            # requires positive M5 slope, SHORT negative M5 slope, and the same
+            # regime candle cannot open the same side twice.
+            if str(sym).startswith("NG") and str(raw_intent_type).upper() != "EXIT":
+                regime_bar_key = raw_intent["features"].get("regime_bar_ts")
+                consumed = getattr(self, "_ng_consumed_entry_bar_fingerprints_v1", set())
+                ng_direction = evaluate_ng_directional_entry_guard(
+                    side=str(raw_intent.get("side") or ""),
+                    trend=str(raw_intent["features"].get("trend") or ""),
+                    normalized_slope=float(raw_intent["features"].get("regime_normalized_slope") or 0.0),
+                    source_version=str(raw_intent["features"].get("regime_source_version") or ""),
+                    data_ready=bool(raw_intent["features"].get("regime_data_ready")),
+                    stale=bool(raw_intent["features"].get("regime_stale")),
+                    confirmed_bars=int(raw_intent["features"].get("regime_confirmed_bars") or 0),
+                    regime_bar_key=str(regime_bar_key) if regime_bar_key else None,
+                    consumed_fingerprints=consumed,
+                    symbol=str(sym),
+                    slope_epsilon=float(os.getenv("NG_ENTRY_SLOPE_EPSILON", "0.02")),
+                )
+                if not ng_direction.allowed:
+                    self._log_dedup(
+                        f"PIPE_NG_DIRECTIONAL_ENTRY_BLOCK:{ng_direction.reason}:{sym}",
+                        f"PIPE_NG_DIRECTIONAL_ENTRY_BLOCK symbol={sym} "
+                        f"side={raw_intent.get('side')} trend={raw_intent['features'].get('trend')} "
+                        f"slope={raw_intent['features'].get('regime_normalized_slope')} "
+                        f"reason={ng_direction.reason} paper_only=1",
+                        heartbeat_sec=60,
+                    )
+                    return
 
             # ng_smart_entry_quality_gate_pipeline_hook_v1:
             # Русский комментарий: блокируем только NG smart_entry_retest в режиме trend_down_high_vol.
@@ -7440,10 +7503,11 @@ class PaperTradingPipeline:
             f"price={getattr(fill, 'price', None)}\n"
             f"id={getattr(fill, 'fill_id', None)}"
         )
-        self._mark_anti_reentry_entry(
-            str(getattr(fill, "symbol", None) or payload.get("symbol") or ""),
-            str(getattr(fill, "side", None) or payload.get("side") or ""),
-        )
+        if str(payload.get("intent_type") or "ENTRY").upper() == "ENTRY":
+            self._mark_anti_reentry_entry(
+                str(getattr(fill, "symbol", None) or payload.get("symbol") or ""),
+                str(getattr(fill, "side", None) or payload.get("side") or ""),
+            )
         # === TELEGRAM: единый сигнал входа ===
         try:
             trend = self._mkt.get(getattr(fill, "symbol", None), {}).get("regime_trend")

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Paper risk and champion-challenger calibration after the trading day
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=120
+Unit=finam-futures-risk-calibration.service
+
+[Install]
+WantedBy=timers.target

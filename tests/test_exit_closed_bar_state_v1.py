@@ -33,6 +33,34 @@ def test_regime_invalidation_requires_confirmed_fresh_candle_regime() -> None:
     assert '"regime_invalidation_short"' in body
 
 
+def test_regime_invalidation_cannot_bypass_minimum_hold() -> None:
+    source = PIPELINE.read_text(encoding="utf-8")
+    start = source.index("    def _build_exit_intent_if_any(")
+    end = source.index("\n    def ", start + 10)
+    body = source[start:end]
+
+    assert "regime_exit_reason and position_age_sec >= min_hold_sec" in body
+    assert "PIPE_REGIME_EXIT_MIN_HOLD_GUARD" in body
+
+
+def test_new_entry_resets_previous_position_exit_clock() -> None:
+    source = PIPELINE.read_text(encoding="utf-8")
+    start = source.index("    def _mark_anti_reentry_entry(")
+    end = source.index("\n    def ", start + 10)
+    body = source[start:end]
+
+    assert '"bars_held": 0' in body
+    assert '"regime_exit_reason": None' in body
+    assert '"opened_at_ts": time.time()' in body
+
+
+def test_ng_directional_guard_is_wired_before_paper_entry() -> None:
+    source = PIPELINE.read_text(encoding="utf-8")
+    assert "evaluate_ng_directional_entry_guard(" in source
+    assert "PIPE_NG_DIRECTIONAL_ENTRY_BLOCK" in source
+    assert '"_ng_consumed_entry_bar_fingerprints_v1"' in source
+
+
 def test_time_exit_is_a_long_horizon_safety_net_for_energy() -> None:
     source = PIPELINE.read_text(encoding="utf-8")
     start = source.index("    def _exit_engine_for_symbol(")
@@ -40,7 +68,7 @@ def test_time_exit_is_a_long_horizon_safety_net_for_energy() -> None:
     body = source[start:end]
 
     assert 'os.getenv("ENERGY_MAX_BARS_IN_TRADE", "60")' in body
-    assert "ExitEngine(max_bars_in_trade=max_bars)" in body
+    assert "max_bars_in_trade=max_bars" in body
 
 
 def test_persisted_regime_bar_is_the_no_trade_progress_fallback() -> None:

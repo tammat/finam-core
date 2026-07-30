@@ -1,0 +1,14 @@
+[Unit]
+Description=Finam daily Paper risk and entry/exit Shadow calibration
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=alex
+WorkingDirectory=/opt/finam-core
+Environment=PYTHONPATH=src
+EnvironmentFile=/opt/finam-core/.env
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/analytics/build_futures_risk_calibration_v1.py
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/analytics/build_futures_shadow_promotion_v1.py
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/analytics/build_entry_exit_optimizer_v1.py
+NoNewPrivileges=true
