@@ -56,3 +56,68 @@ def test_home_trade_tables_include_colored_daily_total():
     assert '"Итого за сегодня"' in source
     assert 'total_status = "PROFIT"' in source
     assert '"LOSS" if daily_total' in source
+
+
+def test_lifecycle_is_single_position_per_scope_and_symbol():
+    repository = (
+        ROOT / "src/finam_core/execution/position_lifecycle_state_repository.py"
+    ).read_text()
+    pipeline = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
+    migration = (
+        ROOT / "sql/analytics/241_v5_lifecycle_and_timeframe_integrity_v1.sql"
+    ).read_text()
+    assert "ON CONFLICT (portfolio_scope, symbol)" in repository
+    assert "paper_pipeline_lifecycle_projection_reconcile_v2" in pipeline
+    assert "UNIQUE (portfolio_scope,symbol)" in migration
+    avg_price_block = pipeline[
+        pipeline.index("def _position_avg_price_for_symbol"):
+        pipeline.index("def _exit_fallback_atr")
+    ]
+    assert avg_price_block.index("positions =") < avg_price_block.index("broker_avg =")
+    assert 'EXECUTION_MODE", "paper"' in avg_price_block
+
+
+def test_materializer_never_restores_live_timeframe():
+    source = (
+        ROOT / "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py"
+    ).read_text()
+    assert "def analytical_timeframe" in source
+    assert 'timeframe != "LIVE"' in source
+    assert '"timeframe": analytical_timeframe' in source
+
+
+def test_fast_ingestion_timeout_is_failure_only_when_data_is_stale():
+    source = (
+        ROOT / "src/scripts/ingestion/run_continuous_market_bars_ingestion.py"
+    ).read_text()
+    assert "def target_is_fresh" in source
+    assert "already_fresh={fresh}" in source
+    assert "return fresh" in source
+
+
+def test_cpu_heavy_edge_research_is_outside_market_hours():
+    sql = (
+        ROOT / "sql/analytics/242_research_scheduler_market_hours_isolation_v1.sql"
+    ).read_text()
+    assert "SESSION_EXECUTION_EDGE_MICROSTRUCTURE_V2" in sql
+    assert "window_start=time '00:10:00'" in sql
+    assert "window_end=time '06:00:00'" in sql
+
+
+def test_ui_active_trades_are_projection_backed_not_ghost_signals():
+    source = (
+        ROOT
+        / "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py"
+    ).read_text()
+    active_branch = source[source.index("'ACTIVE'::text"):source.index("), ranked AS")]
+    assert "paper_research_position_projection_v1" in active_branch
+    assert "abs(position.net_qty)>" in active_branch
+    assert "s.status='FILLED'" not in active_branch
+    assert "x.event_status='ACTIVE'" in source
+
+
+def test_brent_online_uses_bounded_http_retries():
+    source = (ROOT / "src/scripts/run_moex_brent_online_v1.py").read_text()
+    assert "Retry(" in source
+    assert "connect=3" in source
+    assert "timeout=(5,20)" in source

@@ -210,3 +210,20 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - OOS truth: 23 admissions remain `WAITING_FRESH_DATA`, V5 OOS runs 0 and OOS
   PASS 0. The worker remains future-only after the frozen confirmation boundary.
 - Focused validation: 20 passed. REAL remains disabled.
+
+## Position, scheduler and ingestion integrity V2
+
+- Fresh V5 lifecycle has one row per scope/symbol and exactly matches the position
+  projection. Entry price, remaining quantity, stop and target are restart-safe;
+  broker inventory cannot contaminate Paper accounting.
+- All affected lifecycle rows and timeframe repairs are preserved in audit tables.
+  Current lifecycle mismatch=0, duplicate keys=0 and test lifecycle rows=0.
+- Materializer normalizes runtime labels, so V5 contains no `LIVE` timeframe even
+  after repeated attribution refreshes.
+- UI active positions are projection-backed and bypass the recent-event cutoff.
+  Verified active rows: LKOH, BRQ6, VTBR, PLZL and SBERP.
+- Full-universe continuous ingestion is disabled; priority V5/equity timers remain
+  active. Timeouts use a database freshness fallback and Brent HTTP uses retries.
+- Heavy session-edge research is isolated to 00:10–06:00. Legacy cron duplicates
+  for this research and the DB scheduler were removed.
+- Focused validation: 28 passed. REAL remains disabled.

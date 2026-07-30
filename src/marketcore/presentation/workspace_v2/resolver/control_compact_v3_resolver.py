@@ -338,57 +338,69 @@ class ControlCompactV3Resolver:
                             >= clock_timestamp() - interval '24 hours'
                         AND c.payload->'pnl_units'->>'version'='PNL_UNITS_V2_RUB'
                       UNION ALL
-                      SELECT s.created_at AS event_ts,s.symbol,'ACTIVE'::text AS event_status,
-                             CASE WHEN s.side IN ('BUY','LONG') THEN 'LONG' ELSE 'SHORT' END AS direction,
-                             coalesce(sf.price,s.entry_price) AS entry_price,
-                             coalesce(b.close,sf.price,s.entry_price) AS exit_price,
+                      SELECT coalesce(l.created_at,p.updated_at) AS event_ts,p.symbol,'ACTIVE'::text AS event_status,
+                             CASE WHEN position.net_qty>0 THEN 'LONG' ELSE 'SHORT' END AS direction,
+                             position.avg_price AS entry_price,
+                             coalesce(b.close,position.avg_price) AS exit_price,
                              CASE WHEN ms.lot_size > 0
-                                        AND (s.symbol NOT LIKE '%@RTSX'
+                                        AND (p.symbol NOT LIKE '%@RTSX'
                                              OR (ms.tick_size > 0 AND ms.tick_value > 0))
-                                  THEN ((CASE WHEN s.side IN ('BUY','LONG')
-                                              THEN coalesce(b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
-                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(b.close,sf.price,s.entry_price) END)
-                                        * coalesce(sf.qty,s.qty,0)
-                                        * CASE WHEN s.symbol LIKE '%@RTSX'
+                                  THEN ((CASE WHEN position.net_qty>0
+                                              THEN coalesce(b.close,position.avg_price)-position.avg_price
+                                              ELSE position.avg_price-coalesce(b.close,position.avg_price) END)
+                                        * abs(position.net_qty)
+                                        * CASE WHEN p.symbol LIKE '%@RTSX'
                                                THEN ms.tick_value/ms.tick_size
                                                ELSE ms.lot_size END)
-                                       - CASE WHEN s.symbol LIKE '%@RTSX'
-                                              THEN 2 * coalesce(cs.buy_sell_fee,0) * coalesce(sf.qty,s.qty,0)
+                                       - CASE WHEN p.symbol LIKE '%@RTSX'
+                                              THEN 2 * coalesce(cs.buy_sell_fee,0) * abs(position.net_qty)
                                               ELSE 0 END
                                   ELSE NULL END AS net_pnl,
-                             extract(epoch FROM clock_timestamp()-s.created_at)::bigint AS holding_seconds,
-                             s.strategy AS entry_signal,
+                             extract(epoch FROM clock_timestamp()-coalesce(l.created_at,p.updated_at))::bigint AS holding_seconds,
+                             coalesce(signal.strategy,'UNASSIGNED') AS entry_signal,
                              'position_open'::text AS exit_reason
-                      FROM signals s
+                      FROM analytics.paper_research_position_projection_v1 p
+                      CROSS JOIN LATERAL (
+                        SELECT coalesce(nullif(p.state->>'net_qty','')::numeric,
+                                        nullif(p.state->>'qty','')::numeric,0) AS net_qty,
+                               coalesce(nullif(p.state->>'avg_price','')::numeric,0) AS avg_price
+                      ) position
                       LEFT JOIN LATERAL (
-                        SELECT qty,price
-                        FROM signal_fills f
-                        WHERE f.signal_id=s.signal_id
-                        ORDER BY f.created_at DESC LIMIT 1
-                      ) sf ON true
+                        SELECT s.strategy
+                        FROM signal_fills sf JOIN signals s ON s.signal_id=sf.signal_id
+                        WHERE sf.portfolio_scope=p.portfolio_scope AND sf.symbol=p.symbol
+                          AND ((position.net_qty>0 AND sf.side='BUY') OR
+                               (position.net_qty<0 AND sf.side='SELL'))
+                        ORDER BY sf.created_at DESC LIMIT 1
+                      ) signal ON true
+                      LEFT JOIN LATERAL (
+                        SELECT created_at
+                        FROM analytics.paper_research_position_lifecycle_v1 lifecycle
+                        WHERE lifecycle.portfolio_scope=p.portfolio_scope
+                          AND lifecycle.symbol=p.symbol AND lifecycle.remaining_qty>0
+                        LIMIT 1
+                      ) l ON true
                       LEFT JOIN LATERAL (
                         SELECT buy_sell_fee,source_payload
                         FROM analytics.market_contract_cost_spec_v1 cost
-                        WHERE cost.symbol=s.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
+                        WHERE cost.symbol=p.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
                       ) cs ON true
                       LEFT JOIN LATERAL (
                         SELECT lot_size::numeric,tick_size::numeric,tick_value::numeric
                         FROM analytics.market_contract_spec_v1 spec
-                        WHERE spec.symbol=s.symbol AND spec.is_active
+                        WHERE spec.symbol=p.symbol AND spec.is_active
                         ORDER BY spec.valid_from DESC LIMIT 1
                       ) ms ON true
                       LEFT JOIN LATERAL (
                         SELECT close
                         FROM market_bars mb
-                        WHERE mb.symbol=s.symbol
+                        WHERE mb.symbol=p.symbol
                         ORDER BY mb.ts DESC LIMIT 1
                       ) b ON true
-                      WHERE s.status='FILLED'
-                        AND coalesce(s.payload->>'intent_type','ENTRY')='ENTRY'
-                        AND NOT EXISTS (
-                          SELECT 1 FROM closed_trades c
-                          WHERE c.signal_id=s.signal_id
-                        )
+                      WHERE p.portfolio_scope LIKE 'FRESH_V5%'
+                        AND p.symbol NOT LIKE 'TEST@%'
+                        AND abs(position.net_qty)>0.000000001
+                        AND position.avg_price>0
                     ), ranked AS (
                       SELECT e.*,
                              CASE WHEN e.symbol LIKE '%@RTSX' THEN true ELSE false END AS is_futures,
@@ -408,7 +420,9 @@ class ControlCompactV3Resolver:
                                 THEN r.display_name END AS instrument_name
                     FROM ranked x
                     LEFT JOIN marketcore.instrument_reference_v1 r ON r.symbol=x.symbol
-                    WHERE x.overall_rank <= 16 OR (x.is_futures AND x.class_rank <= 4)
+                    WHERE x.event_status='ACTIVE'
+                       OR x.overall_rank <= 16
+                       OR (x.is_futures AND x.class_rank <= 4)
                     ORDER BY event_ts DESC
                     LIMIT 24
                 """)

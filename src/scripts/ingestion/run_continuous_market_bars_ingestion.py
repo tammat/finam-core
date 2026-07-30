@@ -59,6 +59,29 @@ def parse_target_specs(value: str) -> list[tuple[str, str]]:
         targets.append((symbol, timeframe))
     return targets
 
+
+def target_is_fresh(symbol: str, timeframe: str) -> bool:
+    """A vendor timeout is degraded success when the target is already fresh."""
+    freshness_minutes = {"M1": 5, "M5": 15, "M15": 45, "H1": 180, "H4": 720, "D1": 2880}
+    limit = freshness_minutes.get(timeframe.upper(), 15)
+    try:
+        with psycopg.connect(build_psycopg_url()) as conn:
+            row = conn.execute(
+                """
+                SELECT max(ts) >= clock_timestamp()-(%s * interval '1 minute')
+                FROM market_bars WHERE symbol=%s AND timeframe=%s
+                """,
+                (limit, symbol, timeframe),
+            ).fetchone()
+        return bool(row and row[0])
+    except Exception as exc:
+        print(
+            f"MARKET_BARS_FRESHNESS_CHECK_FAILED symbol={symbol} timeframe={timeframe} "
+            f"error={type(exc).__name__}:{exc}",
+            flush=True,
+        )
+        return False
+
 def run_backfill(symbol: str, timeframe: str, lookback_hours: int, step_timeout_sec: int) -> bool:
     cmd = [
         sys.executable,
@@ -72,13 +95,22 @@ def run_backfill(symbol: str, timeframe: str, lookback_hours: int, step_timeout_
     try:
         result = subprocess.run(cmd, timeout=step_timeout_sec)
     except subprocess.TimeoutExpired:
+        fresh = target_is_fresh(symbol, timeframe)
         print(
             "MARKET_BARS_INGESTION_STEP_TIMEOUT "
-            f"symbol={symbol} timeframe={timeframe} timeout_sec={step_timeout_sec}",
+            f"symbol={symbol} timeframe={timeframe} timeout_sec={step_timeout_sec} "
+            f"already_fresh={fresh}",
             flush=True,
         )
-        return False
+        return fresh
     ok = result.returncode == 0
+    if not ok and target_is_fresh(symbol, timeframe):
+        print(
+            "MARKET_BARS_INGESTION_STEP_DEGRADED_ALREADY_FRESH "
+            f"symbol={symbol} timeframe={timeframe} code={result.returncode}",
+            flush=True,
+        )
+        return True
     print(
         "MARKET_BARS_INGESTION_STEP_DONE "
         f"ok={ok} code={result.returncode} symbol={symbol} timeframe={timeframe}",

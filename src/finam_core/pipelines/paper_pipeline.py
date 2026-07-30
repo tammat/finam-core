@@ -2103,10 +2103,6 @@ class PaperTradingPipeline:
 
     def _position_avg_price_for_symbol(self, symbol: str) -> float | None:
         """Русский комментарий: безопасно получаем среднюю цену paper-позиции."""
-        broker_avg = float(getattr(self, "_broker_position_avg_by_symbol", {}).get(symbol, 0.0) or 0.0)
-        if broker_avg > 0:
-            return broker_avg
-
         pm = self._get_position_manager_for_exit()
         if pm is None:
             return None
@@ -2120,6 +2116,16 @@ class PaperTradingPipeline:
             value = getattr(pos, field, None)
             if value is not None:
                 return float(value)
+
+        # Broker inventory is a different portfolio. It must never set the
+        # entry price of a Paper lifecycle. Keep the fallback available only
+        # for an explicitly real execution process.
+        if str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "real":
+            broker_avg = float(
+                getattr(self, "_broker_position_avg_by_symbol", {}).get(symbol, 0.0) or 0.0
+            )
+            if broker_avg > 0:
+                return broker_avg
 
         print(
             f"PIPE_EXIT_ENGINE_NO_AVG_FIELD symbol={symbol} "
@@ -7045,8 +7051,6 @@ class PaperTradingPipeline:
             if not symbol or qty <= 0 or side not in ("BUY", "SELL"):
                 return
 
-            delta = qty if side == "BUY" else -qty
-
             import psycopg
             from psycopg.rows import dict_row
             from psycopg.types.json import Jsonb
@@ -7059,81 +7063,100 @@ class PaperTradingPipeline:
                     ).fetchone()["portfolio_scope"]
                     if not portfolio_scope:
                         return
-                    row = conn.execute(
+                    projection = conn.execute(
                         """
-                        SELECT id, remaining_qty, raw
-                        FROM analytics.paper_research_position_lifecycle_v1
-                        WHERE portfolio_scope = %s AND symbol = %s
-                        ORDER BY updated_at DESC NULLS LAST, created_at DESC
-                        LIMIT 1
-                        FOR UPDATE
+                        SELECT COALESCE(NULLIF(p.state->>'net_qty','')::double precision,
+                                        NULLIF(p.state->>'qty','')::double precision,0) AS net_qty,
+                               COALESCE(NULLIF(p.state->>'avg_price','')::double precision,0) AS avg_price,
+                               signal.stop_loss AS planned_stop,
+                               signal.take_profit AS planned_take
+                        FROM analytics.paper_research_position_projection_v1 p
+                        LEFT JOIN LATERAL (
+                            SELECT s.stop_loss,s.take_profit
+                            FROM signal_fills sf JOIN signals s ON s.signal_id=sf.signal_id
+                            WHERE sf.fill_id=p.state->>'last_fill_id'
+                            ORDER BY sf.created_at DESC LIMIT 1
+                        ) signal ON true
+                        WHERE p.portfolio_scope=%s AND p.symbol=%s
                         """,
                         (portfolio_scope, symbol),
                     ).fetchone()
+                    projected_qty = float(projection["net_qty"] or 0.0) if projection else 0.0
+                    projected_price = float(projection["avg_price"] or 0.0) if projection else 0.0
+                    planned_stop = float(projection["planned_stop"]) if projection and projection["planned_stop"] is not None else None
+                    planned_take = float(projection["planned_take"]) if projection and projection["planned_take"] is not None else None
+                    lifecycle_qty = abs(projected_qty)
 
-                    if row:
-                        old_qty = float(row["remaining_qty"] or 0.0)
-                        new_qty = old_qty + delta
-                        raw = dict(row["raw"] or {})
+                    # A portfolio scope can hold only one net position per symbol.
+                    # Reconcile lifecycle from the already-updated projection instead
+                    # of applying the fill delta to an arbitrary strategy row.
+                    if lifecycle_qty <= 1e-9:
+                        conn.execute(
+                            "DELETE FROM analytics.paper_research_position_lifecycle_v1 "
+                            "WHERE portfolio_scope=%s AND symbol=%s",
+                            (portfolio_scope, symbol),
+                        )
+                        self._trailing_order_stop_by_symbol.pop(symbol, None)
+                    else:
+                        rows = conn.execute(
+                            """
+                            SELECT id,entry_price,remaining_qty,raw
+                            FROM analytics.paper_research_position_lifecycle_v1
+                            WHERE portfolio_scope=%s AND symbol=%s
+                            ORDER BY updated_at DESC NULLS LAST,created_at DESC,id DESC
+                            FOR UPDATE
+                            """,
+                            (portfolio_scope, symbol),
+                        ).fetchall()
+                        keeper = rows[0] if rows else None
+                        if len(rows) > 1:
+                            conn.execute(
+                                "DELETE FROM analytics.paper_research_position_lifecycle_v1 "
+                                "WHERE id=ANY(%s)",
+                                ([row["id"] for row in rows[1:]],),
+                            )
+                        raw = dict(keeper["raw"] or {}) if keeper else {}
                         raw.update({
-                            "source": "paper_pipeline_lifecycle_on_fill_v1",
+                            "source": "paper_pipeline_lifecycle_projection_reconcile_v2",
                             "last_fill_side": side,
                             "last_fill_qty": qty,
-                            "previous_remaining_qty": old_qty,
+                            "projection_net_qty": projected_qty,
                         })
-
-                        if new_qty <= 0:
-                            conn.execute("DELETE FROM analytics.paper_research_position_lifecycle_v1 WHERE id = %s", (row["id"],))
-                            self._trailing_order_stop_by_symbol.pop(symbol, None)
-                        elif old_qty <= 0 < new_qty:
+                        if keeper:
+                            previous_price = float(keeper["entry_price"] or 0.0)
+                            price_changed = abs(previous_price - projected_price) > max(1e-9, abs(projected_price) * 1e-6)
                             conn.execute(
                                 """
                                 UPDATE analytics.paper_research_position_lifecycle_v1
-                                SET entry_price=%s, initial_qty=%s, remaining_qty=%s,
-                                    tp1_done=false, tp2_done=false, profit_lock_done=false,
-                                    trailing_active=false, current_stop=NULL,
-                                    current_take_profit=NULL, raw=%s, updated_at=now()
+                                SET entry_price=%s,initial_qty=%s,remaining_qty=%s,
+                                    current_stop=CASE WHEN %s THEN %s ELSE COALESCE(current_stop,%s) END,
+                                    current_take_profit=CASE WHEN %s THEN %s ELSE COALESCE(current_take_profit,%s) END,
+                                    trailing_active=CASE WHEN %s THEN false ELSE trailing_active END,
+                                    raw=%s,updated_at=now()
                                 WHERE id=%s
                                 """,
-                                (price, new_qty, new_qty, Jsonb(raw), row["id"]),
+                                (projected_price,lifecycle_qty,lifecycle_qty,
+                                 price_changed,planned_stop,planned_stop,
+                                 price_changed,planned_take,planned_take,
+                                 price_changed,Jsonb(raw),keeper["id"]),
                             )
-                            self._trailing_order_stop_by_symbol.pop(symbol, None)
                         else:
                             conn.execute(
                                 """
-                                UPDATE analytics.paper_research_position_lifecycle_v1
-                                SET remaining_qty=%s, initial_qty=COALESCE(initial_qty,%s),
-                                    raw=%s, updated_at=now()
-                                WHERE id=%s
-                                """,
-                                (new_qty, new_qty, Jsonb(raw), row["id"]),
-                            )
-                    else:
-                        new_qty = delta
-                        if new_qty > 0:
-                            conn.execute(
-                                """
                                 INSERT INTO analytics.paper_research_position_lifecycle_v1
-                                    (portfolio_scope, symbol, strategy, entry_price, remaining_qty, initial_qty,
-                                     trailing_active, raw, created_at, updated_at)
-                                VALUES
-                                    (%s, %s, %s, %s, %s, %s, false, %s, now(), now())
+                                    (portfolio_scope,symbol,strategy,entry_price,remaining_qty,initial_qty,
+                                     trailing_active,current_stop,current_take_profit,raw,created_at,updated_at)
+                                VALUES (%s,%s,%s,%s,%s,%s,false,%s,%s,%s,now(),now())
                                 """,
-                                (
-                                    portfolio_scope,
-                                    symbol,
-                                    "default",
-                                    price,
-                                    new_qty,
-                                    new_qty,
-                                    Jsonb({"source": "paper_pipeline_lifecycle_on_fill_v1"}),
-                                ),
+                                (portfolio_scope,symbol,"default",projected_price,lifecycle_qty,
+                                 lifecycle_qty,planned_stop,planned_take,Jsonb(raw)),
                             )
+                    new_qty = lifecycle_qty
 
             if symbol.startswith("NG"):
                 print(
                     f"PIPE_POSITION_LIFECYCLE_ON_FILL_UPDATED symbol={symbol} "
-                    f"side={side} delta={delta} qty={new_qty}",
+                    f"side={side} fill_qty={qty} projected_qty={new_qty}",
                     flush=True,
                 )
 

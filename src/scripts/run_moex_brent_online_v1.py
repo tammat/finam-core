@@ -11,18 +11,25 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 DB=os.getenv("DATABASE_URL","postgresql:///finam_core")
 SOURCE_VERSION="MOEX_BRENT_ONLINE_V1"
 MOSCOW=ZoneInfo("Europe/Moscow")
+HTTP=requests.Session()
+HTTP.mount("https://",HTTPAdapter(max_retries=Retry(
+    total=3,connect=3,read=2,backoff_factor=0.5,
+    status_forcelist=(429,500,502,503,504),allowed_methods=frozenset({"GET"}),
+)))
 
 
 def fetch(secid:str,date_from:str,date_till:str)->list[dict[str,Any]]:
     rows=[]; start=0
     while True:
-        response=requests.get(f"https://iss.moex.com/iss/engines/futures/markets/forts/securities/{secid}/candles.json",
-            params={"from":date_from,"till":date_till,"interval":1,"start":start,"iss.meta":"off"},timeout=20)
+        response=HTTP.get(f"https://iss.moex.com/iss/engines/futures/markets/forts/securities/{secid}/candles.json",
+            params={"from":date_from,"till":date_till,"interval":1,"start":start,"iss.meta":"off"},timeout=(5,20))
         response.raise_for_status(); block=response.json().get("candles",{}); raw=block.get("data",[])
         rows.extend(dict(zip(block.get("columns",[]),item)) for item in raw)
         if len(raw)<100: break

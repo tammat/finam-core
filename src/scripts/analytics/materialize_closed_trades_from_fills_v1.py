@@ -65,6 +65,14 @@ def root_symbol_for(symbol: str, active_contract: str | None) -> str:
     return match.group(0) if match else token
 
 
+def analytical_timeframe(symbol: str, value: object) -> str:
+    """Never persist a runtime label such as LIVE as an analytical timeframe."""
+    timeframe = str(value or "").strip().upper()
+    if timeframe and timeframe != "LIVE":
+        return timeframe
+    return "M1" if str(symbol or "").upper().startswith("NG") else "M5"
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     # Русский комментарий: общие SYMBOL/SYMBOLS принадлежат торговому контуру.
@@ -523,7 +531,7 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         "exit_signal_id": exit_signal_id,
         "portfolio_scope": entry.get("portfolio_scope"),
         "exit_reason": exit_rule,
-        "timeframe": entry.get("timeframe") or "LIVE",
+        "timeframe": analytical_timeframe(symbol, entry.get("timeframe")),
         "horizon": entry.get("horizon") or "INTRADAY",
         "regime": entry_regime,
         "root_symbol": root_symbol,

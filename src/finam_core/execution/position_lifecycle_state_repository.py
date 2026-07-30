@@ -72,9 +72,13 @@ class PositionLifecycleStateRepository:
                         VALUES (
                             %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
                         )
-                        ON CONFLICT (portfolio_scope, symbol, strategy)
+                        ON CONFLICT (portfolio_scope, symbol)
                         DO UPDATE SET
-                            entry_price = COALESCE(EXCLUDED.entry_price, paper_research_position_lifecycle_v1.entry_price),
+                            entry_price = CASE
+                                WHEN COALESCE(paper_research_position_lifecycle_v1.remaining_qty,0) <= 0
+                                THEN COALESCE(EXCLUDED.entry_price, paper_research_position_lifecycle_v1.entry_price)
+                                ELSE paper_research_position_lifecycle_v1.entry_price
+                            END,
                             initial_qty = COALESCE(EXCLUDED.initial_qty, paper_research_position_lifecycle_v1.initial_qty),
                             remaining_qty = COALESCE(EXCLUDED.remaining_qty, paper_research_position_lifecycle_v1.remaining_qty),
                             tp1_done = COALESCE(EXCLUDED.tp1_done, paper_research_position_lifecycle_v1.tp1_done),
@@ -149,9 +153,8 @@ class PositionLifecycleStateRepository:
                         FROM analytics.paper_research_position_lifecycle_v1
                         WHERE portfolio_scope = %s
                           AND symbol = %s
-                          AND strategy = %s
                         """,
-                        (portfolio_scope, symbol, strategy),
+                        (portfolio_scope, symbol),
                     )
 
                     row = cur.fetchone()
@@ -202,9 +205,8 @@ class PositionLifecycleStateRepository:
                         DELETE FROM analytics.paper_research_position_lifecycle_v1
                         WHERE portfolio_scope = %s
                           AND symbol = %s
-                          AND strategy = %s
                         """,
-                        (portfolio_scope, symbol, strategy),
+                        (portfolio_scope, symbol),
                     )
                     return cur.rowcount > 0
         except Exception as exc:

@@ -901,3 +901,29 @@
   OOS consumes only events strictly after each frozen confirmation boundary.
 - Validation: 20 focused tests passed. Paper services are active; REAL remains
   disabled and no live order permission was changed.
+
+### Position, scheduler and ingestion integrity V2 — 30.07.2026
+
+- Paper lifecycle is now unique by portfolio scope and symbol and is reconciled
+  from the authoritative Fresh V5 position projection after every fill. Duplicate
+  strategy rows can no longer create excess exits or reverse a position.
+- A critical portfolio crossover was removed: Paper exits previously preferred a
+  broker average price over the isolated Paper average. Observed corruption was
+  76.9% for PLZL, 30.6% for NVTK, 19.3% for LKOH and 15.3% for SBERP. All affected
+  rows were audited and restored; current mismatch and duplicate counts are zero.
+- Every active Paper lifecycle now has entry-signal stop and target. A changed
+  position price resets stale trailing state and restores the frozen entry levels.
+- V5 analytical timeframe is normalized both at signal persistence and trade
+  materialization. The 80 original V5 signals were repaired at source; after new
+  trades the verified distribution is M5 76 / M1 8 with no `LIVE` values.
+- UI active rows are sourced from non-zero Fresh V5 projections rather than old
+  `FILLED` signals. All five active positions are shown regardless of the recent
+  event limit; hundreds of legacy ghost signals can no longer appear active.
+- The old continuous full-universe ingestion service was disabled because it
+  duplicated the one-minute V5 and five-minute equity loaders. A per-target timeout
+  now fails only when the stored target is actually stale. MOEX Brent uses bounded
+  retries and recovered successfully after a transient connection timeout.
+- CPU-heavy session edge research moved from market hours to 00:10–06:00. Its
+  duplicate cron launch and duplicate cron DB-scheduler launch were removed;
+  the governed systemd DB scheduler remains authoritative.
+- Validation: 28 focused tests passed. REAL remains disabled.
