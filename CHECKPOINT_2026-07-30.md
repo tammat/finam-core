@@ -227,3 +227,13 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - Heavy session-edge research is isolated to 00:10–06:00. Legacy cron duplicates
   for this research and the DB scheduler were removed.
 - Focused validation: 28 passed. REAL remains disabled.
+
+## Final integrity audit
+
+- Active Paper/V5 runtime has no critical or high-severity integrity gap.
+- 510 legacy ghost `FILLED` signals are audited and archived outside V5; active
+  Fresh V5 positions and fills are unchanged.
+- Final measured invariants: lifecycle mismatch 0, missing stop/take 0,
+  duplicate lifecycle 0, invalid V5 facts 0, `LIVE` timeframe 0, failed units 0.
+- OOS remains deliberately closed: 23 admissions wait for fresh future-only data,
+  with no promotion and REAL disabled.

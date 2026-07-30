@@ -927,3 +927,18 @@
   duplicate cron launch and duplicate cron DB-scheduler launch were removed;
   the governed systemd DB scheduler remains authoritative.
 - Validation: 28 focused tests passed. REAL remains disabled.
+
+### Final integrity audit — 30.07.2026
+
+- No critical or high-severity gaps remain in active Paper positions, protective
+  levels, V5 trade grain, scheduler health, database locks or UI sourcing.
+- 510 pre-V5 `FILLED` signals without a canonical closed trade were preserved in
+  an audit quarantine and changed to `ARCHIVED_LEGACY`. Current Fresh V5 fills
+  and all active projections were explicitly excluded from this cleanup.
+- Final invariants: position mismatch 0, missing protection 0, duplicate lifecycle
+  keys 0, invalid V5 trades 0, `LIVE` timeframe 0 and failed systemd units 0.
+- Key M1 lag was about 2 minutes and M5 lag about 6 minutes. RVI had no later
+  exchange print; the regime context correctly persisted `rvi_fresh=false` and
+  did not admit the stale MX+RVI Shadow branch.
+- Remaining limitations are evidence, not runtime defects: 23 hypotheses still
+  wait for fresh OOS data and no OOS promotion exists. REAL remains disabled.

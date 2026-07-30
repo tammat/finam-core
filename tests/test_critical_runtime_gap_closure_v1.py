@@ -121,3 +121,12 @@ def test_brent_online_uses_bounded_http_retries():
     assert "Retry(" in source
     assert "connect=3" in source
     assert "timeout=(5,20)" in source
+
+
+def test_legacy_filled_signals_are_quarantined_outside_v5():
+    sql = (
+        ROOT / "sql/analytics/243_legacy_filled_signal_quarantine_v1.sql"
+    ).read_text()
+    assert "LEGACY_FILLED_WITHOUT_CANONICAL_TRADE_OR_V5_SCOPE" in sql
+    assert "sf.portfolio_scope LIKE 'FRESH_V5%'" in sql
+    assert "status='ARCHIVED_LEGACY'" in sql
