@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import random
+import math
 from statistics import mean
 
 
@@ -10,6 +11,7 @@ class Bar:
     high: float
     low: float
     close: float
+    open: float | None = None
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,9 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar]) -> 
 
 def simulate_variant(*, signal_price: float, side: str, atr: float,
                      bars: list[Bar], variant: Variant,
-                     roundtrip_cost_price: float = 0.0) -> Outcome:
+                     roundtrip_cost_price: float = 0.0,
+                     tick_size: float = 0.0,
+                     stop_slippage_ticks: float = 0.0) -> Outcome:
     if signal_price <= 0 or atr <= 0 or not bars:
         return Outcome(False, None, None, "INVALID_INPUT", None)
     selected = _entry(variant.entry_mode, signal_price, side, bars)
@@ -92,9 +96,17 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
         stop_hit = bar.low <= stop if direction > 0 else bar.high >= stop
         take_hit = bar.high >= take if direction > 0 else bar.low <= take
         if stop_hit:  # conservative if both levels were inside one candle
-            exit_price, reason = stop, "TRAIL_OR_STOP"
+            opened = float(bar.open if bar.open is not None else bar.close)
+            gap_fill = min(stop, opened) if direction > 0 else max(stop, opened)
+            exit_price = gap_fill - direction * max(0.0, tick_size) * max(0.0, stop_slippage_ticks)
+            if tick_size > 0:
+                units = exit_price / tick_size
+                exit_price = (math.floor(units) if direction > 0 else math.ceil(units)) * tick_size
+            reason = "GAP_STOP" if gap_fill != stop else "TRAIL_OR_STOP"
             break
         if take_hit:
+            # A limit target receives no favourable gap improvement: assuming
+            # the exact target is more conservative and avoids phantom edge.
             exit_price, reason = take, "TAKE"
             break
         best = max(best, bar.high) if direction > 0 else min(best, bar.low)

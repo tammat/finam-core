@@ -57,6 +57,25 @@ def test_roundtrip_cost_is_deducted_from_shadow_r():
     assert out.net_r == 1.75
 
 
+def test_long_stop_gap_fills_at_open_plus_adverse_slippage():
+    variant = Variant("v", "IMMEDIATE", 1.0, 3.0)
+    out = simulate_variant(signal_price=100, side="LONG", atr=1,
+                           bars=[Bar(99, 97, 98.5, 98)], variant=variant,
+                           tick_size=0.5, stop_slippage_ticks=1)
+    assert out.reason == "GAP_STOP"
+    assert out.exit_price == 97.5
+    assert out.net_r == -2.5
+
+
+def test_short_stop_is_rounded_and_slipped_against_position():
+    variant = Variant("v", "IMMEDIATE", 1.0, 3.0)
+    out = simulate_variant(signal_price=100, side="SHORT", atr=1,
+                           bars=[Bar(102, 100, 101.5, 101.2)], variant=variant,
+                           tick_size=0.5, stop_slippage_ticks=1)
+    assert out.exit_price == 102.0
+    assert out.net_r == -2.0
+
+
 def test_small_sample_never_promotes():
     assert not evaluate_walk_forward([{"actual_r": 0, "shadow_r": 1}] * 79)["status"].startswith("READY")
 

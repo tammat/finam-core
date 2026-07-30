@@ -36,9 +36,16 @@ def test_shadow_horizon_is_independent_from_paper_exit():
     assert "SHADOW_HORIZON_BARS" in source
     assert "ts > %s\n                           ORDER BY ts LIMIT %s" in source
     assert "PARTIAL_INDEPENDENT_HORIZON" in source
-    bars_query = source[source.index('cur.execute("""SELECT high::float8'):]
+    bars_query = source[source.index('cur.execute("""SELECT open::float8'):]
     bars_query = bars_query[:bars_query.index('bars = [Bar')]
     assert 'trade["exit_ts"]' not in bars_query
+
+
+def test_shadow_execution_models_gap_tick_and_stop_slippage():
+    source = BUILDER.read_text(encoding="utf-8")
+    assert "open::float8" in source
+    assert "tick_size=economics" in source
+    assert 'SHADOW_STOP_SLIPPAGE_TICKS", "1"' in source
 
 
 def test_optimizer_ui_is_read_only_without_decision_buttons():

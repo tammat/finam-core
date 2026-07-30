@@ -61,7 +61,7 @@ def execution_economics(cursor, trade: dict) -> dict | None:
                    float(trade["entry_price"]) *
                    float(os.getenv("SHADOW_EQUITY_ROUNDTRIP_COST_BPS", "8")) / 10_000.0)
     return {
-        "qty": qty, "multiplier": multiplier,
+        "qty": qty, "multiplier": multiplier, "tick_size": tick,
         "roundtrip_cost_price": max(observed_cost_price, floor_price),
         "contract_spec_ok": not is_futures or (tick > 0 and multiplier > 0),
     }
@@ -112,12 +112,13 @@ def main() -> int:
             economics = execution_economics(cur, trade)
             if not economics:
                 continue
-            cur.execute("""SELECT high::float8,low::float8,close::float8 FROM market_bars
+            cur.execute("""SELECT open::float8,high::float8,low::float8,close::float8 FROM market_bars
                            WHERE symbol=%s AND timeframe=%s AND ts > %s
                            ORDER BY ts LIMIT %s""",
                         (trade["symbol"], SUPPORTED[strategy], trade["entry_ts"],
                          SHADOW_HORIZON_BARS[strategy]))
-            bars = [Bar(float(r["high"]),float(r["low"]),float(r["close"])) for r in cur.fetchall()]
+            bars = [Bar(float(r["high"]),float(r["low"]),float(r["close"]),float(r["open"]))
+                    for r in cur.fetchall()]
             # A partially observed horizon is allowed for accumulation but can
             # never enter selection/promotion statistics.
             horizon_complete = len(bars) == SHADOW_HORIZON_BARS[strategy]
@@ -136,7 +137,10 @@ def main() -> int:
                     actual_r = float(trade["net_pnl"]) / cash_risk
                     outcome = simulate_variant(signal_price=float(trade["entry_price"]), side=side, atr=atr,
                                                bars=bars, variant=variant,
-                                               roundtrip_cost_price=economics["roundtrip_cost_price"])
+                                               roundtrip_cost_price=economics["roundtrip_cost_price"],
+                                               tick_size=economics["tick_size"],
+                                               stop_slippage_ticks=float(os.getenv(
+                                                   "SHADOW_STOP_SLIPPAGE_TICKS", "1")))
                     rows.append({"actual_r":actual_r,
                                  "shadow_r":outcome.net_r if horizon_complete else None,
                                  "shadow_observed_r": outcome.net_r,
