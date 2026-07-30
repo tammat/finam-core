@@ -109,10 +109,26 @@ def test_paper_challenger_requires_fresh_forward_sample():
 
 
 def test_paper_challenger_can_become_champion_ready():
-    rows = [{"actual_r": -0.1, "shadow_r": 0.3}] * 30
+    rows = [{"actual_r": -0.1, "shadow_r": 0.3,
+             "regime": "range" if index < 15 else "trend"}
+            for index in range(30)]
     result = evaluate_paper_challenger(rows)
     assert result["status"] == "READY_FOR_CHAMPION_CONFIRMATION"
     assert result["expectancy_delta_r"] > 0
+
+
+def test_challenger_rejects_edge_without_regime_support():
+    rows = [{"actual_r": -0.1, "shadow_r": 0.3, "regime": "UNKNOWN"}] * 30
+    result = evaluate_paper_challenger(rows)
+    assert result["status"] == "KEEP_PAPER_CHALLENGER"
+    assert not result["checks"]["minimum_per_regime"]
+
+
+def test_challenger_penalizes_filtered_signal_coverage():
+    rows = ([{"actual_r": -0.1, "shadow_r": 0.3, "regime": "range"}] * 30
+            + [{"actual_r": 0.1, "shadow_r": None, "regime": "range"}] * 40)
+    result = evaluate_paper_challenger(rows)
+    assert not result["checks"]["candidate_signal_coverage"]
 
 
 def test_active_champion_waits_for_twenty_trades_before_soft_guard():

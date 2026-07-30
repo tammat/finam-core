@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 from statistics import mean
 
 
@@ -114,6 +115,27 @@ def max_drawdown_r(values: list[float]) -> float:
     return worst
 
 
+def bootstrap_lower_mean(values: list[float], *, confidence: float = 0.95,
+                         samples: int = 2000, seed: int = 517) -> float:
+    """Deterministic non-parametric lower bound for mean performance."""
+    if not values:
+        return float("-inf")
+    rng = random.Random(seed)
+    size = len(values)
+    estimates = sorted(mean(rng.choice(values) for _ in range(size)) for _ in range(samples))
+    index = max(0, min(len(estimates) - 1, int((1.0 - confidence) * len(estimates))))
+    return float(estimates[index])
+
+
+def regime_sample_check(rows: list[dict], *, minimum: int) -> tuple[bool, dict[str, int]]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        regime = str(row.get("regime") or "UNKNOWN").upper()
+        if regime != "UNKNOWN":
+            counts[regime] = counts.get(regime, 0) + 1
+    return bool(counts) and min(counts.values()) >= minimum, counts
+
+
 def adaptive_shadow_gate(rows: list[dict]) -> dict:
     """Choose an auditable evidence gate from signal frequency and diversity."""
     entered = [row for row in rows if row.get("shadow_r") is not None]
@@ -163,6 +185,12 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
     shadow = [float(row["shadow_r"]) for row in entered]
     actual_oos = [float(row["actual_r"]) for row in oos]
     shadow_oos = [float(row["shadow_r"]) for row in oos]
+    paired_delta = [float(row["shadow_r"]) - float(row["actual_r"]) for row in entered]
+    # 9 bounded variants are evaluated per state.  A 99.5% lower bound is a
+    # conservative family-wise guard (approximately Bonferroni 5% / 9).
+    delta_lower_bound = bootstrap_lower_mean(paired_delta, confidence=0.995)
+    regime_ok, regime_counts = regime_sample_check(entered, minimum=5)
+    coverage = len(entered) / max(len(rows), 1)
     wins = sorted((value for value in shadow if value > 0), reverse=True)
     concentration = wins[0] / sum(wins) if wins and sum(wins) else 1.0
     checks = {
@@ -174,6 +202,9 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
         "largest_win_concentration": concentration <= 0.35,
         "minimum_trading_days": gate["active_days"] >= (10 if gate["gate"] == "DIVERSE_40_10_CHALLENGER" else 5),
         "regime_diversity": gate["regimes"] >= (3 if gate["gate"] == "DIVERSE_40_10_CHALLENGER" else 2),
+        "paired_delta_familywise_lower_bound_positive": delta_lower_bound > 0,
+        "minimum_per_regime": regime_ok,
+        "candidate_signal_coverage": coverage >= 0.50,
     }
     return {
         "status": "READY_FOR_PAPER_CONFIRMATION" if all(checks.values()) else "KEEP_SHADOW",
@@ -183,6 +214,8 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
         "actual_drawdown_r": max_drawdown_r(actual),
         "shadow_drawdown_r": max_drawdown_r(shadow),
         "largest_win_concentration": concentration, "checks": checks, "adaptive_gate": gate,
+        "paired_delta_lower_995_r": delta_lower_bound,
+        "regime_counts": regime_counts, "signal_coverage": coverage,
     }
 
 
@@ -196,6 +229,10 @@ def evaluate_paper_challenger(rows: list[dict], *, min_pairs: int = 30,
     oos_size = max(min_oos, len(entered) // 5)
     actual = [float(row["actual_r"]) for row in entered]
     shadow = [float(row["shadow_r"]) for row in entered]
+    paired_delta = [s - a for s, a in zip(shadow, actual)]
+    delta_lower_bound = bootstrap_lower_mean(paired_delta, confidence=0.95)
+    regime_ok, regime_counts = regime_sample_check(entered, minimum=5)
+    coverage = len(entered) / max(len(rows), 1)
     actual_oos, shadow_oos = actual[-oos_size:], shadow[-oos_size:]
     wins = sorted((value for value in shadow if value > 0), reverse=True)
     concentration = wins[0] / sum(wins) if wins and sum(wins) else 1.0
@@ -206,6 +243,9 @@ def evaluate_paper_challenger(rows: list[dict], *, min_pairs: int = 30,
         "oos_positive": mean(shadow_oos) > 0,
         "oos_improvement": mean(shadow_oos) > mean(actual_oos),
         "concentration_ok": concentration <= 0.35,
+        "paired_delta_lower_bound_positive": delta_lower_bound > 0,
+        "minimum_per_regime": regime_ok,
+        "candidate_signal_coverage": coverage >= 0.50,
     }
     return {
         "status": "READY_FOR_CHAMPION_CONFIRMATION" if all(checks.values()) else "KEEP_PAPER_CHALLENGER",
@@ -216,6 +256,8 @@ def evaluate_paper_challenger(rows: list[dict], *, min_pairs: int = 30,
         "actual_drawdown_r": max_drawdown_r(actual),
         "challenger_drawdown_r": max_drawdown_r(shadow),
         "largest_win_concentration": concentration, "checks": checks,
+        "paired_delta_lower_95_r": delta_lower_bound,
+        "regime_counts": regime_counts, "signal_coverage": coverage,
     }
 
 
