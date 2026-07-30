@@ -22,6 +22,11 @@ def test_oos_admission_requires_v5_cost_pass() -> None:
     assert '"fresh_cohort": "FRESH_V5_CONFIRM"' in source
     assert '"v5_closed_trades": v5_trades' in source
     assert "fresh_v5_early_loss_quarantine_v1" in source
+    assert '"policy": "PURGED_EMBARGO_V5_V1"' in source
+    assert '"future_data_only": True' in source
+    assert '"purge_before_ts"' in source
+    assert '"confirmation_after_ts"' in source
+    assert "max_holding_seconds" in source
     assert 'if bool(row["early_quarantined"])' in source
 
 

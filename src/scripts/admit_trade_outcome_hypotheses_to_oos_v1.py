@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import timedelta
 
 import psycopg2
 import psycopg2.extras
@@ -28,6 +29,8 @@ def main() -> int:
                        c.trades AS v5_trades,c.net_expectancy,c.net_profit_factor,
                        c.execution_cost,c.admission_status AS cost_admission_status,
                        c.reason_code AS cost_reason_code,
+                       c.last_trade_at AS v5_last_trade_at,
+                       coalesce(t.max_holding_seconds,60) AS v5_max_holding_seconds,
                        coalesce(q.quarantined,false) AS early_quarantined,
                        q.quarantine_reason_code
                 FROM analytics.trade_outcome_hypothesis_v1 h
@@ -53,6 +56,15 @@ def main() -> int:
                     ORDER BY g.trades DESC,g.last_trade_at DESC
                     LIMIT 1
                 ) c ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT greatest(60,ceil(max(extract(epoch FROM (v.exit_ts-v.entry_ts)))))::integer
+                           AS max_holding_seconds
+                    FROM analytics.closed_trades_fresh_v5_confirmed v
+                    WHERE v.portfolio_scope=c.portfolio_scope
+                      AND v.symbol=c.symbol
+                      AND coalesce(nullif(v.strategy,''),'UNASSIGNED')=c.strategy_code
+                      AND upper(coalesce(nullif(v.side,''),'UNKNOWN'))=c.side_code
+                ) t ON TRUE
                 LEFT JOIN analytics.fresh_v5_early_loss_quarantine_v1 q
                   ON q.portfolio_scope=c.portfolio_scope
                  AND q.symbol=c.symbol
@@ -70,6 +82,12 @@ def main() -> int:
                 micro = float(row["microstructure_coverage_ratio"] or 0)
                 v5_trades = int(row["v5_trades"] or 0)
                 cost_status = str(row["cost_admission_status"] or "WAITING_SAMPLE")
+                purge_before = row["v5_last_trade_at"]
+                embargo_seconds = max(60, int(row["v5_max_holding_seconds"] or 60))
+                confirmation_after = (
+                    purge_before + timedelta(seconds=embargo_seconds)
+                    if purge_before is not None else None
+                )
                 if bool(row["early_quarantined"]):
                     status, reason = "REJECTED_COSTS", str(
                         row["quarantine_reason_code"] or "EARLY_NEGATIVE_AFTER_COSTS"
@@ -100,6 +118,13 @@ def main() -> int:
                     "net_profit_factor": float(row["net_profit_factor"] or 0),
                     "execution_cost": float(row["execution_cost"] or 0),
                     "cost_admission_status": cost_status,
+                    "temporal_isolation": {
+                        "policy": "PURGED_EMBARGO_V5_V1",
+                        "future_data_only": True,
+                        "purge_before_ts": purge_before.isoformat() if purge_before else None,
+                        "embargo_seconds": embargo_seconds,
+                        "confirmation_after_ts": confirmation_after.isoformat() if confirmation_after else None,
+                    },
                     "context_coverage_pct": round(context_coverage * 100, 2),
                     "microstructure_coverage_pct": round(micro * 100, 2),
                     "promotion_allowed": False,
