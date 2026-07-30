@@ -60,6 +60,7 @@ EXECUTORS = {
     "V5_PURGED_OOS_WORKER_V1": "src/scripts/run_v5_purged_oos_worker_v1.py",
     "MX_INDEX_SHADOW_OBSERVER_V1": "src/scripts/build_mx_index_shadow_observer_v1.py",
     "RVI_REGIME_FEATURE_V1": "src/scripts/build_rvi_regime_feature_v1.py",
+    "MARKET_REGIME_CONTEXT_V1": "src/scripts/build_market_regime_context_v1.py",
 }
 
 

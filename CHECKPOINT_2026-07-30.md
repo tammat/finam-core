@@ -159,3 +159,13 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
   disabled and replaced by a separate Shadow table and governed observer.
 - Migrations: `235_mx_index_shadow_onboarding_v1.sql`,
   `236_rvi_shadow_feature_onboarding_v1.sql`. Focused tests: 14 passed.
+
+## Market regime context V1
+
+- Completed MX/RVI bars are frozen into `market_regime_context_v1` before a
+  signal can consume them; post-entry context cannot rewrite the snapshot.
+- Three paired Shadow variants are stored per parent signal: baseline, MX-only
+  and MX+RVI. Decisions and risk multipliers remain advisory and cannot trade.
+- Initial state: MX UP / RVI LOW_VOL / RISK_ON; 66 variants for 22 source signals.
+- Control UI includes regime cards and recent Shadow variants. Migration:
+  `237_market_regime_context_v1.sql`; renderer/resolver integration passed.

@@ -490,6 +490,48 @@ def _compact_state_section(snapshot, raw_process_status):
         ))
 
 
+def _market_regime_section(snapshot):
+    context = snapshot.get("market_regime_context") or {}
+    variants = snapshot.get("market_regime_shadow_variants") or ()
+    if not context:
+        return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.market_regime", children=(
+            _leaf(RenderNodeTypeV2.TITLE, "control.v3.market_regime.title", "Состояние рынка", level="SECTION"),
+            _leaf(RenderNodeTypeV2.TEXT, "control.v3.market_regime.waiting", "Ожидаются синхронные MX и RVI данные"),
+        ))
+    cards = RenderNodeV2(RenderNodeTypeV2.GRID, "control.v3.market_regime.cards", children=(
+        _card("mx_regime", "Индекс МосБиржи", context.get("mx_trend"),
+              f"Сила {float(context.get('mx_strength') or 0):.2f}", "OK"),
+        _card("rvi_regime", "RVI", context.get("rvi_regime"),
+              f"{context.get('rvi_value')} · {context.get('rvi_direction')}",
+              "WARNING" if context.get("rvi_regime") == "HIGH_VOL" else "OK"),
+        _card("combined_regime", "Общий режим", context.get("market_regime"),
+              "Только Shadow-рекомендации", "WARNING" if context.get("market_regime") in {"STRESS","RISK_OFF"} else "OK"),
+    ))
+    columns = ("Инструмент", "Направление", "Вариант", "Решение", "Размер")
+    header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.market_regime.header", children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.market_regime.header.{i}", label)
+        for i,label in enumerate(columns, start=1)))
+    rows = []
+    for index,item in enumerate(variants, start=1):
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, f"control.v3.market_regime.row.{index}",
+            state=RenderNodeStateV2(status_code="OK" if item.get("decision_code")=="INCLUDE" else "WARNING"), children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.market_regime.row.{index}.symbol", item.get("symbol")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.market_regime.row.{index}.side", item.get("side")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.market_regime.row.{index}.variant", item.get("variant_code")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.market_regime.row.{index}.decision", item.get("decision_code")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.market_regime.row.{index}.risk",
+                      f"{float(item.get('risk_multiplier') or 0)*100:.0f}%"),
+            )))
+    table = RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.market_regime.table", children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.market_regime.head", children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.market_regime.body", children=tuple(rows)),
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.market_regime", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.market_regime.title", "Состояние рынка и Shadow-варианты", level="SECTION"),
+        cards,table,
+    ))
+
+
 def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", document_id="operator.control.v3"):
     process = snapshot["process"]
     raw_process_status = str(process.get("status_code") or "").upper()
@@ -517,6 +559,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
               "Поиск устойчивого преимущества · без реальных сделок"),
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
         _compact_state_section(snapshot, raw_process_status),
+        _market_regime_section(snapshot),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
         _multi_asset_section(snapshot.get("asset_branches") or (),
                              snapshot.get("cny_spot_controls") or ()),

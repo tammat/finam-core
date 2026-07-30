@@ -442,6 +442,15 @@ class ControlCompactV3Resolver:
                 """)
                 entry_exit_recommendations = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""SELECT * FROM analytics.market_regime_context_v1
+                    ORDER BY context_ts DESC LIMIT 1""")
+                market_regime_context = dict(cursor.fetchone() or {})
+                cursor.execute("""SELECT parent_signal_id,symbol,strategy,side,signal_ts,
+                    variant_code,decision_code,risk_multiplier,reason_code,market_context
+                    FROM analytics.market_regime_shadow_variant_v1
+                    ORDER BY signal_ts DESC,id DESC LIMIT 18""")
+                market_regime_shadow_variants = [dict(row) for row in cursor.fetchall()]
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -516,4 +525,6 @@ class ControlCompactV3Resolver:
             "universe_summary": universe_summary,
             "recent_trade_events": recent_trade_events,
             "entry_exit_recommendations": entry_exit_recommendations,
+            "market_regime_context": market_regime_context,
+            "market_regime_shadow_variants": market_regime_shadow_variants,
         }

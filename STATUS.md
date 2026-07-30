@@ -824,3 +824,18 @@
   valid breakout, which is an expected no-signal result rather than an error.
 - Governed jobs `MX_INDEX_SHADOW_OBSERVER` and `RVI_REGIME_FEATURE` run every five
   minutes. Focused validation: 14 tests passed; orders/fills changed: 0.
+
+### Market regime context and paired Shadow variants — 30.07.2026
+
+- Added a frozen pre-entry market snapshot sourced only from completed MX M5 and
+  RVI M1 observations: MX direction/strength, RVI level/percentile/direction and
+  combined RISK_ON/RISK_OFF/RANGE/STRESS state.
+- Each eligible source signal receives three records sharing one parent identity:
+  BASELINE, MX_FILTERED and MX_RVI_FILTERED. They are advisory Shadow decisions;
+  Paper/REAL execution and the source signal payload are not mutated.
+- Influence is strong for equities/index, moderate for FX and weak for commodities.
+  Breakout and mean-reversion branches use different RVI compatibility rules.
+- Initial real snapshot: MX UP strength 1.00, RVI LOW_VOL, combined RISK_ON. 22
+  source signals produced 66 paired variants.
+- UI Control now displays the market regime cards and a compact recent Shadow
+  variants table. Resolver and RenderTree validation passed.
