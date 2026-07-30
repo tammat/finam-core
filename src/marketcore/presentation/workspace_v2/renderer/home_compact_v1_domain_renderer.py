@@ -313,7 +313,8 @@ def _optimizer_section(snapshot):
         gate = metrics.get("adaptive_gate") or {}
         required_pairs = int(gate.get("min_pairs") or 80)
         required_oos = int(gate.get("min_oos") or 20)
-        gate_name = "редкий поток 60/15" if gate.get("gate") == "SPARSE_60_15" else "стандарт 80/20"
+        gate_name = ("расширенный период 40/10 → Challenger"
+                     if gate.get("gate") == "DIVERSE_40_10_CHALLENGER" else "intraday 60/15")
         coverage = (f"{int(gate.get('active_days') or 0)} торговых дней, "
                     f"{int(gate.get('regimes') or 0)} режима(ов)")
         if active:
@@ -347,6 +348,8 @@ def _optimizer_section(snapshot):
         else:
             status_text = (f"Shadow · {gate_name}: {pairs} из {required_pairs} независимых пар; "
                            f"OOS {oos} из {required_oos}; покрытие: {coverage}.")
+            if metrics.get("oos_provisional"):
+                status_text += " OOS пока предварительный и не разрешает продвижение."
             if challenger_status == "SHADOW_EARLY_EVIDENCE" or pairs >= 40:
                 status_text += " Предварительные данные есть, но продвижение ещё запрещено."
         stop_text = f"{float(item.get('stop_atr') or 0):.1f}".replace(".", ",")

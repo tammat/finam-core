@@ -100,6 +100,11 @@ def main() -> int:
                 metrics = evaluate_walk_forward(rows)
                 candidate_results.append((variant, metrics, rows))
                 oos = int(metrics.get("oos_pairs") or 0)
+                all_ids = [int(item[0]["id"]) for item in trades]
+                if all_ids:
+                    cur.execute("""UPDATE analytics.entry_exit_shadow_pair_v1 SET is_oos=false
+                                   WHERE candidate_code=%s AND trade_id=ANY(%s)""",
+                                (variant.code, all_ids))
                 if oos:
                     ids = [int(item[0]["id"]) for item in trades[-oos:]]
                     cur.execute("""UPDATE analytics.entry_exit_shadow_pair_v1 SET is_oos=true

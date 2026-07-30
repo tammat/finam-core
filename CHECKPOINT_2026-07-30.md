@@ -80,10 +80,12 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 
 ## Automatic Paper lifecycle (fixed)
 
-1. Shadow admission is adaptive: 40/10 is visibility only; standard promotion
-   requires 80/20 plus 10 active days and two regimes. A sparse stream can use
-   60/15 only after 15 active days, a 28-day span and three regimes. Repeated
-   same-direction signals within 30 minutes count as one independent observation.
+1. Intraday Shadow admission is adaptive: standard promotion requires 60/15,
+   five active days and two regimes. A broad 10-day/three-regime history may
+   enter Challenger at 40/10, but still must pass the separate 30/10 forward
+   comparison before Champion. Repeated same-direction signals within 30 minutes
+   count once. A provisional chronological 25% OOS reserve is shown from the
+   first observations but cannot promote a candidate on its own.
 2. Paper Challenger: 30 new paired trades, including 10 OOS, and expectancy gain
    of at least +0.05R versus the current Paper Champion.
 3. Champion: promoted automatically in Paper only; REAL remains disabled.

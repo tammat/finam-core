@@ -119,14 +119,17 @@ def adaptive_shadow_gate(rows: list[dict]) -> dict:
         span_days = (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1
     active_days = len(dates)
     frequency = len(entered) / max(active_days, 1)
-    # Sparse signals may use 60/15 only after broader temporal and regime coverage.
-    # Otherwise the conservative 80/20 gate remains. 40/10 is visibility only.
-    sparse_qualified = frequency < 2.0 and span_days >= 28 and active_days >= 15 and len(regimes) >= 3
-    min_pairs, min_oos = (60, 15) if sparse_qualified else (80, 20)
-    confidence = "HIGH" if len(entered) >= 120 and min(30, len(entered) // 5) >= 30 else (
+    # Intraday default: 60/15 across at least five active days and two regimes.
+    # A long-observed stream may enter Challenger at 40/10, but still needs the
+    # separate 30/10 forward phase before it can become Champion.
+    early_qualified = active_days >= 10 and span_days >= 14 and len(regimes) >= 3
+    min_pairs, min_oos = (40, 10) if early_qualified else (60, 15)
+    gate_name = "DIVERSE_40_10_CHALLENGER" if early_qualified else "INTRADAY_60_15"
+    high_confidence = len(entered) >= 120 and active_days >= 10 and len(regimes) >= 3
+    confidence = "HIGH" if high_confidence else (
         "STANDARD" if len(entered) >= min_pairs else "EARLY" if len(entered) >= 40 else "ACCUMULATING")
     return {
-        "min_pairs": min_pairs, "min_oos": min_oos, "gate": "SPARSE_60_15" if sparse_qualified else "STANDARD_80_20",
+        "min_pairs": min_pairs, "min_oos": min_oos, "gate": gate_name,
         "pairs": len(entered), "active_days": active_days, "span_days": span_days,
         "regimes": len(regimes), "signals_per_active_day": frequency, "confidence": confidence,
         "early_evidence_pairs": 40, "early_evidence_oos": 10,
@@ -142,8 +145,10 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
     min_oos = int(min_oos if min_oos is not None else gate["min_oos"])
     if len(entered) < min_pairs:
         early = len(entered) >= 40
+        provisional_oos = min(min_oos, len(entered) // 4)
         return {"status": "SHADOW_EARLY_EVIDENCE" if early else "SHADOW_ACCUMULATION",
-                "pairs": len(entered), "oos_pairs": min(10, len(entered) // 5) if early else 0,
+                "pairs": len(entered), "oos_pairs": provisional_oos,
+                "oos_provisional": True,
                 "reason": f"requires paired trades>={min_pairs}", "adaptive_gate": gate}
     oos_size = max(min_oos, len(entered) // 5)
     oos = entered[-oos_size:]
@@ -160,8 +165,8 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
         "oos_positive": mean(shadow_oos) > 0,
         "oos_better": mean(shadow_oos) > mean(actual_oos),
         "largest_win_concentration": concentration <= 0.35,
-        "minimum_trading_days": gate["active_days"] >= (15 if gate["gate"] == "SPARSE_60_15" else 10),
-        "regime_diversity": gate["regimes"] >= (3 if gate["gate"] == "SPARSE_60_15" else 2),
+        "minimum_trading_days": gate["active_days"] >= (10 if gate["gate"] == "DIVERSE_40_10_CHALLENGER" else 5),
+        "regime_diversity": gate["regimes"] >= (3 if gate["gate"] == "DIVERSE_40_10_CHALLENGER" else 2),
     }
     return {
         "status": "READY_FOR_PAPER_CONFIRMATION" if all(checks.values()) else "KEEP_SHADOW",

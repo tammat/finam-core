@@ -30,28 +30,36 @@ def test_small_sample_never_promotes():
 def test_forty_pairs_are_early_evidence_only():
     result = evaluate_walk_forward([{"actual_r": -0.1, "shadow_r": 0.2}] * 40)
     assert result["status"] == "SHADOW_EARLY_EVIDENCE"
-    assert result["adaptive_gate"]["min_pairs"] == 80
+    assert result["adaptive_gate"]["min_pairs"] == 60
 
 
-def test_sparse_diverse_history_uses_sixty_fifteen_gate():
+def test_oos_reserve_accumulates_before_full_gate():
+    result = evaluate_walk_forward([{"actual_r": -0.1, "shadow_r": 0.2}] * 9)
+    assert result["oos_pairs"] == 2
+    assert result["oos_provisional"] is True
+    assert result["status"] == "SHADOW_ACCUMULATION"
+
+
+def test_diverse_long_history_can_enter_challenger_at_forty_ten():
     from datetime import date, timedelta
     start = date(2026, 1, 1)
     rows = [{"actual_r": -0.1, "shadow_r": 0.2,
              "trade_date": (start + timedelta(days=index % 40)).isoformat(),
              "regime": ("range", "trend_up", "trend_down")[index % 3]}
-            for index in range(60)]
+            for index in range(40)]
     gate = adaptive_shadow_gate(rows)
-    assert gate["gate"] == "SPARSE_60_15"
+    assert gate["gate"] == "DIVERSE_40_10_CHALLENGER"
     result = evaluate_walk_forward(rows)
     assert result["status"] == "READY_FOR_PAPER_CONFIRMATION"
-    assert result["oos_pairs"] == 15
+    assert result["oos_pairs"] == 10
 
 
 def test_standard_gate_requires_time_and_regime_diversity():
     rows = [{"actual_r": -0.1, "shadow_r": 0.2,
-             "trade_date": f"2026-01-{index % 10 + 1:02d}",
+             "trade_date": f"2026-01-{index % 5 + 1:02d}",
              "regime": "range" if index % 2 else "trend_up"}
-            for index in range(80)]
+            for index in range(60)]
+    assert adaptive_shadow_gate(rows)["gate"] == "INTRADAY_60_15"
     assert evaluate_walk_forward(rows)["status"] == "READY_FOR_PAPER_CONFIRMATION"
 
 
