@@ -942,3 +942,24 @@
   did not admit the stale MX+RVI Shadow branch.
 - Remaining limitations are evidence, not runtime defects: 23 hypotheses still
   wait for fresh OOS data and no OOS promotion exists. REAL remains disabled.
+
+### Adaptive V5 Shadow entry and decision audit — 30.07.2026
+
+- `ADAPTIVE_ENTRY` is connected to all 13 supported V5 strategy/symbol/side
+  states as a Shadow-only candidate. It chooses `IMMEDIATE`, `CONFIRM_1`,
+  `RETEST_3` or `SKIP`; no adaptive Paper profile is active and REAL is unchanged.
+- Routing uses only bars completed before the signal: volatility percentile,
+  relative volume, market regime and conservative round-trip cost relative to
+  ATR. Range mean-reversion may wait for a retest; range breakouts fail closed.
+- Adaptive retest accepts a 0.2 ATR level zone and rejects a signal after a 0.7
+  ATR runaway. A candle containing both events is rejected because its intrabar
+  ordering is unknowable.
+- Every candidate decision persists its route, exact reason and pre-entry context.
+  The first audited rebuild contains 243 candidate decisions: 14 immediate,
+  12 confirmation, 32 retest and 185 skip; missing reason/context counts are zero.
+- The compact UI reports adaptive accumulation and the route distribution for
+  each state. Current evidence remains preliminary: 39 candidates, 13 states,
+  28 entered pairs and zero confirmed OOS pairs. Promotion remains blocked until
+  the governed 60/15 Shadow and subsequent 30/10 forward gates are satisfied.
+- Validation: 48 focused optimizer, promotion and integrity tests passed. UI is
+  active after reload. Commits: `10ce2783`, `3116f8e9`.
