@@ -50,12 +50,14 @@ def variant_decision(variant: str, signal: dict, context: dict) -> tuple[str, De
     aligned = (side in {"BUY","LONG"} and mx == "UP") or (side in {"SELL","SHORT"} and mx == "DOWN")
     influence = asset_influence(str(signal.get("symbol") or ""))
     if influence == "WEAK":
-        aligned = True
+        return "INCLUDE", Decimal("1"), "MARKET_CONTEXT_ADVISORY_WEAK_INFLUENCE"
     if not aligned:
         return "SKIP", Decimal("0"), "MX_DIRECTION_NOT_CONFIRMED"
     if variant == "MX_FILTERED":
         return "INCLUDE", Decimal("0.85" if influence == "STRONG" else "1"), "MX_DIRECTION_CONFIRMED"
-    mean_reversion = any(code in strategy for code in ("MEAN","VWAP","MR","RANGE"))
+    if not context.get("rvi_fresh", True):
+        return "SKIP", Decimal("0"), "RVI_STALE"
+    mean_reversion = any(code in strategy for code in ("MEAN_REVERSION","VWAP_BANDS","_MR","RANGE_"))
     rvi = context["rvi_regime"]
     allowed = rvi in ({"LOW_VOL","NORMAL_VOL"} if mean_reversion else {"NORMAL_VOL","HIGH_VOL"})
     if not allowed:

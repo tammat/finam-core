@@ -169,3 +169,16 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - Initial state: MX UP / RVI LOW_VOL / RISK_ON; 66 variants for 22 source signals.
 - Control UI includes regime cards and recent Shadow variants. Migration:
   `237_market_regime_context_v1.sql`; renderer/resolver integration passed.
+
+## Market regime integrity V2
+
+- Market context is now causal: completed MX M5 is derived from M1 and RVI must
+  have completed before the context timestamp. Freshness is persisted explicitly.
+- Stale RVI degrades only the MX+RVI Shadow variant (`RVI_STALE`); stale MX blocks
+  the context. Only accepted/filled `FRESH_V5` Paper entries can be observed.
+- Shadow variants now have auditable close-only outcomes and net P&L after a
+  conservative two-tick execution cost. They cannot place or modify orders.
+- Contaminated baseline archived in cleanup audit: 1 context and 66 variants;
+  valid V2 collection restarted at zero.
+- Scheduler priority is RVI 60, context V2 61, MX observer 62. Latest verified
+  V2 context was causal and fresh at 10:45 MSK. Focused tests: 19 passed.

@@ -839,3 +839,25 @@
   source signals produced 66 paired variants.
 - UI Control now displays the market regime cards and a compact recent Shadow
   variants table. Resolver and RenderTree validation passed.
+
+### Market regime integrity V2 — 30.07.2026
+
+- Removed the causal violation where a context could consume an RVI bar that was
+  not complete at the context boundary. Context time is now the close of a
+  completed MX five-minute bucket derived from fresh M1 observations.
+- Replaced stale physical MX M5 consumption with completed M5 aggregation from
+  M1 (minimum three source observations). MX older than ten minutes fails closed.
+- RVI older than thirty minutes is explicitly marked stale. MX context remains
+  available, but the MX+RVI variant is skipped with `RVI_STALE`; stale volatility
+  can no longer influence filtering.
+- Source eligibility is restricted to accepted/filled `FRESH_V5` Paper entries.
+  Future Paper signals persist their resolved portfolio scope at creation.
+- Shadow outcomes use only later M1 closes, include a conservative two-tick cost,
+  and store entry, exit, stop/target, gross, costs and net P&L. Intrabar high/low
+  ordering is not assumed.
+- The 66 contaminated V1 variants and one context were removed after their counts
+  and reason were saved in `market_regime_cleanup_audit_v2`. New valid variants
+  start from zero; Paper positions and REAL permissions were unchanged.
+- Governed order is RVI (60), context V2 (61), MX observer (62). Latest verified
+  context: 10:45 MSK, MX bar 10:40, causal RVI 10:37, `rvi_fresh=true`.
+- Validation: 19 focused tests passed. Migrations: 238 and 239.

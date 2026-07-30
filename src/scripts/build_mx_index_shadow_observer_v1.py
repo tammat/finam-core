@@ -33,9 +33,14 @@ def breakout(prior: list[dict], current: dict) -> tuple[str, Decimal, Decimal] |
 def main() -> int:
     with psycopg2.connect(DB) as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-            cursor.execute("""SELECT ts,open,high,low,close FROM market_bars
-                WHERE symbol=%s AND timeframe='M5'
-                  AND ts < date_trunc('minute',clock_timestamp())-interval '5 minutes'
+            cursor.execute("""WITH buckets AS (
+                SELECT date_bin(interval '5 minutes',ts,timestamptz '2001-01-01') ts,
+                       (array_agg(open ORDER BY ts))[1] open,max(high) high,min(low) low,
+                       (array_agg(close ORDER BY ts DESC))[1] close,count(*) n
+                FROM market_bars WHERE symbol=%s AND timeframe='M1'
+                  AND ts < date_trunc('minute',clock_timestamp()) GROUP BY 1)
+                SELECT ts,open,high,low,close FROM buckets
+                WHERE n>=3 AND ts+interval '5 minutes'<=clock_timestamp()
                 ORDER BY ts DESC LIMIT 61""", (SYMBOL,))
             bars = list(reversed(cursor.fetchall()))
             if len(bars) < 21:
@@ -48,7 +53,8 @@ def main() -> int:
                 return 0
             side, stop, take = decision
             cursor.execute("""SELECT regime_code FROM analytics.rvi_regime_state_v1
-                ORDER BY bar_ts DESC LIMIT 1""")
+                WHERE bar_ts+interval '1 minute'<=%s+interval '5 minutes'
+                ORDER BY bar_ts DESC LIMIT 1""", (current["ts"],))
             rvi = cursor.fetchone()
             cursor.execute("""INSERT INTO analytics.mx_index_shadow_signal_v1(
                 symbol,signal_ts,side,entry_price,stop_price,take_price,entry_reason,

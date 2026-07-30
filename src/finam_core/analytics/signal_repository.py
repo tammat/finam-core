@@ -76,7 +76,13 @@ class SignalRepository:
                     payload
                 )
                 VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s::jsonb || CASE
+                      WHEN coalesce(%s::jsonb->>'portfolio_scope','')='' THEN
+                        jsonb_build_object(
+                          'portfolio_scope',analytics.resolve_paper_portfolio_scope_v1(%s,'paper'),
+                          'execution_type','paper')
+                      ELSE '{}'::jsonb END
                 )
                 ON CONFLICT (signal_id) DO NOTHING
                 """,
@@ -95,6 +101,8 @@ class SignalRepository:
                     intent.get("confidence"),
                     intent.get("status", "NEW"),
                     json.dumps(intent, ensure_ascii=False, default=str),
+                    json.dumps(intent, ensure_ascii=False, default=str),
+                    intent.get("symbol"),
                 ),
                 )
             conn.commit()
