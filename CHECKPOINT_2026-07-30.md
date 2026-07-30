@@ -124,3 +124,11 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - Operational truth at checkpoint: V5 closed trades 56; exact V5 contexts 42;
   OOS admissions waiting for fresh data 23; V5 OOS runs 0; OOS PASS 0;
   automatic REAL promotion is absent and REAL trading remains disabled.
+- Debt-closure checkpoint: V5 OOS input is physically restricted to Paper V5,
+  frozen cost admission V2 is active, exact-context training freeze is installed,
+  historical pre-purging results are quarantined from promotion, and all known
+  active plus legacy temporal splits have an explicit purging/embargo contract.
+- Transactional DB integration test passed without persistent synthetic rows:
+  production `v5_oos_run_v1=0`, audit observations `=0` after rollback.
+- Tests at this checkpoint: 67 passed. All primary services remained active;
+  no orders, fills, Paper profiles or REAL permissions were changed.

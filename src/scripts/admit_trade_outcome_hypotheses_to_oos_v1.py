@@ -46,7 +46,7 @@ def main() -> int:
                 ) m ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT g.*
-                    FROM analytics.fresh_v5_cost_admission_guard_v1 g
+                    FROM analytics.fresh_v5_frozen_cost_admission_guard_v2 g
                     WHERE (h.symbol IS NULL OR g.symbol=h.symbol)
                       AND g.strategy_code=h.strategy_code
                       AND upper(g.side_code)=upper(h.side_code)

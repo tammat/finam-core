@@ -4,6 +4,7 @@ import json
 import os
 import statistics
 import uuid
+from datetime import timedelta
 
 import psycopg2
 import psycopg2.extras
@@ -39,15 +40,19 @@ def main():
           WHERE symbol='BR_ROLLING@RTSX' AND timeframe='D1' AND ts<%s ORDER BY ts""",(h["final_oos_start"],))
         bars=cur.fetchall(); lookback=int(h["parameter_json"]["lookback"]); hold=int(h["parameter_json"]["holding_bars"])
         rows=[]; clean=[]
+        next_entry_index=0
         for i in range(lookback,len(bars)-hold-1):
+            if i<next_entry_index: continue
             if float(bars[i]["close"])/float(bars[i-lookback]["close"])-1<=0: continue
             entry=i+1; exit_i=entry+hold
             pnl=(float(bars[exit_i]["open"])/float(bars[entry]["open"])-1)*10000-8.0
             item=(bars[entry]["ts"],pnl,bars[exit_i]["ts"])
             rows.append(item)
+            next_entry_index=exit_i
             crosses=any(bars[entry]["ts"].date()<=d<=bars[exit_i]["ts"].date() for d in roll_dates)
             if not crosses: clean.append(item)
-        def period(data,left,right): return [r for r in data if left<=r[0]<right]
+        embargo=timedelta(days=max(1,hold))
+        def period(data,left,right): return [r for r in data if left+embargo<=r[0] and r[2]<right]
         selection=period(rows,h["train_end"],h["selection_end"]); validation=period(rows,h["selection_end"],h["final_oos_start"])
         clean_selection=period(clean,h["train_end"],h["selection_end"]); clean_validation=period(clean,h["selection_end"],h["final_oos_start"])
         mid=h["selection_end"]+(h["final_oos_start"]-h["selection_end"])/2

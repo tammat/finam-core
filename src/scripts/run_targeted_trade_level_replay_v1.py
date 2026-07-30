@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import statistics
 import uuid
+from datetime import timedelta
 
 import psycopg2
 import psycopg2.extras
@@ -12,6 +13,7 @@ from scripts.build_strategy_execution_runner_v1 import Bar, build_trades
 from scripts.run_relative_strength_parameter_adapter_v2 import TARGETS, build_rows
 from scripts.run_intermarket_lead_lag_parameter_adapter_v2 import RELATIONSHIPS, relationship_rows
 from scripts.run_strategy_hypothesis_execution_pipeline_v2 import STRATEGY_CODES, normalized_params
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -75,8 +77,9 @@ def main() -> None:
                     normalized.update({"commission": price_cost, "slippage": 0.0})
                     lookback = normalized["lookback"]
                     run = {"strategy_code": STRATEGY_CODES[family], "parameter_json": normalized}
-                    trades = [trade for trade in build_trades(run, price_bars[validation_end-lookback:])
-                              if trade.entry_ts >= price_bars[validation_end].ts]
+                    start,stop,_=purged_bar_window(price_bars,start=validation_end,end=len(price_bars),parameters=normalized)
+                    trades=trades_in_purged_window(
+                        build_trades(run,price_bars[validation_end-lookback:]),start_ts=start,end_ts=stop)
                     direction = params.get("direction")
                     if direction:
                         side = "BUY" if direction == "LONG" else "SELL"
@@ -87,7 +90,8 @@ def main() -> None:
                     rows = build_rows(series, str(params["benchmark"]), params)
                     entry_times = sorted({row[0] for row in rows})
                     oos_start = entry_times[int(len(entry_times) * 0.75)]
-                    net_values = [row[2] for row in rows if row[0] >= oos_start]
+                    embargo=timedelta(minutes=5*int(params["holding_bars"]))
+                    net_values = [row[2] for row in rows if row[0] >= oos_start+embargo]
                     gross_values = [value + 8.0 for value in net_values]
                 else:
                     for source_symbol, target_symbol, direction in RELATIONSHIPS:
@@ -95,7 +99,8 @@ def main() -> None:
                         if len(timestamps) < 100:
                             continue
                         oos_start = timestamps[int(len(timestamps) * 0.75)]
-                        values = [row[2] for row in rows if row[0] >= oos_start]
+                        embargo=timedelta(minutes=5*int(params["holding_bars"]))
+                        values = [row[2] for row in rows if row[0] >= oos_start+embargo]
                         net_values.extend(values)
                         gross_values.extend(value + 8.0 for value in values)
                 trades, gross_pf, gross_exp = metric(gross_values)

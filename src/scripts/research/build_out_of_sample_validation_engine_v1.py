@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +26,9 @@ import psycopg2.extras
 
 def db_url() -> str:
     return os.getenv("DATABASE_URL", "postgresql:///finam_core")
+
+
+LEGACY_OOS_EMBARGO_SECONDS = int(os.getenv("LEGACY_OOS_EMBARGO_SECONDS", "86400"))
 
 
 def one(cur, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
@@ -148,8 +152,10 @@ def build_oos_dataset(cur, report: dict[str, Any]) -> None:
           AND ctx.instrument_signature=s.instrument_signature
           AND ctx.fx_signature=s.fx_signature
           AND ctx.energy_signature=s.energy_signature
-          AND ct.exit_ts > s.last_trade
-    """, (scorecard_id,))
+          AND ct.entry_ts > s.last_trade + (%s * interval '1 second')
+          AND ct.exit_ts > ct.entry_ts
+          AND coalesce(ct.trade_source,'') IN ('paper','research')
+    """, (scorecard_id,LEGACY_OOS_EMBARGO_SECONDS))
 
 
 def compute_oos(cur) -> dict[str, Any]:

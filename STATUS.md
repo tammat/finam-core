@@ -762,3 +762,28 @@
   correctly processed zero admissions and created zero artificial OOS outcomes.
 - Validation: 41 focused tests passed; production analytical refresh completed;
   REAL remains disabled and confirmed OOS PASS remains zero.
+
+### Temporal-isolation debt closure — 30.07.2026
+
+- V5 OOS accepts only `trade_source=paper` rows whose physical scope and payload
+  cohort are both `FRESH_V5%`; legacy, research, real and mismatched rows are
+  rejected before evaluation.
+- All audit outcomes are reachable and tested: pre-boundary, embargo/overlap,
+  context mismatch, global reuse and included future-only observation.
+- Added an independently owned frozen cost guard V2. Admission no longer depends
+  on the mutable legacy V5 cost view owned by the `finam` role.
+- V5 training freeze now matches the exact session, regime and exit rule rather
+  than over-freezing every context for the same symbol/strategy/side.
+- Global source-trade-once semantics are explicit DB policy. This is a deliberate
+  conservative multiple-testing rule, not an implicit implementation detail.
+- All pre-purging research tables are registered in
+  `pre_purging_result_quarantine_v1`; 4.6M+ historical rows remain available for
+  audit but cannot promote. Canonical regime promotion now also requires the
+  row-level `promotion_allowed` flag.
+- Remaining legacy replay/OOS and BR rolling Swing boundaries now apply embargo,
+  full label containment and non-overlapping positions. Swing Forward begins
+  only after a timeframe-scaled maximum holding embargo.
+- A transactional PostgreSQL integration test now exercises
+  admission -> run -> included audit -> collecting verdict and rolls back fully.
+- Validation: 67 focused tests passed. Live/Paper execution was not changed;
+  REAL remains disabled and OOS PASS remains zero.

@@ -15,7 +15,7 @@ def test_v4_cost_guard_is_strict_and_db_driven() -> None:
 
 def test_oos_admission_requires_v5_cost_pass() -> None:
     source = (ROOT / "src/scripts/admit_trade_outcome_hypotheses_to_oos_v1.py").read_text()
-    assert "fresh_v5_cost_admission_guard_v1" in source
+    assert "fresh_v5_frozen_cost_admission_guard_v2" in source
     assert "fresh_v4_cost_admission_guard_v1" not in source
     assert 'cost_status != "ELIGIBLE_OOS"' in source
     assert '"REJECTED_COSTS"' in source
@@ -28,6 +28,12 @@ def test_oos_admission_requires_v5_cost_pass() -> None:
     assert '"confirmation_after_ts"' in source
     assert "max_holding_seconds" in source
     assert 'if bool(row["early_quarantined"])' in source
+
+
+def test_frozen_v5_guard_excludes_oos_from_training() -> None:
+    sql=(ROOT/"sql/analytics/233_fresh_v5_frozen_cost_guard_v2.sql").read_text()
+    assert "closed_trades_fresh_v5_training_v1" in sql
+    assert "V5_FROZEN_COST_AND_EXPECTANCY_CONFIRMED" in sql
 
 
 def test_v5_guard_is_isolated_strict_and_has_no_pf_999_sentinel() -> None:

@@ -1,21 +1,27 @@
 from __future__ import annotations
 import json,os,statistics,uuid
+from datetime import timedelta
 from pathlib import Path
 import psycopg2,psycopg2.extras
 from scripts.run_swing_selection_validation_engine_v1 import trade_rows,metrics
 from scripts.run_swing_selection_validation_engine_v1 import COST_BPS
 from scripts.swing_execution_contract_v1 import cost_bps,load_swing_execution_contract
+from finam_core.research.purged_split import label_horizon_bars
 
 DB=os.getenv("DATABASE_URL","postgresql:///finam_core")
 NS=uuid.UUID("0904a778-2e91-55a0-b838-56fe9f4ae588")
 ROOT=Path(__file__).resolve().parents[2]
 POLICY=json.loads((ROOT/"config/research/swing_forward_shadow_policy_v1.json").read_text())
 def safe(value): return json.loads(json.dumps(value,default=str))
+def embargo_boundary(item,result):
+  seconds={"H1":3600,"H4":14400,"D1":86400}[item["timeframe"]]
+  return result["holdout_end"]+timedelta(seconds=seconds*label_horizon_bars(item["parameter_snapshot"]))
 
 def forward_result(q,item,result):
   p=item["parameter_snapshot"]; ref=p.get("benchmark") or p.get("source")
   symbols=[item["symbol"]]+([ref] if ref else [])
-  q.execute("SELECT symbol,ts,close,coalesce(volume,0) volume FROM analytics.swing_market_bars_v1 WHERE timeframe=%s AND symbol=ANY(%s) AND ts>%s ORDER BY ts",(item["timeframe"],symbols,result["holdout_end"]))
+  observation_after=embargo_boundary(item,result)
+  q.execute("SELECT symbol,ts,close,coalesce(volume,0) volume FROM analytics.swing_market_bars_v1 WHERE timeframe=%s AND symbol=ANY(%s) AND ts>%s ORDER BY ts",(item["timeframe"],symbols,observation_after))
   data={s:{} for s in symbols}; volume_data={s:{} for s in symbols}
   for row in q.fetchall():
     data[row["symbol"]][row["ts"]]=float(row["close"]); volume_data[row["symbol"]][row["ts"]]=float(row["volume"])

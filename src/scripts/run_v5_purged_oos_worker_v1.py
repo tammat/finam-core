@@ -38,6 +38,18 @@ def _matches(request: dict, trade: dict) -> bool:
     return all(expected[key] in {"", "None", "*"} or actual[key] == expected[key] for key in expected)
 
 
+def classify_observation(run: dict, request: dict, trade: dict, *, reused: bool) -> tuple[str, str]:
+    if trade["exit_ts"] <= run["purge_before_ts"]:
+        return "EXCLUDED_PRE_BOUNDARY", "TRADE_NOT_AFTER_FROZEN_V5_BOUNDARY"
+    if trade["entry_ts"] < run["confirmation_after_ts"]:
+        return "EXCLUDED_EMBARGO_OR_OVERLAP", "ENTRY_BEFORE_CONFIRMATION_AFTER_TS"
+    if not _matches(request, trade):
+        return "EXCLUDED_CONTEXT", "TRADE_CONTEXT_DOES_NOT_MATCH_ADMISSION"
+    if reused:
+        return "EXCLUDED_REUSED", "SOURCE_TRADE_ALREADY_USED_BY_ANOTHER_OOS_RUN"
+    return "INCLUDED", "FUTURE_ONLY_CONTEXT_MATCH"
+
+
 def _ensure_run(cur, admission: dict) -> dict:
     isolation = admission["oos_request"]["temporal_isolation"]
     run_id = uuid.uuid5(uuid.UUID("8c84345a-0388-47f4-9a09-81dc86f43ff2"), str(admission["admission_id"]))
@@ -53,19 +65,9 @@ def _ensure_run(cur, admission: dict) -> dict:
 
 def _audit_trade(cur, run: dict, admission: dict, trade: dict) -> None:
     request = admission["oos_request"]
-    if trade["exit_ts"] <= run["purge_before_ts"]:
-        decision, reason = "EXCLUDED_PRE_BOUNDARY", "TRADE_NOT_AFTER_FROZEN_V5_BOUNDARY"
-    elif trade["entry_ts"] < run["confirmation_after_ts"]:
-        decision, reason = "EXCLUDED_EMBARGO_OR_OVERLAP", "ENTRY_BEFORE_CONFIRMATION_AFTER_TS"
-    elif not _matches(request, trade):
-        decision, reason = "EXCLUDED_CONTEXT", "TRADE_CONTEXT_DOES_NOT_MATCH_ADMISSION"
-    else:
-        cur.execute("""SELECT 1 FROM analytics.v5_oos_observation_audit_v1
-            WHERE source_trade_id=%s AND decision_code='INCLUDED' AND run_id<>%s""", (trade["id"],run["run_id"]))
-        if cur.fetchone():
-            decision, reason = "EXCLUDED_REUSED", "SOURCE_TRADE_ALREADY_USED_BY_ANOTHER_OOS_RUN"
-        else:
-            decision, reason = "INCLUDED", "FUTURE_ONLY_CONTEXT_MATCH"
+    cur.execute("""SELECT 1 FROM analytics.v5_oos_observation_audit_v1
+        WHERE source_trade_id=%s AND decision_code='INCLUDED' AND run_id<>%s""", (trade["id"],run["run_id"]))
+    decision,reason=classify_observation(run,request,trade,reused=bool(cur.fetchone()))
     cur.execute("""INSERT INTO analytics.v5_oos_observation_audit_v1(
         run_id,admission_id,source_trade_id,signal_id,entry_ts,exit_ts,decision_code,
         reason_code,net_pnl,source_payload)
@@ -119,8 +121,13 @@ def main() -> int:
                 request = admission["oos_request"]
                 cur.execute("""SELECT id,signal_id,symbol,side,strategy,entry_regime,entry_ts,exit_ts,
                     net_pnl,payload FROM public.closed_trades
-                  WHERE symbol=%s AND exit_ts>%s ORDER BY exit_ts,id""",
-                  (request["symbol"],run["purge_before_ts"]))
+                  WHERE symbol=%s
+                    AND coalesce(trade_source,'')='paper'
+                    AND coalesce(portfolio_scope,'') LIKE 'FRESH_V5%%'
+                    AND coalesce(payload->'context'->>'cohort','')=portfolio_scope
+                    AND exit_ts >= %s - (%s * interval '1 second')
+                  ORDER BY exit_ts,id""",
+                  (request["symbol"],run["purge_before_ts"],run["embargo_seconds"]))
                 for trade in cur.fetchall():
                     _audit_trade(cur,run,admission,dict(trade))
                 _finish(cur,run,admission)

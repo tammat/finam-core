@@ -60,6 +60,7 @@ def main() -> None:
                 ) market ON true
                 WHERE h.discovery_run_id=(SELECT discovery_run_id FROM latest)
                   AND h.verdict_code='OOS_PASS' AND h.trust_status='VERIFIED'
+                  AND h.promotion_allowed
                   AND h.source_version=%s
                   AND h.oos_trades>=30 AND h.oos_profit_factor>=1.20
                   AND h.oos_expectancy>0 AND h.folds_passed>=2

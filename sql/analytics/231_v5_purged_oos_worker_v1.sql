@@ -43,6 +43,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS v5_oos_included_trade_once_idx
 ON analytics.v5_oos_observation_audit_v1(source_trade_id)
 WHERE decision_code='INCLUDED';
 
+CREATE TABLE IF NOT EXISTS analytics.v5_oos_reuse_policy_v1(
+    policy_code text PRIMARY KEY,
+    uniqueness_scope text NOT NULL CHECK(uniqueness_scope IN ('GLOBAL_SOURCE_TRADE')),
+    enabled boolean NOT NULL DEFAULT true,
+    reason text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+INSERT INTO analytics.v5_oos_reuse_policy_v1(policy_code,uniqueness_scope,reason)
+VALUES('V5_OOS_GLOBAL_TRADE_ONCE','GLOBAL_SOURCE_TRADE',
+       'Одна закрытая Paper V5-сделка может подтвердить только одну заранее зарегистрированную OOS-гипотезу')
+ON CONFLICT(policy_code) DO UPDATE SET enabled=true,reason=excluded.reason,updated_at=clock_timestamp();
+
 CREATE INDEX IF NOT EXISTS v5_oos_audit_run_decision_idx
 ON analytics.v5_oos_observation_audit_v1(run_id,decision_code,entry_ts);
 
@@ -67,6 +79,13 @@ WHERE NOT EXISTS (
       AND c.symbol = a.oos_request->>'symbol'
       AND coalesce(nullif(c.strategy,''),'UNASSIGNED') = a.oos_request->>'paper_strategy_code'
       AND upper(coalesce(nullif(c.side,''),'UNKNOWN')) = upper(a.oos_request->>'side_code')
+      AND (a.oos_request->>'session_code' IS NULL OR
+           coalesce(nullif(c.payload->'context'->>'entry_session_msk',''),'UNKNOWN')=a.oos_request->>'session_code')
+      AND (a.oos_request->>'regime_code' IS NULL OR
+           coalesce(nullif(c.payload->'context'->>'entry_regime',''),nullif(c.entry_regime,''),'UNKNOWN')=a.oos_request->>'regime_code')
+      AND (a.oos_request->>'holding_code' IS NULL OR
+           coalesce(nullif(c.payload->'context'->>'actual_exit_reason',''),
+                    nullif(c.payload->'context'->>'exit_rule',''),'UNKNOWN')=a.oos_request->>'holding_code')
 );
 
 COMMENT ON VIEW analytics.closed_trades_fresh_v5_training_v1 IS
@@ -76,5 +95,6 @@ GRANT SELECT,INSERT,UPDATE ON analytics.v5_oos_run_v1 TO alex,finam;
 GRANT SELECT,INSERT ON analytics.v5_oos_observation_audit_v1 TO alex,finam;
 GRANT USAGE,SELECT ON SEQUENCE analytics.v5_oos_observation_audit_v1_audit_id_seq TO alex,finam;
 GRANT SELECT ON analytics.closed_trades_fresh_v5_training_v1 TO alex,finam;
+GRANT SELECT ON analytics.v5_oos_reuse_policy_v1 TO alex,finam;
 
 COMMIT;
