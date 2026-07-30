@@ -157,6 +157,9 @@ def main() -> None:
                             "execution_policy": execution_policy,
                         }
                         lookback = int(params["lookback"])
+                        label_horizon_bars = max(1, int(params.get("hold", 5)))
+                        if str(params.get("exit_policy_code", "FIXED_HOLD")) == "DYNAMIC_EXIT_V1":
+                            label_horizon_bars = max(label_horizon_bars, int(params.get("exit_max_holding_bars", max(label_horizon_bars, 20))))
                         in_sample_trades = build_trades(
                             {"strategy_code": strategy_code, "parameter_json": params},
                             strategy_bars[:evaluation_start],
@@ -167,7 +170,10 @@ def main() -> None:
                         for fold_no in range(FOLDS):
                             start = evaluation_start + fold_no*fold_span
                             end = len(bars) if fold_no == FOLDS-1 else min(len(bars),start+fold_span)
-                            start_ts,end_ts = bars[start].ts,bars[end-1].ts
+                            effective_start = start + label_horizon_bars
+                            if effective_start >= end:
+                                continue
+                            start_ts,end_ts = bars[effective_start].ts,bars[end-1].ts
                             trades = [
                                 trade for trade in build_trades(
                                     {"strategy_code": strategy_code,"parameter_json": params},
@@ -182,6 +188,8 @@ def main() -> None:
                             )
                             fold_rows.append({
                                 "fold": fold_no+1,"start": start_ts.isoformat(),"end": end_ts.isoformat(),
+                                "raw_start": bars[start].ts.isoformat(),"purging_enabled": True,
+                                "embargo_bars": label_horizon_bars,
                                 "trades": value["trades"],"profit_factor": value["profit_factor"],
                                 "expectancy": value["expectancy"],"max_drawdown": value["max_drawdown"],
                                 "passed": fold_pass,

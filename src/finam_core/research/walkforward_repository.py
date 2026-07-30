@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import psycopg
+
+from finam_core.research.purged_split import purged_temporal_split
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class StrategyWalkForwardRepository:
         trade_source: str = "paper",
         train_ratio: float = 0.7,
         min_trades: int = 30,
+        embargo_minutes: int = 60,
     ) -> list[StrategyWalkForwardResult]:
         sql = """
         SELECT
@@ -53,18 +56,21 @@ class StrategyWalkForwardRepository:
             COALESCE(NULLIF(tcs.regime, ''), 'unknown') AS regime,
             a.trade_source,
             a.pnl::float AS pnl,
-            a.created_at
+            c.entry_ts,
+            c.exit_ts
         FROM trade_attribution_v2 a
+        JOIN closed_trade_chains_v2 c
+          ON c.id = a.closed_trade_id
         LEFT JOIN trade_context_snapshots tcs
           ON tcs.closed_trade_id = a.closed_trade_id
         WHERE a.symbol = %s
           AND a.trade_source = %s
           AND COALESCE(a.strategy, '') <> ''
           AND COALESCE(a.timeframe, '') <> ''
-        ORDER BY a.strategy, a.timeframe, regime, a.created_at;
+        ORDER BY a.strategy, a.timeframe, regime, c.entry_ts, c.exit_ts;
         """
 
-        grouped: dict[tuple[str, str, str, str, str], list[tuple[float, datetime]]] = {}
+        grouped: dict[tuple[str, str, str, str, str], list[tuple[float, datetime, datetime]]] = {}
 
         with psycopg.connect(self.database_url) as conn:
             with conn.cursor() as cur:
@@ -77,7 +83,7 @@ class StrategyWalkForwardRepository:
                         str(row[3] or "unknown"),
                         str(row[4] or trade_source),
                     )
-                    grouped.setdefault(key, []).append((float(row[5] or 0.0), row[6]))
+                    grouped.setdefault(key, []).append((float(row[5] or 0.0), row[6], row[7]))
 
         results: list[StrategyWalkForwardResult] = []
         for key, rows in grouped.items():
@@ -85,9 +91,18 @@ class StrategyWalkForwardRepository:
                 results.append(self._low_sample_result(key, rows))
                 continue
 
-            split_idx = max(1, min(len(rows) - 1, int(len(rows) * train_ratio)))
-            train = rows[:split_idx]
-            test = rows[split_idx:]
+            split = purged_temporal_split(
+                rows,
+                train_ratio=train_ratio,
+                start=lambda row: row[1],
+                end=lambda row: row[2],
+                embargo=timedelta(minutes=embargo_minutes),
+            )
+            train = split.train
+            test = split.test
+            if not train or not test:
+                results.append(self._low_sample_result(key, rows))
+                continue
             results.append(self._build_result(key, train, test))
 
         return results
@@ -95,11 +110,11 @@ class StrategyWalkForwardRepository:
     def _low_sample_result(
         self,
         key: tuple[str, str, str, str, str],
-        rows: list[tuple[float, datetime]],
+        rows: list[tuple[float, datetime, datetime]],
     ) -> StrategyWalkForwardResult:
         strategy, symbol, timeframe, regime, trade_source = key
         first_ts = rows[0][1] if rows else datetime.utcnow()
-        last_ts = rows[-1][1] if rows else first_ts
+        last_ts = rows[-1][2] if rows else first_ts
 
         return StrategyWalkForwardResult(
             strategy=strategy,
@@ -128,8 +143,8 @@ class StrategyWalkForwardRepository:
     def _build_result(
         self,
         key: tuple[str, str, str, str, str],
-        train: list[tuple[float, datetime]],
-        test: list[tuple[float, datetime]],
+        train: list[tuple[float, datetime, datetime]],
+        test: list[tuple[float, datetime, datetime]],
     ) -> StrategyWalkForwardResult:
         strategy, symbol, timeframe, regime, trade_source = key
 
@@ -155,9 +170,9 @@ class StrategyWalkForwardRepository:
             regime=regime,
             trade_source=trade_source,
             train_from=train[0][1],
-            train_to=train[-1][1],
+            train_to=train[-1][2],
             test_from=test[0][1],
-            test_to=test[-1][1],
+            test_to=test[-1][2],
             train_trades=len(train),
             test_trades=len(test),
             train_pf=train_m["pf"],

@@ -12,6 +12,7 @@ def main() -> int:
     parser.add_argument("--trade-source", default="paper")
     parser.add_argument("--train-ratio", type=float, default=0.7)
     parser.add_argument("--min-trades", type=int, default=30)
+    parser.add_argument("--embargo-minutes", type=int, default=60)
     parser.add_argument("--save", action="store_true")
     args = parser.parse_args()
 
@@ -21,6 +22,7 @@ def main() -> int:
         trade_source=args.trade_source,
         train_ratio=args.train_ratio,
         min_trades=args.min_trades,
+        embargo_minutes=args.embargo_minutes,
     )
 
     for item in items[:20]:

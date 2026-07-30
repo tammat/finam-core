@@ -153,6 +153,13 @@ def _fold_bounds(size: int, fold_no: int) -> tuple[int, int, int]:
     return evaluation_start, start, end
 
 
+def _label_horizon_bars(parameters: dict) -> int:
+    hold = max(1, int(parameters.get("hold", 5)))
+    if str(parameters.get("exit_policy_code", "FIXED_HOLD")) == "DYNAMIC_EXIT_V1":
+        return max(hold, int(parameters.get("exit_max_holding_bars", max(hold, 20))))
+    return hold
+
+
 def _summary(trades) -> dict:
     value = metrics(trades)
     pnls = [float(t.net_pnl) for t in trades]
@@ -306,10 +313,16 @@ def _execute_fold(cur, task: dict, cutoff, cache: dict) -> None:
     params.update({"transaction_cost_bps":cost_bps,"commission":statistics.median(b.close for b in bars)*cost_bps/10000,
                    "slippage":0.0,"execution_policy":execution})
     lookback=int(params["lookback"])
-    start_ts,end_ts=bars[start].ts,bars[end-1].ts
+    embargo_bars = 0 if fold_no == 0 else _label_horizon_bars(params)
+    effective_start = start + embargo_bars
+    if effective_start >= end:
+        raise RuntimeError(f"PURGED_FOLD_TOO_SHORT:{task['symbol']}:{fold_no}:{start}:{end}:{embargo_bars}")
+    start_ts,end_ts=bars[effective_start].ts,bars[end-1].ts
     trades=[t for t in build_trades({"strategy_code":task["strategy_code"],"parameter_json":params},bars[max(0,start-lookback):end])
             if start_ts<=t.entry_ts<=end_ts and t.exit_ts<=end_ts]
-    value={**_summary(trades),"start":start_ts.isoformat(),"end":end_ts.isoformat()}
+    value={**_summary(trades),"start":start_ts.isoformat(),"end":end_ts.isoformat(),
+           "purging_enabled":True,"embargo_bars":embargo_bars,
+           "raw_fold_start":bars[start].ts.isoformat()}
     cur.execute("""UPDATE analytics.walkforward_fold_checkpoint_v4 SET status_code='COMPLETE',
       metrics=%s,finished_at=clock_timestamp(),error_text=NULL WHERE variant_task_id=%s AND fold_no=%s""",
       (psycopg2.extras.Json(value),task["variant_task_id"],task["fold_no"]))
