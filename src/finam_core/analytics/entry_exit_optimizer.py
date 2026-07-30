@@ -172,3 +172,35 @@ def evaluate_paper_challenger(rows: list[dict], *, min_pairs: int = 30,
         "challenger_drawdown_r": max_drawdown_r(shadow),
         "largest_win_concentration": concentration, "checks": checks,
     }
+
+
+def evaluate_active_paper_champion(
+    rows: list[dict], *, validated_drawdown_r: float | None = None,
+    min_soft_trades: int = 20, min_hard_trades: int = 10,
+) -> dict:
+    """Absolute Paper-only health guard for an already promoted Champion."""
+    values = [float(row["actual_r"]) for row in rows if row.get("actual_r") is not None]
+    trades = len(values)
+    expectancy = mean(values) if values else 0.0
+    drawdown = max_drawdown_r(values)
+    gross_profit = sum(value for value in values if value > 0)
+    gross_loss = abs(sum(value for value in values if value < 0))
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+    validated = max(0.0, float(validated_drawdown_r or 0.0))
+    hard_drawdown_limit = max(3.0, validated * 1.25)
+    hard_breach = trades >= min_hard_trades and drawdown > hard_drawdown_limit
+    soft_breach = trades >= min_soft_trades and (expectancy <= -0.10 or profit_factor < 0.80)
+    if hard_breach:
+        status, reason = "ROLLBACK_NOW", "HARD_DRAWDOWN_BREACH"
+    elif soft_breach:
+        status, reason = "DEGRADED", "NEGATIVE_EXPECTANCY_OR_LOW_PF"
+    elif trades < min_soft_trades:
+        status, reason = "MONITOR", f"requires champion trades>={min_soft_trades}"
+    else:
+        status, reason = "HEALTHY", "CHAMPION_GUARDS_PASS"
+    return {
+        "status": status, "reason": reason, "trades": trades,
+        "expectancy_r": expectancy, "profit_factor": profit_factor,
+        "drawdown_r": drawdown, "hard_drawdown_limit_r": hard_drawdown_limit,
+        "hard_breach": hard_breach, "soft_breach": soft_breach,
+    }

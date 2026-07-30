@@ -304,16 +304,32 @@ def _optimizer_section(snapshot):
     for index, item in enumerate(snapshot.get("entry_exit_recommendations") or (), start=1):
         metrics = item.get("metrics") or {}
         paper_metrics = item.get("challenger_paper_metrics") or {}
+        champion_metrics = item.get("champion_metrics") or {}
         challenger_status = str(item.get("challenger_status") or item.get("recommendation_status") or "")
-        target = "|".join(str(item.get(key) or "") for key in ("strategy_code","symbol_group","side_code","candidate_code"))
         runtime_supported = str(item.get("entry_mode")) == "IMMEDIATE"
         ready = challenger_status == "READY_FOR_CHAMPION_CONFIRMATION" and runtime_supported
         active = bool(item.get("is_active_paper"))
         pairs, oos = int(item.get("pairs") or 0), int(item.get("oos_pairs") or 0)
         if active:
-            status_text = "Основной Paper-профиль. Реальная торговля выключена; доступен безопасный откат."
+            champion_trades = int(champion_metrics.get("trades") or 0)
+            exp = float(champion_metrics.get("expectancy_r") or 0)
+            pf = float(champion_metrics.get("profit_factor") or 0)
+            dd = float(champion_metrics.get("drawdown_r") or 0)
+            dd_limit = float(champion_metrics.get("hard_drawdown_limit_r") or 3)
+            cycles = int(item.get("consecutive_degraded_cycles") or 0)
+            status_text = (f"Основной Paper-профиль · контроль {champion_trades} сделок: "
+                           f"ожидание {exp:+.2f}R, PF {pf:.2f}, просадка {dd:.2f}R из {dd_limit:.2f}R. ")
+            status_text += (f"Ухудшение подтверждено {cycles} из 2 циклов. " if cycles else
+                            "Критерии отката не сработали. ")
+            status_text += "Назначение и обновление автоматические; REAL выключен."
+        elif challenger_status == "ROLLED_BACK":
+            reason_labels = {"HARD_DRAWDOWN_BREACH": "превышен аварийный лимит просадки",
+                             "NEGATIVE_EXPECTANCY_OR_LOW_PF": "два цикла отрицательного ожидания или низкого PF"}
+            reason = reason_labels.get(str(item.get("rollback_reason") or ""),
+                                       str(item.get("rollback_reason") or "защитный критерий"))
+            status_text = f"Автоматический откат Paper: {reason}. Предыдущий профиль восстановлен; REAL не затронут."
         elif ready:
-            status_text = "Challenger превзошёл текущий Paper на независимой forward-проверке. Можно сделать его основным."
+            status_text = "Challenger прошёл forward-проверку и будет автоматически назначен основным Paper."
         elif challenger_status in {"PAPER_CHALLENGER", "KEEP_PAPER_CHALLENGER"}:
             forward_pairs = int(paper_metrics.get("pairs") or 0)
             forward_oos = int(paper_metrics.get("oos_pairs") or 0)
@@ -339,25 +355,6 @@ def _optimizer_section(snapshot):
         if actual_exp is not None and challenger_exp is not None:
             comparison += f" Expectancy: {float(actual_exp):+.2f}R → {float(challenger_exp):+.2f}R"
             comparison += f"; разница {float(delta):+.2f}R." if delta is not None else "."
-        action_nodes = []
-        decisions = (
-            (("rollback", "Откатить параметры Paper", "optimizer.rollback", "OPTIMIZER.ROLLBACK_PAPER"),) if active else
-            (("confirm", "Применить в Paper", "optimizer.confirm_paper", "OPTIMIZER.CONFIRM_PAPER"),
-             ("reject", "Отклонить вариант", "optimizer.reject", "OPTIMIZER.REJECT"),
-             ("shadow", "Продолжить наблюдение", "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW")) if ready else
-            (("reject", "Отклонить вариант", "optimizer.reject", "OPTIMIZER.REJECT"),
-             ("shadow", "Продолжить наблюдение", "optimizer.continue_shadow", "OPTIMIZER.CONTINUE_SHADOW"))
-        )
-        for code,label,action_id,command in decisions:
-            action_nodes.append(RenderNodeV2(
-                RenderNodeTypeV2.ACTION, f"home.compact.optimizer.{index}.{code}",
-                content=RenderContentV2(value=label),
-                action=RenderActionV2(
-                    action_id, ActionKindV2.COMMAND, target_id=target, command_code=command,
-                    policy_class="PAPER_OPERATIONS", enabled=True,
-                    reversible=True, rollback_code="OPTIMIZER.ROLLBACK_PAPER", idempotency_key="client.request",
-                ),
-            ))
         group = str(item.get("symbol_group") or "")
         cards.append(RenderNodeV2(
             RenderNodeTypeV2.CARD, f"home.compact.optimizer.card.{index}",
@@ -368,7 +365,6 @@ def _optimizer_section(snapshot):
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.parameters", parameters),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.comparison", comparison),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.status", status_text),
-                *action_nodes,
             ),
         ))
     if not cards:
@@ -377,7 +373,7 @@ def _optimizer_section(snapshot):
         )))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Текущий Paper и кандидаты", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Система сама выбирает лучшего Shadow-кандидата, затем сравнивает его с текущим Paper на новых одинаковых сигналах. Реальная торговля не включается."),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Система сама обновляет лучшего Shadow-кандидата, сравнивает его с текущим Paper на новых одинаковых сигналах, назначает победителя и при ухудшении откатывает Paper. Все решения и причины показаны ниже; реальная торговля не включается."),
         RenderNodeV2(RenderNodeTypeV2.GRID, "home.compact.optimizer.cards", children=tuple(cards)),
     ))
 

@@ -422,6 +422,8 @@ class ControlCompactV3Resolver:
                            cc.champion_candidate_code,cc.challenger_candidate_code,
                            cc.challenger_status,cc.challenger_selected_at,
                            cc.paper_metrics AS challenger_paper_metrics,
+                           cc.champion_metrics,cc.consecutive_degraded_cycles,
+                           cc.rollback_reason,cc.last_transition_at,
                            EXISTS(SELECT 1 FROM analytics.entry_exit_runtime_profile_v1 p
                              WHERE p.strategy_code=r.strategy_code AND p.symbol_group=r.symbol_group
                                AND p.side_code=r.side_code AND p.candidate_code=r.candidate_code

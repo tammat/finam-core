@@ -685,8 +685,17 @@
 - Challenger selection compares net expectancy in R, OOS expectancy, drawdown and
   largest-win concentration. Promotion to REAL is not implemented and all real
   execution flags remain disabled.
-- The UI now shows current Paper versus Challenger, parameters, sample/OOS
-  progress, expectancy delta, state, confirmation and rollback actions.
+- The Paper lifecycle is now fully automatic and fixed as: Shadow 80 paired / 20
+  OOS -> Paper Challenger 30 fresh paired / 10 OOS -> Champion -> continuous
+  monitoring -> replacement or rollback. The challenger must improve expectancy
+  by at least +0.05R on the forward comparison.
+- The UI is read-only for this workflow: it shows current Paper versus Challenger,
+  parameters, progress, expectancy delta, Champion health and transition reason;
+  obsolete confirmation/rejection/rollback buttons were removed.
+- Soft rollback requires at least 20 new Champion trades and two consecutive daily
+  cycles with expectancy <= -0.10R or PF < 0.80. Emergency rollback starts after
+  10 trades when drawdown exceeds max(3R, 1.25 x validated drawdown), and restores
+  the preceding Paper profile. REAL is never changed or enabled by this workflow.
 - Current evidence is insufficient: 13 strategy/instrument/direction states are
   accumulating; the largest sample is Brent LONG with 11/80 pairs, OOS 0. No
   Paper Challenger or Champion is statistically admitted yet.

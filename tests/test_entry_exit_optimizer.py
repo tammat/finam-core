@@ -1,5 +1,6 @@
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, Variant, default_variants, evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
+    Bar, Variant, default_variants, evaluate_active_paper_champion,
+    evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
 )
 
 
@@ -42,3 +43,21 @@ def test_paper_challenger_can_become_champion_ready():
     result = evaluate_paper_challenger(rows)
     assert result["status"] == "READY_FOR_CHAMPION_CONFIRMATION"
     assert result["expectancy_delta_r"] > 0
+
+
+def test_active_champion_waits_for_twenty_trades_before_soft_guard():
+    result = evaluate_active_paper_champion([{"actual_r": -0.1}] * 19, validated_drawdown_r=2)
+    assert result["status"] == "MONITOR"
+
+
+def test_active_champion_marks_negative_expectancy_degraded():
+    rows = [{"actual_r": 0.1}] * 4 + [{"actual_r": -0.2}] * 16
+    result = evaluate_active_paper_champion(rows, validated_drawdown_r=3)
+    assert result["status"] == "DEGRADED"
+
+
+def test_active_champion_drawdown_triggers_emergency_rollback():
+    rows = [{"actual_r": -0.4}] * 10
+    result = evaluate_active_paper_champion(rows, validated_drawdown_r=2)
+    assert result["status"] == "ROLLBACK_NOW"
+    assert result["hard_drawdown_limit_r"] == 3

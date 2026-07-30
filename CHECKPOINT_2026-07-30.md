@@ -78,5 +78,18 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 
 ## Git checkpoint
 
+## Automatic Paper lifecycle (fixed)
+
+1. Shadow admission: at least 80 paired trades, including 20 chronological OOS.
+2. Paper Challenger: 30 new paired trades, including 10 OOS, and expectancy gain
+   of at least +0.05R versus the current Paper Champion.
+3. Champion: promoted automatically in Paper only; REAL remains disabled.
+4. Soft rollback: after 20 new trades, expectancy <= -0.10R or PF < 0.80 in two
+   consecutive daily cycles.
+5. Emergency rollback: after 10 trades, drawdown above max(3R, 1.25 times the
+   validated drawdown); the previous Paper profile is restored immediately.
+6. UI shows status, progress, health and reasons; lifecycle action buttons are not
+   part of the automatic workflow.
+
 - Branch: `codex/research-edge-v5`.
 - Functional commits included: `2d0abff0`, `ecbb5d0d`, `85ab2214`, `fb6911ce`.
