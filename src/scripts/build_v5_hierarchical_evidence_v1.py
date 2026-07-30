@@ -42,13 +42,14 @@ class EvidenceStats:
     r_observations: int = 0
 
     def add(
-        self, *, net_pnl: Decimal, gross_pnl: Decimal, commission: Decimal,
+        self, *, net_pnl: Decimal, gross_pnl: Decimal,
+        full_execution_cost: Decimal | None = None, commission: Decimal | None = None,
         realized_r: Decimal | None = None,
     ) -> None:
         self.trades += 1
         self.net_pnl += net_pnl
         self.absolute_gross_move += abs(gross_pnl)
-        self.execution_cost += commission
+        self.execution_cost += full_execution_cost if full_execution_cost is not None else (commission or Decimal("0"))
         if net_pnl > 0:
             self.gross_profit += net_pnl
         elif net_pnl < 0:
@@ -168,12 +169,19 @@ def main() -> int:
                        coalesce(nullif(strategy,''),'UNASSIGNED') strategy,
                        coalesce(payload->'context'->>'entry_session_msk','UNKNOWN') session,
                        coalesce(payload->'context'->>'entry_regime',entry_regime,'UNKNOWN') regime,
-                       coalesce(payload->'context'->>'actual_exit_reason',
-                                payload->'context'->>'exit_rule','UNKNOWN') exit_rule,
+                       coalesce(nullif(payload->'context'->>'planned_exit_rule',''),
+                                nullif(payload->'context'->>'exit_rule',''),'UNKNOWN') exit_rule,
                        coalesce(net_pnl,0) net_pnl,coalesce(gross_pnl,0) gross_pnl,
-                       coalesce(commission,0) commission,entry_price,abs(qty) qty,
+                       greatest(coalesce(commission,0),abs(coalesce(gross_pnl,0)-coalesce(net_pnl,0))) +
+                       2*abs(qty)*coalesce((SELECT CASE WHEN upper(c.symbol) LIKE '%@RTSX'
+                           THEN s.tick_value ELSE s.tick_size*s.lot_size END
+                         FROM analytics.market_contract_spec_v1 s
+                         WHERE s.is_active AND (s.symbol=c.symbol OR s.symbol=c.root_symbol OR
+                           s.symbol=regexp_replace(c.symbol,'@.*$',''))
+                         ORDER BY (s.symbol=c.symbol) DESC,s.valid_from DESC LIMIT 1),0) full_execution_cost,
+                       c.entry_price,abs(c.qty) qty,
                        nullif(payload->'context'->>'entry_stop_price','')::numeric entry_stop_price
-                FROM analytics.closed_trades_fresh_v5_training_v1
+                FROM analytics.closed_trades_fresh_v5_training_v1 c
             """)
             for row in cursor.fetchall():
                 initial_risk = abs(
@@ -202,7 +210,7 @@ def main() -> int:
                     groups.setdefault(key, EvidenceStats()).add(
                         net_pnl=Decimal(str(row["net_pnl"])),
                         gross_pnl=Decimal(str(row["gross_pnl"])),
-                        commission=Decimal(str(row["commission"])),
+                        full_execution_cost=Decimal(str(row["full_execution_cost"])),
                         realized_r=realized_r,
                     )
 

@@ -13,7 +13,7 @@ def test_context_match_is_exact_for_v5_oos() -> None:
     request = {"paper_strategy_code":"S","side_code":"LONG","session_code":"MAIN",
                "regime_code":"RANGE","holding_code":"TRAIL"}
     trade = {"strategy":"S","side":"LONG","entry_regime":"RANGE",
-             "payload":{"context":{"entry_session_msk":"MAIN","actual_exit_reason":"TRAIL"}}}
+             "payload":{"context":{"entry_session_msk":"MAIN","planned_exit_rule":"TRAIL","actual_exit_reason":"LOSS"}}}
     assert _matches(request, trade)
     trade["payload"]["context"]["entry_session_msk"] = "EVENING"
     assert not _matches(request, trade)
@@ -22,7 +22,8 @@ def test_context_match_is_exact_for_v5_oos() -> None:
 def test_worker_contract_contains_temporal_and_reuse_guards() -> None:
     source = Path("src/scripts/run_v5_purged_oos_worker_v1.py").read_text()
     assert 'trade["entry_ts"] < run["confirmation_after_ts"]' in source
-    assert "SOURCE_TRADE_ALREADY_USED_BY_ANOTHER_OOS_RUN" in source
+    assert 'context.get("planned_exit_rule")' in source
+    assert "SOURCE_TRADE_ALREADY_USED_BY_ANOTHER_OOS_RUN" not in source
     assert "v5_oos_observation_audit_v1" in source
     assert "promotion_allowed=0 live_allowed=0" in source
 
@@ -39,13 +40,13 @@ def test_all_audit_decisions_are_reachable() -> None:
     request={"paper_strategy_code":"S","side_code":"LONG","session_code":"MAIN",
              "regime_code":"RANGE","holding_code":"TRAIL"}
     base={"strategy":"S","side":"LONG","entry_regime":"RANGE",
-          "payload":{"context":{"entry_session_msk":"MAIN","actual_exit_reason":"TRAIL"}}}
+          "payload":{"context":{"entry_session_msk":"MAIN","planned_exit_rule":"TRAIL"}}}
     assert classify_observation(run,request,{**base,"entry_ts":purge-timedelta(minutes=2),"exit_ts":purge},reused=False)[0]=="EXCLUDED_PRE_BOUNDARY"
     assert classify_observation(run,request,{**base,"entry_ts":purge+timedelta(minutes=1),"exit_ts":confirmation+timedelta(minutes=1)},reused=False)[0]=="EXCLUDED_EMBARGO_OR_OVERLAP"
     wrong={**base,"side":"SHORT","entry_ts":confirmation,"exit_ts":confirmation+timedelta(minutes=1)}
     assert classify_observation(run,request,wrong,reused=False)[0]=="EXCLUDED_CONTEXT"
     good={**base,"entry_ts":confirmation,"exit_ts":confirmation+timedelta(minutes=1)}
-    assert classify_observation(run,request,good,reused=True)[0]=="EXCLUDED_REUSED"
+    assert classify_observation(run,request,good,reused=True)[0]=="INCLUDED"
     assert classify_observation(run,request,good,reused=False)[0]=="INCLUDED"
 
 
@@ -76,7 +77,7 @@ def test_db_admission_to_audit_to_running_verdict_is_transactional() -> None:
                 "side":request["side_code"],"entry_regime":request.get("regime_code"),
                 "entry_ts":confirmation+timedelta(minutes=1),"exit_ts":confirmation+timedelta(minutes=2),
                 "net_pnl":1,"payload":{"context":{"entry_session_msk":request.get("session_code"),
-                "entry_regime":request.get("regime_code"),"actual_exit_reason":request.get("holding_code")}}}
+                "entry_regime":request.get("regime_code"),"planned_exit_rule":request.get("holding_code")}}}
             _audit_trade(cur,run,admission,trade); _finish(cur,run,admission)
             cur.execute("SELECT observations_included,status_code FROM analytics.v5_oos_run_v1 WHERE run_id=%s",(run["run_id"],))
             saved=cur.fetchone(); assert saved["observations_included"]==1 and saved["status_code"]=="COLLECTING"

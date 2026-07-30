@@ -114,8 +114,9 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - Checkpoint: V5 purged OOS isolation is installed. Admissions freeze their V5
   boundary, apply a holding-horizon embargo, and route only future observations
   into an idempotent audited worker scheduled every 15 minutes.
-- Reuse protection: a closed trade cannot be included in multiple V5 OOS runs;
-  excluded observations retain a reason code and immutable source trade identity.
+- Reuse protection V2: a trade is unique inside each OOS run, while every
+  hypothesis registered before its entry may evaluate the same future event.
+  This removes candidate-order bias without allowing train/OOS reuse.
 - Training protection: active OOS boundaries are excluded from the V5 training
   view, preventing feedback of validation outcomes into evidence selection.
 - Research split protection: active intraday, momentum, relationship,
@@ -132,3 +133,18 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
   production `v5_oos_run_v1=0`, audit observations `=0` after rollback.
 - Tests at this checkpoint: 67 passed. All primary services remained active;
   no orders, fills, Paper profiles or REAL permissions were changed.
+
+## V5 methodology integrity V2
+
+- Cohorts use only the entry-time `planned_exit_rule`; the realized exit reason
+  is outcome/audit metadata and cannot affect selection.
+- Admission and hierarchical evidence include a conservative two-tick
+  spread/slippage floor in addition to recorded execution costs and fail closed
+  when the contract cost specification is missing.
+- OOS stores raw and effective observation counts. Same-day correlated positions
+  are collapsed into an asset-event cluster before expectancy and PF are tested.
+- Global first-writer trade claiming is disabled; only preregistered hypotheses
+  can share a subsequent event, with uniqueness retained inside a run.
+- Recalculated production state: 56 V5 trades, 39 exact entry-time contexts,
+  39 cost guards waiting for sample, 0 OOS runs and 0 OOS PASS. REAL is disabled.
+- Migration: `234_v5_methodology_integrity_v2.sql`. Focused validation: 43 passed.

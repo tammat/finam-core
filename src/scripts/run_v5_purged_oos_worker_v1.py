@@ -9,7 +9,7 @@ import psycopg2.extras
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-SOURCE_VERSION = "V5_PURGED_OOS_WORKER_V1"
+SOURCE_VERSION = "V5_PURGED_OOS_WORKER_V2"
 MINIMUM_OBSERVATIONS = int(os.getenv("V5_OOS_MINIMUM_OBSERVATIONS", "20"))
 MINIMUM_PROFIT_FACTOR = Decimal(os.getenv("V5_OOS_MINIMUM_PROFIT_FACTOR", "1.15"))
 
@@ -22,7 +22,9 @@ def _context(trade: dict) -> dict[str, str]:
         "side": str(trade.get("side") or "UNKNOWN").upper(),
         "session": str(context.get("entry_session_msk") or "UNKNOWN"),
         "regime": str(context.get("entry_regime") or trade.get("entry_regime") or "UNKNOWN"),
-        "exit": str(context.get("actual_exit_reason") or context.get("exit_rule") or "UNKNOWN"),
+        # The cohort key must be known at entry. actual_exit_reason is an outcome,
+        # retained only in the audit payload and never used for admission/matching.
+        "exit": str(context.get("planned_exit_rule") or context.get("exit_rule") or "UNKNOWN"),
     }
 
 
@@ -38,16 +40,14 @@ def _matches(request: dict, trade: dict) -> bool:
     return all(expected[key] in {"", "None", "*"} or actual[key] == expected[key] for key in expected)
 
 
-def classify_observation(run: dict, request: dict, trade: dict, *, reused: bool) -> tuple[str, str]:
+def classify_observation(run: dict, request: dict, trade: dict, *, reused: bool = False) -> tuple[str, str]:
     if trade["exit_ts"] <= run["purge_before_ts"]:
         return "EXCLUDED_PRE_BOUNDARY", "TRADE_NOT_AFTER_FROZEN_V5_BOUNDARY"
     if trade["entry_ts"] < run["confirmation_after_ts"]:
         return "EXCLUDED_EMBARGO_OR_OVERLAP", "ENTRY_BEFORE_CONFIRMATION_AFTER_TS"
     if not _matches(request, trade):
         return "EXCLUDED_CONTEXT", "TRADE_CONTEXT_DOES_NOT_MATCH_ADMISSION"
-    if reused:
-        return "EXCLUDED_REUSED", "SOURCE_TRADE_ALREADY_USED_BY_ANOTHER_OOS_RUN"
-    return "INCLUDED", "FUTURE_ONLY_CONTEXT_MATCH"
+    return "INCLUDED", "FUTURE_ONLY_PREREGISTERED_CONTEXT_MATCH"
 
 
 def _ensure_run(cur, admission: dict) -> dict:
@@ -65,25 +65,33 @@ def _ensure_run(cur, admission: dict) -> dict:
 
 def _audit_trade(cur, run: dict, admission: dict, trade: dict) -> None:
     request = admission["oos_request"]
-    cur.execute("""SELECT 1 FROM analytics.v5_oos_observation_audit_v1
-        WHERE source_trade_id=%s AND decision_code='INCLUDED' AND run_id<>%s""", (trade["id"],run["run_id"]))
-    decision,reason=classify_observation(run,request,trade,reused=bool(cur.fetchone()))
+    decision,reason=classify_observation(run,request,trade)
     cur.execute("""INSERT INTO analytics.v5_oos_observation_audit_v1(
         run_id,admission_id,source_trade_id,signal_id,entry_ts,exit_ts,decision_code,
-        reason_code,net_pnl,source_payload)
-      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(run_id,source_trade_id) DO NOTHING""",
+        reason_code,net_pnl,event_cluster_id,source_payload)
+      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,
+        analytics.v5_oos_event_cluster_id_v2(%s,%s,%s),%s)
+      ON CONFLICT(run_id,source_trade_id) DO NOTHING""",
       (run["run_id"],admission["admission_id"],trade["id"],trade["signal_id"],trade["entry_ts"],
-       trade["exit_ts"],decision,reason,trade["net_pnl"],psycopg2.extras.Json({"context":_context(trade)})))
+       trade["exit_ts"],decision,reason,trade["net_pnl"],trade.get("symbol") or request.get("symbol"),trade["entry_ts"],
+       trade["exit_ts"],psycopg2.extras.Json({"context":_context(trade)})))
 
 
 def _finish(cur, run: dict, admission: dict) -> None:
-    cur.execute("""SELECT count(*) FILTER(WHERE decision_code='INCLUDED') included,
-        count(*) FILTER(WHERE decision_code<>'INCLUDED') excluded,
-        coalesce(sum(net_pnl) FILTER(WHERE decision_code='INCLUDED'),0) net_pnl,
-        avg(net_pnl) FILTER(WHERE decision_code='INCLUDED') expectancy,
-        sum(net_pnl) FILTER(WHERE decision_code='INCLUDED' AND net_pnl>0) gross_profit,
-        abs(sum(net_pnl) FILTER(WHERE decision_code='INCLUDED' AND net_pnl<0)) gross_loss
-      FROM analytics.v5_oos_observation_audit_v1 WHERE run_id=%s""", (run["run_id"],))
+    cur.execute("""WITH independent_events AS (
+        SELECT event_cluster_id,avg(net_pnl) net_pnl
+        FROM analytics.v5_oos_observation_audit_v1
+        WHERE run_id=%s AND decision_code='INCLUDED' GROUP BY event_cluster_id
+      ) SELECT (SELECT count(*) FROM analytics.v5_oos_observation_audit_v1
+                WHERE run_id=%s AND decision_code='INCLUDED') raw_included,
+        count(*) included,excluded_counts.excluded,
+        coalesce(sum(net_pnl),0) net_pnl,avg(net_pnl) expectancy,
+        sum(net_pnl) FILTER(WHERE net_pnl>0) gross_profit,
+        abs(sum(net_pnl) FILTER(WHERE net_pnl<0)) gross_loss
+      FROM independent_events CROSS JOIN LATERAL (
+        SELECT count(*) FILTER(WHERE decision_code<>'INCLUDED') excluded
+        FROM analytics.v5_oos_observation_audit_v1 WHERE run_id=%s) excluded_counts
+      GROUP BY excluded_counts.excluded""", (run["run_id"],run["run_id"],run["run_id"]))
     metric = dict(cur.fetchone())
     included = int(metric["included"] or 0)
     gross_loss = Decimal(str(metric["gross_loss"] or 0))
@@ -97,9 +105,11 @@ def _finish(cur, run: dict, admission: dict) -> None:
     else:
         status, reason, admission_status = "OOS_FAIL", "V5_PURGED_OOS_GATE_FAILED", "OOS_FAIL"
     cur.execute("""UPDATE analytics.v5_oos_run_v1 SET status_code=%s,observations_included=%s,
-        observations_excluded=%s,net_pnl=%s,expectancy=%s,profit_factor=%s,reason_code=%s,
+        observations_excluded=%s,raw_observations_included=%s,effective_observations=%s,
+        net_pnl=%s,expectancy=%s,profit_factor=%s,reason_code=%s,
         updated_at=clock_timestamp() WHERE run_id=%s""",
-      (status,included,int(metric["excluded"] or 0),metric["net_pnl"],metric["expectancy"],pf,reason,run["run_id"]))
+      (status,included,int(metric["excluded"] or 0),int(metric["raw_included"] or 0),included,
+       metric["net_pnl"],metric["expectancy"],pf,reason,run["run_id"]))
     cur.execute("""UPDATE analytics.trade_outcome_oos_admission_v1 SET status_code=%s,reason_code=%s,
         updated_at=clock_timestamp() WHERE admission_id=%s""", (admission_status,reason,admission["admission_id"]))
 
@@ -114,7 +124,7 @@ def main() -> int:
             cur.execute("""SELECT * FROM analytics.trade_outcome_oos_admission_v1
                 WHERE status_code IN ('QUEUED','RUNNING')
                   AND oos_request->'temporal_isolation'->>'policy'='PURGED_EMBARGO_V5_V1'
-                ORDER BY created_at""")
+                ORDER BY admission_id""")
             admissions = [dict(row) for row in cur.fetchall()]
             for admission in admissions:
                 run = _ensure_run(cur, admission)

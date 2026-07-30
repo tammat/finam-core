@@ -747,11 +747,12 @@
 - V5 admission now freezes `purge_before_ts` and starts independent evidence only
   after `confirmation_after_ts`; the embargo equals the maximum observed holding
   horizon of the admitted V5 context.
-- Added `V5_PURGED_OOS_WORKER_V1`: it runs every 15 minutes through the governed
+- Added `V5_PURGED_OOS_WORKER_V2`: it runs every 15 minutes through the governed
   DB scheduler, is idempotent, cannot trade, and never grants automatic promotion.
 - Every post-boundary closed signal is audited as included or excluded, with an
-  explicit reason for boundary overlap, embargo, context mismatch or reuse.
-- A source trade can be included in only one V5 OOS run. V5 training evidence is
+  explicit reason for boundary overlap, embargo or context mismatch.
+- A future event may evaluate every hypothesis registered before that event;
+  uniqueness remains enforced inside each run. V5 training evidence is
   frozen through `closed_trades_fresh_v5_training_v1`, so subsequent OOS outcomes
   do not flow back into the admitted training aggregate.
 - The common purging contract now protects checkpointed walk-forward, hypothesis
@@ -769,13 +770,14 @@
   cohort are both `FRESH_V5%`; legacy, research, real and mismatched rows are
   rejected before evaluation.
 - All audit outcomes are reachable and tested: pre-boundary, embargo/overlap,
-  context mismatch, global reuse and included future-only observation.
+  context mismatch and included future-only observation.
 - Added an independently owned frozen cost guard V2. Admission no longer depends
   on the mutable legacy V5 cost view owned by the `finam` role.
 - V5 training freeze now matches the exact session, regime and exit rule rather
   than over-freezing every context for the same symbol/strategy/side.
-- Global source-trade-once semantics are explicit DB policy. This is a deliberate
-  conservative multiple-testing rule, not an implicit implementation detail.
+- Global source-trade-once was retired because it made results depend on candidate
+  creation order. Shared future events are allowed only for hypotheses registered
+  before the event and remain isolated from their own training samples.
 - All pre-purging research tables are registered in
   `pre_purging_result_quarantine_v1`; 4.6M+ historical rows remain available for
   audit but cannot promote. Canonical regime promotion now also requires the
@@ -787,3 +789,22 @@
   admission -> run -> included audit -> collecting verdict and rolls back fully.
 - Validation: 67 focused tests passed. Live/Paper execution was not changed;
   REAL remains disabled and OOS PASS remains zero.
+
+### V5 methodology integrity V2 — 30.07.2026
+
+- Removed post-outcome leakage: exact context, admission, training freeze and OOS
+  matching use only entry-time `planned_exit_rule`; `actual_exit_reason` is audit
+  outcome data and cannot select a cohort.
+- Full-cost admission now adds a conservative two-tick round-trip spread/slippage
+  floor to the larger of recorded commission and the observed gross/net gap. A
+  missing contract cost specification fails closed.
+- OOS reports both raw trades and effective event observations. Correlated trades
+  in the same Moscow trading day and asset cluster contribute one event return,
+  so overlapping positions no longer inflate sample size.
+- Removed order-dependent global claiming of a source trade. All hypotheses must
+  be preregistered before entry; reuse is still impossible inside one OOS run.
+- Production recalculation: 56 V5 trades now map to 39 exact entry-time contexts,
+  all with `STOP_TAKE`; 39 guards are waiting for the 80-trade sample. OOS runs
+  and OOS PASS remain zero. REAL remains disabled.
+- Validation: 43 focused tests passed; analytics worker completed with zero
+  eligible admissions and no orders, fills or runtime execution changes.
