@@ -17,6 +17,20 @@ def test_challenger_promotes_only_to_paper_automatically():
     assert "REAL_TRADING_ENABLED" not in source
 
 
+def test_automatic_promotion_is_fail_closed_by_default():
+    source = BUILDER.read_text(encoding="utf-8")
+    assert 'ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "0"' in source
+    assert "PAPER_PROMOTION_BLOCKED_METHODOLOGY_GATE" in source
+
+
+def test_shadow_builder_requires_costs_and_contract_geometry():
+    source = BUILDER.read_text(encoding="utf-8")
+    assert "execution_economics" in source
+    assert "roundtrip_cost_price=economics" in source
+    assert "market_contract_spec_v1" in source
+    assert "float(trade[\"net_pnl\"]) / cash_risk" in source
+
+
 def test_optimizer_ui_is_read_only_without_decision_buttons():
     source = RENDERER.read_text(encoding="utf-8")
     start = source.index("def _optimizer_section(")

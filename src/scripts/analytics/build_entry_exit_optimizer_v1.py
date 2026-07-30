@@ -23,6 +23,40 @@ SUPPORTED = {
 }
 
 
+def execution_economics(cursor, trade: dict) -> dict | None:
+    """Return fail-closed cash/price conversion and conservative costs."""
+    symbol = str(trade["symbol"])
+    qty = abs(float(trade.get("qty") or 0.0))
+    if qty <= 0:
+        return None
+    is_futures = symbol.upper().endswith("@RTSX")
+    multiplier = 1.0
+    tick = 0.0
+    if is_futures:
+        cursor.execute("""SELECT tick_size::float8,tick_value::float8
+                          FROM analytics.market_contract_spec_v1
+                          WHERE symbol=%s AND is_active
+                          ORDER BY valid_from DESC LIMIT 1""", (symbol,))
+        spec = cursor.fetchone()
+        tick = float(spec["tick_size"] or 0.0) if spec else 0.0
+        tick_value = float(spec["tick_value"] or 0.0) if spec else 0.0
+        if tick <= 0 or tick_value <= 0:
+            return None
+        multiplier = tick_value / tick
+    commission_rub = max(0.0, float(trade.get("commission") or 0.0))
+    observed_cost_price = commission_rub / (qty * multiplier)
+    # Never simulate frictionless fills.  Futures pay at least one adverse tick
+    # per side; equities use a configurable conservative round-trip bps floor.
+    floor_price = (2.0 * tick if is_futures else
+                   float(trade["entry_price"]) *
+                   float(os.getenv("SHADOW_EQUITY_ROUNDTRIP_COST_BPS", "8")) / 10_000.0)
+    return {
+        "qty": qty, "multiplier": multiplier,
+        "roundtrip_cost_price": max(observed_cost_price, floor_price),
+        "contract_spec_ok": not is_futures or (tick > 0 and multiplier > 0),
+    }
+
+
 def symbol_group(strategy: str, symbol: str) -> str:
     if strategy == "BR_CONSERVATIVE_BREAKOUT":
         return "BR"
@@ -37,7 +71,8 @@ def main() -> int:
     with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("select pg_advisory_xact_lock(hashtext('entry_exit_optimizer_v1'))")
         cur.execute("""
-          SELECT id,symbol,strategy,upper(side) side,entry_price,exit_price,net_pnl,
+          SELECT id,symbol,strategy,upper(side) side,qty,entry_price,exit_price,
+                 gross_pnl,commission,net_pnl,
                  coalesce(entry_ts,opened_at,created_at) entry_ts,
                  coalesce(closed_at,exit_ts,created_at) exit_ts,
                  coalesce(payload->'context'->>'regime_trend',
@@ -61,28 +96,32 @@ def main() -> int:
             independent_key = (strategy, group, side, bucket)
             if independent_key in independent_signals:
                 continue
-            independent_signals.add(independent_key)
             atr = atr_at_entry(cur, trade["symbol"], SUPPORTED[strategy], trade["entry_ts"])
             if not atr:
                 continue
+            economics = execution_economics(cur, trade)
+            if not economics:
+                continue
             cur.execute("""SELECT high::float8,low::float8,close::float8 FROM market_bars
-                           WHERE symbol=%s AND timeframe=%s AND ts BETWEEN %s AND %s
+                           WHERE symbol=%s AND timeframe=%s AND ts > %s AND ts <= %s
                            ORDER BY ts""", (trade["symbol"], SUPPORTED[strategy], trade["entry_ts"], trade["exit_ts"]))
             bars = [Bar(float(r["high"]),float(r["low"]),float(r["close"])) for r in cur.fetchall()]
             if not bars:
                 continue
-            groups[(strategy,group,side)].append((trade,float(atr),bars))
+            independent_signals.add(independent_key)
+            groups[(strategy,group,side)].append((trade,float(atr),bars,economics))
 
         for (strategy,group,side), trades in groups.items():
             candidate_results = []
             for variant in default_variants(strategy):
                 rows = []
-                for trade,atr,bars in trades:
-                    direction = 1 if side == "LONG" else -1
+                for trade,atr,bars,economics in trades:
                     risk = atr * variant.stop_atr
-                    actual_r = direction * (float(trade["exit_price"])-float(trade["entry_price"])) / risk
+                    cash_risk = risk * economics["qty"] * economics["multiplier"]
+                    actual_r = float(trade["net_pnl"]) / cash_risk
                     outcome = simulate_variant(signal_price=float(trade["entry_price"]), side=side, atr=atr,
-                                               bars=bars, variant=variant)
+                                               bars=bars, variant=variant,
+                                               roundtrip_cost_price=economics["roundtrip_cost_price"])
                     rows.append({"actual_r":actual_r,"shadow_r":outcome.net_r,
                                  "trade_date":trade["entry_ts"].date().isoformat(),
                                  "regime":str(trade.get("regime") or "UNKNOWN")})
@@ -156,8 +195,8 @@ def main() -> int:
                 paper_metrics = state["paper_metrics"] or {}
                 stage = "CHAMPION_ACTIVE"
                 if selected and active_activated_at:
-                    champion_rows = [row for row, trade in zip(selected[2], trades)
-                                     if trade["exit_ts"] >= active_activated_at]
+                    champion_rows = [row for row, trade_bundle in zip(selected[2], trades)
+                                     if trade_bundle[0]["exit_ts"] >= active_activated_at]
                     validated_dd = max(
                         float(paper_metrics.get("challenger_drawdown_r") or 0),
                         float(shadow_metrics.get("shadow_drawdown_r") or 0), 0.01)
@@ -189,8 +228,8 @@ def main() -> int:
                         for item in candidate_results:
                             if item[0].code == active_code or item[0].entry_mode != "IMMEDIATE":
                                 continue
-                            fresh_rows = [row for row, trade in zip(item[2], trades)
-                                          if trade["exit_ts"] >= active_activated_at]
+                            fresh_rows = [row for row, trade_bundle in zip(item[2], trades)
+                                          if trade_bundle[0]["exit_ts"] >= active_activated_at]
                             metrics = evaluate_walk_forward(fresh_rows)
                             if metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION":
                                 fresh_ready.append((item, metrics))
@@ -209,8 +248,8 @@ def main() -> int:
                 "PAPER_CHALLENGER", "KEEP_PAPER_CHALLENGER", "READY_FOR_CHAMPION_CONFIRMATION"
             } and existing_code in by_code and selected_at:
                 selected = by_code[existing_code]
-                forward_rows = [row for row, trade in zip(selected[2], trades)
-                                if trade["exit_ts"] >= selected_at]
+                forward_rows = [row for row, trade_bundle in zip(selected[2], trades)
+                                if trade_bundle[0]["exit_ts"] >= selected_at]
                 paper_metrics = evaluate_paper_challenger(forward_rows)
                 shadow_metrics = selected[1]
                 stage = paper_metrics["status"]
@@ -243,7 +282,13 @@ def main() -> int:
             # Paper is an isolated learning contour: once every historical and
             # fresh forward guard has passed, promote the challenger without an
             # operator click. REAL is not represented by this table or job.
-            if stage == "READY_FOR_CHAMPION_CONFIRMATION":
+            auto_promotion_enabled = os.getenv("ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "0") == "1"
+            if stage == "READY_FOR_CHAMPION_CONFIRMATION" and not auto_promotion_enabled:
+                stage = "PAPER_PROMOTION_BLOCKED_METHODOLOGY_GATE"
+                paper_metrics = dict(paper_metrics)
+                paper_metrics["promotion_blocked"] = True
+                paper_metrics["promotion_block_reason"] = "ENTRY_EXIT_AUTO_PROMOTION_ENABLED=0"
+            if stage == "READY_FOR_CHAMPION_CONFIRMATION" and auto_promotion_enabled:
                 cur.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
                     SET status='SUPERSEDED',deactivated_at=clock_timestamp()
                     WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s

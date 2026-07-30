@@ -5291,6 +5291,7 @@ class PaperTradingPipeline:
             str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper"
             and str(intent.get("intent_type") or "ENTRY").upper() != "EXIT"
         ):
+            adaptive_enforce_required = False
             try:
                 adaptive_features = (
                     intent.get("features") if isinstance(intent.get("features"), dict) else {}
@@ -5345,6 +5346,7 @@ class PaperTradingPipeline:
                         f"FUTURES_ADAPTIVE_{adaptive_profile.asset}_MODE",
                         runtime_mode or adaptive_profile.default_mode,
                     ).upper()
+                    adaptive_enforce_required = adaptive_mode == "ENFORCE"
                     adaptive_atr = float(
                         adaptive_features.get("atr")
                         or st.get("atr")
@@ -5370,6 +5372,13 @@ class PaperTradingPipeline:
                     intent["features"]["risk_profile_source"] = (
                         "AUTO_PROMOTED_PAPER" if runtime_override else "BUILTIN"
                     )
+                    if adaptive_mode == "ENFORCE" and not adaptive_decision.allowed:
+                        print(
+                            "PIPE_FUTURES_ADAPTIVE_RISK_BLOCK "
+                            f"symbol={adaptive_symbol} reason={adaptive_decision.reason} paper_only=1",
+                            flush=True,
+                        )
+                        return
                     if adaptive_mode == "ENFORCE" and adaptive_decision.allowed:
                         intent["stop_loss"] = adaptive_decision.stop_price
                         intent["take_profit"] = adaptive_decision.take_price
@@ -5393,6 +5402,9 @@ class PaperTradingPipeline:
                     "paper_only=1",
                     flush=True,
                 )
+                if adaptive_enforce_required:
+                    print("PIPE_FUTURES_ADAPTIVE_RISK_FAIL_CLOSED paper_only=1", flush=True)
+                    return
 
         # Подтверждённый оператором профиль оптимизатора применяется только к
         # Paper ENTRY. REAL этим контуром принципиально не обслуживается.
@@ -5439,6 +5451,11 @@ class PaperTradingPipeline:
                         self._entry_exit_profile_cache_ts_v1 = time.time()
                     approved = cache.get((strategy_code,symbol_group,side_code))
                     if approved:
+                        if symbol_code.upper().endswith("@RTSX"):
+                            # Until one shared risk object drives sizing, exits
+                            # and Shadow, do not let a generic profile overwrite
+                            # a contract-aware futures risk decision.
+                            raise RuntimeError("FUTURES_PROFILE_REQUIRES_UNIFIED_RISK_RUNTIME")
                         if approved["entry_mode"] != "IMMEDIATE":
                             raise RuntimeError("NON_IMMEDIATE_PROFILE_CANNOT_BE_ENFORCED")
                         features = intent.setdefault("features", {})
@@ -5455,7 +5472,7 @@ class PaperTradingPipeline:
                             "stop": intent["stop_loss"], "take": intent["take_profit"],
                             "entry_exit_profile_id": approved["profile_id"],
                             "entry_exit_candidate_code": approved["candidate_code"],
-                            "entry_exit_profile_source": "OPERATOR_CONFIRMED_PAPER",
+                            "entry_exit_profile_source": "AUTO_CHAMPION_CHALLENGER_PAPER",
                             "trail_after_r": approved["trail_after_r"], "trail_atr": approved["trail_atr"],
                         })
                         print(f"PIPE_ENTRY_EXIT_PROFILE_APPLIED strategy={strategy_code} symbol={symbol_code} "

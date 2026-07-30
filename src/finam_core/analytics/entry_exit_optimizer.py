@@ -54,13 +54,17 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar]) -> 
     if entry_mode == "IMMEDIATE":
         return 0, signal_price
     if entry_mode == "CONFIRM_1":
-        return (0, bars[0].close) if direction * (bars[0].close - signal_price) > 0 else None
+        # Confirmation is only known at the close.  The confirmation candle
+        # cannot also stop or take a position that did not exist intrabar.
+        return (1, bars[0].close) if direction * (bars[0].close - signal_price) > 0 else None
     if entry_mode == "RETEST_3":
         for index, bar in enumerate(bars[:3]):
             touched = bar.low <= signal_price <= bar.high
             confirmed = direction * (bar.close - signal_price) >= 0
             if touched and confirmed:
-                return index, signal_price
+                # A retest is confirmed at the close, so use that observable
+                # price and start exit evaluation on the following candle.
+                return index + 1, bar.close
         return None
     raise ValueError(f"unknown entry mode: {entry_mode}")
 
@@ -81,11 +85,9 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
     best = entry
     exit_price, reason = bars[-1].close, "HORIZON_MARK"
     for bar in bars[start:]:
-        best = max(best, bar.high) if direction > 0 else min(best, bar.low)
-        if variant.trail_after_r is not None and direction * (best - entry) >= risk * variant.trail_after_r:
-            distance = atr * float(variant.trail_atr or 1.0)
-            candidate = best - direction * distance
-            stop = max(stop, candidate) if direction > 0 else min(stop, candidate)
+        # `stop` is based only on earlier completed candles.  Raising it from
+        # this candle's favourable extreme before inspecting its adverse
+        # extreme would assume an unknowable high/low order.
         stop_hit = bar.low <= stop if direction > 0 else bar.high >= stop
         take_hit = bar.high >= take if direction > 0 else bar.low <= take
         if stop_hit:  # conservative if both levels were inside one candle
@@ -94,6 +96,11 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
         if take_hit:
             exit_price, reason = take, "TAKE"
             break
+        best = max(best, bar.high) if direction > 0 else min(best, bar.low)
+        if variant.trail_after_r is not None and direction * (best - entry) >= risk * variant.trail_after_r:
+            distance = atr * float(variant.trail_atr or 1.0)
+            candidate = best - direction * distance
+            stop = max(stop, candidate) if direction > 0 else min(stop, candidate)
     net_r = (direction * (exit_price - entry) - max(0.0, roundtrip_cost_price)) / risk
     return Outcome(True, round(entry, 8), round(exit_price, 8), reason, round(net_r, 8))
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from statistics import median
 
 import psycopg2
@@ -21,6 +21,13 @@ from finam_core.strategy.futures_adaptive_risk_policy import FuturesAdaptiveRisk
 TIMEFRAMES = {"NG": "M1", "BR": "M5", "USD": "M5", "CNY": "M5", "GOLD": "M5"}
 
 
+def timeframe_delta(timeframe: str) -> timedelta:
+    code = str(timeframe).upper()
+    if code.startswith("M") and code[1:].isdigit():
+        return timedelta(minutes=int(code[1:]))
+    raise ValueError(f"unsupported timeframe for causal calibration: {timeframe}")
+
+
 def connection():
     dsn = os.getenv("DATABASE_URL")
     if not dsn:
@@ -34,6 +41,9 @@ def asset_for(symbol: str) -> str | None:
 
 
 def atr_at_entry(cursor, symbol: str, timeframe: str, entry_ts: datetime) -> float | None:
+    # market_bars.ts is the candle open.  Exclude the candle containing entry;
+    # its final high/low/close were not observable when the order was filled.
+    completed_cutoff = entry_ts - timeframe_delta(timeframe)
     cursor.execute(
         """
         SELECT high::float8,low::float8,close::float8
@@ -41,7 +51,7 @@ def atr_at_entry(cursor, symbol: str, timeframe: str, entry_ts: datetime) -> flo
         WHERE symbol=%s AND timeframe=%s AND ts<=%s
         ORDER BY ts DESC LIMIT 15
         """,
-        (symbol, timeframe, entry_ts),
+        (symbol, timeframe, completed_cutoff),
     )
     rows = list(reversed(cursor.fetchall()))
     if len(rows) < 15:
@@ -64,7 +74,7 @@ def path_observation(cursor, trade: dict, timeframe: str) -> TradePathObservatio
         """
         SELECT max(high)::float8 AS max_high,min(low)::float8 AS min_low
         FROM market_bars
-        WHERE symbol=%s AND timeframe=%s AND ts BETWEEN %s AND %s
+        WHERE symbol=%s AND timeframe=%s AND ts > %s AND ts <= %s
         """,
         (trade["symbol"], timeframe, trade["entry_ts"], trade["exit_ts"]),
     )
@@ -93,7 +103,8 @@ def path_observation(cursor, trade: dict, timeframe: str) -> TradePathObservatio
                percentile_cont(0.5) WITHIN GROUP (ORDER BY volume) AS median_volume
         FROM history
         """,
-        (trade["symbol"], timeframe, trade["entry_ts"], trade["symbol"], timeframe, trade["entry_ts"]),
+        (trade["symbol"], timeframe, trade["entry_ts"] - timeframe_delta(timeframe),
+         trade["symbol"], timeframe, trade["entry_ts"] - timeframe_delta(timeframe)),
     )
     volume_row = cursor.fetchone() or {}
     baseline = float(volume_row.get("median_volume") or 0.0)

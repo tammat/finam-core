@@ -50,14 +50,14 @@ class ExitEngine:
         if atr <= 0:
             return ExitDecision(False, "no_atr", current_stop)
 
-        if bars_held >= self.max_bars_in_trade:
-            return ExitDecision(True, "time_exit", current_stop)
-
         if side == "BUY":
             profit = price - entry
 
             if current_stop is not None and price <= current_stop:
                 return ExitDecision(True, "stop_loss_long", current_stop)
+
+            if bars_held >= self.max_bars_in_trade:
+                return ExitDecision(True, "time_exit", current_stop)
 
             stop = current_stop
 
@@ -84,6 +84,9 @@ class ExitEngine:
 
             if current_stop is not None and price >= current_stop:
                 return ExitDecision(True, "stop_loss_short", current_stop)
+
+            if bars_held >= self.max_bars_in_trade:
+                return ExitDecision(True, "time_exit", current_stop)
 
             stop = current_stop
 

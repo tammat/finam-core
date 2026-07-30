@@ -23,6 +23,40 @@ def test_short_trailing_is_direction_aware():
     assert out.entered and out.net_r > 0
 
 
+def test_confirmation_candle_cannot_exit_before_close_entry():
+    variant = Variant("v", "CONFIRM_1", 1.0, 2.0)
+    bars = [Bar(103, 98, 101), Bar(102, 100.5, 101.5)]
+    out = simulate_variant(signal_price=100, side="LONG", atr=1, bars=bars, variant=variant)
+    assert out.entered and out.reason == "HORIZON_MARK"
+    assert out.entry_price == 101
+
+
+def test_retest_enters_at_confirmation_close_and_exits_from_next_bar():
+    variant = Variant("v", "RETEST_3", 1.0, 2.0)
+    bars = [Bar(101, 99, 100.5), Bar(101.5, 100.4, 101.0)]
+    out = simulate_variant(signal_price=100, side="LONG", atr=1, bars=bars, variant=variant)
+    assert out.entered and out.entry_price == 100.5
+    assert out.reason == "HORIZON_MARK"
+
+
+def test_trailing_uses_only_previous_completed_candle():
+    variant = Variant("v", "IMMEDIATE", 2.0, 5.0, 0.5, 0.5)
+    bars = [Bar(102, 99.5, 101.5), Bar(103, 100.75, 102.5)]
+    out = simulate_variant(signal_price=100, side="LONG", atr=1, bars=bars, variant=variant)
+    # First candle arms a 101.5 trail for the next candle.  The second candle
+    # must exit there; it cannot first use its high=103 to invent stop=102.5.
+    assert out.exit_price == 101.5
+    assert out.net_r == 0.75
+
+
+def test_roundtrip_cost_is_deducted_from_shadow_r():
+    variant = Variant("v", "IMMEDIATE", 1.0, 2.0)
+    out = simulate_variant(signal_price=100, side="LONG", atr=1,
+                           bars=[Bar(102, 100, 102)], variant=variant,
+                           roundtrip_cost_price=0.25)
+    assert out.net_r == 1.75
+
+
 def test_small_sample_never_promotes():
     assert not evaluate_walk_forward([{"actual_r": 0, "shadow_r": 1}] * 79)["status"].startswith("READY")
 
