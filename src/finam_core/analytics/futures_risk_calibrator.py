@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil
-from statistics import median
+import random
 
 
 @dataclass(frozen=True)
@@ -48,33 +48,71 @@ def calibrate_profile(
     result = {
         "trades": len(valid),
         "winners": len(winners),
-        "mae_q80_atr": quantile([item.mae_atr for item in winners], 0.80),
-        "mfe_q70_atr": quantile([item.mfe_atr for item in winners], 0.70),
+        "mae_q80_atr": quantile([item.mae_atr for item in valid], 0.80),
+        "mfe_q70_atr": quantile([item.mfe_atr for item in valid], 0.70),
         "status": "INSUFFICIENT_DATA",
-        "reason": f"requires trades>={min_trades} and winners>={min_winners}",
+        "reason": f"requires trades>={min_trades}",
         "recommended_stop_atr": None,
         "recommended_take_atr": None,
         "recommended_volume_ratio": None,
+        "counterfactual_expectancy_r": None,
+        "counterfactual_lower_95_r": None,
+        "counterfactual_drawdown_r": None,
+        "promotion_eligible": False,
     }
-    if len(valid) < min_trades or len(winners) < min_winners:
+    if len(valid) < min_trades:
         return result
 
-    raw_stop = float(result["mae_q80_atr"] or bounds.min_stop_atr) + 0.10
-    stop = min(bounds.max_stop_atr, max(bounds.min_stop_atr, raw_stop))
-    raw_take = float(result["mfe_q70_atr"] or bounds.prior_target_atr)
-    take = max(bounds.prior_target_atr, bounds.min_reward_r * stop, raw_take)
-    take = min(max(bounds.prior_target_atr * 1.5, bounds.min_reward_r * stop), take)
+    def path_r(item: TradePathObservation, stop: float, take: float) -> float:
+        # With OHLC paths the order of MAE/MFE is unknown.  If both levels were
+        # reachable, conservatively assume the stop happened first.
+        if item.mae_atr >= stop:
+            return -1.0
+        if item.mfe_atr >= take:
+            return take / stop
+        return 0.0
 
-    winner_volumes = [item.volume_ratio for item in winners if item.volume_ratio is not None]
+    def drawdown(values: list[float]) -> float:
+        equity = peak = worst = 0.0
+        for value in values:
+            equity += value
+            peak = max(peak, equity)
+            worst = max(worst, peak - equity)
+        return worst
+
+    def lower_95(values: list[float]) -> float:
+        rng = random.Random(917)
+        estimates = sorted(
+            sum(rng.choice(values) for _ in values) / len(values)
+            for _ in range(2000)
+        )
+        return estimates[int(0.05 * len(estimates))]
+
+    candidates = []
+    stop = bounds.min_stop_atr
+    while stop <= bounds.max_stop_atr + 1e-9:
+        minimum_take = max(bounds.prior_target_atr, bounds.min_reward_r * stop)
+        for reward in (bounds.min_reward_r, bounds.min_reward_r + 0.5, bounds.min_reward_r + 1.0):
+            take = max(minimum_take, stop * reward)
+            values = [path_r(item, stop, take) for item in valid]
+            candidates.append((lower_95(values), sum(values) / len(values), -drawdown(values), stop, take, values))
+        stop = round(stop + 0.1, 10)
+    best = max(candidates)
+    lower_bound, expectancy, negative_dd, stop, take, _ = best
+
+    # Volume is deliberately not optimized on winners.  Keep the incumbent
+    # threshold until a separate forward comparison proves a change.
     volume = bounds.prior_volume_ratio
-    if len(winner_volumes) >= min_winners:
-        volume = min(2.0, max(1.0, float(median(winner_volumes))))
 
     result.update({
-        "status": "CANDIDATE_FOR_REVIEW" if len(valid) >= 50 else "ADVISORY_READY",
-        "reason": "MAE_Q80_PLUS_BUFFER_AND_MFE_Q70",
+        "status": "CANDIDATE_FOR_REVIEW" if len(valid) >= 50 and lower_bound > 0 else "ADVISORY_READY",
+        "reason": "ALL_TRADES_CONSERVATIVE_PATH_GRID_V2",
         "recommended_stop_atr": round(stop, 4),
         "recommended_take_atr": round(take, 4),
         "recommended_volume_ratio": round(volume, 4),
+        "counterfactual_expectancy_r": round(expectancy, 6),
+        "counterfactual_lower_95_r": round(lower_bound, 6),
+        "counterfactual_drawdown_r": round(-negative_dd, 6),
+        "promotion_eligible": len(valid) >= 50 and lower_bound > 0,
     })
     return result

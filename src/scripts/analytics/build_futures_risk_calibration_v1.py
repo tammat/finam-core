@@ -168,11 +168,15 @@ def main() -> int:
                     ),
                 )
                 payload = {
-                    "version": "v1",
+                    "version": "v2",
                     "lookback_days": 180,
                     "cohort_filter": "FRESH_V5%",
                     "trade_source": "paper",
-                    "method": "MAE_Q80_PLUS_0_10_MFE_Q70",
+                    "method": "ALL_TRADES_CONSERVATIVE_PATH_GRID_V2",
+                    "counterfactual_expectancy_r": result.get("counterfactual_expectancy_r"),
+                    "counterfactual_lower_95_r": result.get("counterfactual_lower_95_r"),
+                    "counterfactual_drawdown_r": result.get("counterfactual_drawdown_r"),
+                    "promotion_eligible": result.get("promotion_eligible", False),
                 }
                 cursor.execute(
                     """
