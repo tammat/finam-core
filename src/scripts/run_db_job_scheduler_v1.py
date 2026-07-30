@@ -58,6 +58,8 @@ EXECUTORS = {
     "V5_ASSET_BRANCH_ROTATION_V1": "src/scripts/rotate_v5_asset_branch_timeframes_v1.py",
     "V5_FUTURES_FLAT_LIQUIDITY_ROLLOVER_V1": "src/scripts/run_v5_futures_rollover_v1.py",
     "V5_PURGED_OOS_WORKER_V1": "src/scripts/run_v5_purged_oos_worker_v1.py",
+    "MX_INDEX_SHADOW_OBSERVER_V1": "src/scripts/build_mx_index_shadow_observer_v1.py",
+    "RVI_REGIME_FEATURE_V1": "src/scripts/build_rvi_regime_feature_v1.py",
 }
 
 

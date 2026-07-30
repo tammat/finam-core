@@ -148,3 +148,14 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - Recalculated production state: 56 V5 trades, 39 exact entry-time contexts,
   39 cost guards waiting for sample, 0 OOS runs and 0 OOS PASS. REAL is disabled.
 - Migration: `234_v5_methodology_integrity_v2.sql`. Focused validation: 43 passed.
+
+## MX/RVI Shadow expansion
+
+- `MXU6@RTSX`: isolated LONG/SHORT M5 Shadow observer with completed-bar-only
+  20-bar breakout and entry-time ATR risk. No Paper/REAL permission.
+- `VIU6@RTSX`: RVI regime input only; non-tradable, with LOW/NORMAL/HIGH rolling
+  percentile states. Initial load: 470 M1 bars; latest state LOW_VOL at RVI 41.6.
+- Frozen forward baseline remains immutable; the defective legacy MX proxy job is
+  disabled and replaced by a separate Shadow table and governed observer.
+- Migrations: `235_mx_index_shadow_onboarding_v1.sql`,
+  `236_rvi_shadow_feature_onboarding_v1.sql`. Focused tests: 14 passed.

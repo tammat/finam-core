@@ -808,3 +808,19 @@
   and OOS PASS remain zero. REAL remains disabled.
 - Validation: 43 focused tests passed; analytics worker completed with zero
   eligible admissions and no orders, fills or runtime execution changes.
+
+### MX and RVI Shadow onboarding — 30.07.2026
+
+- `MXU6@RTSX` is onboarded as the executable Moscow Exchange index Shadow
+  instrument. The observer uses only a completed M5 bar and the preceding 20
+  bars; stop 1.8 ATR and target 3.2 ATR are frozen at signal creation.
+- The old MX forward-proxy job was disabled because it attempted to mutate the
+  frozen forward baseline. The replacement writes only isolated Shadow signals;
+  Paper and REAL permissions are false.
+- `VIU6@RTSX` (RVI-9.26) is onboarded as a volatility-regime feature. 470 M1 bars
+  were loaded; latest RVI 41.6 is in rolling `LOW_VOL`. It is explicitly marked
+  non-tradable and cannot enter Paper or REAL.
+- Current MX history: 14,624 M5 bars. The first closed-bar evaluation produced no
+  valid breakout, which is an expected no-signal result rather than an error.
+- Governed jobs `MX_INDEX_SHADOW_OBSERVER` and `RVI_REGIME_FEATURE` run every five
+  minutes. Focused validation: 14 tests passed; orders/fills changed: 0.
