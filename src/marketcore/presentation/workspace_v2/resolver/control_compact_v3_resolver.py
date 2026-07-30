@@ -444,6 +444,11 @@ class ControlCompactV3Resolver:
                            paper.take_atr AS paper_take_atr,
                            paper.trail_after_r AS paper_trail_after_r,
                            paper.trail_atr AS paper_trail_atr,
+                           adaptive.candidate_code AS adaptive_candidate_code,
+                           adaptive.recommendation_status AS adaptive_status,
+                           adaptive.pairs AS adaptive_pairs,
+                           adaptive.oos_pairs AS adaptive_oos_pairs,
+                           adaptive.metrics AS adaptive_metrics,
                            EXISTS(SELECT 1 FROM analytics.entry_exit_runtime_profile_v1 p
                              WHERE p.strategy_code=r.strategy_code AND p.symbol_group=r.symbol_group
                                AND p.side_code=r.side_code AND p.candidate_code=r.candidate_code
@@ -455,6 +460,17 @@ class ControlCompactV3Resolver:
                     LEFT JOIN analytics.entry_exit_runtime_profile_v1 paper
                       ON paper.profile_id=cc.champion_profile_id
                      AND paper.execution_mode='paper' AND paper.status='ACTIVE'
+                    LEFT JOIN LATERAL (
+                      SELECT ar.candidate_code,ar.recommendation_status,ar.pairs,
+                             ar.oos_pairs,ar.metrics
+                      FROM analytics.entry_exit_recommendation_v1 ar
+                      WHERE ar.strategy_code=r.strategy_code
+                        AND ar.symbol_group=r.symbol_group
+                        AND ar.side_code=r.side_code
+                        AND ar.entry_mode='ADAPTIVE'
+                      ORDER BY ar.pairs DESC,ar.generated_at DESC
+                      LIMIT 1
+                    ) adaptive ON true
                     ORDER BY r.strategy_code,r.symbol_group,r.side_code,
                              (r.candidate_code=cc.challenger_candidate_code) DESC,
                              CASE r.recommendation_status

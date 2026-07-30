@@ -327,7 +327,7 @@ def _attention_section(snapshot):
 
 def _optimizer_section(snapshot):
     cards = []
-    entry_labels = {"IMMEDIATE": "сразу после сигнала", "CONFIRM_1": "после подтверждения следующей свечой", "RETEST_3": "после ретеста в течение трёх свечей"}
+    entry_labels = {"IMMEDIATE": "сразу после сигнала", "CONFIRM_1": "после подтверждения следующей свечой", "RETEST_3": "после ретеста в течение трёх свечей", "ADAPTIVE": "адаптивно: вход, подтверждение, ретест или пропуск по состоянию рынка"}
     instrument_labels = {"BR": "Нефть Brent", "NG": "Природный газ", "CNY": "Юань / рубль",
                          "GAZP": "Газпром", "LKOH": "Лукойл", "NVTK": "Новатэк",
                          "SBER": "Сбербанк", "SBERP": "Сбербанк-п", "VTBR": "ВТБ"}
@@ -396,6 +396,15 @@ def _optimizer_section(snapshot):
             f"Кандидат Shadow: вход {entry_labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}; "
             f"стоп {stop_text} ATR; цель {take_text} ATR.{trail_text}"
         )
+        if item.get("adaptive_candidate_code"):
+            adaptive_metrics = item.get("adaptive_metrics") or {}
+            adaptive_gate = adaptive_metrics.get("adaptive_gate") or {}
+            adaptive_required = int(adaptive_gate.get("min_pairs") or 60)
+            parameters += (
+                f" Адаптивный вход: Shadow, "
+                f"{int(item.get('adaptive_pairs') or 0)} из {adaptive_required} пар; "
+                "сам выбирает вход сразу, подтверждение, ретест или пропуск."
+            )
         champion_code = str(item.get("champion_candidate_code") or "CURRENT_PAPER")
         challenger_code = str(item.get("challenger_candidate_code") or item.get("candidate_code") or "—")
         paper_stop = item.get("paper_stop_atr")

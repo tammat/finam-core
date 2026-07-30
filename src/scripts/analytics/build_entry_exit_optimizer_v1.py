@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import os
 from collections import defaultdict
+from statistics import median
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, default_variants, evaluate_active_paper_champion, evaluate_paper_challenger,
+    Bar, EntryContext, default_variants, evaluate_active_paper_champion, evaluate_paper_challenger,
     evaluate_walk_forward, simulate_variant,
 )
 from scripts.analytics.build_futures_risk_calibration_v1 import atr_at_entry
@@ -77,6 +78,28 @@ def symbol_group(strategy: str, symbol: str) -> str:
     return symbol.split("@", 1)[0]
 
 
+def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
+                            roundtrip_cost_price: float) -> EntryContext:
+    """Build context strictly from bars completed before the signal timestamp."""
+    cursor.execute("""SELECT open::float8,high::float8,low::float8,close::float8,volume::float8
+                      FROM market_bars WHERE symbol=%s AND timeframe=%s AND ts < %s
+                      ORDER BY ts DESC LIMIT 80""",
+                   (trade["symbol"], timeframe, trade["entry_ts"]))
+    history = list(reversed(cursor.fetchall()))
+    ranges = [max(float(row["high"]) - float(row["low"]), 0.0) for row in history]
+    atr_percentile = (sum(value <= atr for value in ranges) / len(ranges)) if ranges else 0.5
+    volumes = [max(float(row["volume"] or 0.0), 0.0) for row in history]
+    baseline = median(volumes[:-1]) if len(volumes) > 1 else 0.0
+    relative_volume = volumes[-1] / baseline if baseline > 0 and volumes else 1.0
+    return EntryContext(
+        atr_percentile=atr_percentile,
+        relative_volume=relative_volume,
+        regime=str(trade.get("regime") or "UNKNOWN"),
+        cost_to_atr=max(0.0, roundtrip_cost_price) / atr,
+        strategy=str(trade["strategy"]),
+    )
+
+
 def main() -> int:
     with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("select pg_advisory_xact_lock(hashtext('entry_exit_optimizer_v1'))")
@@ -126,18 +149,22 @@ def main() -> int:
             if not bars:
                 continue
             independent_signals.add(independent_key)
-            groups[(strategy,group,side)].append((trade,float(atr),bars,economics,horizon_complete))
+            entry_context = entry_context_at_signal(
+                cur, trade, SUPPORTED[strategy], float(atr), economics["roundtrip_cost_price"])
+            groups[(strategy,group,side)].append(
+                (trade,float(atr),bars,economics,horizon_complete,entry_context))
 
         for (strategy,group,side), trades in groups.items():
             candidate_results = []
             for variant in default_variants(strategy):
                 rows = []
-                for trade,atr,bars,economics,horizon_complete in trades:
+                for trade,atr,bars,economics,horizon_complete,entry_context in trades:
                     risk = atr * variant.stop_atr
                     cash_risk = risk * economics["qty"] * economics["multiplier"]
                     actual_r = float(trade["net_pnl"]) / cash_risk
                     outcome = simulate_variant(signal_price=float(trade["entry_price"]), side=side, atr=atr,
                                                bars=bars, variant=variant,
+                                               entry_context=entry_context,
                                                roundtrip_cost_price=economics["roundtrip_cost_price"],
                                                tick_size=economics["tick_size"],
                                                stop_slippage_ticks=float(os.getenv(

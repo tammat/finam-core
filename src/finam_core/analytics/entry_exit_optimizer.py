@@ -12,6 +12,17 @@ class Bar:
     low: float
     close: float
     open: float | None = None
+    volume: float | None = None
+
+
+@dataclass(frozen=True)
+class EntryContext:
+    """Only information available before the candidate entry decision."""
+    atr_percentile: float = 0.5
+    relative_volume: float = 1.0
+    regime: str = "UNKNOWN"
+    cost_to_atr: float = 0.0
+    strategy: str = ""
 
 
 @dataclass(frozen=True)
@@ -39,7 +50,7 @@ def default_variants(strategy: str) -> tuple[Variant, ...]:
     stops = (1.2, 1.5, 1.8) if mean_reversion else (1.5, 1.9, 2.3)
     rewards = (1.1, 1.4, 1.8) if mean_reversion else (1.6, 2.0, 2.4)
     result: list[Variant] = []
-    for entry_mode in ("IMMEDIATE", "CONFIRM_1", "RETEST_3"):
+    for entry_mode in ("IMMEDIATE", "CONFIRM_1", "RETEST_3", "ADAPTIVE"):
         for stop, reward in zip(stops, rewards):
             result.append(Variant(
                 f"{entry_mode}_S{stop:.1f}_R{reward:.1f}", entry_mode,
@@ -50,10 +61,39 @@ def default_variants(strategy: str) -> tuple[Variant, ...]:
     return tuple(result)
 
 
-def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar]) -> tuple[int, float] | None:
+def adaptive_entry_mode(context: EntryContext, *, take_atr: float) -> str:
+    """Route a signal using orthogonal, pre-entry features; fail closed."""
+    regime = context.regime.upper()
+    rel_volume = max(0.0, context.relative_volume)
+    atr_percentile = min(1.0, max(0.0, context.atr_percentile))
+    cost_to_atr = max(0.0, context.cost_to_atr)
+
+    # Do not enter if even the nominal target has too little room after costs.
+    if rel_volume < 0.60 or cost_to_atr >= max(0.20, take_atr * 0.20):
+        return "SKIP"
+    is_range = "RANGE" in regime
+    is_trend = "TREND" in regime and not is_range
+    if is_range:
+        return "RETEST_3" if context.strategy.upper() == "MEAN_REVERSION_EQUITY" else "SKIP"
+    if atr_percentile >= 0.85:
+        return "CONFIRM_1"
+    if is_trend and rel_volume >= 1.25 and 0.20 <= atr_percentile < 0.80:
+        return "IMMEDIATE"
+    return "RETEST_3"
+
+
+def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar], *,
+           atr: float, context: EntryContext | None = None,
+           take_atr: float = 0.0) -> tuple[int, float] | None:
     if not bars:
         return None
     direction = 1 if side.upper() in {"LONG", "BUY"} else -1
+    adaptive_retest = False
+    if entry_mode == "ADAPTIVE":
+        entry_mode = adaptive_entry_mode(context or EntryContext(), take_atr=take_atr)
+        if entry_mode == "SKIP":
+            return None
+        adaptive_retest = entry_mode == "RETEST_3"
     if entry_mode == "IMMEDIATE":
         return 0, signal_price
     if entry_mode == "CONFIRM_1":
@@ -62,7 +102,17 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar]) -> 
         return (1, bars[0].close) if direction * (bars[0].close - signal_price) > 0 else None
     if entry_mode == "RETEST_3":
         for index, bar in enumerate(bars[:3]):
-            touched = bar.low <= signal_price <= bar.high
+            if adaptive_retest:
+                favourable = (bar.high - signal_price if direction > 0
+                              else signal_price - bar.low)
+                # If one completed candle both runs away and revisits the
+                # level, its intrabar order is unknowable: reject it.
+                if favourable > atr * 0.70:
+                    return None
+                touched = (bar.low <= signal_price + atr * 0.20 if direction > 0
+                           else bar.high >= signal_price - atr * 0.20)
+            else:
+                touched = bar.low <= signal_price <= bar.high
             confirmed = direction * (bar.close - signal_price) >= 0
             if touched and confirmed:
                 # A retest is confirmed at the close, so use that observable
@@ -74,12 +124,14 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar]) -> 
 
 def simulate_variant(*, signal_price: float, side: str, atr: float,
                      bars: list[Bar], variant: Variant,
+                     entry_context: EntryContext | None = None,
                      roundtrip_cost_price: float = 0.0,
                      tick_size: float = 0.0,
                      stop_slippage_ticks: float = 0.0) -> Outcome:
     if signal_price <= 0 or atr <= 0 or not bars:
         return Outcome(False, None, None, "INVALID_INPUT", None)
-    selected = _entry(variant.entry_mode, signal_price, side, bars)
+    selected = _entry(variant.entry_mode, signal_price, side, bars, atr=atr,
+                      context=entry_context, take_atr=variant.take_atr)
     if selected is None:
         return Outcome(False, None, None, "ENTRY_FILTERED", None)
     start, entry = selected
@@ -198,9 +250,9 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
     actual_oos = [float(row["actual_r"]) for row in oos]
     shadow_oos = [float(row["shadow_r"]) for row in oos]
     paired_delta = [float(row["shadow_r"]) - float(row["actual_r"]) for row in entered]
-    # 9 bounded variants are evaluated per state.  A 99.5% lower bound is a
-    # conservative family-wise guard (approximately Bonferroni 5% / 9).
-    delta_lower_bound = bootstrap_lower_mean(paired_delta, confidence=0.995)
+    # 12 bounded variants are evaluated per state.  A 99.6% lower bound is a
+    # conservative family-wise guard (approximately Bonferroni 5% / 12).
+    delta_lower_bound = bootstrap_lower_mean(paired_delta, confidence=0.996)
     regime_ok, regime_counts = regime_sample_check(entered, minimum=5)
     coverage = len(entered) / max(len(rows), 1)
     wins = sorted((value for value in shadow if value > 0), reverse=True)

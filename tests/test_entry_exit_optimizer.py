@@ -1,5 +1,5 @@
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, Variant, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
+    Bar, EntryContext, Variant, adaptive_entry_mode, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
     evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
 )
 
@@ -117,8 +117,55 @@ def test_standard_gate_requires_time_and_regime_diversity():
 
 
 def test_search_space_is_bounded():
-    assert len(default_variants("MEAN_REVERSION_EQUITY")) == 9
-    assert len(default_variants("BR_CONSERVATIVE_BREAKOUT")) == 9
+    assert len(default_variants("MEAN_REVERSION_EQUITY")) == 12
+    assert len(default_variants("BR_CONSERVATIVE_BREAKOUT")) == 12
+
+
+def test_adaptive_entry_routes_strong_trend_to_immediate():
+    context = EntryContext(atr_percentile=0.55, relative_volume=1.4,
+                           regime="trend_up", cost_to_atr=0.03,
+                           strategy="BR_CONSERVATIVE_BREAKOUT")
+    assert adaptive_entry_mode(context, take_atr=2.4) == "IMMEDIATE"
+
+
+def test_adaptive_entry_waits_for_confirmation_in_extreme_volatility():
+    context = EntryContext(atr_percentile=0.9, relative_volume=1.4,
+                           regime="trend_up", cost_to_atr=0.03)
+    assert adaptive_entry_mode(context, take_atr=2.4) == "CONFIRM_1"
+
+
+def test_adaptive_entry_skips_weak_liquidity_or_expensive_signal():
+    weak = EntryContext(relative_volume=0.5)
+    expensive = EntryContext(relative_volume=1.0, cost_to_atr=0.5)
+    assert adaptive_entry_mode(weak, take_atr=2.0) == "SKIP"
+    assert adaptive_entry_mode(expensive, take_atr=2.0) == "SKIP"
+
+
+def test_adaptive_range_mean_reversion_uses_retest():
+    context = EntryContext(relative_volume=1.0, regime="range_low_vol",
+                           strategy="MEAN_REVERSION_EQUITY")
+    assert adaptive_entry_mode(context, take_atr=1.3) == "RETEST_3"
+
+
+def test_adaptive_retest_uses_atr_zone_without_future_bar_leakage():
+    variant = Variant("v", "ADAPTIVE", 1.2, 1.3)
+    context = EntryContext(atr_percentile=0.5, relative_volume=1.0,
+                           regime="range_low_vol", strategy="MEAN_REVERSION_EQUITY")
+    bars = [Bar(high=100.4, low=100.15, close=100.25),
+            Bar(high=100.6, low=100.2, close=100.5)]
+    out = simulate_variant(signal_price=100, side="LONG", atr=1,
+                           bars=bars, variant=variant, entry_context=context)
+    assert out.entered and out.entry_price == 100.25
+
+
+def test_adaptive_retest_rejects_unknown_runaway_then_retest_order():
+    variant = Variant("v", "ADAPTIVE", 1.2, 1.3)
+    context = EntryContext(atr_percentile=0.5, relative_volume=1.0,
+                           regime="range_low_vol", strategy="MEAN_REVERSION_EQUITY")
+    out = simulate_variant(signal_price=100, side="LONG", atr=1,
+                           bars=[Bar(high=100.8, low=100.1, close=100.3)],
+                           variant=variant, entry_context=context)
+    assert not out.entered
 
 
 def test_paper_challenger_requires_fresh_forward_sample():
