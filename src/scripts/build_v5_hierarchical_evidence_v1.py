@@ -173,7 +173,7 @@ def main() -> int:
                        coalesce(net_pnl,0) net_pnl,coalesce(gross_pnl,0) gross_pnl,
                        coalesce(commission,0) commission,entry_price,abs(qty) qty,
                        nullif(payload->'context'->>'entry_stop_price','')::numeric entry_stop_price
-                FROM analytics.closed_trades_fresh_v5_confirmed
+                FROM analytics.closed_trades_fresh_v5_training_v1
             """)
             for row in cursor.fetchall():
                 initial_risk = abs(

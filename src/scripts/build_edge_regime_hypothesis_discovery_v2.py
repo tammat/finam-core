@@ -15,6 +15,7 @@ from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades, metrics
 from scripts.edge_research_universe_v1 import load_research_universe
 from scripts.meta_entry_policy_v2 import apply_meta_entry_policy_v2, load_meta_entry_policy_v2
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -249,18 +250,16 @@ def _execute_task(cur, task: dict, context: MarketContext, cutoff_ts: datetime) 
     }
     lookback = int(params["lookback"])
     run = {"strategy_code": task["strategy_code"], "parameter_json": params}
-    validation_all = [
-        trade
-        for trade in build_trades(
-            run, strategy_bars[context.train_end - lookback : context.validation_end]
-        )
-        if trade.entry_ts >= context.validation_start_ts
-    ]
-    oos_all = [
-        trade
-        for trade in build_trades(run, strategy_bars[context.validation_end - lookback :])
-        if trade.entry_ts >= context.oos_start_ts
-    ]
+    validation_start,validation_stop,_ = purged_bar_window(
+        strategy_bars,start=context.train_end,end=context.validation_end,parameters=params)
+    oos_start,oos_stop,_ = purged_bar_window(
+        strategy_bars,start=context.validation_end,end=len(strategy_bars),parameters=params)
+    validation_all = trades_in_purged_window(
+        build_trades(run,strategy_bars[context.train_end-lookback:context.validation_end]),
+        start_ts=validation_start,end_ts=validation_stop)
+    oos_all = trades_in_purged_window(
+        build_trades(run,strategy_bars[context.validation_end-lookback:]),
+        start_ts=oos_start,end_ts=oos_stop)
     cur.execute(
         "DELETE FROM analytics.edge_regime_hypothesis_result_v2 WHERE discovery_task_id=%s",
         (task["task_id"],),

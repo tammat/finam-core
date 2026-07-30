@@ -8,6 +8,26 @@ from typing import Callable, Sequence, TypeVar
 T = TypeVar("T")
 
 
+def label_horizon_bars(parameters: dict) -> int:
+    hold = max(1, int(parameters.get("hold", parameters.get("holding_bars", 5))))
+    if str(parameters.get("exit_policy_code", "FIXED_HOLD")) == "DYNAMIC_EXIT_V1":
+        return max(hold, int(parameters.get("exit_max_holding_bars", max(hold, 20))))
+    return hold
+
+
+def purged_bar_window(bars: Sequence[T], *, start: int, end: int, parameters: dict) -> tuple[object, object, int]:
+    """Return an embargoed closed interval for an evaluation fold."""
+    embargo_bars = label_horizon_bars(parameters)
+    effective_start = start + embargo_bars
+    if start < 0 or end > len(bars) or effective_start >= end:
+        raise ValueError("purged bar window is empty or outside available bars")
+    return getattr(bars[effective_start], "ts"), getattr(bars[end - 1], "ts"), embargo_bars
+
+
+def trades_in_purged_window(trades: Sequence[T], *, start_ts: object, end_ts: object) -> list[T]:
+    return [trade for trade in trades if start_ts <= getattr(trade, "entry_ts") and getattr(trade, "exit_ts") <= end_ts]
+
+
 @dataclass(frozen=True)
 class PurgedSplit:
     train: list[T]

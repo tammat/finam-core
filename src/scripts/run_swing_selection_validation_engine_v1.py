@@ -4,6 +4,7 @@ import math
 import os
 import statistics
 import uuid
+from bisect import bisect_left, bisect_right
 from statistics import NormalDist
 
 import psycopg2
@@ -11,6 +12,7 @@ import psycopg2.extras
 from marketcore.research.dynamic_exit_v1 import dynamic_exit_v1, entry_allowed_v1
 
 from marketcore.research_window_guard_v1 import require_off_market_research_window
+from finam_core.research.purged_split import label_horizon_bars
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -168,8 +170,16 @@ def main():
                 volumes=[volume_data[c["symbol"]][ts] for ts in timestamps]
                 source_prices=[data[source][ts] for ts in timestamps] if source else None
                 rows=trade_rows(c["strategy_family"],c["parameter_json"],timestamps,prices,source_prices,volumes)
-                selection=[r for r in rows if c["train_end"]<=r[0]<c["selection_end"]]
-                validation=[r for r in rows if c["selection_end"]<=r[0]<=c["validation_end"]]
+                horizon=label_horizon_bars(c["parameter_json"])
+                train_i=bisect_left(timestamps,c["train_end"])
+                selection_i=bisect_left(timestamps,c["selection_end"])
+                validation_i=bisect_right(timestamps,c["validation_end"])-1
+                selection_start=timestamps[min(len(timestamps)-1,train_i+horizon)]
+                selection_stop=timestamps[max(0,selection_i-horizon)]
+                validation_start=timestamps[min(len(timestamps)-1,selection_i+horizon)]
+                validation_stop=timestamps[max(0,validation_i-horizon)]
+                selection=[r for r in rows if selection_start<=r[0]<selection_stop]
+                validation=[r for r in rows if validation_start<=r[0]<=validation_stop]
                 st,spf,sexp=metrics(selection); vt,vpf,vexp=metrics(validation)
                 mid=len(validation)//2
                 folds=sum(int(metrics(part)[2]>0 and metrics(part)[1]>=1.0) for part in (validation[:mid],validation[mid:]) if part)

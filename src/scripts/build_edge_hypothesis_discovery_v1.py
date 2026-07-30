@@ -11,6 +11,7 @@ import psycopg2.extras
 
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
 from scripts.meta_entry_policy_v2 import apply_meta_entry_policy_v2, load_meta_entry_policy_v2
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -144,16 +145,16 @@ def main() -> None:
                         params = {**base_params, "commission": roundtrip_cost, "slippage": 0.0}
                         lookback = int(params["lookback"])
                         run = {"strategy_code": strategy_code, "parameter_json": params}
-                        validation_start_ts = bars[train_end].ts
-                        oos_start_ts = bars[validation_end].ts
-                        validation_trades = [
-                            trade for trade in build_trades(run, bars[train_end - lookback:validation_end])
-                            if trade.entry_ts >= validation_start_ts
-                        ]
-                        oos_trades = [
-                            trade for trade in build_trades(run, bars[validation_end - lookback:])
-                            if trade.entry_ts >= oos_start_ts
-                        ]
+                        validation_start_ts,validation_stop_ts,_ = purged_bar_window(
+                            bars,start=train_end,end=validation_end,parameters=params)
+                        oos_start_ts,oos_stop_ts,_ = purged_bar_window(
+                            bars,start=validation_end,end=len(bars),parameters=params)
+                        validation_trades = trades_in_purged_window(
+                            build_trades(run,bars[train_end-lookback:validation_end]),
+                            start_ts=validation_start_ts,end_ts=validation_stop_ts)
+                        oos_trades = trades_in_purged_window(
+                            build_trades(run,bars[validation_end-lookback:]),
+                            start_ts=oos_start_ts,end_ts=oos_stop_ts)
                         validation = metrics(validation_trades)
                         oos = metrics(oos_trades)
 
@@ -163,7 +164,10 @@ def main() -> None:
                             for fold_no in range(3):
                                 start = validation_end + fold_no * fold_span
                                 end = len(bars) if fold_no == 2 else min(len(bars), start + fold_span)
-                                fold_values = [trade for trade in oos_trades if bars[start].ts <= trade.entry_ts <= bars[end - 1].ts]
+                                fold_start,fold_stop,_ = purged_bar_window(
+                                    bars,start=start,end=end,parameters=params)
+                                fold_values = trades_in_purged_window(
+                                    oos_trades,start_ts=fold_start,end_ts=fold_stop)
                                 fold = metrics(fold_values)
                                 fold_passes += int(fold["trades"] >= 8 and fold["profit_factor"] >= 1.0 and fold["expectancy"] > 0)
 

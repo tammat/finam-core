@@ -7,6 +7,7 @@ import psycopg2
 import psycopg2.extras
 
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -54,10 +55,12 @@ def main() -> None:
 
     params = observation["parameter_json"] or {}
     lookback = int(params.get("lookback", 20))
-    oos_start = bars[IN_SAMPLE_BARS].ts
     evaluation_bars = bars[IN_SAMPLE_BARS - lookback :]
     run = {"strategy_code": observation["strategy_code"], "parameter_json": params}
-    oos_trades = [trade for trade in build_trades(run, evaluation_bars) if trade.entry_ts >= oos_start]
+    oos_start,oos_stop,_ = purged_bar_window(
+        bars,start=IN_SAMPLE_BARS,end=len(bars),parameters=params)
+    oos_trades = trades_in_purged_window(
+        build_trades(run,evaluation_bars),start_ts=oos_start,end_ts=oos_stop)
     oos_metrics = metrics(oos_trades)
 
     fold_size = max(1, (len(bars) - IN_SAMPLE_BARS) // FOLDS)
@@ -66,14 +69,12 @@ def main() -> None:
     for fold_no in range(FOLDS):
         start = IN_SAMPLE_BARS + fold_no * fold_size
         end = len(bars) if fold_no == FOLDS - 1 else min(len(bars), start + fold_size)
-        fold_start_ts = bars[start].ts
-        fold_end_ts = bars[end - 1].ts
+        fold_start_ts,fold_end_ts,_ = purged_bar_window(
+            bars,start=start,end=end,parameters=params)
         context_start = max(0, start - lookback)
-        fold_trades = [
-            trade
-            for trade in build_trades(run, bars[context_start:end])
-            if fold_start_ts <= trade.entry_ts <= fold_end_ts
-        ]
+        fold_trades = trades_in_purged_window(
+            build_trades(run,bars[context_start:end]),
+            start_ts=fold_start_ts,end_ts=fold_end_ts)
         fold_metrics = metrics(fold_trades)
         passed = (
             fold_metrics["trades"] >= 10

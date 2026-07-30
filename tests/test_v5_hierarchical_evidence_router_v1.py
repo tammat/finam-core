@@ -79,7 +79,7 @@ def test_scope_and_timeframe_are_physical_dimensions() -> None:
     migration = (ROOT / "sql/analytics/215_v5_hierarchical_evidence_router_v1.sql").read_text()
     assert "scope_code" in migration and "timeframe_code" in migration
     source = PATH.read_text()
-    assert "closed_trades_fresh_v5_confirmed" in source
+    assert "closed_trades_fresh_v5_training_v1" in source
     assert "FRESH_V5_CONFIRM" in source
     assert "FRESH_V3" not in source and "FRESH_V4" not in source
 

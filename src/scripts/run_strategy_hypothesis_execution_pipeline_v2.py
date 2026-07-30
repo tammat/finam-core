@@ -12,6 +12,7 @@ import psycopg2.extras
 
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
 from marketcore.research_window_guard_v1 import require_off_market_research_window
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -128,8 +129,16 @@ def main() -> None:
                     params.update({"commission": cost, "slippage": 0.0})
                     lookback = params["lookback"]
                     run = {"strategy_code": STRATEGY_CODES[family], "parameter_json": params}
-                    validation_trades = [t for t in build_trades(run, bars[train_end-lookback:validation_end]) if t.entry_ts >= bars[train_end].ts]
-                    oos_trades = [t for t in build_trades(run, bars[validation_end-lookback:]) if t.entry_ts >= bars[validation_end].ts]
+                    validation_start,validation_stop,_ = purged_bar_window(
+                        bars,start=train_end,end=validation_end,parameters=params)
+                    oos_start,oos_stop,_ = purged_bar_window(
+                        bars,start=validation_end,end=len(bars),parameters=params)
+                    validation_trades = trades_in_purged_window(
+                        build_trades(run,bars[train_end-lookback:validation_end]),
+                        start_ts=validation_start,end_ts=validation_stop)
+                    oos_trades = trades_in_purged_window(
+                        build_trades(run,bars[validation_end-lookback:]),
+                        start_ts=oos_start,end_ts=oos_stop)
                     direction = raw.get("direction")
                     if direction:
                         side = "BUY" if direction == "LONG" else "SELL"

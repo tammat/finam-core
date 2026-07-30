@@ -145,7 +145,9 @@ def main() -> int:
                     execution_cost=excluded.execution_cost,
                     cost_admission_status=excluded.cost_admission_status,
                     oos_request=excluded.oos_request,updated_at=clock_timestamp()
-                WHERE analytics.trade_outcome_oos_admission_v1.status_code <> 'CLOSED'""",
+                WHERE analytics.trade_outcome_oos_admission_v1.status_code NOT IN (
+                    'QUEUED','RUNNING','OOS_PASS','OOS_FAIL','CLOSED'
+                )""",
                     (str(uuid.uuid4()),str(row["hypothesis_id"]),row["symbol"],v5_trades,
                      row["context_complete_trades"],micro,MIN_MICROSTRUCTURE_COVERAGE,status,reason,request,
                      row["net_expectancy"],row["net_profit_factor"],row["execution_cost"],cost_status))

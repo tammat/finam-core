@@ -57,6 +57,7 @@ EXECUTORS = {
     "HIERARCHICAL_EVIDENCE_ROUTER_V1": "src/scripts/build_v5_hierarchical_evidence_v1.py",
     "V5_ASSET_BRANCH_ROTATION_V1": "src/scripts/rotate_v5_asset_branch_timeframes_v1.py",
     "V5_FUTURES_FLAT_LIQUIDITY_ROLLOVER_V1": "src/scripts/run_v5_futures_rollover_v1.py",
+    "V5_PURGED_OOS_WORKER_V1": "src/scripts/run_v5_purged_oos_worker_v1.py",
 }
 
 

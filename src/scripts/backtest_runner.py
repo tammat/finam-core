@@ -49,6 +49,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple, Optional
 
 import pandas as pd
+from finam_core.research.purged_split import label_horizon_bars
 
 
 # -------------------------
@@ -693,6 +694,7 @@ def walk_forward_select(
     test_sharpes: List[float] = []
     total_trades = 0
     selected_params_json: List[str] = []
+    embargo_bars = max((label_horizon_bars(params) for params in grid), default=1)
 
     for split_idx in range(splits):
         test_start = split_idx * fold_size
@@ -701,12 +703,12 @@ def walk_forward_select(
         # Русский коммент: expanding/rolling-подобная схема без заглядывания в test.
         # Для первого сплита train берём весь участок до test_start; если он пустой — используем предыдущий fold как train через сдвиг.
         train_start = 0
-        train_end = test_start
+        train_end = max(0, test_start - embargo_bars)
         if train_end <= train_start:
             continue
 
         train_df = df.iloc[train_start:train_end].reset_index(drop=True)
-        test_df = df.iloc[test_start:test_end].reset_index(drop=True)
+        test_df = df.iloc[min(test_end,test_start+embargo_bars):test_end].reset_index(drop=True)
         if train_df.empty or test_df.empty:
             continue
 

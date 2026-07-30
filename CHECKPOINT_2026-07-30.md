@@ -111,3 +111,16 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 - Branch: `codex/research-edge-v5`.
 - Functional commits included: `2d0abff0`, `ecbb5d0d`, `85ab2214`, `fb6911ce`,
   `3afea16d`, `b660c878`, `c911219b`.
+- Checkpoint: V5 purged OOS isolation is installed. Admissions freeze their V5
+  boundary, apply a holding-horizon embargo, and route only future observations
+  into an idempotent audited worker scheduled every 15 minutes.
+- Reuse protection: a closed trade cannot be included in multiple V5 OOS runs;
+  excluded observations retain a reason code and immutable source trade identity.
+- Training protection: active OOS boundaries are excluded from the V5 training
+  view, preventing feedback of validation outcomes into evidence selection.
+- Research split protection: active intraday, momentum, relationship,
+  intermarket, generic walk-forward and Swing validation paths use purged
+  boundaries based on the candidate label horizon.
+- Operational truth at checkpoint: V5 closed trades 56; exact V5 contexts 42;
+  OOS admissions waiting for fresh data 23; V5 OOS runs 0; OOS PASS 0;
+  automatic REAL promotion is absent and REAL trading remains disabled.

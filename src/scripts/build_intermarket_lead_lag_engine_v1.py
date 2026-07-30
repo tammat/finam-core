@@ -156,8 +156,8 @@ def main() -> None:
                     for lag in config["lag_bars"]:
                         for selected_regime in config["regime_groups"]:
                             rows = sample_rows(points, impulse, lag, threshold, selected_regime, float(relation["cost_bps"]), int(relation["direction"]))
-                            validation_rows = [row for row in rows if train_end <= row["index"] < validation_end]
-                            oos_rows = [row for row in rows if validation_end <= row["index"] < len(points)]
+                            validation_rows = [row for row in rows if train_end + lag <= row["index"] and row["index"] + lag < validation_end]
+                            oos_rows = [row for row in rows if validation_end + lag <= row["index"] and row["index"] + lag < len(points)]
                             validation = metrics(validation_rows)
                             oos = metrics(oos_rows)
                             candidates.append({

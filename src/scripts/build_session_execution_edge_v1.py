@@ -16,6 +16,7 @@ import psycopg2.extras
 
 from scripts.build_edge_hypothesis_discovery_v1 import load_search_configuration
 from scripts.build_strategy_execution_runner_v1 import Bar, Trade, build_trades, metrics
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -294,8 +295,16 @@ def main() -> None:
                         params = {**base_params, "commission": cost, "slippage": 0.0}
                         lookback = int(params["lookback"])
                         run = {"strategy_code": strategy_code, "parameter_json": params}
-                        validation_all = [t for t in build_trades(run, bars[train_end - lookback:validation_end]) if t.entry_ts >= validation_start]
-                        oos_all = [t for t in build_trades(run, bars[validation_end - lookback:]) if t.entry_ts >= oos_start]
+                        validation_start,validation_stop,_ = purged_bar_window(
+                            bars,start=train_end,end=validation_end,parameters=params)
+                        oos_start,oos_stop,_ = purged_bar_window(
+                            bars,start=validation_end,end=len(bars),parameters=params)
+                        validation_all = trades_in_purged_window(
+                            build_trades(run,bars[train_end-lookback:validation_end]),
+                            start_ts=validation_start,end_ts=validation_stop)
+                        oos_all = trades_in_purged_window(
+                            build_trades(run,bars[validation_end-lookback:]),
+                            start_ts=oos_start,end_ts=oos_stop)
                         allowed_regimes = tuple(
                             configuration["regime_policy"].get("allowed_regimes")
                             or ALLOWED_REGIMES.get(family)

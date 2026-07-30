@@ -741,3 +741,24 @@
   workflow 0%. The next action is data collection with a frozen bounded search
   space, not additional parameter tuning.
 - Latest lifecycle commits: `3afea16d`, `b660c878`, `c911219b`.
+
+### V5 purged OOS and temporal isolation — 30.07.2026
+
+- V5 admission now freezes `purge_before_ts` and starts independent evidence only
+  after `confirmation_after_ts`; the embargo equals the maximum observed holding
+  horizon of the admitted V5 context.
+- Added `V5_PURGED_OOS_WORKER_V1`: it runs every 15 minutes through the governed
+  DB scheduler, is idempotent, cannot trade, and never grants automatic promotion.
+- Every post-boundary closed signal is audited as included or excluded, with an
+  explicit reason for boundary overlap, embargo, context mismatch or reuse.
+- A source trade can be included in only one V5 OOS run. V5 training evidence is
+  frozen through `closed_trades_fresh_v5_training_v1`, so subsequent OOS outcomes
+  do not flow back into the admitted training aggregate.
+- The common purging contract now protects checkpointed walk-forward, hypothesis
+  discovery, regime discovery, session/execution analysis, momentum OOS,
+  relationship/intermarket research, relative-strength adapters, the generic
+  backtest selector and Swing selection/validation.
+- Current state: 23 admissions remain `WAITING_FRESH_DATA`; therefore the worker
+  correctly processed zero admissions and created zero artificial OOS outcomes.
+- Validation: 41 focused tests passed; production analytical refresh completed;
+  REAL remains disabled and confirmed OOS PASS remains zero.

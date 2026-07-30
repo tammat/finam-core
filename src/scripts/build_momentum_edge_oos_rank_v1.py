@@ -6,6 +6,7 @@ import psycopg2
 import psycopg2.extras
 
 from scripts.build_strategy_execution_runner_v1 import Bar, build_trades, metrics
+from finam_core.research.purged_split import purged_bar_window, trades_in_purged_window
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -54,12 +55,11 @@ def main() -> None:
                 )
                 lookback = int(params.get("lookback", 20))
                 run = {"strategy_code": observation["strategy_code"], "parameter_json": params}
-                oos_start = bars[IN_SAMPLE_BARS].ts
-                oos_trades = [
-                    trade
-                    for trade in build_trades(run, bars[IN_SAMPLE_BARS - lookback :])
-                    if trade.entry_ts >= oos_start
-                ]
+                oos_start,oos_stop,_ = purged_bar_window(
+                    bars,start=IN_SAMPLE_BARS,end=len(bars),parameters=params)
+                oos_trades = trades_in_purged_window(
+                    build_trades(run,bars[IN_SAMPLE_BARS-lookback:]),
+                    start_ts=oos_start,end_ts=oos_stop)
                 oos = metrics(oos_trades)
 
                 fold_size = max(1, (len(bars) - IN_SAMPLE_BARS) // FOLDS)
@@ -67,13 +67,11 @@ def main() -> None:
                 for fold_no in range(FOLDS):
                     start = IN_SAMPLE_BARS + fold_no * fold_size
                     end = len(bars) if fold_no == FOLDS - 1 else min(len(bars), start + fold_size)
-                    fold_start = bars[start].ts
-                    fold_end = bars[end - 1].ts
-                    fold_trades = [
-                        trade
-                        for trade in build_trades(run, bars[max(0, start - lookback) : end])
-                        if fold_start <= trade.entry_ts <= fold_end
-                    ]
+                    fold_start,fold_end,_ = purged_bar_window(
+                        bars,start=start,end=end,parameters=params)
+                    fold_trades = trades_in_purged_window(
+                        build_trades(run,bars[max(0,start-lookback):end]),
+                        start_ts=fold_start,end_ts=fold_end)
                     fold = metrics(fold_trades)
                     folds_passed += int(
                         fold["trades"] >= 10

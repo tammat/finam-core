@@ -182,8 +182,8 @@ def main() -> None:
                         for regime in config["regime_groups"]:
                             for session in config["session_groups"]:
                                 rows = sample(points, impulse, lag, threshold, regime, session, config["timezone"], relation["cost_bps"], relation["direction"])
-                                validation_rows = [row for row in rows if train_end <= row["index"] < validation_end]
-                                oos_rows = [row for row in rows if validation_end <= row["index"] < len(points)]
+                                validation_rows = [row for row in rows if train_end + lag <= row["index"] and row["index"] + lag < validation_end]
+                                oos_rows = [row for row in rows if validation_end + lag <= row["index"] and row["index"] + lag < len(points)]
                                 candidates.append({"relation": relation, "impulse": impulse, "lag": lag, "regime": regime,
                                     "session": session, "threshold": threshold, "aligned": len(points), "coverage": coverage,
                                     "quality_ready": relation_quality_ready,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import statistics
+from datetime import timedelta
 from statistics import NormalDist
 
 import psycopg2
@@ -97,8 +98,9 @@ def main() -> None:
                         continue
                     validation_start = timestamps[int(len(timestamps) * 0.50)]
                     oos_start = timestamps[int(len(timestamps) * 0.75)]
-                    validation_rows.extend(row for row in rows if validation_start <= row[0] and row[1] < oos_start)
-                    oos_rows.extend(row for row in rows if row[0] >= oos_start)
+                    embargo = timedelta(minutes=5 * int(params["holding_bars"]))
+                    validation_rows.extend(row for row in rows if validation_start + embargo <= row[0] and row[1] < oos_start)
+                    oos_rows.extend(row for row in rows if row[0] >= oos_start + embargo)
                 validation_rows.sort(key=lambda row: row[0])
                 oos_rows.sort(key=lambda row: row[0])
                 validation = metrics(validation_rows)
