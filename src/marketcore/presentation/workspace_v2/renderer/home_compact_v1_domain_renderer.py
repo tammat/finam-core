@@ -400,10 +400,17 @@ def _optimizer_section(snapshot):
             adaptive_metrics = item.get("adaptive_metrics") or {}
             adaptive_gate = adaptive_metrics.get("adaptive_gate") or {}
             adaptive_required = int(adaptive_gate.get("min_pairs") or 60)
+            decisions = adaptive_metrics.get("entry_decisions") or {}
+            decision_labels = {"IMMEDIATE": "сразу", "CONFIRM_1": "подтверждение",
+                               "RETEST_3": "ретест", "SKIP": "пропуск"}
+            decision_text = ", ".join(
+                f"{decision_labels.get(code, code)} {int(count)}"
+                for code, count in decisions.items()
+            ) or "решений пока нет"
             parameters += (
                 f" Адаптивный вход: Shadow, "
                 f"{int(item.get('adaptive_pairs') or 0)} из {adaptive_required} пар; "
-                "сам выбирает вход сразу, подтверждение, ретест или пропуск."
+                f"сам выбирает вход сразу, подтверждение, ретест или пропуск; {decision_text}."
             )
         champion_code = str(item.get("champion_candidate_code") or "CURRENT_PAPER")
         challenger_code = str(item.get("challenger_candidate_code") or item.get("candidate_code") or "—")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from statistics import median
 
 import psycopg2
@@ -174,20 +174,36 @@ def main() -> int:
                                  "shadow_observed_r": outcome.net_r,
                                  "horizon_complete": horizon_complete,
                                  "trade_date":trade["entry_ts"].date().isoformat(),
-                                 "regime":str(trade.get("regime") or "UNKNOWN")})
+                                 "regime":str(trade.get("regime") or "UNKNOWN"),
+                                 "entry_decision":outcome.entry_decision,
+                                 "entry_decision_reason":outcome.entry_decision_reason})
                     cur.execute("""INSERT INTO analytics.entry_exit_shadow_pair_v1
                       (trade_id,strategy_code,symbol_code,side_code,candidate_code,entry_mode,stop_atr,take_atr,
-                       trail_after_r,trail_atr,actual_net_r,shadow_entered,shadow_net_r,shadow_exit_reason)
-                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       trail_after_r,trail_atr,actual_net_r,shadow_entered,shadow_net_r,shadow_exit_reason,
+                       entry_decision,entry_decision_reason,entry_context)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                       ON CONFLICT(trade_id,candidate_code) DO UPDATE SET
                        actual_net_r=excluded.actual_net_r,shadow_entered=excluded.shadow_entered,
                        shadow_net_r=excluded.shadow_net_r,shadow_exit_reason=excluded.shadow_exit_reason,
+                       entry_decision=excluded.entry_decision,
+                       entry_decision_reason=excluded.entry_decision_reason,
+                       entry_context=excluded.entry_context,
                        generated_at=clock_timestamp()""",
                       (trade["id"],strategy,trade["symbol"],side,variant.code,variant.entry_mode,
                        variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
                        actual_r,outcome.entered,outcome.net_r if horizon_complete else None,
-                       outcome.reason if horizon_complete else "PARTIAL_INDEPENDENT_HORIZON"))
+                       outcome.reason if horizon_complete else "PARTIAL_INDEPENDENT_HORIZON",
+                       outcome.entry_decision,outcome.entry_decision_reason,
+                       json.dumps({"atr_percentile":entry_context.atr_percentile,
+                                   "relative_volume":entry_context.relative_volume,
+                                   "regime":entry_context.regime,
+                                   "cost_to_atr":entry_context.cost_to_atr,
+                                   "strategy":entry_context.strategy})))
                 metrics = evaluate_walk_forward(rows)
+                metrics["entry_decisions"] = dict(Counter(
+                    row["entry_decision"] for row in rows))
+                metrics["entry_decision_reasons"] = dict(Counter(
+                    row["entry_decision_reason"] for row in rows))
                 candidate_results.append((variant, metrics, rows))
                 oos = int(metrics.get("oos_pairs") or 0)
                 all_ids = [int(item[0]["id"]) for item in trades]

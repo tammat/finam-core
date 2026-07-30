@@ -42,6 +42,8 @@ class Outcome:
     exit_price: float | None
     reason: str
     net_r: float | None
+    entry_decision: str = "UNKNOWN"
+    entry_decision_reason: str = "NOT_AUDITED"
 
 
 def default_variants(strategy: str) -> tuple[Variant, ...]:
@@ -61,7 +63,7 @@ def default_variants(strategy: str) -> tuple[Variant, ...]:
     return tuple(result)
 
 
-def adaptive_entry_mode(context: EntryContext, *, take_atr: float) -> str:
+def adaptive_entry_decision(context: EntryContext, *, take_atr: float) -> tuple[str, str]:
     """Route a signal using orthogonal, pre-entry features; fail closed."""
     regime = context.regime.upper()
     rel_volume = max(0.0, context.relative_volume)
@@ -69,37 +71,50 @@ def adaptive_entry_mode(context: EntryContext, *, take_atr: float) -> str:
     cost_to_atr = max(0.0, context.cost_to_atr)
 
     # Do not enter if even the nominal target has too little room after costs.
-    if rel_volume < 0.60 or cost_to_atr >= max(0.20, take_atr * 0.20):
-        return "SKIP"
+    if rel_volume < 0.60:
+        return "SKIP", "LOW_RELATIVE_VOLUME"
+    if cost_to_atr >= max(0.20, take_atr * 0.20):
+        return "SKIP", "COST_TOO_HIGH_FOR_TARGET"
     is_range = "RANGE" in regime
     is_trend = "TREND" in regime and not is_range
     if is_range:
-        return "RETEST_3" if context.strategy.upper() == "MEAN_REVERSION_EQUITY" else "SKIP"
+        return (("RETEST_3", "RANGE_MEAN_REVERSION")
+                if context.strategy.upper() == "MEAN_REVERSION_EQUITY"
+                else ("SKIP", "RANGE_BLOCKS_BREAKOUT"))
     if atr_percentile >= 0.85:
-        return "CONFIRM_1"
+        return "CONFIRM_1", "EXTREME_VOLATILITY"
     if is_trend and rel_volume >= 1.25 and 0.20 <= atr_percentile < 0.80:
-        return "IMMEDIATE"
-    return "RETEST_3"
+        return "IMMEDIATE", "STRONG_TREND_AND_VOLUME"
+    return "RETEST_3", "NORMAL_CONTEXT_WAIT_RETEST"
+
+
+def adaptive_entry_mode(context: EntryContext, *, take_atr: float) -> str:
+    return adaptive_entry_decision(context, take_atr=take_atr)[0]
 
 
 def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar], *,
            atr: float, context: EntryContext | None = None,
-           take_atr: float = 0.0) -> tuple[int, float] | None:
+           take_atr: float = 0.0) -> tuple[tuple[int, float] | None, str, str]:
     if not bars:
-        return None
+        return None, entry_mode, "NO_FUTURE_BARS"
     direction = 1 if side.upper() in {"LONG", "BUY"} else -1
     adaptive_retest = False
+    decision_reason = "FIXED_ENTRY_MODE"
     if entry_mode == "ADAPTIVE":
-        entry_mode = adaptive_entry_mode(context or EntryContext(), take_atr=take_atr)
+        entry_mode, decision_reason = adaptive_entry_decision(
+            context or EntryContext(), take_atr=take_atr)
         if entry_mode == "SKIP":
-            return None
+            return None, entry_mode, decision_reason
         adaptive_retest = entry_mode == "RETEST_3"
     if entry_mode == "IMMEDIATE":
-        return 0, signal_price
+        return (0, signal_price), entry_mode, decision_reason
     if entry_mode == "CONFIRM_1":
         # Confirmation is only known at the close.  The confirmation candle
         # cannot also stop or take a position that did not exist intrabar.
-        return (1, bars[0].close) if direction * (bars[0].close - signal_price) > 0 else None
+        selected = ((1, bars[0].close)
+                    if direction * (bars[0].close - signal_price) > 0 else None)
+        reason = decision_reason if selected else f"{decision_reason}:CONFIRMATION_FAILED"
+        return selected, entry_mode, reason
     if entry_mode == "RETEST_3":
         for index, bar in enumerate(bars[:3]):
             if adaptive_retest:
@@ -108,7 +123,7 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar], *,
                 # If one completed candle both runs away and revisits the
                 # level, its intrabar order is unknowable: reject it.
                 if favourable > atr * 0.70:
-                    return None
+                    return None, entry_mode, f"{decision_reason}:RUNAWAY_OR_AMBIGUOUS_BAR"
                 touched = (bar.low <= signal_price + atr * 0.20 if direction > 0
                            else bar.high >= signal_price - atr * 0.20)
             else:
@@ -117,8 +132,8 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar], *,
             if touched and confirmed:
                 # A retest is confirmed at the close, so use that observable
                 # price and start exit evaluation on the following candle.
-                return index + 1, bar.close
-        return None
+                return (index + 1, bar.close), entry_mode, decision_reason
+        return None, entry_mode, f"{decision_reason}:RETEST_NOT_CONFIRMED"
     raise ValueError(f"unknown entry mode: {entry_mode}")
 
 
@@ -130,10 +145,12 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
                      stop_slippage_ticks: float = 0.0) -> Outcome:
     if signal_price <= 0 or atr <= 0 or not bars:
         return Outcome(False, None, None, "INVALID_INPUT", None)
-    selected = _entry(variant.entry_mode, signal_price, side, bars, atr=atr,
-                      context=entry_context, take_atr=variant.take_atr)
+    selected, entry_decision, entry_decision_reason = _entry(
+        variant.entry_mode, signal_price, side, bars, atr=atr,
+        context=entry_context, take_atr=variant.take_atr)
     if selected is None:
-        return Outcome(False, None, None, "ENTRY_FILTERED", None)
+        return Outcome(False, None, None, "ENTRY_FILTERED", None,
+                       entry_decision, entry_decision_reason)
     start, entry = selected
     direction = 1 if side.upper() in {"LONG", "BUY"} else -1
     risk = atr * variant.stop_atr
@@ -167,7 +184,8 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
             candidate = best - direction * distance
             stop = max(stop, candidate) if direction > 0 else min(stop, candidate)
     net_r = (direction * (exit_price - entry) - max(0.0, roundtrip_cost_price)) / risk
-    return Outcome(True, round(entry, 8), round(exit_price, 8), reason, round(net_r, 8))
+    return Outcome(True, round(entry, 8), round(exit_price, 8), reason, round(net_r, 8),
+                   entry_decision, entry_decision_reason)
 
 
 def max_drawdown_r(values: list[float]) -> float:

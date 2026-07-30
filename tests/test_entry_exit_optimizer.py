@@ -1,5 +1,5 @@
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, EntryContext, Variant, adaptive_entry_mode, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
+    Bar, EntryContext, Variant, adaptive_entry_decision, adaptive_entry_mode, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
     evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
 )
 
@@ -139,6 +139,7 @@ def test_adaptive_entry_skips_weak_liquidity_or_expensive_signal():
     expensive = EntryContext(relative_volume=1.0, cost_to_atr=0.5)
     assert adaptive_entry_mode(weak, take_atr=2.0) == "SKIP"
     assert adaptive_entry_mode(expensive, take_atr=2.0) == "SKIP"
+    assert adaptive_entry_decision(weak, take_atr=2.0) == ("SKIP", "LOW_RELATIVE_VOLUME")
 
 
 def test_adaptive_range_mean_reversion_uses_retest():
@@ -166,6 +167,8 @@ def test_adaptive_retest_rejects_unknown_runaway_then_retest_order():
                            bars=[Bar(high=100.8, low=100.1, close=100.3)],
                            variant=variant, entry_context=context)
     assert not out.entered
+    assert out.entry_decision == "RETEST_3"
+    assert out.entry_decision_reason.endswith("RUNAWAY_OR_AMBIGUOUS_BAR")
 
 
 def test_paper_challenger_requires_fresh_forward_sample():
