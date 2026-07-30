@@ -1,0 +1,11 @@
+[Unit]
+Description=Run lightweight champion-challenger control before the morning session
+
+[Timer]
+OnCalendar=*-*-* 06:15:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=60
+Unit=finam-entry-exit-control.service
+
+[Install]
+WantedBy=timers.target
