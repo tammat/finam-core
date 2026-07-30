@@ -1,4 +1,6 @@
-from finam_core.analytics.entry_exit_optimizer import Bar, Variant, default_variants, evaluate_walk_forward, simulate_variant
+from finam_core.analytics.entry_exit_optimizer import (
+    Bar, Variant, default_variants, evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
+)
 
 
 def test_same_bar_stop_take_is_conservative():
@@ -27,3 +29,16 @@ def test_small_sample_never_promotes():
 def test_search_space_is_bounded():
     assert len(default_variants("MEAN_REVERSION_EQUITY")) == 9
     assert len(default_variants("BR_CONSERVATIVE_BREAKOUT")) == 9
+
+
+def test_paper_challenger_requires_fresh_forward_sample():
+    result = evaluate_paper_challenger([{"actual_r": 0.0, "shadow_r": 0.5}] * 29)
+    assert result["status"] == "PAPER_CHALLENGER"
+    assert result["pairs"] == 29
+
+
+def test_paper_challenger_can_become_champion_ready():
+    rows = [{"actual_r": -0.1, "shadow_r": 0.3}] * 30
+    result = evaluate_paper_challenger(rows)
+    assert result["status"] == "READY_FOR_CHAMPION_CONFIRMATION"
+    assert result["expectancy_delta_r"] > 0

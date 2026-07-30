@@ -287,7 +287,14 @@ class GovernedCommandWorkerV2:
                     decision = kind.removeprefix("ENTRY_EXIT_")
                     reason = "OPERATOR_SELECTED"
                     if kind == "ENTRY_EXIT_CONFIRM_PAPER":
-                        if recommendation["recommendation_status"] != "READY_FOR_PAPER_CONFIRMATION":
+                        cursor.execute("""SELECT challenger_status,challenger_candidate_code
+                            FROM analytics.entry_exit_champion_challenger_v1
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s FOR UPDATE""",
+                            (strategy,group,side))
+                        challenger = cursor.fetchone()
+                        if (challenger is None
+                                or challenger["challenger_status"] != "READY_FOR_CHAMPION_CONFIRMATION"
+                                or challenger["challenger_candidate_code"] != candidate):
                             raise ValueError("ENTRY_EXIT_GUARDS_NOT_PASSED")
                         if recommendation["entry_mode"] != "IMMEDIATE":
                             raise ValueError("ENTRY_EXIT_MODE_NOT_RUNTIME_SUPPORTED")
@@ -303,6 +310,14 @@ class GovernedCommandWorkerV2:
                              recommendation["take_atr"],recommendation["trail_after_r"],recommendation["trail_atr"],
                              psycopg2.extras.Json(recommendation["metrics"]),row["actor_id"]))
                         reason = f"PAPER_PROFILE_ACTIVE:{cursor.fetchone()['profile_id']}"
+                        cursor.execute("""UPDATE analytics.entry_exit_champion_challenger_v1
+                            SET challenger_status='CHAMPION_ACTIVE',champion_candidate_code=%s,
+                                champion_profile_id=(SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
+                                  WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                                    AND execution_mode='paper' AND status='ACTIVE'),
+                                updated_at=clock_timestamp()
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s""",
+                            (candidate,strategy,group,side,strategy,group,side))
                     elif kind == "ENTRY_EXIT_ROLLBACK":
                         cursor.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
                             SET status='ROLLED_BACK',deactivated_at=clock_timestamp()
@@ -316,13 +331,30 @@ class GovernedCommandWorkerV2:
                             WHERE profile_id=(SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
                               WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s AND execution_mode='paper'
                                 AND status='SUPERSEDED' ORDER BY deactivated_at DESC LIMIT 1)
-                            RETURNING profile_id""", (strategy,group,side))
+                            RETURNING profile_id,candidate_code""", (strategy,group,side))
                         previous = cursor.fetchone()
                         reason = f"ROLLED_BACK:{active['profile_id']}:RESTORED:{previous['profile_id'] if previous else 'BASELINE'}"
+                        cursor.execute("""UPDATE analytics.entry_exit_champion_challenger_v1
+                            SET challenger_status='ROLLED_BACK',
+                                champion_candidate_code=coalesce(%s,'CURRENT_PAPER'),
+                                champion_profile_id=%s,updated_at=clock_timestamp()
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s""",
+                            ((previous or {}).get("candidate_code"), (previous or {}).get("profile_id"),
+                             strategy,group,side))
                     elif kind == "ENTRY_EXIT_REJECT":
                         if recommendation.get("operator_decision") == "CONFIRM_PAPER":
                             raise ValueError("ENTRY_EXIT_ACTIVE_PROFILE_MUST_ROLLBACK")
-                    elif kind != "ENTRY_EXIT_CONTINUE_SHADOW":
+                        cursor.execute("""UPDATE analytics.entry_exit_champion_challenger_v1
+                            SET challenger_status='REJECTED',updated_at=clock_timestamp()
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                              AND challenger_candidate_code=%s""", (strategy,group,side,candidate))
+                    elif kind == "ENTRY_EXIT_CONTINUE_SHADOW":
+                        cursor.execute("""UPDATE analytics.entry_exit_champion_challenger_v1
+                            SET challenger_status='SHADOW_ACCUMULATION',challenger_selected_at=NULL,
+                                paper_metrics='{}'::jsonb,updated_at=clock_timestamp()
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                              AND challenger_candidate_code=%s""", (strategy,group,side,candidate))
+                    else:
                         raise ValueError("ENTRY_EXIT_DECISION_FORBIDDEN")
                     cursor.execute("""UPDATE analytics.entry_exit_recommendation_v1
                         SET operator_decision=%s,operator_decided_at=clock_timestamp()

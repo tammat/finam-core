@@ -297,29 +297,48 @@ def _attention_section(snapshot):
 def _optimizer_section(snapshot):
     cards = []
     entry_labels = {"IMMEDIATE": "сразу после сигнала", "CONFIRM_1": "после подтверждения следующей свечой", "RETEST_3": "после ретеста в течение трёх свечей"}
-    instrument_labels = {"BR": "Нефть Brent", "GAZP": "Газпром", "LKOH": "Лукойл", "NVTK": "Новатэк", "SBER": "Сбербанк", "SBERP": "Сбербанк-п", "VTBR": "ВТБ"}
+    instrument_labels = {"BR": "Нефть Brent", "NG": "Природный газ", "CNY": "Юань / рубль",
+                         "GAZP": "Газпром", "LKOH": "Лукойл", "NVTK": "Новатэк",
+                         "SBER": "Сбербанк", "SBERP": "Сбербанк-п", "VTBR": "ВТБ"}
     side_labels = {"LONG": "покупка", "SHORT": "продажа"}
     for index, item in enumerate(snapshot.get("entry_exit_recommendations") or (), start=1):
         metrics = item.get("metrics") or {}
+        paper_metrics = item.get("challenger_paper_metrics") or {}
+        challenger_status = str(item.get("challenger_status") or item.get("recommendation_status") or "")
         target = "|".join(str(item.get(key) or "") for key in ("strategy_code","symbol_group","side_code","candidate_code"))
         runtime_supported = str(item.get("entry_mode")) == "IMMEDIATE"
-        ready = item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" and runtime_supported
+        ready = challenger_status == "READY_FOR_CHAMPION_CONFIRMATION" and runtime_supported
         active = bool(item.get("is_active_paper"))
         pairs, oos = int(item.get("pairs") or 0), int(item.get("oos_pairs") or 0)
         if active:
-            status_text = "Параметры применяются в Paper. Реальная торговля выключена."
+            status_text = "Основной Paper-профиль. Реальная торговля выключена; доступен безопасный откат."
         elif ready:
-            status_text = "Проверки пройдены. Можно подтвердить применение в Paper."
-        elif item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION":
-            status_text = "Статистика готова, но этот тип отложенного входа пока остаётся в наблюдении."
+            status_text = "Challenger превзошёл текущий Paper на независимой forward-проверке. Можно сделать его основным."
+        elif challenger_status in {"PAPER_CHALLENGER", "KEEP_PAPER_CHALLENGER"}:
+            forward_pairs = int(paper_metrics.get("pairs") or 0)
+            forward_oos = int(paper_metrics.get("oos_pairs") or 0)
+            status_text = f"Paper Challenger: forward-сравнение {forward_pairs} из 30 пар; OOS {forward_oos} из 10."
+            if challenger_status == "KEEP_PAPER_CHALLENGER":
+                status_text += " Преимущество пока не подтверждено — продолжаем наблюдение."
+        elif item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" and not runtime_supported:
+            status_text = "Shadow-проверки пройдены, но отложенный вход пока не поддерживается Paper runtime."
         else:
-            status_text = f"Наблюдение: накоплено {pairs} из 80 пар; независимая проверка {oos} из 20."
+            status_text = f"Shadow: накоплено {pairs} из 80 пар; независимая проверка {oos} из 20."
         stop_text = f"{float(item.get('stop_atr') or 0):.1f}".replace(".", ",")
         take_text = f"{float(item.get('take_atr') or 0):.1f}".replace(".", ",")
         parameters = (
             f"Вход {entry_labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}. "
             f"Стоп: {stop_text} среднего диапазона свечи; цель: {take_text}."
         )
+        champion_code = str(item.get("champion_candidate_code") or "CURRENT_PAPER")
+        challenger_code = str(item.get("challenger_candidate_code") or item.get("candidate_code") or "—")
+        comparison = f"Текущий Paper: {champion_code}. Challenger: {challenger_code}."
+        actual_exp = paper_metrics.get("actual_expectancy_r", metrics.get("actual_expectancy_r"))
+        challenger_exp = paper_metrics.get("challenger_expectancy_r", metrics.get("shadow_expectancy_r"))
+        delta = paper_metrics.get("expectancy_delta_r")
+        if actual_exp is not None and challenger_exp is not None:
+            comparison += f" Expectancy: {float(actual_exp):+.2f}R → {float(challenger_exp):+.2f}R"
+            comparison += f"; разница {float(delta):+.2f}R." if delta is not None else "."
         action_nodes = []
         decisions = (
             (("rollback", "Откатить параметры Paper", "optimizer.rollback", "OPTIMIZER.ROLLBACK_PAPER"),) if active else
@@ -347,6 +366,7 @@ def _optimizer_section(snapshot):
                 _leaf(RenderNodeTypeV2.TITLE, f"home.compact.optimizer.card.{index}.title",
                       f"{instrument_labels.get(group, group)} · {side_labels.get(str(item.get('side_code')), item.get('side_code'))}", level="CARD"),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.parameters", parameters),
+                _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.comparison", comparison),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.card.{index}.status", status_text),
                 *action_nodes,
             ),
@@ -356,8 +376,8 @@ def _optimizer_section(snapshot):
             _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.empty.text", "Первый расчёт ещё не завершён."),
         )))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
-        _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Рекомендации входа и выхода", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Двойной клик защищает от случайного изменения. Paper — учебные сделки; реальные сделки не включаются."),
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Текущий Paper и кандидаты", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Система сама выбирает лучшего Shadow-кандидата, затем сравнивает его с текущим Paper на новых одинаковых сигналах. Реальная торговля не включается."),
         RenderNodeV2(RenderNodeTypeV2.GRID, "home.compact.optimizer.cards", children=tuple(cards)),
     ))
 

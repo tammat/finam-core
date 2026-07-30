@@ -5341,8 +5341,19 @@ class PaperTradingPipeline:
                 strategy_code = str(intent.get("strategy") or "")
                 symbol_code = str(intent.get("symbol") or sym or "")
                 side_code = str(intent.get("side") or "").upper().replace("BUY", "LONG").replace("SELL", "SHORT")
-                if strategy_code in {"MEAN_REVERSION_EQUITY", "BR_CONSERVATIVE_BREAKOUT"}:
-                    symbol_group = "BR" if strategy_code == "BR_CONSERVATIVE_BREAKOUT" else symbol_code.split("@", 1)[0]
+                if strategy_code in {
+                    "MEAN_REVERSION_EQUITY", "VOLATILITY_BREAKOUT_EQUITY",
+                    "BR_CONSERVATIVE_BREAKOUT", "NG_CONSERVATIVE_BREAKOUT_M1",
+                    "CNY_REGIME_FUTURES",
+                }:
+                    if strategy_code == "BR_CONSERVATIVE_BREAKOUT":
+                        symbol_group = "BR"
+                    elif strategy_code == "NG_CONSERVATIVE_BREAKOUT_M1":
+                        symbol_group = "NG"
+                    elif strategy_code == "CNY_REGIME_FUTURES":
+                        symbol_group = "CNY"
+                    else:
+                        symbol_group = symbol_code.split("@", 1)[0]
                     cache = getattr(self, "_entry_exit_profile_cache_v1", {})
                     cache_ts = float(getattr(self, "_entry_exit_profile_cache_ts_v1", 0.0) or 0.0)
                     if time.time() - cache_ts >= 60:

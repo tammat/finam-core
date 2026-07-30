@@ -98,6 +98,15 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
     return Outcome(True, round(entry, 8), round(exit_price, 8), reason, round(net_r, 8))
 
 
+def max_drawdown_r(values: list[float]) -> float:
+    equity = peak = worst = 0.0
+    for value in values:
+        equity += float(value)
+        peak = max(peak, equity)
+        worst = max(worst, peak - equity)
+    return worst
+
+
 def evaluate_walk_forward(rows: list[dict], *, min_pairs: int = 80,
                           min_oos: int = 20) -> dict:
     """Rank only by the chronological OOS tail and apply promotion guards."""
@@ -115,6 +124,8 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int = 80,
     concentration = wins[0] / sum(wins) if wins and sum(wins) else 1.0
     checks = {
         "expectancy_gain": mean(shadow) >= mean(actual) + 0.10,
+        "shadow_expectancy_positive": mean(shadow) > 0,
+        "drawdown_not_worse": max_drawdown_r(shadow) <= max_drawdown_r(actual),
         "oos_positive": mean(shadow_oos) > 0,
         "oos_better": mean(shadow_oos) > mean(actual_oos),
         "largest_win_concentration": concentration <= 0.35,
@@ -124,5 +135,40 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int = 80,
         "pairs": len(entered), "oos_pairs": oos_size,
         "actual_expectancy_r": mean(actual), "shadow_expectancy_r": mean(shadow),
         "actual_oos_r": mean(actual_oos), "shadow_oos_r": mean(shadow_oos),
+        "actual_drawdown_r": max_drawdown_r(actual),
+        "shadow_drawdown_r": max_drawdown_r(shadow),
+        "largest_win_concentration": concentration, "checks": checks,
+    }
+
+
+def evaluate_paper_challenger(rows: list[dict], *, min_pairs: int = 30,
+                              min_oos: int = 10) -> dict:
+    """Forward-only champion/challenger decision after the challenger was selected."""
+    entered = [row for row in rows if row.get("shadow_r") is not None]
+    if len(entered) < min_pairs:
+        return {"status": "PAPER_CHALLENGER", "pairs": len(entered), "oos_pairs": 0,
+                "reason": f"requires forward paired trades>={min_pairs}"}
+    oos_size = max(min_oos, len(entered) // 5)
+    actual = [float(row["actual_r"]) for row in entered]
+    shadow = [float(row["shadow_r"]) for row in entered]
+    actual_oos, shadow_oos = actual[-oos_size:], shadow[-oos_size:]
+    wins = sorted((value for value in shadow if value > 0), reverse=True)
+    concentration = wins[0] / sum(wins) if wins and sum(wins) else 1.0
+    checks = {
+        "expectancy_improvement": mean(shadow) >= mean(actual) + 0.05,
+        "shadow_expectancy_positive": mean(shadow) > 0,
+        "drawdown_not_worse": max_drawdown_r(shadow) <= max_drawdown_r(actual),
+        "oos_positive": mean(shadow_oos) > 0,
+        "oos_improvement": mean(shadow_oos) > mean(actual_oos),
+        "concentration_ok": concentration <= 0.35,
+    }
+    return {
+        "status": "READY_FOR_CHAMPION_CONFIRMATION" if all(checks.values()) else "KEEP_PAPER_CHALLENGER",
+        "pairs": len(entered), "oos_pairs": oos_size,
+        "actual_expectancy_r": mean(actual), "challenger_expectancy_r": mean(shadow),
+        "expectancy_delta_r": mean(shadow) - mean(actual),
+        "actual_oos_r": mean(actual_oos), "challenger_oos_r": mean(shadow_oos),
+        "actual_drawdown_r": max_drawdown_r(actual),
+        "challenger_drawdown_r": max_drawdown_r(shadow),
         "largest_win_concentration": concentration, "checks": checks,
     }

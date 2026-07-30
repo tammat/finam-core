@@ -414,23 +414,30 @@ class ControlCompactV3Resolver:
                 recent_trade_events = [dict(row) for row in cursor.fetchall()]
 
                 cursor.execute("""
-                    SELECT DISTINCT ON (strategy_code,symbol_group,side_code)
-                           strategy_code,symbol_group,side_code,candidate_code,
-                           recommendation_status,pairs,oos_pairs,entry_mode,
-                           stop_atr,take_atr,trail_after_r,trail_atr,metrics,generated_at,
-                           operator_decision,operator_decided_at,
+                    SELECT DISTINCT ON (r.strategy_code,r.symbol_group,r.side_code)
+                           r.strategy_code,r.symbol_group,r.side_code,r.candidate_code,
+                           r.recommendation_status,r.pairs,r.oos_pairs,r.entry_mode,
+                           r.stop_atr,r.take_atr,r.trail_after_r,r.trail_atr,r.metrics,r.generated_at,
+                           r.operator_decision,r.operator_decided_at,
+                           cc.champion_candidate_code,cc.challenger_candidate_code,
+                           cc.challenger_status,cc.challenger_selected_at,
+                           cc.paper_metrics AS challenger_paper_metrics,
                            EXISTS(SELECT 1 FROM analytics.entry_exit_runtime_profile_v1 p
                              WHERE p.strategy_code=r.strategy_code AND p.symbol_group=r.symbol_group
                                AND p.side_code=r.side_code AND p.candidate_code=r.candidate_code
                                AND p.execution_mode='paper' AND p.status='ACTIVE') AS is_active_paper
                     FROM analytics.entry_exit_recommendation_v1 r
-                    ORDER BY strategy_code,symbol_group,side_code,
-                             CASE recommendation_status
+                    LEFT JOIN analytics.entry_exit_champion_challenger_v1 cc
+                      ON cc.strategy_code=r.strategy_code AND cc.symbol_group=r.symbol_group
+                     AND cc.side_code=r.side_code
+                    ORDER BY r.strategy_code,r.symbol_group,r.side_code,
+                             (r.candidate_code=cc.challenger_candidate_code) DESC,
+                             CASE r.recommendation_status
                                WHEN 'READY_FOR_PAPER_CONFIRMATION' THEN 0
                                WHEN 'KEEP_SHADOW' THEN 1 ELSE 2 END,
-                             coalesce((metrics->>'shadow_oos_r')::numeric,-999) DESC,
-                             generated_at DESC
-                    LIMIT 12
+                             coalesce((r.metrics->>'shadow_oos_r')::numeric,-999) DESC,
+                             r.generated_at DESC
+                    LIMIT 24
                 """)
                 entry_exit_recommendations = [dict(row) for row in cursor.fetchall()]
 
