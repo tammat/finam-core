@@ -31,6 +31,16 @@ def test_shadow_builder_requires_costs_and_contract_geometry():
     assert "float(trade[\"net_pnl\"]) / cash_risk" in source
 
 
+def test_shadow_horizon_is_independent_from_paper_exit():
+    source = BUILDER.read_text(encoding="utf-8")
+    assert "SHADOW_HORIZON_BARS" in source
+    assert "ts > %s\n                           ORDER BY ts LIMIT %s" in source
+    assert "PARTIAL_INDEPENDENT_HORIZON" in source
+    bars_query = source[source.index('cur.execute("""SELECT high::float8'):]
+    bars_query = bars_query[:bars_query.index('bars = [Bar')]
+    assert 'trade["exit_ts"]' not in bars_query
+
+
 def test_optimizer_ui_is_read_only_without_decision_buttons():
     source = RENDERER.read_text(encoding="utf-8")
     start = source.index("def _optimizer_section(")

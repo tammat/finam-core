@@ -22,6 +22,16 @@ SUPPORTED = {
     "CNY_REGIME_FUTURES": "M1",
 }
 
+# Independent candidate horizon.  It is intentionally defined in completed
+# bars and never inherited from the incumbent Paper trade's exit timestamp.
+SHADOW_HORIZON_BARS = {
+    "MEAN_REVERSION_EQUITY": 48,       # four hours on M5
+    "VOLATILITY_BREAKOUT_EQUITY": 72,  # six hours on M5
+    "BR_CONSERVATIVE_BREAKOUT": 72,    # six hours on M5
+    "NG_CONSERVATIVE_BREAKOUT_M1": 180,
+    "CNY_REGIME_FUTURES": 180,
+}
+
 
 def execution_economics(cursor, trade: dict) -> dict | None:
     """Return fail-closed cash/price conversion and conservative costs."""
@@ -103,26 +113,34 @@ def main() -> int:
             if not economics:
                 continue
             cur.execute("""SELECT high::float8,low::float8,close::float8 FROM market_bars
-                           WHERE symbol=%s AND timeframe=%s AND ts > %s AND ts <= %s
-                           ORDER BY ts""", (trade["symbol"], SUPPORTED[strategy], trade["entry_ts"], trade["exit_ts"]))
+                           WHERE symbol=%s AND timeframe=%s AND ts > %s
+                           ORDER BY ts LIMIT %s""",
+                        (trade["symbol"], SUPPORTED[strategy], trade["entry_ts"],
+                         SHADOW_HORIZON_BARS[strategy]))
             bars = [Bar(float(r["high"]),float(r["low"]),float(r["close"])) for r in cur.fetchall()]
+            # A partially observed horizon is allowed for accumulation but can
+            # never enter selection/promotion statistics.
+            horizon_complete = len(bars) == SHADOW_HORIZON_BARS[strategy]
             if not bars:
                 continue
             independent_signals.add(independent_key)
-            groups[(strategy,group,side)].append((trade,float(atr),bars,economics))
+            groups[(strategy,group,side)].append((trade,float(atr),bars,economics,horizon_complete))
 
         for (strategy,group,side), trades in groups.items():
             candidate_results = []
             for variant in default_variants(strategy):
                 rows = []
-                for trade,atr,bars,economics in trades:
+                for trade,atr,bars,economics,horizon_complete in trades:
                     risk = atr * variant.stop_atr
                     cash_risk = risk * economics["qty"] * economics["multiplier"]
                     actual_r = float(trade["net_pnl"]) / cash_risk
                     outcome = simulate_variant(signal_price=float(trade["entry_price"]), side=side, atr=atr,
                                                bars=bars, variant=variant,
                                                roundtrip_cost_price=economics["roundtrip_cost_price"])
-                    rows.append({"actual_r":actual_r,"shadow_r":outcome.net_r,
+                    rows.append({"actual_r":actual_r,
+                                 "shadow_r":outcome.net_r if horizon_complete else None,
+                                 "shadow_observed_r": outcome.net_r,
+                                 "horizon_complete": horizon_complete,
                                  "trade_date":trade["entry_ts"].date().isoformat(),
                                  "regime":str(trade.get("regime") or "UNKNOWN")})
                     cur.execute("""INSERT INTO analytics.entry_exit_shadow_pair_v1
@@ -135,7 +153,8 @@ def main() -> int:
                        generated_at=clock_timestamp()""",
                       (trade["id"],strategy,trade["symbol"],side,variant.code,variant.entry_mode,
                        variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
-                       actual_r,outcome.entered,outcome.net_r,outcome.reason))
+                       actual_r,outcome.entered,outcome.net_r if horizon_complete else None,
+                       outcome.reason if horizon_complete else "PARTIAL_INDEPENDENT_HORIZON"))
                 metrics = evaluate_walk_forward(rows)
                 candidate_results.append((variant, metrics, rows))
                 oos = int(metrics.get("oos_pairs") or 0)
