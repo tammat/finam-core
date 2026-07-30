@@ -1,5 +1,5 @@
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, Variant, default_variants, evaluate_active_paper_champion,
+    Bar, Variant, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
     evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
 )
 
@@ -24,7 +24,35 @@ def test_short_trailing_is_direction_aware():
 
 
 def test_small_sample_never_promotes():
-    assert evaluate_walk_forward([{"actual_r": 0, "shadow_r": 1}] * 79)["status"] == "SHADOW_ACCUMULATION"
+    assert not evaluate_walk_forward([{"actual_r": 0, "shadow_r": 1}] * 79)["status"].startswith("READY")
+
+
+def test_forty_pairs_are_early_evidence_only():
+    result = evaluate_walk_forward([{"actual_r": -0.1, "shadow_r": 0.2}] * 40)
+    assert result["status"] == "SHADOW_EARLY_EVIDENCE"
+    assert result["adaptive_gate"]["min_pairs"] == 80
+
+
+def test_sparse_diverse_history_uses_sixty_fifteen_gate():
+    from datetime import date, timedelta
+    start = date(2026, 1, 1)
+    rows = [{"actual_r": -0.1, "shadow_r": 0.2,
+             "trade_date": (start + timedelta(days=index % 40)).isoformat(),
+             "regime": ("range", "trend_up", "trend_down")[index % 3]}
+            for index in range(60)]
+    gate = adaptive_shadow_gate(rows)
+    assert gate["gate"] == "SPARSE_60_15"
+    result = evaluate_walk_forward(rows)
+    assert result["status"] == "READY_FOR_PAPER_CONFIRMATION"
+    assert result["oos_pairs"] == 15
+
+
+def test_standard_gate_requires_time_and_regime_diversity():
+    rows = [{"actual_r": -0.1, "shadow_r": 0.2,
+             "trade_date": f"2026-01-{index % 10 + 1:02d}",
+             "regime": "range" if index % 2 else "trend_up"}
+            for index in range(80)]
+    assert evaluate_walk_forward(rows)["status"] == "READY_FOR_PAPER_CONFIRMATION"
 
 
 def test_search_space_is_bounded():

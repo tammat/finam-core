@@ -310,6 +310,12 @@ def _optimizer_section(snapshot):
         ready = challenger_status == "READY_FOR_CHAMPION_CONFIRMATION" and runtime_supported
         active = bool(item.get("is_active_paper"))
         pairs, oos = int(item.get("pairs") or 0), int(item.get("oos_pairs") or 0)
+        gate = metrics.get("adaptive_gate") or {}
+        required_pairs = int(gate.get("min_pairs") or 80)
+        required_oos = int(gate.get("min_oos") or 20)
+        gate_name = "редкий поток 60/15" if gate.get("gate") == "SPARSE_60_15" else "стандарт 80/20"
+        coverage = (f"{int(gate.get('active_days') or 0)} торговых дней, "
+                    f"{int(gate.get('regimes') or 0)} режима(ов)")
         if active:
             champion_trades = int(champion_metrics.get("trades") or 0)
             exp = float(champion_metrics.get("expectancy_r") or 0)
@@ -339,7 +345,10 @@ def _optimizer_section(snapshot):
         elif item.get("recommendation_status") == "READY_FOR_PAPER_CONFIRMATION" and not runtime_supported:
             status_text = "Shadow-проверки пройдены, но отложенный вход пока не поддерживается Paper runtime."
         else:
-            status_text = f"Shadow: накоплено {pairs} из 80 пар; независимая проверка {oos} из 20."
+            status_text = (f"Shadow · {gate_name}: {pairs} из {required_pairs} независимых пар; "
+                           f"OOS {oos} из {required_oos}; покрытие: {coverage}.")
+            if challenger_status == "SHADOW_EARLY_EVIDENCE" or pairs >= 40:
+                status_text += " Предварительные данные есть, но продвижение ещё запрещено."
         stop_text = f"{float(item.get('stop_atr') or 0):.1f}".replace(".", ",")
         take_text = f"{float(item.get('take_atr') or 0):.1f}".replace(".", ",")
         parameters = (

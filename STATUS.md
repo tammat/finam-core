@@ -696,6 +696,12 @@
   cycles with expectancy <= -0.10R or PF < 0.80. Emergency rollback starts after
   10 trades when drawdown exceeds max(3R, 1.25 x validated drawdown), and restores
   the preceding Paper profile. REAL is never changed or enabled by this workflow.
+- Shadow admission is adaptive but fail-closed: 40/10 is early evidence only;
+  the standard gate remains 80/20 with at least 10 active trading days and two
+  regimes; sparse signals may use 60/15 only with at least 15 active days, a
+  28-day calendar span and three regimes. Signals of the same strategy/group/
+  direction inside one 30-minute movement are counted once. At 120/30 the UI
+  reports high confidence, but promotion still requires every quality guard.
 - Current evidence is insufficient: 13 strategy/instrument/direction states are
   accumulating; the largest sample is Brent LONG with 11/80 pairs, OOS 0. No
   Paper Challenger or Champion is statistically admitted yet.

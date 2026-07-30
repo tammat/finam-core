@@ -39,7 +39,10 @@ def main() -> int:
         cur.execute("""
           SELECT id,symbol,strategy,upper(side) side,entry_price,exit_price,net_pnl,
                  coalesce(entry_ts,opened_at,created_at) entry_ts,
-                 coalesce(closed_at,exit_ts,created_at) exit_ts
+                 coalesce(closed_at,exit_ts,created_at) exit_ts,
+                 coalesce(payload->'context'->>'regime_trend',
+                          payload->'context'->>'regime',
+                          payload->>'regime','UNKNOWN') regime
           FROM closed_trades
           WHERE trade_source='paper'
             AND coalesce(payload->'context'->>'cohort','') LIKE 'FRESH_V5%%'
@@ -49,9 +52,16 @@ def main() -> int:
           ORDER BY coalesce(entry_ts,opened_at,created_at)
         """, (list(SUPPORTED),))
         groups = defaultdict(list)
+        independent_signals = set()
         for trade in cur.fetchall():
             strategy, side = trade["strategy"], "LONG" if trade["side"] in {"LONG", "BUY"} else "SHORT"
             group = symbol_group(strategy, trade["symbol"])
+            bucket = trade["entry_ts"].replace(minute=(trade["entry_ts"].minute // 30) * 30,
+                                                second=0, microsecond=0)
+            independent_key = (strategy, group, side, bucket)
+            if independent_key in independent_signals:
+                continue
+            independent_signals.add(independent_key)
             atr = atr_at_entry(cur, trade["symbol"], SUPPORTED[strategy], trade["entry_ts"])
             if not atr:
                 continue
@@ -73,7 +83,9 @@ def main() -> int:
                     actual_r = direction * (float(trade["exit_price"])-float(trade["entry_price"])) / risk
                     outcome = simulate_variant(signal_price=float(trade["entry_price"]), side=side, atr=atr,
                                                bars=bars, variant=variant)
-                    rows.append({"actual_r":actual_r,"shadow_r":outcome.net_r})
+                    rows.append({"actual_r":actual_r,"shadow_r":outcome.net_r,
+                                 "trade_date":trade["entry_ts"].date().isoformat(),
+                                 "regime":str(trade.get("regime") or "UNKNOWN")})
                     cur.execute("""INSERT INTO analytics.entry_exit_shadow_pair_v1
                       (trade_id,strategy_code,symbol_code,side_code,candidate_code,entry_mode,stop_atr,take_atr,
                        trail_after_r,trail_atr,actual_net_r,shadow_entered,shadow_net_r,shadow_exit_reason)
@@ -185,7 +197,7 @@ def main() -> int:
                             existing_code = selected[0].code
                             selected_at = None
                             paper_metrics = {"status":"PAPER_CHALLENGER","pairs":0,"oos_pairs":0,
-                                             "reason":"fresh 80/20 candidate selected automatically"}
+                                             "reason":"fresh adaptive candidate selected automatically"}
                             stage = "PAPER_CHALLENGER"
                             rollback_reason = None
             elif existing_code and existing_stage in {
