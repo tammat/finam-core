@@ -30,6 +30,13 @@ def test_materializer_writes_both_canonical_and_analytics_tables() -> None:
     assert '"regime_trend": regime_trend' in text
     assert '"regime_vol": regime_vol' in text
     assert '"side": entry_side' in text
+    assert "resolve_pnl_unit_spec" in text
+    assert "PNL_UNITS_V2_RUB" in text
+    assert "gross_pnl_rub" in text
+    assert "gross_pnl=%(pnl_points)s" in text
+    assert "net_pnl=%(net_pnl)s" in text
+    assert "PNL_UNIT_FUTURES_SPEC_MISSING" in text
+    assert "IS DISTINCT FROM 'PNL_UNITS_V2_RUB'" in text
 
 
 def test_materializer_does_not_inherit_trading_symbol_scope() -> None:

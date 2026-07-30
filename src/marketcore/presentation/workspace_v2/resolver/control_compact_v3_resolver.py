@@ -324,15 +324,7 @@ class ControlCompactV3Resolver:
                              c.symbol,'CLOSED'::text AS event_status,
                              c.side AS direction,
                              c.entry_price,c.exit_price,
-                             CASE WHEN c.symbol LIKE '%@RTSX'
-                                        AND nullif(s.source_payload->>'MINSTEP','')::numeric > 0
-                                        AND nullif(s.source_payload->>'STEPPRICE','')::numeric > 0
-                                  THEN ((c.exit_price-c.entry_price)
-                                        * CASE WHEN c.side='LONG' THEN 1 ELSE -1 END * c.qty
-                                        * nullif(s.source_payload->>'STEPPRICE','')::numeric
-                                        / nullif(s.source_payload->>'MINSTEP','')::numeric)
-                                       - (2 * coalesce(s.buy_sell_fee,0) * c.qty)
-                                  ELSE c.net_pnl END AS net_pnl,
+                             c.net_pnl AS net_pnl,
                              coalesce(c.holding_seconds,c.hold_seconds)::bigint AS holding_seconds,
                              c.strategy AS entry_signal,
                              coalesce(c.payload->'context'->>'actual_exit_reason',
@@ -345,25 +337,26 @@ class ControlCompactV3Resolver:
                       ) s ON true
                       WHERE coalesce(c.closed_at,c.exit_ts,c.created_at)
                             >= clock_timestamp() - interval '24 hours'
+                        AND c.payload->'pnl_units'->>'version'='PNL_UNITS_V2_RUB'
                       UNION ALL
                       SELECT s.created_at AS event_ts,s.symbol,'ACTIVE'::text AS event_status,
                              CASE WHEN s.side IN ('BUY','LONG') THEN 'LONG' ELSE 'SHORT' END AS direction,
                              coalesce(sf.price,s.entry_price) AS entry_price,
                              coalesce(b.close,sf.price,s.entry_price) AS exit_price,
-                             CASE WHEN s.symbol LIKE '%@RTSX'
-                                        AND nullif(cs.source_payload->>'MINSTEP','')::numeric > 0
-                                        AND nullif(cs.source_payload->>'STEPPRICE','')::numeric > 0
+                             CASE WHEN ms.lot_size > 0
+                                        AND (s.symbol NOT LIKE '%@RTSX'
+                                             OR (ms.tick_size > 0 AND ms.tick_value > 0))
                                   THEN ((CASE WHEN s.side IN ('BUY','LONG')
                                               THEN coalesce(b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
                                               ELSE coalesce(sf.price,s.entry_price)-coalesce(b.close,sf.price,s.entry_price) END)
                                         * coalesce(sf.qty,s.qty,0)
-                                        * nullif(cs.source_payload->>'STEPPRICE','')::numeric
-                                        / nullif(cs.source_payload->>'MINSTEP','')::numeric)
-                                       - (2 * coalesce(cs.buy_sell_fee,0) * coalesce(sf.qty,s.qty,0))
-                                  ELSE (CASE WHEN s.side IN ('BUY','LONG')
-                                              THEN coalesce(b.close,sf.price,s.entry_price)-coalesce(sf.price,s.entry_price)
-                                              ELSE coalesce(sf.price,s.entry_price)-coalesce(b.close,sf.price,s.entry_price) END)
-                                       * coalesce(sf.qty,s.qty,0) END AS net_pnl,
+                                        * CASE WHEN s.symbol LIKE '%@RTSX'
+                                               THEN ms.tick_value/ms.tick_size
+                                               ELSE ms.lot_size END)
+                                       - CASE WHEN s.symbol LIKE '%@RTSX'
+                                              THEN 2 * coalesce(cs.buy_sell_fee,0) * coalesce(sf.qty,s.qty,0)
+                                              ELSE 0 END
+                                  ELSE NULL END AS net_pnl,
                              extract(epoch FROM clock_timestamp()-s.created_at)::bigint AS holding_seconds,
                              s.strategy AS entry_signal,
                              'position_open'::text AS exit_reason
@@ -379,6 +372,12 @@ class ControlCompactV3Resolver:
                         FROM analytics.market_contract_cost_spec_v1 cost
                         WHERE cost.symbol=s.symbol ORDER BY verified_at DESC NULLS LAST LIMIT 1
                       ) cs ON true
+                      LEFT JOIN LATERAL (
+                        SELECT lot_size::numeric,tick_size::numeric,tick_value::numeric
+                        FROM analytics.market_contract_spec_v1 spec
+                        WHERE spec.symbol=s.symbol AND spec.is_active
+                        ORDER BY spec.valid_from DESC LIMIT 1
+                      ) ms ON true
                       LEFT JOIN LATERAL (
                         SELECT close
                         FROM market_bars mb

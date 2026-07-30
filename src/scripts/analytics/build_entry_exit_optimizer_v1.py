@@ -91,6 +91,7 @@ def main() -> int:
           FROM closed_trades
           WHERE trade_source='paper'
             AND coalesce(payload->'context'->>'cohort','') LIKE 'FRESH_V5%%'
+            AND payload->'pnl_units'->>'version'='PNL_UNITS_V2_RUB'
             AND strategy=ANY(%s)
             AND coalesce(entry_ts,opened_at,created_at) IS NOT NULL
             AND coalesce(closed_at,exit_ts,created_at) IS NOT NULL

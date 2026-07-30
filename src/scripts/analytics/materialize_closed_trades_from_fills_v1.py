@@ -13,6 +13,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from finam_core.analytics.pnl_units import PnlUnitSpec, gross_pnl_rub
+
 
 MSK = timezone(timedelta(hours=3))
 
@@ -119,6 +121,11 @@ def load_symbols(conn, args: argparse.Namespace) -> list[str]:
           ON c.symbol=s.symbol
         WHERE c.symbol IS NULL OR c.fill_count<>s.fill_count
            OR c.max_fill_ts IS DISTINCT FROM s.max_fill_ts
+           OR EXISTS (
+               SELECT 1 FROM closed_trades ct
+               WHERE ct.symbol=s.symbol AND ct.source='paper_fill_materializer_v2'
+                 AND ct.payload->'pnl_units'->>'version' IS DISTINCT FROM 'PNL_UNITS_V2_RUB'
+           )
         ORDER BY s.symbol
         """
     ).fetchall()
@@ -284,13 +291,46 @@ def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
     return list(conn.execute(sql, tuple(params)).fetchall())
 
 
-def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
+def resolve_pnl_unit_spec(conn, symbol: str) -> PnlUnitSpec:
+    symbol_u = str(symbol).upper()
+    base = symbol_u.split("@", 1)[0]
+    if symbol_u.endswith("@RTSX"):
+        row = conn.execute(
+            """SELECT tick_size::float8,tick_value::float8,source_version
+               FROM analytics.market_contract_spec_v1
+               WHERE is_active AND (symbol=%s OR symbol=%s)
+               ORDER BY (symbol=%s) DESC,valid_from DESC LIMIT 1""",
+            (symbol_u, f"{root_symbol_for(symbol_u, symbol_u)}@RTSX", symbol_u),
+        ).fetchone()
+        tick_size = float((row or {}).get("tick_size") or 0.0)
+        tick_value = float((row or {}).get("tick_value") or 0.0)
+        if tick_size <= 0 or tick_value <= 0:
+            raise RuntimeError(f"PNL_UNIT_FUTURES_SPEC_MISSING:{symbol_u}")
+        return PnlUnitSpec(symbol_u, "FUTURES", tick_value / tick_size,
+                           source=str(row.get("source_version") or "MARKET_CONTRACT_SPEC_V1"))
+
+    row = conn.execute(
+        """SELECT lot_size::float8,source_version
+           FROM analytics.market_contract_spec_v1
+           WHERE symbol=%s AND is_active
+           ORDER BY valid_from DESC LIMIT 1""",
+        (symbol_u,),
+    ).fetchone()
+    lot_size = float((row or {}).get("lot_size") or 0.0)
+    if lot_size <= 0:
+        raise RuntimeError(f"PNL_UNIT_EQUITY_SPEC_MISSING:{symbol_u}")
+    return PnlUnitSpec(symbol_u, "EQUITY", lot_size,
+                       source=str(row.get("source_version") or "MARKET_CONTRACT_SPEC_V1"))
+
+
+def reconstruct(symbol: str, fills: list[dict], pnl_spec: PnlUnitSpec | None = None) -> list[dict]:
     # Positions from different research cohorts must never offset each other.
     # In particular, a FRESH_V4 exit cannot consume an old unscoped Paper fill.
     open_longs_by_scope: dict[str | None, deque] = defaultdict(deque)
     open_shorts_by_scope: dict[str | None, deque] = defaultdict(deque)
     closed = []
     exit_batch_counter: dict[str, int] = {}
+    pnl_spec = pnl_spec or PnlUnitSpec(symbol, "LEGACY_TEST", 1.0, source="LEGACY_TEST_LINEAR")
 
     for f in fills:
         fill_id = str(f["fill_id"])
@@ -309,8 +349,9 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
             while remaining > 0 and open_shorts:
                 s = open_shorts[0]
                 matched = min(remaining, s["qty"])
-                pnl = (s["price"] - price) * matched
-                trade = build_trade(symbol, "SHORT", matched, s, f, pnl)
+                pnl = gross_pnl_rub(side="SHORT", entry_price=s["price"], exit_price=price,
+                                    qty=matched, spec=pnl_spec)
+                trade = build_trade(symbol, "SHORT", matched, s, f, pnl, pnl_spec)
                 batch_key = str(f.get("fill_id"))
                 exit_batch_counter[batch_key] = exit_batch_counter.get(batch_key, 0) + 1
                 trade["raw"]["exit_batch_key"] = batch_key
@@ -357,8 +398,9 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
             while remaining > 0 and open_longs:
                 b = open_longs[0]
                 matched = min(remaining, b["qty"])
-                pnl = (price - b["price"]) * matched
-                trade = build_trade(symbol, "LONG", matched, b, f, pnl)
+                pnl = gross_pnl_rub(side="LONG", entry_price=b["price"], exit_price=price,
+                                    qty=matched, spec=pnl_spec)
+                trade = build_trade(symbol, "LONG", matched, b, f, pnl, pnl_spec)
                 batch_key = str(f.get("fill_id"))
                 exit_batch_counter[batch_key] = exit_batch_counter.get(batch_key, 0) + 1
                 trade["raw"]["exit_batch_key"] = batch_key
@@ -414,7 +456,8 @@ def reconstruct(symbol: str, fills: list[dict]) -> list[dict]:
     return closed
 
 
-def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill: dict, pnl: float) -> dict:
+def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill: dict,
+                pnl: float, pnl_spec: PnlUnitSpec) -> dict:
     exit_ts = exit_fill["ts"]
     exit_msk = exit_ts.astimezone(MSK)
     entry_msk = entry["ts"].astimezone(MSK)
@@ -493,6 +536,10 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         "session": session_ru(exit_msk.hour),
         "source": "materialize_closed_trades_from_fills_v1",
         "raw": {
+            "pnl_unit_version": "PNL_UNITS_V2_RUB",
+            "pnl_currency": pnl_spec.currency,
+            "price_to_rub_multiplier": pnl_spec.price_to_rub_multiplier,
+            "pnl_spec_source": pnl_spec.source,
             "exit_side": exit_fill.get("side"),
             "exit_signal_side": exit_fill.get("signal_side"),
             "entry_session_msk": session_ru(entry_msk.hour),
@@ -610,6 +657,12 @@ def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff, context_act
                 "exit_fill_id": t["exit_fill_id"],
                 "exit_signal_id": t["exit_signal_id"],
                 "materializer": "paper_fill_materializer_v2",
+                "pnl_units": {
+                    "version": "PNL_UNITS_V2_RUB",
+                    "currency": t["raw"]["pnl_currency"],
+                    "price_to_rub_multiplier": t["raw"]["price_to_rub_multiplier"],
+                    "source": t["raw"]["pnl_spec_source"],
+                },
                 "context": {
                     "schema_version": "V2",
                     "cohort": cohort,
@@ -655,9 +708,15 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
             """UPDATE closed_trades
                SET strategy=%(strategy)s,timeframe=%(timeframe)s,
                    horizon=%(horizon)s,regime=%(regime)s,
+                   gross_pnl=%(pnl_points)s,commission=%(commission)s,net_pnl=%(net_pnl)s,
                    root_symbol=%(root_symbol)s,entry_regime=%(entry_regime)s,
                    exit_regime=%(exit_regime)s,portfolio_scope=%(portfolio_scope)s,
-                   payload=payload || jsonb_build_object('context',jsonb_build_object(
+                   payload=payload || jsonb_build_object(
+                     'pnl_units',jsonb_build_object(
+                       'version','PNL_UNITS_V2_RUB','currency',%(pnl_currency)s::text,
+                       'price_to_rub_multiplier',%(price_to_rub_multiplier)s::numeric,
+                       'source',%(pnl_spec_source)s::text),
+                     'context',jsonb_build_object(
                        'schema_version','V2',
                        'cohort',%(cohort)s::text,
                        'active_contract',%(active_contract)s::text,'root_symbol',%(root_symbol)s::text,
@@ -684,6 +743,10 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
                    OR timeframe IS DISTINCT FROM %(timeframe)s
                    OR horizon IS DISTINCT FROM %(horizon)s
                    OR regime IS DISTINCT FROM %(regime)s
+                   OR gross_pnl IS DISTINCT FROM %(pnl_points)s
+                   OR commission IS DISTINCT FROM %(commission)s
+                   OR net_pnl IS DISTINCT FROM %(net_pnl)s
+                   OR payload->'pnl_units'->>'version' IS DISTINCT FROM 'PNL_UNITS_V2_RUB'
                    OR root_symbol IS DISTINCT FROM %(root_symbol)s
                    OR entry_regime IS DISTINCT FROM %(entry_regime)s
                    OR exit_regime IS DISTINCT FROM %(exit_regime)s
@@ -716,6 +779,9 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
              "entry_session_msk": t["raw"]["entry_session_msk"],
              "planned_exit_rule": t["raw"]["planned_exit_rule"],
              "actual_exit_reason": t["raw"]["actual_exit_reason"],
+             "pnl_currency": t["raw"]["pnl_currency"],
+             "price_to_rub_multiplier": t["raw"]["price_to_rub_multiplier"],
+             "pnl_spec_source": t["raw"]["pnl_spec_source"],
              "entry_stop_price": t["raw"]["entry_stop_price"],
              "entry_take_price": t["raw"]["entry_take_price"],
              "regime_source_version": t["raw"]["regime_source_version"],
@@ -765,7 +831,12 @@ def main() -> int:
 
         for symbol in symbols:
             fills = load_fills(conn, symbol, args)
-            trades = reconstruct(symbol, fills)
+            try:
+                pnl_spec = resolve_pnl_unit_spec(conn, symbol)
+            except Exception as exc:
+                print(f"SYMBOL_BLOCKED symbol={symbol} reason={type(exc).__name__}:{exc}")
+                continue
+            trades = reconstruct(symbol, fills, pnl_spec)
             total_trades += len(trades)
 
             print(
