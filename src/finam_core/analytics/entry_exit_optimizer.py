@@ -218,6 +218,64 @@ def regime_sample_check(rows: list[dict], *, minimum: int) -> tuple[bool, dict[s
     return bool(counts) and min(counts.values()) >= minimum, counts
 
 
+def negative_control_check(rows: list[dict], *, confidence: float = 0.95) -> dict:
+    """Require the candidate to beat a causal, unconditional next-bar entry.
+
+    The control is evaluated on the same signal, horizon, stop, target and
+    costs.  Only its entry timing ignores the strategy condition.  Missing
+    controls fail closed once this gate is used for promotion.
+    """
+    paired = [row for row in rows
+              if row.get("shadow_r") is not None and row.get("placebo_r") is not None]
+    if not paired:
+        return {
+            "passed": False, "pairs": 0, "reason": "NO_PAIRED_PLACEBO_CONTROL",
+            "candidate_expectancy_r": None, "placebo_expectancy_r": None,
+            "delta_expectancy_r": None, "delta_lower_bound_r": None,
+        }
+    candidate = [float(row["shadow_r"]) for row in paired]
+    placebo = [float(row["placebo_r"]) for row in paired]
+    delta = [left - right for left, right in zip(candidate, placebo)]
+    lower = bootstrap_lower_mean(delta, confidence=confidence)
+    passed = mean(candidate) >= mean(placebo) + 0.05 and lower > 0
+    return {
+        "passed": passed, "pairs": len(paired),
+        "reason": "BEATS_UNCONDITIONAL_NEXT_BAR" if passed else "DOES_NOT_BEAT_PLACEBO",
+        "candidate_expectancy_r": mean(candidate), "placebo_expectancy_r": mean(placebo),
+        "delta_expectancy_r": mean(delta), "delta_lower_bound_r": lower,
+    }
+
+
+def parameter_plateau_check(candidate_code: str, metrics_by_code: dict[str, dict], *,
+                            tolerance_r: float = 0.20) -> dict:
+    """Reject isolated optima; require support from adjacent risk geometry."""
+    current = metrics_by_code.get(candidate_code) or {}
+    current_expectancy = current.get("shadow_oos_r")
+    if current_expectancy is None:
+        return {"passed": False, "neighbors": 0, "supporting_neighbors": [],
+                "reason": "NO_OOS_EXPECTANCY_FOR_PLATEAU"}
+    prefix = candidate_code.split("_S", 1)[0]
+    ordered = sorted(
+        ((code, values) for code, values in metrics_by_code.items()
+         if code.startswith(prefix + "_S") and values.get("shadow_oos_r") is not None),
+        key=lambda item: float(item[1].get("stop_atr") or 0.0),
+    )
+    index = next((idx for idx, item in enumerate(ordered) if item[0] == candidate_code), None)
+    if index is None:
+        return {"passed": False, "neighbors": 0, "supporting_neighbors": [],
+                "reason": "CANDIDATE_NOT_IN_PARAMETER_FAMILY"}
+    neighbors = ordered[max(0, index - 1):index] + ordered[index + 1:index + 2]
+    supporting = [code for code, values in neighbors
+                  if float(values["shadow_oos_r"]) > 0
+                  and abs(float(values["shadow_oos_r"]) - float(current_expectancy)) <= tolerance_r]
+    return {
+        "passed": bool(supporting), "neighbors": len(neighbors),
+        "supporting_neighbors": supporting,
+        "reason": "ADJACENT_PARAMETERS_SUPPORT_EDGE" if supporting else "ISOLATED_PARAMETER_PEAK",
+        "tolerance_r": tolerance_r,
+    }
+
+
 def adaptive_shadow_gate(rows: list[dict]) -> dict:
     """Choose an auditable evidence gate from signal frequency and diversity."""
     entered = [row for row in rows if row.get("shadow_r") is not None]
@@ -253,15 +311,20 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
     """Rank only by the chronological OOS tail and apply promotion guards."""
     entered = [row for row in rows if row.get("shadow_r") is not None]
     gate = adaptive_shadow_gate(entered)
+    preliminary_placebo = negative_control_check(entered, confidence=0.95)
+    preliminary_placebo["provisional"] = True
     min_pairs = int(min_pairs if min_pairs is not None else gate["min_pairs"])
     min_oos = int(min_oos if min_oos is not None else gate["min_oos"])
     if len(entered) < min_pairs:
         early = len(entered) >= 40
-        provisional_oos = min(min_oos, len(entered) // 4)
+        provisional_oos = (len([row for row in (oos_rows or [])
+                                if row.get("shadow_r") is not None])
+                           if oos_rows is not None else min(min_oos, len(entered) // 4))
         return {"status": "SHADOW_EARLY_EVIDENCE" if early else "SHADOW_ACCUMULATION",
                 "pairs": len(entered), "oos_pairs": provisional_oos,
                 "oos_provisional": True,
-                "reason": f"requires paired trades>={min_pairs}", "adaptive_gate": gate}
+                "reason": f"requires paired trades>={min_pairs}", "adaptive_gate": gate,
+                "negative_control": preliminary_placebo}
     if oos_rows is None:
         oos_size = max(min_oos, len(entered) // 5)
         oos = entered[-oos_size:]
@@ -272,7 +335,7 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
             return {"status": "SHADOW_ACCUMULATION", "pairs": len(entered),
                     "oos_pairs": oos_size, "oos_provisional": True,
                     "reason": f"requires purged OOS trades>={min_oos}",
-                    "adaptive_gate": gate}
+                    "adaptive_gate": gate, "negative_control": preliminary_placebo}
     actual = [float(row["actual_r"]) for row in entered]
     shadow = [float(row["shadow_r"]) for row in entered]
     actual_oos = [float(row["actual_r"]) for row in oos]
@@ -282,6 +345,7 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
     # conservative family-wise guard (approximately Bonferroni 5% / 12).
     delta_lower_bound = bootstrap_lower_mean(paired_delta, confidence=0.996)
     regime_ok, regime_counts = regime_sample_check(entered, minimum=5)
+    placebo = negative_control_check(oos, confidence=0.95)
     coverage = len(entered) / max(len(rows), 1)
     wins = sorted((value for value in shadow if value > 0), reverse=True)
     concentration = wins[0] / sum(wins) if wins and sum(wins) else 1.0
@@ -297,6 +361,7 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
         "paired_delta_familywise_lower_bound_positive": delta_lower_bound > 0,
         "minimum_per_regime": regime_ok,
         "candidate_signal_coverage": coverage >= 0.50,
+        "beats_unconditional_entry_placebo": placebo["passed"],
     }
     return {
         "status": "READY_FOR_PAPER_CONFIRMATION" if all(checks.values()) else "KEEP_SHADOW",
@@ -308,6 +373,7 @@ def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
         "largest_win_concentration": concentration, "checks": checks, "adaptive_gate": gate,
         "paired_delta_lower_995_r": delta_lower_bound,
         "regime_counts": regime_counts, "signal_coverage": coverage,
+        "negative_control": placebo,
     }
 
 

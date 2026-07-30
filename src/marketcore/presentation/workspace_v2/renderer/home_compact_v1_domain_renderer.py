@@ -399,6 +399,26 @@ def _optimizer_section(snapshot):
             f"Кандидат Shadow: вход {entry_labels.get(str(item.get('entry_mode')), item.get('entry_mode'))}; "
             f"стоп {stop_text} ATR; цель {take_text} ATR.{trail_text}"
         )
+        negative = metrics.get("negative_control") or {}
+        plateau = metrics.get("parameter_plateau") or {}
+        if negative:
+            control_text = ("пройден" if negative.get("passed") else "не пройден")
+            parameters += (
+                f" Контроль случайного преимущества: {control_text}, "
+                f"пар {int(negative.get('pairs') or 0)}."
+            )
+        if plateau:
+            plateau_text = ("устойчивый диапазон" if plateau.get("passed")
+                            else "устойчивый диапазон ещё не подтверждён")
+            parameters += f" Параметры: {plateau_text}."
+        if item.get("family_code"):
+            family_names = {"EQUITIES": "акции", "OIL": "нефть", "GAS": "газ",
+                            "FX": "валюты", "METALS": "металлы", "OTHER": "прочие"}
+            parameters += (
+                f" Семейство «{family_names.get(str(item['family_code']), item['family_code'])}»: "
+                f"{int(item.get('family_pairs') or 0)} пар, "
+                f"OOS {int(item.get('family_oos_pairs') or 0)}; только диагностический ориентир."
+            )
         if item.get("adaptive_candidate_code"):
             adaptive_metrics = item.get("adaptive_metrics") or {}
             adaptive_gate = adaptive_metrics.get("adaptive_gate") or {}
@@ -469,7 +489,7 @@ def _optimizer_section(snapshot):
         )))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.optimizer", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.optimizer.title", "Текущий Paper и кандидаты", level="SECTION"),
-        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Система сама обновляет лучшего Shadow-кандидата, сравнивает его с текущим Paper на новых одинаковых сигналах, назначает победителя и при ухудшении откатывает Paper. Все решения и причины показаны ниже; реальная торговля не включается."),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.optimizer.help", "Система сравнивает кандидатов на одинаковых сигналах, проверяет их против безусловного входа, соседних ATR-параметров и диагностической статистики семейства, затем назначает победителя и при ухудшении откатывает Paper. Семейные данные ускоряют отбор, но не разрешают Paper. Реальная торговля не включается."),
         RenderNodeV2(RenderNodeTypeV2.GRID, "home.compact.optimizer.cards", children=tuple(cards)),
     ))
 

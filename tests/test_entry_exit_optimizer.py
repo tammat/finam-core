@@ -1,6 +1,7 @@
 from finam_core.analytics.entry_exit_optimizer import (
     Bar, EntryContext, Variant, adaptive_entry_decision, adaptive_entry_mode, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
-    evaluate_paper_challenger, evaluate_walk_forward, simulate_variant,
+    evaluate_paper_challenger, evaluate_walk_forward, negative_control_check,
+    parameter_plateau_check, simulate_variant,
 )
 
 
@@ -87,16 +88,19 @@ def test_forty_pairs_are_early_evidence_only():
 
 
 def test_oos_reserve_accumulates_before_full_gate():
-    result = evaluate_walk_forward([{"actual_r": -0.1, "shadow_r": 0.2}] * 9)
+    result = evaluate_walk_forward(
+        [{"actual_r": -0.1, "shadow_r": 0.2, "placebo_r": -0.1}] * 9)
     assert result["oos_pairs"] == 2
     assert result["oos_provisional"] is True
     assert result["status"] == "SHADOW_ACCUMULATION"
+    assert result["negative_control"]["provisional"] is True
+    assert result["negative_control"]["passed"] is True
 
 
 def test_diverse_long_history_can_enter_challenger_at_forty_ten():
     from datetime import date, timedelta
     start = date(2026, 1, 1)
-    rows = [{"actual_r": -0.1, "shadow_r": 0.2,
+    rows = [{"actual_r": -0.1, "shadow_r": 0.2, "placebo_r": -0.1,
              "trade_date": (start + timedelta(days=index % 40)).isoformat(),
              "regime": ("range", "trend_up", "trend_down")[index % 3]}
             for index in range(40)]
@@ -108,7 +112,7 @@ def test_diverse_long_history_can_enter_challenger_at_forty_ten():
 
 
 def test_standard_gate_requires_time_and_regime_diversity():
-    rows = [{"actual_r": -0.1, "shadow_r": 0.2,
+    rows = [{"actual_r": -0.1, "shadow_r": 0.2, "placebo_r": -0.1,
              "trade_date": f"2026-01-{index % 5 + 1:02d}",
              "regime": "range" if index % 2 else "trend_up"}
             for index in range(60)]
@@ -125,6 +129,48 @@ def test_explicit_purged_oos_must_meet_its_own_minimum():
     assert result["status"] == "SHADOW_ACCUMULATION"
     assert result["oos_pairs"] == 5
     assert "purged OOS" in result["reason"]
+
+
+def test_early_explicit_oos_reports_fact_not_synthetic_reserve():
+    rows = [{"actual_r": -0.1, "shadow_r": 0.2, "placebo_r": -0.1}] * 39
+    result = evaluate_walk_forward(rows, oos_rows=[])
+    assert result["status"] == "SHADOW_ACCUMULATION"
+    assert result["oos_pairs"] == 0
+
+
+def test_negative_control_requires_candidate_to_beat_unconditional_entry():
+    rows = ([{"shadow_r": 0.4, "placebo_r": -0.2}] * 20)
+    result = negative_control_check(rows)
+    assert result["passed"]
+    assert result["delta_expectancy_r"] > 0
+
+
+def test_negative_control_fails_closed_when_missing():
+    result = negative_control_check([{"shadow_r": 0.4, "placebo_r": None}])
+    assert not result["passed"]
+    assert result["reason"] == "NO_PAIRED_PLACEBO_CONTROL"
+
+
+def test_parameter_plateau_rejects_isolated_peak():
+    metrics = {
+        "IMMEDIATE_S1.2_R1.1": {"shadow_oos_r": 0.1, "stop_atr": 1.2},
+        "IMMEDIATE_S1.5_R1.4": {"shadow_oos_r": 0.8, "stop_atr": 1.5},
+        "IMMEDIATE_S1.8_R1.8": {"shadow_oos_r": 0.05, "stop_atr": 1.8},
+    }
+    result = parameter_plateau_check("IMMEDIATE_S1.5_R1.4", metrics)
+    assert not result["passed"]
+    assert result["reason"] == "ISOLATED_PARAMETER_PEAK"
+
+
+def test_parameter_plateau_accepts_adjacent_stable_region():
+    metrics = {
+        "IMMEDIATE_S1.2_R1.1": {"shadow_oos_r": 0.31, "stop_atr": 1.2},
+        "IMMEDIATE_S1.5_R1.4": {"shadow_oos_r": 0.4, "stop_atr": 1.5},
+        "IMMEDIATE_S1.8_R1.8": {"shadow_oos_r": 0.28, "stop_atr": 1.8},
+    }
+    result = parameter_plateau_check("IMMEDIATE_S1.5_R1.4", metrics)
+    assert result["passed"]
+    assert len(result["supporting_neighbors"]) == 2
 
 
 def test_search_space_is_bounded():
@@ -199,6 +245,9 @@ def test_optimizer_uses_complete_v5_signal_funnel_and_purged_split():
     assert "entry_exit_signal_shadow_pair_v2" in source
     assert "purged_temporal_split(" in source
     assert "embargo=horizon" in source
+    assert "placebo_net_r" in source
+    assert "entry_exit_family_evidence_v1" in source
+    assert "parameter_plateau_check" in source
 
 
 def test_paper_challenger_requires_fresh_forward_sample():

@@ -991,3 +991,26 @@
   adaptive pending worker both completed successfully; failed systemd units: 0.
 - Validation: 76 focused methodology, purging, promotion, pending-runtime and
   integrity tests passed. REAL remains disabled; active Adaptive Paper profiles: 0.
+
+### Accelerated edge evidence without weaker gates — 30.07.2026
+
+- Every completed V5 Shadow pair now has a causal negative control: an
+  unconditional next-bar entry evaluated with the same horizon, stop, target,
+  trailing, spread, commission and adverse stop slippage. A candidate cannot
+  become Paper-ready unless its purged OOS advantage over this placebo is at
+  least 0.05R and the bootstrap lower bound is positive.
+- Parameter selection now rejects isolated OOS peaks. A Paper-ready candidate
+  must be supported by an adjacent stop/target geometry with positive OOS and
+  expectancy within 0.20R. This plateau check is persisted for every candidate.
+- Purged family evidence is accumulated for equities, oil, gas, FX and metals.
+  It accelerates diagnosis and early rejection but is explicitly diagnostic-only
+  and cannot authorize Paper or REAL promotion.
+- The UI explains the placebo result, parameter plateau and family evidence in
+  Russian. Explicit purged OOS counts now remain factual during early
+  accumulation instead of displaying a synthetic 20% reserve.
+- First rebuild: 2,424 candidate pairs, 1,368 completed placebo controls and 264
+  recommendations with both control and plateau audit. OOS remains zero, so no
+  profile was promoted. REAL remains disabled.
+- Validation: 39 focused optimizer and purged-split tests passed. The existing
+  legacy home-contract tests still describe the former three-section UI and are
+  tracked separately; runtime rendering is verified after the additive migration.

@@ -12,7 +12,7 @@ from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.entry_exit_optimizer import (
     Bar, EntryContext, Variant, default_variants, evaluate_active_paper_champion, evaluate_paper_challenger,
-    evaluate_walk_forward, simulate_variant,
+    evaluate_walk_forward, parameter_plateau_check, simulate_variant,
 )
 from finam_core.research.purged_split import purged_temporal_split
 from scripts.analytics.build_futures_risk_calibration_v1 import atr_at_entry, timeframe_delta
@@ -94,6 +94,20 @@ def symbol_group(strategy: str, symbol: str) -> str:
     if strategy == "GOLD_TREND_BREAKOUT":
         return "GOLD"
     return symbol.split("@", 1)[0]
+
+
+def research_family(strategy: str) -> str:
+    if strategy in {"MEAN_REVERSION_EQUITY", "VOLATILITY_BREAKOUT_EQUITY"}:
+        return "EQUITIES"
+    if strategy == "BR_CONSERVATIVE_BREAKOUT":
+        return "OIL"
+    if strategy == "NG_CONSERVATIVE_BREAKOUT_M1":
+        return "GAS"
+    if strategy in {"CNY_REGIME_FUTURES", "USD_REGIME_FUTURES"}:
+        return "FX"
+    if strategy == "GOLD_TREND_BREAKOUT":
+        return "METALS"
+    return "OTHER"
 
 
 def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
@@ -184,6 +198,7 @@ def main() -> int:
             groups[(strategy,group,side)].append(
                 (trade,float(atr),bars,economics,horizon_complete,entry_context))
 
+        family_rows = defaultdict(list)
         for (strategy,group,side), trades in groups.items():
             horizon = timeframe_delta(SUPPORTED[strategy]) * SHADOW_HORIZON_BARS[strategy]
             split = (purged_temporal_split(
@@ -228,25 +243,39 @@ def main() -> int:
                                                tick_size=economics["tick_size"],
                                                stop_slippage_ticks=float(os.getenv(
                                                    "SHADOW_STOP_SLIPPAGE_TICKS", "1")))
+                    placebo = (simulate_variant(
+                        signal_price=float(bars[0].close), side=side, atr=atr, bars=bars[1:],
+                        variant=Variant(
+                            "PLACEBO_NEXT_BAR", "IMMEDIATE", variant.stop_atr, variant.take_atr,
+                            variant.trail_after_r, variant.trail_atr),
+                        entry_context=entry_context,
+                        roundtrip_cost_price=economics["roundtrip_cost_price"],
+                        tick_size=economics["tick_size"],
+                        stop_slippage_ticks=float(os.getenv("SHADOW_STOP_SLIPPAGE_TICKS", "1")),
+                    ) if len(bars) > 1 else None)
                     rows.append({"actual_r":actual_r,
                                  "shadow_r":outcome.net_r if horizon_complete else None,
+                                 "placebo_r":placebo.net_r if horizon_complete and placebo else None,
                                  "shadow_observed_r": outcome.net_r,
                                  "horizon_complete": horizon_complete,
                                  "trade_date":trade["entry_ts"].date().isoformat(),
                                  "regime":str(trade.get("regime") or "UNKNOWN"),
                                  "entry_decision":outcome.entry_decision,
                                  "entry_decision_reason":outcome.entry_decision_reason,
-                                 "source_id":int(trade["id"])})
+                                 "source_id":int(trade["id"]),
+                                 "label_start_ts":trade["entry_ts"],
+                                 "label_end_ts":trade["entry_ts"] + horizon})
                     label_end = trade["entry_ts"] + horizon
                     cur.execute("""INSERT INTO analytics.entry_exit_signal_shadow_pair_v2
                       (source_signal_id,signal_id,incumbent_trade_id,source_status,strategy_code,
                        symbol_code,side_code,candidate_code,entry_mode,stop_atr,take_atr,
-                       actual_net_r,shadow_entered,shadow_net_r,shadow_exit_reason,
+                       actual_net_r,shadow_entered,shadow_net_r,placebo_net_r,shadow_exit_reason,
                        entry_decision,entry_decision_reason,entry_context,label_start_ts,label_end_ts)
-                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
                       ON CONFLICT(source_signal_id,candidate_code) DO UPDATE SET
                        actual_net_r=excluded.actual_net_r,shadow_entered=excluded.shadow_entered,
-                       shadow_net_r=excluded.shadow_net_r,shadow_exit_reason=excluded.shadow_exit_reason,
+                       shadow_net_r=excluded.shadow_net_r,placebo_net_r=excluded.placebo_net_r,
+                       shadow_exit_reason=excluded.shadow_exit_reason,
                        entry_decision=excluded.entry_decision,
                        entry_decision_reason=excluded.entry_decision_reason,
                        entry_context=excluded.entry_context,
@@ -257,6 +286,7 @@ def main() -> int:
                        strategy,trade["symbol"],side,variant.code,variant.entry_mode,
                        variant.stop_atr,variant.take_atr,
                        actual_r,outcome.entered,outcome.net_r if horizon_complete else None,
+                       placebo.net_r if horizon_complete and placebo else None,
                        outcome.reason if horizon_complete else "PARTIAL_INDEPENDENT_HORIZON",
                        outcome.entry_decision,outcome.entry_decision_reason,
                        json.dumps({"atr_percentile":entry_context.atr_percentile,
@@ -279,6 +309,8 @@ def main() -> int:
                     row["entry_decision"] for row in rows))
                 metrics["entry_decision_reasons"] = dict(Counter(
                     row["entry_decision_reason"] for row in rows))
+                metrics["stop_atr"] = variant.stop_atr
+                metrics["take_atr"] = variant.take_atr
                 candidate_results.append((variant, metrics, evaluation_rows))
                 all_ids = [int(item[0]["id"]) for item in trades]
                 if all_ids:
@@ -301,6 +333,21 @@ def main() -> int:
                    variant.entry_mode,variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
                    json.dumps(metrics)))
                 print("ENTRY_EXIT_SHADOW",strategy,group,side,variant.code,json.dumps(metrics,sort_keys=True))
+
+            metrics_by_code = {variant.code: metrics for variant, metrics, _ in candidate_results}
+            for variant, metrics, evaluation_rows in candidate_results:
+                plateau = parameter_plateau_check(variant.code, metrics_by_code)
+                metrics["parameter_plateau"] = plateau
+                if "checks" in metrics:
+                    metrics["checks"]["parameter_plateau"] = plateau["passed"]
+                    if metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION" and not plateau["passed"]:
+                        metrics["status"] = "KEEP_SHADOW"
+                cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
+                               SET recommendation_status=%s,metrics=%s::jsonb,generated_at=clock_timestamp()
+                               WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                                 AND candidate_code=%s""",
+                            (metrics["status"],json.dumps(metrics),strategy,group,side,variant.code))
+                family_rows[(research_family(strategy),side,variant.code)].extend(evaluation_rows)
 
             cur.execute("""SELECT c.*,p.candidate_code AS active_candidate_code,p.profile_id AS active_profile_id,
                                   p.activated_at AS active_activated_at
@@ -500,6 +547,37 @@ def main() -> int:
             print("ENTRY_EXIT_CHALLENGER",strategy,group,side,existing_code,stage,
                   json.dumps(paper_metrics,sort_keys=True))
         conn.commit()
+        for (family, side, candidate_code), rows in family_rows.items():
+            completed = [row for row in rows if row.get("shadow_r") is not None]
+            family_split = (purged_temporal_split(
+                completed, train_ratio=0.80,
+                start=lambda row: row["label_start_ts"],
+                end=lambda row: row["label_end_ts"],
+                embargo=max((row["label_end_ts"] - row["label_start_ts"] for row in completed),
+                            default=timeframe_delta("M5")),
+            ) if len(completed) >= 2 else None)
+            eligible = list((*family_split.train, *family_split.test)) if family_split else completed
+            oos = list(family_split.test) if family_split else []
+            metrics = evaluate_walk_forward(eligible, oos_rows=oos)
+            metrics["diagnostic_only"] = True
+            metrics["promotion_allowed"] = False
+            metrics["family"] = family
+            metrics["purged_split"] = {
+                "enabled": True,
+                "purged": family_split.purged if family_split else 0,
+                "embargoed": family_split.embargoed if family_split else 0,
+            }
+            cur.execute("""INSERT INTO analytics.entry_exit_family_evidence_v1
+                (family_code,side_code,candidate_code,evidence_status,pairs,oos_pairs,metrics)
+                VALUES(%s,%s,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT(family_code,side_code,candidate_code) DO UPDATE SET
+                  evidence_status=excluded.evidence_status,pairs=excluded.pairs,
+                  oos_pairs=excluded.oos_pairs,metrics=excluded.metrics,
+                  generated_at=clock_timestamp()""",
+                (family,side,candidate_code,metrics["status"],metrics["pairs"],
+                 int(metrics.get("oos_pairs") or 0),json.dumps(metrics)))
+            print("ENTRY_EXIT_FAMILY_EVIDENCE",family,side,candidate_code,
+                  json.dumps(metrics,sort_keys=True))
     return 0
 
 

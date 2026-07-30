@@ -449,6 +449,11 @@ class ControlCompactV3Resolver:
                            adaptive.pairs AS adaptive_pairs,
                            adaptive.oos_pairs AS adaptive_oos_pairs,
                            adaptive.metrics AS adaptive_metrics,
+                           family.family_code AS family_code,
+                           family.evidence_status AS family_evidence_status,
+                           family.pairs AS family_pairs,
+                           family.oos_pairs AS family_oos_pairs,
+                           family.metrics AS family_metrics,
                            EXISTS(SELECT 1 FROM analytics.entry_exit_runtime_profile_v1 p
                              WHERE p.strategy_code=r.strategy_code AND p.symbol_group=r.symbol_group
                                AND p.side_code=r.side_code AND p.candidate_code=r.candidate_code
@@ -471,6 +476,20 @@ class ControlCompactV3Resolver:
                       ORDER BY ar.pairs DESC,ar.generated_at DESC
                       LIMIT 1
                     ) adaptive ON true
+                    LEFT JOIN LATERAL (
+                      SELECT fe.family_code,fe.evidence_status,fe.pairs,fe.oos_pairs,fe.metrics
+                      FROM analytics.entry_exit_family_evidence_v1 fe
+                      WHERE fe.family_code=CASE
+                              WHEN r.strategy_code IN ('MEAN_REVERSION_EQUITY','VOLATILITY_BREAKOUT_EQUITY') THEN 'EQUITIES'
+                              WHEN r.strategy_code='BR_CONSERVATIVE_BREAKOUT' THEN 'OIL'
+                              WHEN r.strategy_code='NG_CONSERVATIVE_BREAKOUT_M1' THEN 'GAS'
+                              WHEN r.strategy_code IN ('CNY_REGIME_FUTURES','USD_REGIME_FUTURES') THEN 'FX'
+                              WHEN r.strategy_code='GOLD_TREND_BREAKOUT' THEN 'METALS'
+                              ELSE 'OTHER' END
+                        AND fe.side_code=r.side_code
+                        AND fe.candidate_code=r.candidate_code
+                      LIMIT 1
+                    ) family ON true
                     ORDER BY r.strategy_code,r.symbol_group,r.side_code,
                              (r.candidate_code=cc.challenger_candidate_code) DESC,
                              CASE r.recommendation_status
