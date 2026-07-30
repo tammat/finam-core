@@ -78,6 +78,18 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
 
 ## Git checkpoint
 
+## Evidence snapshot — 30.07.2026
+
+- 13 Shadow states; 0 Paper Challengers; 0 Champions; 0 rollbacks.
+- True forward OOS: 0. The visible 25% tail is a preliminary control reserve,
+  not frozen-candidate forward evidence.
+- Largest independent sample: BR LONG 9 observations, reserve 2. GAZP and NVTK
+  LONG have 6 each; NG LONG 5; SBER and VTBR LONG 4 each; other states 1–3.
+- No edge is statistically confirmed. BR/NVTK/SBER LONG are early research leads;
+  GAZP/NG LONG require entry-quality diagnosis.
+- Freeze the bounded parameter space and collect new independent signals. Do not
+  enable REAL and do not weaken gates merely to accelerate promotion.
+
 ## Automatic Paper lifecycle (fixed)
 
 1. Intraday Shadow admission is adaptive: standard promotion requires 60/15,
@@ -97,4 +109,5 @@ systemctl list-timers finam-futures-risk-calibration.timer finam-entry-exit-cont
    part of the automatic workflow.
 
 - Branch: `codex/research-edge-v5`.
-- Functional commits included: `2d0abff0`, `ecbb5d0d`, `85ab2214`, `fb6911ce`.
+- Functional commits included: `2d0abff0`, `ecbb5d0d`, `85ab2214`, `fb6911ce`,
+  `3afea16d`, `b660c878`, `c911219b`.

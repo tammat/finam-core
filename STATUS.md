@@ -680,13 +680,13 @@
   rolling 24-hour window and active positions remain visible across midnight.
 - Added the Paper-only Champion–Challenger lifecycle for equities, Brent, natural
   gas and CNY, including LONG/SHORT where evidence exists. Shadow needs 80 paired
-  trades and 20 OOS; the selected Paper Challenger then needs 30 new paired trades
-  and 10 OOS before operator-confirmed promotion to the main Paper profile.
+  adaptive Shadow gate; the selected Paper Challenger then needs 30 new paired
+  trades and 10 forward OOS before automatic promotion to the main Paper profile.
 - Challenger selection compares net expectancy in R, OOS expectancy, drawdown and
   largest-win concentration. Promotion to REAL is not implemented and all real
   execution flags remain disabled.
-- The Paper lifecycle is now fully automatic and fixed as: Shadow 80 paired / 20
-  OOS -> Paper Challenger 30 fresh paired / 10 OOS -> Champion -> continuous
+- The Paper lifecycle is now fully automatic and fixed as: adaptive Shadow gate
+  -> Paper Challenger 30 fresh paired / 10 forward OOS -> Champion -> continuous
   monitoring -> replacement or rollback. The challenger must improve expectancy
   by at least +0.05R on the forward comparison.
 - The UI is read-only for this workflow: it shows current Paper versus Challenger,
@@ -707,8 +707,9 @@
   (for example 9 pairs -> 2 preliminary OOS). It is explicitly non-admitting
   until the selected adaptive gate and all quality checks pass.
 - Current evidence is insufficient: 13 strategy/instrument/direction states are
-  accumulating; the largest sample is Brent LONG with 11/80 pairs, OOS 0. No
-  Paper Challenger or Champion is statistically admitted yet.
+  accumulating; the largest independent sample is Brent LONG with 9 pairs and a
+  two-trade preliminary control reserve. Genuine frozen-candidate forward OOS is
+  0. No Paper Challenger or Champion is statistically admitted yet.
 - Ten historical regime-invalidation exits occurred before ten minutes (five BR,
   five NG). Root cause was an unconditional regime decision overriding the
   minimum-hold guard. Regime exits now respect the energy 1,800-second minimum;
@@ -725,3 +726,18 @@
 - Validation: 26 focused tests passed for the final entry/exit and UI contracts;
   systemd unit verification passed. Commits: `2d0abff0`, `ecbb5d0d`, `85ab2214`,
   `fb6911ce`.
+
+### Edge-search checkpoint — 30.07.2026
+
+- Confirmed edge: none. Paper Challenger 0; Paper Champion 0; rollbacks 0; true
+  forward OOS 0. REAL remains disabled and outside automatic promotion.
+- Independent Shadow coverage: BR LONG 9; GAZP LONG 6; NVTK LONG 6; NG LONG 5;
+  SBER/VTBR LONG 4 each; other tracked directions 1–3 observations.
+- Early, non-admitting indications are strongest in BR LONG, NVTK LONG and SBER
+  LONG. GAZP LONG and NG LONG remain weak and should be diagnosed at entry level,
+  not rescued by expanding the parameter grid.
+- Research infrastructure is approximately 80% ready, evidence accumulation
+  approximately 10–15%, confirmed-edge readiness 0%, and REAL readiness from this
+  workflow 0%. The next action is data collection with a frozen bounded search
+  space, not additional parameter tuning.
+- Latest lifecycle commits: `3afea16d`, `b660c878`, `c911219b`.
