@@ -10632,7 +10632,14 @@ class PaperTradingPipeline:
             stale=regime_stale,
         )
         if policy is None:
-            return False, "FUTURES_DB_POLICY_UNAVAILABLE", audit
+            resolution_status = policy_repository.resolution_status(
+                asset_group=asset_group,
+                trend=trend,
+            )
+            audit["policy_resolution_status"] = resolution_status
+            if resolution_status == "QUERY_FAILED":
+                return False, "FUTURES_DB_POLICY_QUERY_FAILED", audit
+            return False, "FUTURES_REGIME_NOT_ROUTED", audit
         audit.update(
             {
                 "asset_group": asset_group,

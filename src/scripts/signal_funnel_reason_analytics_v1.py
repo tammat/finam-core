@@ -9,7 +9,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
 
-SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V5_UNIQUE_CLOSED_BAR_OPPORTUNITY"
+SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V6_CURRENT_SESSION"
 
 TARGET_TABLES = [
     ("public", "runtime_guard_signal_registry_v1"),
@@ -56,7 +56,7 @@ def reason_group(value: str) -> str:
         "CLUSTER_BLOCK", "TRADE_LIMIT", "DB_QUOTA", "KILL_SWITCH",
     )):
         return "PROTECTION"
-    if "ACCEPTED_WITHOUT_ORDER" in v:
+    if "ACCEPTED_WITHOUT_ORDER" in v or "SUPERSEDED_AFTER_PIPELINE_RESTART" in v:
         return "CONTROL"
     if "TREND_FLIP" in v:
         return "MARKET"
@@ -154,6 +154,10 @@ def collect_admission_losses(cur) -> list[dict[str, Any]]:
                        ORDER BY created_at DESC,id DESC
                    ) AS recency_rank
             FROM public.signals
+            WHERE created_at >= (
+                date_trunc('day',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+                AT TIME ZONE 'Europe/Moscow'
+            )
         ), signal_cohort AS (
             SELECT * FROM signal_rows WHERE recency_rank=1
         ), admission_losses AS (
@@ -181,6 +185,7 @@ def collect_admission_losses(cur) -> list[dict[str, Any]]:
                jsonb_build_object(
                    'cohort','unique_closed_bar_opportunity_v5_paper_aware',
                    'boundary','RESEARCH_TO_EXECUTION',
+                   'time_scope','CURRENT_MSK_DAY',
                    'count_unit','unique_symbol_side_strategy_timeframe_bar',
                    'sample_symbols',(
                        SELECT jsonb_agg(x.symbol ORDER BY x.rows_total DESC,x.symbol)

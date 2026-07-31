@@ -63,7 +63,7 @@ def main() -> int:
             items = cursor.fetchall()
 
             for item in items:
-                cursor.execute("""SELECT symbol,side,strategy,status,created_at,
+                cursor.execute("""SELECT symbol,side,strategy,timeframe,status,created_at,ts,payload,
                         EXTRACT(EPOCH FROM (clock_timestamp()-created_at)) AS age_seconds
                     FROM public.signals WHERE id=%s""", (item["signal_row_id"],))
                 signal = cursor.fetchone()
@@ -95,17 +95,81 @@ def main() -> int:
                     item["attempts"] >= policy["max_attempts"]
                     or float(signal["age_seconds"] or 0.0) >= LIFECYCLE_TIMEOUT_SECONDS
                 ):
-                    cursor.execute("""UPDATE public.signals
-                        SET status='RISK_REJECTED',
-                            rejection_reason=COALESCE(rejection_reason,'signal_lifecycle_timeout')
-                        WHERE id=%s AND COALESCE(status,'NEW') NOT IN
-                            ('ACCEPTED','RISK_ACCEPTED','RISK_REJECTED','FILLED','CLOSED','REJECTED')""",
-                        (item["signal_row_id"],))
-                    cursor.execute("""UPDATE analytics.signal_intake_queue_v2
-                        SET status_code='FAILED',failure_code='SIGNAL_LIFECYCLE_TIMEOUT',
-                            finished_at=clock_timestamp(),updated_at=clock_timestamp()
-                        WHERE signal_row_id=%s""", (item["signal_row_id"],))
-                    failed += 1
+                    # Рестарт pipeline может оборвать обработку уже сохранённого
+                    # сигнала. Если на том же закрытом баре появился более новый
+                    # терминальный сигнал, старый не является технической потерей.
+                    cursor.execute("""
+                        WITH current_signal AS (
+                          SELECT s.*,
+                                 coalesce(
+                                   nullif(s.payload #>> '{features,regime_bar_ts}',''),
+                                   nullif(s.payload #>> '{metadata,bar_ts}',''),
+                                   date_bin(
+                                     CASE upper(coalesce(s.timeframe,'M5'))
+                                       WHEN 'M1' THEN interval '1 minute'
+                                       WHEN 'M15' THEN interval '15 minutes'
+                                       WHEN 'H1' THEN interval '1 hour'
+                                       ELSE interval '5 minutes'
+                                     END,s.ts,timestamptz '2000-01-01 00:00:00+00'
+                                   )::text
+                                 ) AS bar_key
+                          FROM public.signals s WHERE s.id=%s
+                        )
+                        SELECT newer.id,newer.status,newer.rejection_reason
+                        FROM current_signal current
+                        JOIN public.signals newer
+                          ON newer.id>current.id
+                         AND newer.symbol=current.symbol
+                         AND upper(coalesce(newer.side,''))=upper(coalesce(current.side,''))
+                         AND coalesce(newer.strategy,'')=coalesce(current.strategy,'')
+                         AND upper(coalesce(newer.timeframe,'M5'))=upper(coalesce(current.timeframe,'M5'))
+                         AND coalesce(
+                               nullif(newer.payload #>> '{features,regime_bar_ts}',''),
+                               nullif(newer.payload #>> '{metadata,bar_ts}',''),
+                               date_bin(
+                                 CASE upper(coalesce(newer.timeframe,'M5'))
+                                   WHEN 'M1' THEN interval '1 minute'
+                                   WHEN 'M15' THEN interval '15 minutes'
+                                   WHEN 'H1' THEN interval '1 hour'
+                                   ELSE interval '5 minutes'
+                                 END,newer.ts,timestamptz '2000-01-01 00:00:00+00'
+                               )::text
+                             )=current.bar_key
+                         AND upper(coalesce(newer.status,'NEW')) = ANY(%s)
+                        ORDER BY newer.id DESC LIMIT 1
+                    """, (item["signal_row_id"], list(TERMINAL_SIGNAL_STATUSES)))
+                    superseding = cursor.fetchone()
+                    if superseding is not None:
+                        cursor.execute("""UPDATE public.signals
+                            SET status='RISK_REJECTED',
+                                rejection_reason='superseded_after_pipeline_restart',
+                                payload=coalesce(payload,'{}'::jsonb) || jsonb_build_object(
+                                  'lifecycle_recovery',jsonb_build_object(
+                                    'reason','SUPERSEDED_BY_NEWER_TERMINAL_SIGNAL',
+                                    'superseding_signal_row_id',%s,
+                                    'recovered_at',clock_timestamp()
+                                  )
+                                )
+                            WHERE id=%s AND COALESCE(status,'NEW') NOT IN
+                                ('ACCEPTED','RISK_ACCEPTED','RISK_REJECTED','FILLED','CLOSED','REJECTED')""",
+                            (superseding["id"], item["signal_row_id"]))
+                        cursor.execute("""UPDATE analytics.signal_intake_queue_v2
+                            SET status_code='COMPLETE',outcome_code='SUPERSEDED_BY_NEWER_TERMINAL_SIGNAL',
+                                failure_code=NULL,finished_at=clock_timestamp(),updated_at=clock_timestamp()
+                            WHERE signal_row_id=%s""", (item["signal_row_id"],))
+                        completed += 1
+                    else:
+                        cursor.execute("""UPDATE public.signals
+                            SET status='RISK_REJECTED',
+                                rejection_reason=COALESCE(rejection_reason,'signal_lifecycle_timeout')
+                            WHERE id=%s AND COALESCE(status,'NEW') NOT IN
+                                ('ACCEPTED','RISK_ACCEPTED','RISK_REJECTED','FILLED','CLOSED','REJECTED')""",
+                            (item["signal_row_id"],))
+                        cursor.execute("""UPDATE analytics.signal_intake_queue_v2
+                            SET status_code='FAILED',failure_code='SIGNAL_LIFECYCLE_TIMEOUT',
+                                finished_at=clock_timestamp(),updated_at=clock_timestamp()
+                            WHERE signal_row_id=%s""", (item["signal_row_id"],))
+                        failed += 1
                 else:
                     cursor.execute("""UPDATE analytics.signal_intake_queue_v2
                         SET status_code='WAITING',outcome_code=%s,

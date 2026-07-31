@@ -16,6 +16,14 @@ class DbRegimeStrategyPolicyV1:
         self.pg_logger = pg_logger
         self.cache_seconds = max(1, int(cache_seconds))
         self._cache: dict[tuple[str, str], tuple[float, RegimeStrategyDecisionV1 | None]] = {}
+        self._resolution_status: dict[tuple[str, str], str] = {}
+
+    def resolution_status(self, *, asset_group: str, trend: str) -> str:
+        key = (
+            str(asset_group or "").strip().upper(),
+            str(trend or "").strip().lower(),
+        )
+        return self._resolution_status.get(key, "NOT_QUERIED")
 
     def resolve(
         self,
@@ -38,6 +46,7 @@ class DbRegimeStrategyPolicyV1:
         now = time.monotonic()
         cached = self._cache.get(key)
         if cached and now - cached[0] < self.cache_seconds:
+            self._resolution_status[key] = "FOUND" if cached[1] is not None else "NOT_ROUTED"
             return cached[1]
 
         decision: RegimeStrategyDecisionV1 | None = None
@@ -74,6 +83,7 @@ class DbRegimeStrategyPolicyV1:
                     exit_policy_code=str(row[4]),
                     max_holding_bars=int(row[5]),
                 )
+            self._resolution_status[key] = "FOUND" if decision is not None else "NOT_ROUTED"
         except Exception:
             # Временный сбой БД не равен отсутствующей политике. Не прячем
             # первопричину и не удерживаем ложный fail-closed результат 60 секунд.
@@ -82,6 +92,7 @@ class DbRegimeStrategyPolicyV1:
                 key[0],
                 key[1],
             )
+            self._resolution_status[key] = "QUERY_FAILED"
 
         if query_succeeded:
             self._cache[key] = (now, decision)

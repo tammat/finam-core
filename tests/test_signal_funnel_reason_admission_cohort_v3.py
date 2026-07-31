@@ -7,7 +7,7 @@ SCRIPT = ROOT / "src/scripts/signal_funnel_reason_analytics_v1.py"
 
 def test_reasons_use_same_linked_admission_cohort_as_funnel() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
-    assert "SIGNAL_FUNNEL_REASON_ANALYTICS_V5_UNIQUE_CLOSED_BAR_OPPORTUNITY" in source
+    assert "SIGNAL_FUNNEL_REASON_ANALYTICS_V6_CURRENT_SESSION" in source
     assert "JOIN public.orders o ON o.signal_event_id=member.signal_key" in source
     assert "JOIN public.signal_fills sf ON sf.signal_id=member.signal_key" in source
     assert "signal_admission_loss_cohort_v3" in source
@@ -15,6 +15,8 @@ def test_reasons_use_same_linked_admission_cohort_as_funnel() -> None:
     assert "row_number() OVER" in source
     assert "regime_bar_ts" in source
     assert "date_bin(" in source
+    assert "CURRENT_MSK_DAY" in source
+    assert "Europe/Moscow" in source
 
 
 def test_accepted_signal_without_order_is_visible_not_counted_as_pass() -> None:

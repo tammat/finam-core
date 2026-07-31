@@ -20,6 +20,9 @@ def test_signal_queue_is_db_driven_and_safe():
     assert "EXISTS (" in worker
     assert "public.signal_fills" in worker
     assert "SET status='FILLED'" in worker
+    assert "superseded_after_pipeline_restart" in worker
+    assert "SUPERSEDED_BY_NEWER_TERMINAL_SIGNAL" in worker
+    assert "regime_bar_ts" in worker
     assert 'print("execution_changed=0")' in worker
     assert 'print("live_allowed=0")' in worker
 

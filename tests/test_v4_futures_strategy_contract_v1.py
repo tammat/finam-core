@@ -16,7 +16,9 @@ def test_migration_has_explicit_assignments_and_closed_admission():
 def test_pipeline_requires_confirmed_regime_policy_and_orderbook_admission():
     source = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
     assert "FUTURES_REGIME_EVIDENCE_INCOMPLETE" in source
-    assert "FUTURES_DB_POLICY_UNAVAILABLE" in source
+    assert "FUTURES_DB_POLICY_QUERY_FAILED" in source
+    assert "FUTURES_REGIME_NOT_ROUTED" in source
+    assert "policy_resolution_status" in source
     assert "MICROSTRUCTURE_UNAVAILABLE" in source
     assert "evaluate_futures_entry_cost_gate_v1" in source
 
