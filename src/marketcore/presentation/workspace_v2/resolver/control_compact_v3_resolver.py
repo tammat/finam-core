@@ -427,11 +427,19 @@ class ControlCompactV3Resolver:
                              sum(e.net_pnl) FILTER (
                                WHERE e.event_ts>=date_trunc('day',clock_timestamp())
                              ) OVER (PARTITION BY (e.symbol LIKE '%@RTSX')) AS daily_net_pnl
+                             ,sum(e.net_pnl) FILTER (
+                               WHERE e.event_status='CLOSED'
+                                 AND e.event_ts>=date_trunc('day',clock_timestamp())
+                             ) OVER (PARTITION BY (e.symbol LIKE '%@RTSX')) AS daily_realized_net_pnl
+                             ,sum(e.net_pnl) FILTER (
+                               WHERE e.event_status='ACTIVE'
+                             ) OVER (PARTITION BY (e.symbol LIKE '%@RTSX')) AS active_unrealized_net_pnl
                       FROM recent_events e
                     )
                     SELECT x.event_ts,x.symbol,x.event_status,x.direction,
                            x.entry_price,x.exit_price,x.net_pnl,x.holding_seconds,x.entry_signal,x.exit_reason,
-                           x.is_futures,x.daily_net_pnl,x.opened_at,x.quote_ts,
+                           x.is_futures,x.daily_net_pnl,x.daily_realized_net_pnl,
+                           x.active_unrealized_net_pnl,x.opened_at,x.quote_ts,
                            CASE WHEN r.display_name IS DISTINCT FROM x.symbol
                                 THEN r.display_name END AS instrument_name
                     FROM ranked x
@@ -551,7 +559,7 @@ class ControlCompactV3Resolver:
                       FROM analytics.entry_exit_signal_shadow_pair_v2
                       WHERE shadow_entered
                         AND shadow_net_r IS NOT NULL
-                    )
+                    ), aggregated AS (
                     SELECT symbol_code,side_code,candidate_code,
                            count(*)::int AS evaluated,
                            count(*) FILTER (WHERE shadow_net_r>0)::int AS wins,
@@ -563,8 +571,20 @@ class ControlCompactV3Resolver:
                            max(generated_at) AS updated_at
                     FROM ranked
                     GROUP BY symbol_code,side_code,candidate_code
-                    ORDER BY count(*) DESC,avg(shadow_net_r) DESC
-                    LIMIT 20
+                    ), best_per_direction AS (
+                      SELECT aggregated.*,
+                             row_number() OVER (
+                               PARTITION BY symbol_code,side_code
+                               ORDER BY recent_expectancy_r DESC NULLS LAST,
+                                        evaluated DESC,candidate_code
+                             ) AS candidate_rank
+                      FROM aggregated
+                    )
+                    SELECT *
+                    FROM best_per_direction
+                    WHERE candidate_rank=1
+                    ORDER BY recent_expectancy_r DESC NULLS LAST,evaluated DESC
+                    LIMIT 12
                 """)
                 shadow_dynamics = [dict(row) for row in cursor.fetchall()]
 

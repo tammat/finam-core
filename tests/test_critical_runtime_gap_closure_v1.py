@@ -53,9 +53,10 @@ def test_home_trade_tables_include_colored_daily_total():
         ROOT
         / "src/marketcore/presentation/workspace_v2/renderer/home_compact_v1_domain_renderer.py"
     ).read_text()
-    assert '"Итого за сегодня"' in source
-    assert 'total_status = "PROFIT"' in source
-    assert '"LOSS" if daily_total' in source
+    assert '"Закрытые сегодня"' in source
+    assert '"Открытые сейчас · предварительно"' in source
+    assert '"PROFIT" if total_value' in source
+    assert '"LOSS" if total_value' in source
 
 
 def test_open_paper_positions_are_managed_before_entry_gates():
@@ -192,3 +193,15 @@ def test_unproven_paper_is_capped_and_shadow_is_not_called_oos():
     assert "shadow_dynamics" in resolver
     assert "Доказанных связок: 0" in renderer
     assert "Research Shadow · результаты и динамика (не OOS)" in renderer
+
+
+def test_paper_entries_are_shadow_only_until_promoted_oos_exists():
+    pipeline = (
+        ROOT / "src/finam_core/pipelines/paper_pipeline.py"
+    ).read_text()
+    assert 'PAPER_REQUIRE_PROMOTED_OOS", "1"' in pipeline
+    assert "PIPE_PAPER_SHADOW_ONLY_NO_OOS" in pipeline
+    assert "paper_shadow_only_no_promoted_oos" in pipeline
+    assert pipeline.index("signal_repository.save_signal(intent)") < pipeline.index(
+        "PIPE_PAPER_SHADOW_ONLY_NO_OOS"
+    )

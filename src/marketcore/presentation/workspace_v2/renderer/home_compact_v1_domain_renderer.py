@@ -288,22 +288,36 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.pnl", number(pnl), status=pnl_status),
             ),
         ))
-    daily_total = next((item.get("daily_net_pnl") for item in items
-                        if item.get("daily_net_pnl") is not None), None)
-    total_status = "PROFIT" if daily_total is not None and float(daily_total) > 0 else (
-        "LOSS" if daily_total is not None and float(daily_total) < 0 else None
+    totals = (
+        ("realized", "Закрытые сегодня",
+         next((item.get("daily_realized_net_pnl") for item in items
+               if item.get("daily_realized_net_pnl") is not None), None)),
+        ("unrealized", "Открытые сейчас · предварительно",
+         next((item.get("active_unrealized_net_pnl") for item in items
+               if item.get("active_unrealized_net_pnl") is not None), None)),
     )
-    total_text = "—" if daily_total is None else f"{float(daily_total):+.2f}".replace(".", ",")
-    rows.append(RenderNodeV2(
-        RenderNodeTypeV2.TABLE_ROW, f"home.compact.trades.{code}.daily_total",
-        children=(
-            _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.daily_total.label", "Итого за сегодня"),
-            *tuple(_leaf(RenderNodeTypeV2.TABLE_CELL,
-                         f"home.compact.trades.{code}.daily_total.blank.{i}", "") for i in range(8)),
-            _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.daily_total.pnl",
-                  total_text, status=total_status),
-        ),
-    ))
+    for total_code, total_label, total_value in totals:
+        total_status = (
+            "PROFIT" if total_value is not None and float(total_value) > 0
+            else "LOSS" if total_value is not None and float(total_value) < 0 else None
+        )
+        total_text = (
+            "—" if total_value is None
+            else f"{float(total_value):+.2f}".replace(".", ",")
+        )
+        rows.append(RenderNodeV2(
+            RenderNodeTypeV2.TABLE_ROW, f"home.compact.trades.{code}.{total_code}_total",
+            children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL,
+                      f"home.compact.trades.{code}.{total_code}_total.label", total_label),
+                *tuple(_leaf(RenderNodeTypeV2.TABLE_CELL,
+                             f"home.compact.trades.{code}.{total_code}_total.blank.{i}", "")
+                       for i in range(8)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL,
+                      f"home.compact.trades.{code}.{total_code}_total.pnl",
+                      total_text, status=total_status),
+            ),
+        ))
     table = RenderNodeV2(RenderNodeTypeV2.TABLE, f"home.compact.trades.{code}.table", children=(
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, f"home.compact.trades.{code}.head", children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, f"home.compact.trades.{code}.body", children=tuple(rows)),
@@ -331,10 +345,6 @@ def _shadow_dynamics_section(snapshot):
         recent = item.get("recent_expectancy_r")
         previous = item.get("previous_expectancy_r")
         delta = None if recent is None or previous is None else float(recent) - float(previous)
-        status = (
-            "PROFIT" if recent is not None and float(recent) > 0
-            else "LOSS" if recent is not None and float(recent) < 0 else None
-        )
         updated = item.get("latest_result_ts") or item.get("updated_at")
         updated_text = updated.strftime("%d.%m %H:%M") if updated else "—"
         def metric(value):
@@ -349,9 +359,8 @@ def _shadow_dynamics_section(snapshot):
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.wins", str(int(item.get("wins") or 0))),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.net", metric(item.get("net_r"))),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.exp", metric(item.get("expectancy_r"))),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.recent", metric(recent), status=status),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.delta", metric(delta),
-                      status="PROFIT" if delta is not None and delta > 0 else "LOSS" if delta is not None and delta < 0 else None),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.recent", metric(recent)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.delta", metric(delta)),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.updated", updated_text),
             ),
         ))
@@ -375,7 +384,8 @@ def _shadow_dynamics_section(snapshot):
         _leaf(RenderNodeTypeV2.TEXT, "home.compact.shadow.help",
               "Динамика сравнивает средний результат последних 20 наблюдений "
               "с предыдущими 20. Эти результаты исследовательские и не являются "
-              "доказанным edge; заявки брокеру не отправляются."),
+              "доказанным edge; показан один лучший вариант на инструмент и направление, "
+              "заявки брокеру не отправляются."),
         table,
     ))
 

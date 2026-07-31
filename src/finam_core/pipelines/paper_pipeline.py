@@ -5803,6 +5803,53 @@ class PaperTradingPipeline:
         except Exception as exc:
             LOG.warning("PIPE_SIGNAL_SAVE_FAILED error=%s", exc)
 
+        # No new Paper risk is allowed while every V5 hypothesis is still
+        # research-only. The signal remains persisted for Shadow comparison;
+        # exits are handled on their dedicated route and never reach this gate.
+        if (
+            str(intent.get("intent_type") or "ENTRY").upper() != "EXIT"
+            and os.getenv("PAPER_REQUIRE_PROMOTED_OOS", "1") == "1"
+        ):
+            promoted_oos = False
+            try:
+                cache_until = float(
+                    getattr(self, "_promoted_oos_cache_until_v1", 0.0) or 0.0
+                )
+                if time.time() >= cache_until:
+                    with self.pg_logger._connect() as oos_conn:
+                        with oos_conn.cursor() as oos_cursor:
+                            oos_cursor.execute("""
+                                SELECT EXISTS (
+                                  SELECT 1
+                                  FROM analytics.edge_oos_result_v1
+                                  WHERE verdict_code='OOS_PASS'
+                                    AND promotion_allowed=true
+                                )
+                            """)
+                            row = oos_cursor.fetchone()
+                    self._promoted_oos_cache_v1 = bool(row and row[0])
+                    self._promoted_oos_cache_until_v1 = time.time() + 60.0
+                promoted_oos = bool(
+                    getattr(self, "_promoted_oos_cache_v1", False)
+                )
+            except Exception as exc:
+                self._log_dedup(
+                    "PIPE_PROMOTED_OOS_GATE_ERROR",
+                    f"PIPE_PROMOTED_OOS_GATE_ERROR {type(exc).__name__}:{exc}",
+                    heartbeat_sec=300,
+                )
+            if not promoted_oos:
+                self._log_dedup(
+                    f"PIPE_PAPER_SHADOW_ONLY_NO_OOS:{sym}",
+                    f"PIPE_PAPER_SHADOW_ONLY_NO_OOS symbol={sym} "
+                    "paper_entry=0 shadow_observation=1",
+                    heartbeat_sec=60,
+                )
+                self._reject_persisted_signal_v1(
+                    intent, "paper_shadow_only_no_promoted_oos"
+                )
+                return
+
 
 
         # USDRUB_REGIME_RUNTIME_BLOCK_GUARD_V1
