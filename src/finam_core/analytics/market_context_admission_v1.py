@@ -14,6 +14,42 @@ class MarketContextAdmissionV1:
     reason: str
 
 
+@dataclass(frozen=True)
+class MondayPaperEntryGateV1:
+    allowed: bool
+    reason: str
+
+
+def decide_monday_paper_entry_gate_v1(
+    *,
+    now_msk: datetime,
+    intent_type: str,
+    market_context: MarketContextAdmissionV1,
+    completed_mx_m15_bars: int,
+    required_mx_m15_bars: int = 2,
+) -> MondayPaperEntryGateV1:
+    """Fail closed on Monday until the opening context is observable.
+
+    The gate applies only to new entries.  It never delays a protective exit
+    and it does not alter the active Paper profile.
+    """
+    if str(intent_type or "ENTRY").upper() == "EXIT":
+        return MondayPaperEntryGateV1(True, "EXIT_ALWAYS_ALLOWED")
+    if now_msk.weekday() != 0:
+        return MondayPaperEntryGateV1(True, "NOT_MONDAY")
+    required = max(1, int(required_mx_m15_bars))
+    if int(completed_mx_m15_bars) < required:
+        return MondayPaperEntryGateV1(
+            False,
+            f"MONDAY_WAIT_MX_M15:{int(completed_mx_m15_bars)}/{required}",
+        )
+    if not market_context.paper_allowed:
+        return MondayPaperEntryGateV1(
+            False, f"MONDAY_MARKET_CONTEXT_NOT_READY:{market_context.reason}"
+        )
+    return MondayPaperEntryGateV1(True, "MONDAY_OPENING_CONTEXT_READY")
+
+
 def decide_market_context_admission_v1(
     *,
     now: datetime,

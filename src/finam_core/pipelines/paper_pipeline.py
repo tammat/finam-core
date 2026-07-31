@@ -6045,6 +6045,19 @@ class PaperTradingPipeline:
             self._reject_persisted_signal_v1(intent, overnight_reason.lower())
             return
 
+        monday_allowed, monday_reason = self._monday_paper_entry_gate_v1(
+            intent_type=str(intent.get("intent_type") or "ENTRY")
+        )
+        if not monday_allowed:
+            self._log_dedup(
+                f"PIPE_MONDAY_ENTRY_GATE:{intent.get('symbol') or sym}:{monday_reason}",
+                f"PIPE_MONDAY_ENTRY_GATE_BLOCK symbol={intent.get('symbol') or sym} "
+                f"reason={monday_reason} paper_profile_changed=0",
+                heartbeat_sec=300,
+            )
+            self._reject_persisted_signal_v1(intent, monday_reason.lower())
+            return
+
 
 
         # USDRUB_REGIME_RUNTIME_BLOCK_GUARD_V1
@@ -9437,6 +9450,53 @@ class PaperTradingPipeline:
             index_max_age_seconds=int(os.getenv("MARKET_CONTEXT_INDEX_MAX_AGE_SEC", "600")),
             rvi_max_age_seconds=int(os.getenv("MARKET_CONTEXT_RVI_MAX_AGE_SEC", "1800")),
         )
+
+    def _monday_paper_entry_gate_v1(self, *, intent_type: str) -> tuple[bool, str]:
+        """Require two completed MX M15 bars and fresh MX/RVI on Monday."""
+        from datetime import datetime, time, timezone
+        from zoneinfo import ZoneInfo
+        import psycopg
+
+        from finam_core.analytics.market_context_admission_v1 import (
+            decide_monday_paper_entry_gate_v1,
+        )
+        from finam_core.analytics.statistics_repository import build_psycopg_url
+
+        now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+        if str(intent_type or "ENTRY").upper() == "EXIT" or now_msk.weekday() != 0:
+            return True, "EXIT_OR_NOT_MONDAY"
+        session_start_msk = datetime.combine(
+            now_msk.date(), time(7, 0), tzinfo=ZoneInfo("Europe/Moscow")
+        )
+        completed_mx_m15_bars = 0
+        try:
+            with psycopg.connect(os.getenv("DATABASE_URL") or build_psycopg_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT count(*)
+                        FROM market_bars
+                        WHERE symbol='IMOEX2' AND timeframe='M15'
+                          AND ts >= %s
+                          AND ts + interval '15 minutes' <= %s
+                        """,
+                        (session_start_msk.astimezone(timezone.utc), now_msk.astimezone(timezone.utc)),
+                    )
+                    completed_mx_m15_bars = int(cur.fetchone()[0] or 0)
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_MONDAY_ENTRY_GATE_READ_FAILED",
+                f"PIPE_MONDAY_ENTRY_GATE_READ_FAILED error={type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+        decision = decide_monday_paper_entry_gate_v1(
+            now_msk=now_msk,
+            intent_type=intent_type,
+            market_context=self._market_context_admission_v1(),
+            completed_mx_m15_bars=completed_mx_m15_bars,
+            required_mx_m15_bars=int(os.getenv("MONDAY_GATE_REQUIRED_MX_M15_BARS", "2")),
+        )
+        return decision.allowed, decision.reason
 
     @staticmethod
     def _pre_signal_intent_value_v1(raw_intent, key: str, default=None):
