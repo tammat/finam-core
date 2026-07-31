@@ -330,8 +330,9 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
 
 def _shadow_dynamics_section(snapshot):
     headers = (
-        "Инструмент", "Направление", "Shadow-вариант", "Оценено",
-        "Победы", "Net, R", "Exp, R", "Последние 20", "Динамика", "Последний результат",
+        "Инструмент", "Направление", "Shadow-вариант", "Сопоставимых пар",
+        "Exp после издержек, R", "Placebo, R", "Преимущество, R",
+        "Нижняя граница, R", "Вердикт",
     )
     header = RenderNodeV2(
         RenderNodeTypeV2.TABLE_ROW, "home.compact.shadow.header",
@@ -341,8 +342,9 @@ def _shadow_dynamics_section(snapshot):
         ),
     )
     items = tuple(snapshot.get("shadow_dynamics") or ())
+    raw_items = tuple(snapshot.get("raw_shadow_dynamics") or ())
     stream_latest = next(
-        (item.get("stream_latest_result_ts") for item in items
+        (item.get("stream_latest_result_ts") for item in raw_items
          if item.get("stream_latest_result_ts")),
         None,
     )
@@ -351,26 +353,32 @@ def _shadow_dynamics_section(snapshot):
     )
     rows = []
     for index, item in enumerate(items, start=1):
-        recent = item.get("recent_expectancy_r")
-        previous = item.get("previous_expectancy_r")
-        delta = None if recent is None or previous is None else float(recent) - float(previous)
-        updated = item.get("latest_result_ts") or item.get("updated_at")
-        updated_text = updated.strftime("%d.%m %H:%M") if updated else "—"
         def metric(value):
             return "—" if value is None else f"{float(value):+.2f}".replace(".", ",")
+        pairs = int(item.get("pairs") or 0)
+        lower = item.get("delta_lower_bound_r")
+        passed = (
+            pairs >= 10 and bool(item.get("placebo_passed"))
+            and lower is not None and float(lower) > 0
+        )
+        verdict = (
+            "Предварительно лучше placebo" if passed else
+            "Мало данных" if pairs < 10 else
+            "Преимущество не подтверждено"
+        )
         rows.append(RenderNodeV2(
             RenderNodeTypeV2.TABLE_ROW, f"home.compact.shadow.row.{index}",
+            state=RenderNodeStateV2(status_code="OK" if passed else "WARNING"),
             children=(
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.symbol", _instrument_name(item)),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.side", str(item.get("side_code") or "—")),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.candidate", str(item.get("candidate_code") or "—")),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.evaluated", str(int(item.get("evaluated") or 0))),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.wins", str(int(item.get("wins") or 0))),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.net", metric(item.get("net_r"))),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.exp", metric(item.get("expectancy_r"))),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.recent", metric(recent)),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.delta", metric(delta)),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.updated", updated_text),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.pairs", str(pairs)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.exp", metric(item.get("candidate_expectancy_r"))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.placebo", metric(item.get("placebo_expectancy_r"))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.delta", metric(item.get("delta_expectancy_r"))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.lower", metric(lower)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.verdict", verdict),
             ),
         ))
     if not rows:
@@ -380,7 +388,7 @@ def _shadow_dynamics_section(snapshot):
                 _leaf(RenderNodeTypeV2.TABLE_CELL, "home.compact.shadow.empty.text",
                       "Завершённых Shadow-наблюдений пока нет"),
                 *tuple(_leaf(RenderNodeTypeV2.TABLE_CELL,
-                             f"home.compact.shadow.empty.blank.{i}", "") for i in range(9)),
+                             f"home.compact.shadow.empty.blank.{i}", "") for i in range(8)),
             ),
         ))
     table = RenderNodeV2(RenderNodeTypeV2.TABLE, "home.compact.shadow.table", children=(
@@ -389,16 +397,38 @@ def _shadow_dynamics_section(snapshot):
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.shadow", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.shadow.title",
-              "Research Shadow · результаты и динамика (не OOS)", level="SECTION"),
+              "Research Shadow · сопоставимая V5-оценка (не OOS)", level="SECTION"),
         _leaf(RenderNodeTypeV2.TEXT, "home.compact.shadow.help",
               f"Последний завершённый результат во всём Shadow-потоке: {stream_freshness}. "
-              "Время в строке относится только к показанному победителю. "
-              "Динамика сравнивает средний результат последних 20 наблюдений "
-              "с предыдущими 20. Эти результаты исследовательские и не являются "
-              "доказанным edge; показан один лучший вариант на инструмент и направление, "
-              "заявки брокеру не отправляются."),
+              "Главная таблица использует дедуплицированные пары одинаковых сигналов, "
+              "учитывает издержки и сравнивает вариант с placebo. Кандидат выбирается "
+              "по нижней границе преимущества, а не по удачному последнему отрезку. "
+              "Это ещё не OOS и не разрешение Paper; заявки брокеру не отправляются."),
         table,
+        _raw_shadow_diagnostic(snapshot),
     ))
+
+
+def _raw_shadow_diagnostic(snapshot):
+    items = tuple(snapshot.get("raw_shadow_dynamics") or ())[:8]
+    children = [
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.shadow.raw.title",
+              "Сырая динамика последних наблюдений — только диагностика", level="CARD"),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.shadow.raw.warning",
+              "Не используется для выбора кандидата и продвижения в Paper."),
+    ]
+    for index, item in enumerate(items, start=1):
+        recent = item.get("recent_expectancy_r")
+        previous = item.get("previous_expectancy_r")
+        delta = None if recent is None or previous is None else float(recent) - float(previous)
+        value = (
+            f"{_instrument_name(item)} · {item.get('side_code')} · {item.get('candidate_code')} · "
+            f"n={int(item.get('evaluated') or 0)} · последние 20 "
+            f"{_signed_metric(recent, available=recent is not None)} · изменение "
+            f"{_signed_metric(delta, available=delta is not None)}"
+        )
+        children.append(_leaf(RenderNodeTypeV2.TEXT, f"home.compact.shadow.raw.{index}", value))
+    return RenderNodeV2(RenderNodeTypeV2.CARD, "home.compact.shadow.raw", children=tuple(children))
 
 
 def _attention_section(snapshot):

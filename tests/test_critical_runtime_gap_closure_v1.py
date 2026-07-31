@@ -192,8 +192,16 @@ def test_unproven_paper_is_capped_and_shadow_is_not_called_oos():
     assert "promotion_summary" in resolver
     assert "shadow_dynamics" in resolver
     assert "Доказанных связок: 0" in renderer
-    assert "Research Shadow · результаты и динамика (не OOS)" in renderer
+    assert "Research Shadow · сопоставимая V5-оценка (не OOS)" in renderer
     assert "stream_latest_result_ts" in resolver
+    assert "candidate_expectancy_r" in resolver
+    assert "placebo_expectancy_r" in resolver
+    assert "delta_lower_bound_r" in resolver
+    assert "placebo_passed DESC" in resolver
+    assert "(pairs >= 10) DESC" in resolver
+    assert '"raw_shadow_dynamics": raw_shadow_dynamics' in resolver
+    assert "Сырая динамика последних наблюдений — только диагностика" in renderer
+    assert "Не используется для выбора кандидата и продвижения в Paper" in renderer
     assert "Последний завершённый результат во всём Shadow-потоке" in renderer
 
 

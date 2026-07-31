@@ -638,6 +638,60 @@ class ControlCompactV3Resolver:
                     ORDER BY recent_expectancy_r DESC NULLS LAST,evaluated DESC
                     LIMIT 12
                 """)
+                raw_shadow_dynamics = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""
+                    WITH evidence AS (
+                      SELECT r.*,
+                             nullif(r.metrics #>> '{negative_control,candidate_expectancy_r}','')::numeric
+                               AS candidate_expectancy_r,
+                             nullif(r.metrics #>> '{negative_control,placebo_expectancy_r}','')::numeric
+                               AS placebo_expectancy_r,
+                             nullif(r.metrics #>> '{negative_control,delta_expectancy_r}','')::numeric
+                               AS delta_expectancy_r,
+                             nullif(r.metrics #>> '{negative_control,delta_lower_bound_r}','')::numeric
+                               AS delta_lower_bound_r,
+                             coalesce((r.metrics #>> '{negative_control,passed}')::boolean,false)
+                               AS placebo_passed,
+                             coalesce((r.metrics #>> '{parameter_plateau,passed}')::boolean,false)
+                               AS plateau_passed
+                      FROM analytics.entry_exit_recommendation_v1 r
+                    ), ranked AS (
+                      SELECT evidence.*,
+                             row_number() OVER (
+                               PARTITION BY symbol_group,side_code
+                               ORDER BY (pairs >= 10) DESC,
+                                        placebo_passed DESC,
+                                        delta_lower_bound_r DESC NULLS LAST,
+                                        pairs DESC,candidate_code
+                             ) AS evidence_rank
+                      FROM evidence
+                    )
+                    SELECT CASE symbol_group
+                             WHEN 'BR' THEN 'BRQ6'
+                             WHEN 'NG' THEN 'NGQ6'
+                             WHEN 'CNY' THEN 'CNYRUBF'
+                             WHEN 'USD' THEN 'USDRUBF'
+                             WHEN 'GOLD' THEN 'GDU6'
+                             ELSE symbol_group
+                           END AS symbol_code,
+                           CASE symbol_group
+                             WHEN 'BR' THEN 'Нефть Brent'
+                             WHEN 'NG' THEN 'Природный газ'
+                             WHEN 'CNY' THEN 'Юань'
+                             WHEN 'USD' THEN 'Доллар'
+                             WHEN 'GOLD' THEN 'Золото'
+                           END AS instrument_name,
+                           symbol_group,side_code,candidate_code,pairs,oos_pairs,
+                           candidate_expectancy_r,placebo_expectancy_r,
+                           delta_expectancy_r,delta_lower_bound_r,
+                           placebo_passed,plateau_passed,recommendation_status,generated_at
+                    FROM ranked
+                    WHERE evidence_rank=1
+                    ORDER BY (pairs >= 10) DESC,placebo_passed DESC,
+                             delta_lower_bound_r DESC NULLS LAST,
+                             pairs DESC,symbol_group,side_code
+                    LIMIT 12
+                """)
                 shadow_dynamics = [dict(row) for row in cursor.fetchall()]
 
         for row in links:
@@ -721,6 +775,7 @@ class ControlCompactV3Resolver:
             "market_regime_context": market_regime_context,
             "market_regime_shadow_variants": market_regime_shadow_variants,
             "shadow_dynamics": shadow_dynamics,
+            "raw_shadow_dynamics": raw_shadow_dynamics,
             "signal_funnel_stages": signal_funnel_stages,
             "signal_funnel_reasons": signal_funnel_reasons,
         }
