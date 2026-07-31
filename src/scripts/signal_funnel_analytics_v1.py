@@ -8,7 +8,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
 
-SOURCE_VERSION = "SIGNAL_FUNNEL_ANALYTICS_V3_PAPER_AWARE_COHORT"
+SOURCE_VERSION = "SIGNAL_FUNNEL_ANALYTICS_V5_UNIQUE_CLOSED_BAR_OPPORTUNITY"
 
 
 def dec(v: Any) -> Decimal:
@@ -78,14 +78,38 @@ def linked_stage_counts(cur) -> list[tuple[str, str, Decimal, dict[str, Any]]]:
         })]
 
     cur.execute("""
-        WITH signal_cohort AS (
-            SELECT DISTINCT COALESCE(NULLIF(signal_id, ''), id::text) AS signal_key
+        WITH signal_rows AS (
+            SELECT id,
+                   COALESCE(NULLIF(signal_id, ''), id::text) AS signal_key,
+                   concat_ws('|',
+                       COALESCE(NULLIF(symbol,''),'UNKNOWN'),
+                       COALESCE(NULLIF(upper(side),''),'UNKNOWN'),
+                       COALESCE(NULLIF(strategy,''),'UNKNOWN'),
+                       COALESCE(NULLIF(upper(timeframe),''),'UNKNOWN'),
+                       COALESCE(
+                           NULLIF(payload #>> '{features,regime_bar_ts}',''),
+                           NULLIF(payload #>> '{metadata,bar_ts}',''),
+                           date_bin(
+                               CASE upper(COALESCE(timeframe,'M5'))
+                                   WHEN 'M1' THEN interval '1 minute'
+                                   WHEN 'M15' THEN interval '15 minutes'
+                                   WHEN 'H1' THEN interval '1 hour'
+                                   ELSE interval '5 minutes'
+                               END,
+                               ts,
+                               timestamptz '2000-01-01 00:00:00+00'
+                           )::text
+                       )
+                   ) AS opportunity_key
             FROM public.signals
         ),
+        signal_cohort AS (
+            SELECT DISTINCT opportunity_key FROM signal_rows
+        ),
         linked_orders AS (
-            SELECT DISTINCT o.order_id, o.signal_event_id AS signal_key
+            SELECT DISTINCT o.order_id, s.opportunity_key
             FROM public.orders o
-            JOIN signal_cohort s ON s.signal_key = o.signal_event_id
+            JOIN signal_rows s ON s.signal_key = o.signal_event_id
             WHERE o.order_id IS NOT NULL
         ),
         linked_acks AS (
@@ -105,29 +129,38 @@ def linked_stage_counts(cur) -> list[tuple[str, str, Decimal, dict[str, Any]]]:
             JOIN linked_fills f ON f.fill_id = t.fill_id
         ),
         paper_fills AS (
-            SELECT DISTINCT signal_id AS signal_key,
-                   COALESCE(NULLIF(fill_id, ''), id::text) AS fill_key
-            FROM public.signal_fills
-            WHERE NULLIF(signal_id, '') IS NOT NULL
+            SELECT DISTINCT s.opportunity_key,
+                   COALESCE(NULLIF(sf.fill_id, ''), sf.id::text) AS fill_key
+            FROM public.signal_fills sf
+            JOIN signal_rows s ON s.signal_key=sf.signal_id
+            WHERE NULLIF(sf.signal_id, '') IS NOT NULL
+        ),
+        shadow_observations AS (
+            SELECT DISTINCT s.opportunity_key
+            FROM analytics.entry_exit_signal_shadow_pair_v2 p
+            JOIN signal_rows s ON s.id=p.source_signal_id
         ),
         all_signals AS (
-            SELECT signal_key FROM signal_cohort
+            SELECT opportunity_key FROM signal_cohort
             UNION
-            SELECT signal_key FROM paper_fills
+            SELECT opportunity_key FROM paper_fills
         )
         SELECT
+            (SELECT count(*) FROM signal_rows) AS raw_evaluations,
             (SELECT count(*) FROM all_signals) AS signals,
-            (SELECT count(*) FROM (SELECT signal_key FROM linked_orders UNION SELECT signal_key FROM paper_fills) q) AS ordered_signals,
-            (SELECT count(*) FROM (SELECT o.signal_key FROM linked_orders o JOIN linked_acks a USING(order_id) UNION SELECT signal_key FROM paper_fills) q) AS acknowledged_signals,
-            (SELECT count(*) FROM (SELECT o.signal_key FROM linked_orders o JOIN linked_fills f USING(order_id) UNION SELECT signal_key FROM paper_fills) q) AS filled_signals,
-            (SELECT count(*) FROM (SELECT o.signal_key FROM linked_orders o JOIN linked_fills f USING(order_id) JOIN linked_trades t USING(fill_id) UNION SELECT signal_key FROM paper_fills) q) AS traded_signals
+            (SELECT count(*) FROM shadow_observations) AS shadow_signals,
+            (SELECT count(*) FROM (SELECT opportunity_key FROM linked_orders UNION SELECT opportunity_key FROM paper_fills) q) AS ordered_signals,
+            (SELECT count(*) FROM (SELECT o.opportunity_key FROM linked_orders o JOIN linked_acks a USING(order_id) UNION SELECT opportunity_key FROM paper_fills) q) AS acknowledged_signals,
+            (SELECT count(*) FROM (SELECT o.opportunity_key FROM linked_orders o JOIN linked_fills f USING(order_id) UNION SELECT opportunity_key FROM paper_fills) q) AS filled_signals,
+            (SELECT count(*) FROM (SELECT o.opportunity_key FROM linked_orders o JOIN linked_fills f USING(order_id) JOIN linked_trades t USING(fill_id) UNION SELECT opportunity_key FROM paper_fills) q) AS traded_signals
     """)
     row = cur.fetchone()
     evidence = {
-        "cohort": "linked_signal_order_execution_v3_paper_aware",
+        "cohort": "unique_closed_bar_opportunity_v5_paper_aware",
         "comparable": True,
+        "opportunity_key": "symbol|side|strategy|timeframe|closed_bar_ts",
         "join_chain": "broker: signals->orders->acks/fills->trades; paper: signal_fills.signal_id/fill_id",
-        "count_unit": "distinct_origin_signal",
+        "count_unit": "unique_symbol_side_strategy_timeframe_bar",
     }
     order_evidence = dict(evidence)
     order_evidence.update({
@@ -136,7 +169,14 @@ def linked_stage_counts(cur) -> list[tuple[str, str, Decimal, dict[str, Any]]]:
         "zero_is_expected_while_live_blocked": True,
     })
     return [
-        ("SIGNALS", "Сформированные сигналы", dec(row["signals"]), dict(evidence)),
+        ("EVALUATIONS", "Все проверки условий", dec(row["raw_evaluations"]), {
+            **evidence, "diagnostic_only": True,
+            "not_an_edge_loss": True,
+        }),
+        ("SIGNALS", "Уникальные возможности на закрытом баре", dec(row["signals"]), dict(evidence)),
+        ("SHADOW", "Возможности, оценённые в Shadow", dec(row["shadow_signals"]), {
+            **evidence, "branch": "RESEARCH_SHADOW",
+        }),
         ("ORDERS", "Сигналы, допущенные до заявки", dec(row["ordered_signals"]), order_evidence),
         ("ACKS", "Сигналы с подтверждённой заявкой", dec(row["acknowledged_signals"]), dict(evidence)),
         ("FILLS", "Сигналы с исполнением", dec(row["filled_signals"]), dict(evidence)),
@@ -236,9 +276,15 @@ def main() -> None:
                 snapshot_id = int(cur.fetchone()["signal_funnel_snapshot_id"])
 
                 previous: Decimal | None = None
+                opportunity_count = next(
+                    (count for code, _, count, _ in stages if code == "SIGNALS"),
+                    None,
+                )
                 for idx, (code, name, count, evidence) in enumerate(stages, start=1):
-                    insert_stage(cur, snapshot_id, idx, code, name, count, previous, evidence)
-                    previous = count
+                    stage_previous = opportunity_count if code in {"SHADOW", "ORDERS"} else previous
+                    insert_stage(cur, snapshot_id, idx, code, name, count, stage_previous, evidence)
+                    if code != "SHADOW":
+                        previous = count
 
     print("=== SIGNAL_FUNNEL_ANALYTICS_V1 ===")
     print(f"signal_funnel_snapshot_id={snapshot_id}")

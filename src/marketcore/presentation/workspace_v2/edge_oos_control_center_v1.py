@@ -472,16 +472,28 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool, dict]:
                              WHEN 'GOLD_TREND_BREAKOUT' THEN 'GOLD'
                              ELSE split_part(symbol, '@', 1)
                            END AS symbol_group,
-                           date_bin(interval '30 minutes', coalesce(ts, created_at),
-                                    timestamptz '2000-01-01 00:00:00+00') AS signal_window
+                           coalesce(
+                               nullif(payload #>> '{features,regime_bar_ts}','')::timestamptz,
+                               nullif(payload #>> '{metadata,bar_ts}','')::timestamptz,
+                               date_bin(
+                                   CASE upper(coalesce(timeframe,'M5'))
+                                     WHEN 'M1' THEN interval '1 minute'
+                                     WHEN 'M15' THEN interval '15 minutes'
+                                     WHEN 'H1' THEN interval '1 hour'
+                                     ELSE interval '5 minutes'
+                                   END,
+                                   coalesce(ts, created_at),
+                                   timestamptz '2000-01-01 00:00:00+00'
+                               )
+                           ) AS signal_window
                     FROM public.signals
                     WHERE coalesce(ts, created_at) >= date_trunc('day', now())
                 ),
                 independent AS (
-                    SELECT DISTINCT ON (strategy, symbol_group, upper(side), signal_window)
+                    SELECT DISTINCT ON (strategy, symbol, upper(side), timeframe, signal_window)
                            id, signal_id, status, rejection_reason
                     FROM today_signals
-                    ORDER BY strategy, symbol_group, upper(side), signal_window,
+                    ORDER BY strategy, symbol, upper(side), timeframe, signal_window,
                              coalesce(ts, created_at), id
                 )
                 SELECT
@@ -522,16 +534,28 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool, dict]:
                              WHEN 'GOLD_TREND_BREAKOUT' THEN 'GOLD'
                              ELSE split_part(symbol, '@', 1)
                            END AS symbol_group,
-                           date_bin(interval '30 minutes', coalesce(ts, created_at),
-                                    timestamptz '2000-01-01 00:00:00+00') AS signal_window
+                           coalesce(
+                               nullif(payload #>> '{features,regime_bar_ts}','')::timestamptz,
+                               nullif(payload #>> '{metadata,bar_ts}','')::timestamptz,
+                               date_bin(
+                                   CASE upper(coalesce(timeframe,'M5'))
+                                     WHEN 'M1' THEN interval '1 minute'
+                                     WHEN 'M15' THEN interval '15 minutes'
+                                     WHEN 'H1' THEN interval '1 hour'
+                                     ELSE interval '5 minutes'
+                                   END,
+                                   coalesce(ts, created_at),
+                                   timestamptz '2000-01-01 00:00:00+00'
+                               )
+                           ) AS signal_window
                     FROM public.signals
                     WHERE coalesce(ts, created_at) >= date_trunc('day', now())
                 ),
                 independent AS (
-                    SELECT DISTINCT ON (strategy, symbol_group, upper(side), signal_window)
+                    SELECT DISTINCT ON (strategy, symbol, upper(side), timeframe, signal_window)
                            rejection_reason, status
                     FROM today_signals
-                    ORDER BY strategy, symbol_group, upper(side), signal_window,
+                    ORDER BY strategy, symbol, upper(side), timeframe, signal_window,
                              coalesce(ts, created_at), id
                 )
                 SELECT stage, reason, rows_total

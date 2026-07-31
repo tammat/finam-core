@@ -9,7 +9,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
 
-SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V3_ADMISSION_COHORT"
+SOURCE_VERSION = "SIGNAL_FUNNEL_REASON_ANALYTICS_V5_UNIQUE_CLOSED_BAR_OPPORTUNITY"
 
 TARGET_TABLES = [
     ("public", "runtime_guard_signal_registry_v1"),
@@ -51,6 +51,24 @@ def reason_group(value: str) -> str:
         return "UNKNOWN"
     if re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?", v):
         return "UNKNOWN"
+    if any(token in v for token in (
+        "PYRAMID", "ANTI_REENTRY", "OPEN_POSITION", "ALREADY_OPEN",
+        "CLUSTER_BLOCK", "TRADE_LIMIT", "DB_QUOTA", "KILL_SWITCH",
+    )):
+        return "PROTECTION"
+    if "ACCEPTED_WITHOUT_ORDER" in v:
+        return "CONTROL"
+    if "TREND_FLIP" in v:
+        return "MARKET"
+    if "STRATEGY_BLOCKED" in v or "СТРАТЕГИЯ_ЗАБЛОКИРОВАНА_ПО_СТАТИСТИКЕ" in v:
+        return "EDGE"
+    if any(token in v for token in (
+        "POLICY_UNAVAILABLE", "UNKNOWN_REGIME", "SIGNAL_LIFECYCLE_TIMEOUT",
+        "NOT_PROCESSED",
+    )):
+        return "TECHNICAL"
+    if "SHADOW_ONLY" in v or "NO_PROMOTED_OOS" in v:
+        return "RESEARCH"
     if any(token in v for token in ("SAMPLE", "DATA", "MISSING", "HISTORY", "STALE", "FRESHNESS", "COVERAGE")):
         return "DATA"
     if any(token in v for token in ("VOLATILITY", "VOL_LOW", "LOW_VOL", "HIGH_VOL", "ATR_")):
@@ -87,12 +105,57 @@ def reason_group(value: str) -> str:
 def collect_admission_losses(cur) -> list[dict[str, Any]]:
     """Считает только сигналы сопоставимой когорты, не дошедшие до заявки."""
     cur.execute("""
-        WITH signal_cohort AS (
-            SELECT COALESCE(NULLIF(signal_id,''),id::text) AS signal_key,
+        WITH signal_rows AS (
+            SELECT id,
+                   COALESCE(NULLIF(signal_id,''),id::text) AS signal_key,
                    COALESCE(NULLIF(status,''),'UNKNOWN') AS signal_status,
                    NULLIF(trim(rejection_reason),'') AS rejection_reason,
-                   symbol
+                   symbol,
+                   concat_ws('|',
+                       COALESCE(NULLIF(symbol,''),'UNKNOWN'),
+                       COALESCE(NULLIF(upper(side),''),'UNKNOWN'),
+                       COALESCE(NULLIF(strategy,''),'UNKNOWN'),
+                       COALESCE(NULLIF(upper(timeframe),''),'UNKNOWN'),
+                       COALESCE(
+                           NULLIF(payload #>> '{features,regime_bar_ts}',''),
+                           NULLIF(payload #>> '{metadata,bar_ts}',''),
+                           date_bin(
+                               CASE upper(COALESCE(timeframe,'M5'))
+                                   WHEN 'M1' THEN interval '1 minute'
+                                   WHEN 'M15' THEN interval '15 minutes'
+                                   WHEN 'H1' THEN interval '1 hour'
+                                   ELSE interval '5 minutes'
+                               END,
+                               ts,
+                               timestamptz '2000-01-01 00:00:00+00'
+                           )::text
+                       )
+                   ) AS opportunity_key,
+                   row_number() OVER (
+                       PARTITION BY
+                           COALESCE(NULLIF(symbol,''),'UNKNOWN'),
+                           COALESCE(NULLIF(upper(side),''),'UNKNOWN'),
+                           COALESCE(NULLIF(strategy,''),'UNKNOWN'),
+                           COALESCE(NULLIF(upper(timeframe),''),'UNKNOWN'),
+                           COALESCE(
+                               NULLIF(payload #>> '{features,regime_bar_ts}',''),
+                               NULLIF(payload #>> '{metadata,bar_ts}',''),
+                               date_bin(
+                                   CASE upper(COALESCE(timeframe,'M5'))
+                                       WHEN 'M1' THEN interval '1 minute'
+                                       WHEN 'M15' THEN interval '15 minutes'
+                                       WHEN 'H1' THEN interval '1 hour'
+                                       ELSE interval '5 minutes'
+                                   END,
+                                   ts,
+                                   timestamptz '2000-01-01 00:00:00+00'
+                               )::text
+                           )
+                       ORDER BY created_at DESC,id DESC
+                   ) AS recency_rank
             FROM public.signals
+        ), signal_cohort AS (
+            SELECT * FROM signal_rows WHERE recency_rank=1
         ), admission_losses AS (
             SELECT s.*,
                    COALESCE(s.rejection_reason,
@@ -103,14 +166,22 @@ def collect_admission_losses(cur) -> list[dict[str, Any]]:
                          ELSE upper(s.signal_status)
                        END) AS reason_value
             FROM signal_cohort s
-            WHERE NOT EXISTS (SELECT 1 FROM public.orders o WHERE o.signal_event_id=s.signal_key)
-              AND NOT EXISTS (SELECT 1 FROM public.signal_fills sf WHERE sf.signal_id=s.signal_key)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM signal_rows member
+                JOIN public.orders o ON o.signal_event_id=member.signal_key
+                WHERE member.opportunity_key=s.opportunity_key
+            )
+              AND NOT EXISTS (
+                SELECT 1 FROM signal_rows member
+                JOIN public.signal_fills sf ON sf.signal_id=member.signal_key
+                WHERE member.opportunity_key=s.opportunity_key
+            )
         )
         SELECT reason_value,count(*)::numeric AS rows_total,
                jsonb_build_object(
-                   'cohort','linked_signal_order_execution_v3_paper_aware',
+                   'cohort','unique_closed_bar_opportunity_v5_paper_aware',
                    'boundary','RESEARCH_TO_EXECUTION',
-                   'count_unit','distinct_origin_signal',
+                   'count_unit','unique_symbol_side_strategy_timeframe_bar',
                    'sample_symbols',(
                        SELECT jsonb_agg(x.symbol ORDER BY x.rows_total DESC,x.symbol)
                        FROM (SELECT symbol,count(*) rows_total FROM admission_losses a2
