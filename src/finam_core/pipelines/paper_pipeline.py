@@ -5820,6 +5820,17 @@ class PaperTradingPipeline:
                         or (intent.get("features") or {}).get("strategy")
                         or "UNASSIGNED"
                     ),
+                    str(
+                        (intent.get("features") or {}).get(
+                            "entry_exit_candidate_code"
+                        )
+                        or "NO_FROZEN_PROFILE"
+                    ),
+                    str(
+                        intent.get("regime")
+                        or (intent.get("features") or {}).get("regime")
+                        or "UNKNOWN"
+                    ),
                 )
                 cache = dict(getattr(self, "_paper_oos_gate_cache_v1", {}) or {})
                 cached = cache.get(cache_key)
@@ -5833,6 +5844,22 @@ class PaperTradingPipeline:
                                     FROM analytics.edge_oos_result_v1
                                     WHERE verdict_code='OOS_PASS'
                                       AND promotion_allowed=true
+                                      AND symbol=%s
+                                      AND strategy_code=%s
+                                      AND parameter_json->>'candidate_code'=%s
+                                  )
+                                  OR EXISTS (
+                                    SELECT 1
+                                    FROM analytics.adaptive_regime_paper_pilot_v1 p
+                                    WHERE p.status_code IN ('PILOT_ACTIVE','PAPER_CONFIRMED')
+                                      AND p.symbol=%s
+                                      AND p.side_code=
+                                          CASE WHEN upper(%s)='BUY' THEN 'LONG' ELSE 'SHORT' END
+                                      AND p.strategy_code=%s
+                                      AND p.candidate_code=%s
+                                      AND p.regime_code=%s
+                                      AND p.activated_at IS NOT NULL
+                                      AND clock_timestamp()>=p.activated_at
                                   )
                                   OR EXISTS (
                                     SELECT 1
@@ -5850,6 +5877,36 @@ class PaperTradingPipeline:
                                   )
                                 )
                             """, (
+                                str(intent.get("symbol") or sym),
+                                str(
+                                    intent.get("strategy")
+                                    or (intent.get("features") or {}).get("strategy")
+                                    or "UNASSIGNED"
+                                ),
+                                str(
+                                    (intent.get("features") or {}).get(
+                                        "entry_exit_candidate_code"
+                                    )
+                                    or "NO_FROZEN_PROFILE"
+                                ),
+                                str(intent.get("symbol") or sym),
+                                str(intent.get("side") or ""),
+                                str(
+                                    intent.get("strategy")
+                                    or (intent.get("features") or {}).get("strategy")
+                                    or "UNASSIGNED"
+                                ),
+                                str(
+                                    (intent.get("features") or {}).get(
+                                        "entry_exit_candidate_code"
+                                    )
+                                    or "NO_FROZEN_PROFILE"
+                                ),
+                                str(
+                                    intent.get("regime")
+                                    or (intent.get("features") or {}).get("regime")
+                                    or "UNKNOWN"
+                                ),
                                 str(intent.get("symbol") or sym),
                                 str(intent.get("side") or ""),
                                 str(
