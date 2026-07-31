@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
+
+from finam_core.session.session_manager import SessionManager
 
 
 TARGET_TRADES = 80
@@ -255,6 +258,35 @@ class ControlCompactV3Resolver:
                     ),
                     "total": len(freshness),
                 }
+                now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+                session_manager = SessionManager()
+                session_regime = session_manager.get_regime(
+                    "BRQ6@RTSX", market_data_live=False, now=now_msk
+                )
+                session_status = {
+                    **session_regime,
+                    "next_open": session_manager.next_entry_session(
+                        symbol="BRQ6@RTSX", now=now_msk
+                    ),
+                }
+                cursor.execute("""
+                    SELECT event_code,title_ru,category_code,risk_level,symbol_patterns,
+                           starts_at,expires_at,source_url,source_note,updated_at
+                    FROM analytics.market_event_risk_v1
+                    WHERE is_active AND starts_at<=clock_timestamp()
+                      AND (expires_at IS NULL OR expires_at>clock_timestamp())
+                    ORDER BY CASE risk_level WHEN 'SHOCK' THEN 1 WHEN 'ELEVATED' THEN 2
+                             WHEN 'RECOVERY' THEN 3 ELSE 4 END,updated_at DESC LIMIT 1
+                """)
+                market_event_risk = dict(cursor.fetchone() or {})
+                cursor.execute("""
+                    SELECT evaluated_at,symbol,state_code,mode_code,allowed,reason_code,
+                           completed_m15_bars,gap_atr,spread_atr,relative_volume,
+                           market_context_fresh,event_code
+                    FROM analytics.market_shock_gate_audit_v1
+                    ORDER BY evaluated_at DESC LIMIT 1
+                """)
+                market_shock_gate = dict(cursor.fetchone() or {})
 
                 cursor.execute("""
                     SELECT level_code,count(*)::int AS groups,
@@ -760,6 +792,9 @@ class ControlCompactV3Resolver:
             "recent_jobs": recent_jobs,
             "freshness": freshness,
             "data_quality_summary": data_quality_summary,
+            "session_status": session_status,
+            "market_event_risk": market_event_risk,
+            "market_shock_gate": market_shock_gate,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,

@@ -7172,6 +7172,10 @@ class PaperTradingPipeline:
         if not quality_allowed:
             self._reject_persisted_signal_v1(intent, f"entry_data_quality:{quality_reason}")
             return
+        shock_allowed, shock_reason = self._market_shock_gate_v1(intent, st)
+        if not shock_allowed:
+            self._reject_persisted_signal_v1(intent, f"market_shock_gate:{shock_reason}")
+            return
         if not self._usd_paper_pilot_allows_intent_v1(intent):
             self._reject_persisted_signal_v1(intent, "usd_paper_pilot_gate")
             return
@@ -9033,6 +9037,114 @@ class PaperTradingPipeline:
                 heartbeat_sec=60,
             )
         return decision.allowed, decision.reason_code
+
+    def _market_shock_gate_v1(self, intent: dict, market_state: dict) -> tuple[bool, str]:
+        """Event risk can suppress entries, but can never create a direction."""
+        if not isinstance(intent, dict) or str(intent.get("intent_type") or "ENTRY").upper() == "EXIT":
+            return True, "EXIT_ALWAYS_ALLOWED"
+        if str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() != "paper":
+            return False, "SHOCK_GATE_PAPER_ONLY"
+        from datetime import datetime, time, timezone
+        from statistics import median
+        from zoneinfo import ZoneInfo
+
+        from finam_core.risk.market_shock_gate_v1 import decide_market_shock_gate_v1
+
+        symbol = str(intent.get("symbol") or market_state.get("symbol") or "").upper()
+        now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
+        session_start = datetime.combine(now_msk.date(), time(6, 50), tzinfo=now_msk.tzinfo)
+        event = None
+        completed_m15 = 0
+        gap_atr = spread_atr = relative_volume = None
+        try:
+            with self.pg_logger._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                      SELECT event_code,risk_level,title_ru
+                      FROM analytics.market_event_risk_v1 e
+                      WHERE e.is_active AND e.starts_at<=clock_timestamp()
+                        AND (e.expires_at IS NULL OR e.expires_at>clock_timestamp())
+                        AND EXISTS (
+                          SELECT 1 FROM unnest(e.symbol_patterns) pattern
+                          WHERE pattern='*' OR %s LIKE replace(upper(pattern),'*','%%')
+                        )
+                      ORDER BY CASE risk_level WHEN 'SHOCK' THEN 1 WHEN 'ELEVATED' THEN 2
+                               WHEN 'RECOVERY' THEN 3 ELSE 4 END,updated_at DESC LIMIT 1
+                    """, (symbol,))
+                    event = cursor.fetchone()
+                    if event:
+                        cursor.execute("""
+                          SELECT ts,open::float8,high::float8,low::float8,close::float8,
+                                 coalesce(volume,0)::float8
+                          FROM market_bars WHERE symbol=%s AND timeframe='M15'
+                            AND ts+interval '15 minutes'<=clock_timestamp()
+                          ORDER BY ts DESC LIMIT 80
+                        """, (symbol,))
+                        bars = list(reversed(cursor.fetchall()))
+                        start_utc = session_start.astimezone(timezone.utc)
+                        prior = [row for row in bars if row[0] < start_utc]
+                        current = [row for row in bars if row[0] >= start_utc]
+                        completed_m15 = len(current)
+                        ranges = [max(row[2]-row[3],0.0) for row in prior[-14:]]
+                        atr = sum(ranges)/len(ranges) if ranges else 0.0
+                        price = float(market_state.get("last") or market_state.get("price") or
+                                      intent.get("price") or 0.0)
+                        if atr > 0 and prior and price > 0:
+                            gap_atr = abs(price-prior[-1][4])/atr
+                            bid = float(market_state.get("bid") or 0.0)
+                            ask = float(market_state.get("ask") or 0.0)
+                            if ask > bid > 0:
+                                spread_atr = (ask-bid)/atr
+                            baseline_volumes = [row[5] for row in prior[-20:] if row[5] > 0]
+                            if current and baseline_volumes:
+                                relative_volume = current[-1][5]/median(baseline_volumes)
+            context_fresh = self._market_context_admission_v1().paper_allowed
+            risk_level = str(event[1] if event else "NORMAL")
+            decision = decide_market_shock_gate_v1(
+                intent_type=str(intent.get("intent_type") or "ENTRY"),
+                risk_level=risk_level,
+                completed_m15_bars=completed_m15,
+                gap_atr=gap_atr,
+                spread_atr=spread_atr,
+                relative_volume=relative_volume,
+                market_context_fresh=context_fresh,
+                required_recovery_bars=int(os.getenv("SHOCK_GATE_RECOVERY_M15_BARS", "4")),
+                maximum_gap_atr=float(os.getenv("SHOCK_GATE_MAX_GAP_ATR", "1.5")),
+                maximum_spread_atr=float(os.getenv("SHOCK_GATE_MAX_SPREAD_ATR", "0.10")),
+                minimum_relative_volume=float(os.getenv("SHOCK_GATE_MIN_RELATIVE_VOLUME", "0.70")),
+            )
+            if event:
+                with self.pg_logger._connect() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                          INSERT INTO analytics.market_shock_gate_audit_v1(
+                            signal_id,symbol,side_code,event_code,risk_level,state_code,
+                            mode_code,allowed,reason_code,completed_m15_bars,gap_atr,
+                            spread_atr,relative_volume,market_context_fresh,evidence)
+                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                        """, (intent.get("signal_id"),symbol,intent.get("side"),event[0],risk_level,
+                              decision.state,decision.mode,decision.allowed,decision.reason,
+                              completed_m15,gap_atr,spread_atr,relative_volume,context_fresh,
+                              '{"source":"paper_pipeline","paper_profile_changed":false}'))
+            intent.setdefault("features", {})["market_shock_gate"] = {
+                "state": decision.state, "mode": decision.mode, "reason": decision.reason,
+                "event_code": event[0] if event else None,
+            }
+            if not decision.allowed:
+                self._log_dedup(
+                    f"PIPE_MARKET_SHOCK_GATE:{symbol}:{decision.reason}",
+                    f"PIPE_MARKET_SHOCK_GATE_BLOCK symbol={symbol} state={decision.state} "
+                    f"mode={decision.mode} reason={decision.reason} paper_profile_changed=0",
+                    heartbeat_sec=300,
+                )
+            return decision.allowed, decision.reason
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_MARKET_SHOCK_GATE_ERROR",
+                f"PIPE_MARKET_SHOCK_GATE_ERROR error={type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return False, "SHOCK_GATE_UNAVAILABLE"
 
     @staticmethod
     def _session_minutes_remaining_v1() -> float:

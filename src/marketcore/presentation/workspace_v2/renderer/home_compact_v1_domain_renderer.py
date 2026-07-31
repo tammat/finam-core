@@ -76,7 +76,14 @@ def _now_section(snapshot):
     attention = int(summary.get("attention") or 0)
     outside = int(summary.get("out_of_session") or 0)
     data_ok = bool(freshness) and attention == 0
-    quality_text = f"свежие {ready} · задержка {attention} · вне сессии {outside}"
+    session = snapshot.get("session_status") or {}
+    calendar_closed = session.get("reason") == "exchange_calendar_closed"
+    if calendar_closed:
+        next_open = session.get("next_open")
+        next_text = next_open.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m %H:%M") if next_open else "уточняется"
+        quality_text = f"биржа закрыта по календарю · следующая сессия {next_text} МСК"
+    else:
+        quality_text = f"свежие {ready} · задержка {attention} · вне сессии {outside}"
     promotion = snapshot.get("promotion_summary") or {}
     promoted = int(promotion.get("promoted_oos") or 0)
     admitted = int(promotion.get("paper_admitted") or 0)
@@ -89,6 +96,19 @@ def _now_section(snapshot):
             "с минимальным размером · REAL выключен"
         )
         paper_status = "WARNING"
+    event = snapshot.get("market_event_risk") or {}
+    shock = snapshot.get("market_shock_gate") or {}
+    risk_level = str(event.get("risk_level") or "NORMAL").upper()
+    risk_label = {
+        "SHOCK": "Рыночный шок — новые входы только Shadow",
+        "ELEVATED": "Повышенный риск — новые входы только Shadow",
+        "RECOVERY": "Стабилизация — проверяются гэп, ATR, спред и объём",
+        "NORMAL": "Нормальный режим",
+    }.get(risk_level, "Состояние риска уточняется")
+    if event.get("title_ru"):
+        risk_label = f"{event.get('title_ru')} · {risk_label}"
+    if shock.get("reason_code"):
+        risk_label += f" · последнее решение: {shock.get('reason_code')}"
     metrics = RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.now.metrics", children=(
         _row("mode", "Система", "Собирает примеры автоматически"),
         _row("data", "Данные", quality_text,
@@ -97,6 +117,10 @@ def _now_section(snapshot):
         _row("paper", "Paper", paper_text, status=paper_status,
              source="analytics.edge_oos_result_v1",
              source_as_of=snapshot.get("generated_at")),
+        _row("event-risk", "Риск событий", risk_label,
+             status="WARNING" if risk_level in {"SHOCK", "ELEVATED", "RECOVERY"} else "OK",
+             source="analytics.market_event_risk_v1",
+             source_as_of=event.get("updated_at") or snapshot.get("generated_at")),
         _row("safety", "Реальные сделки", "Выключены"),
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(
@@ -439,7 +463,12 @@ def _attention_section(snapshot):
     freshness = snapshot.get("freshness") or ()
     blocking_quality_codes = {"STALE", "GAP", "NO_COMPLETED_BARS", "COST_SPEC_STALE"}
     data_stale = any(row.get("quality_code") in blocking_quality_codes for row in freshness)
-    if process_failed:
+    session = snapshot.get("session_status") or {}
+    if session.get("reason") == "exchange_calendar_closed":
+        next_open = session.get("next_open")
+        next_text = next_open.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m %H:%M") if next_open else "уточняется"
+        message, status = f"Биржа закрыта по календарю. Следующая сессия: {next_text} МСК.", "OK"
+    elif process_failed:
         message, status = "Текущий поиск остановился. Откройте диагностику.", "BLOCKED"
     elif data_stale:
         message, status = "Данные задерживаются. Система обновит их автоматически.", "WARNING"

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -53,6 +53,8 @@ class SessionManager:
         # биржевых данных allow_entries остаётся False.
         if now.weekday() not in (5, 6):
             return {"phase": "closed", "allow_entries": False, "reason": "weekend_closed"}
+        if now.date() in self.WEEKEND_CLOSED_DATES_2026:
+            return {"phase": "closed", "allow_entries": False, "reason": "exchange_calendar_closed"}
 
         now_min = self._minute_of_day(now.hour, now.minute)
         weekend_start = 10 * 60
@@ -64,6 +66,19 @@ class SessionManager:
             return {"phase": "weekend_waiting_stream", "allow_entries": False, "reason": "live_stream_required"}
 
         return {"phase": "closed", "allow_entries": False, "reason": "outside_weekend_window"}
+
+    def next_entry_session(self, *, symbol: str | None = None, now: datetime | None = None) -> datetime:
+        current = now or datetime.now(ZoneInfo("Europe/Moscow"))
+        for offset in range(0, 10):
+            day = current.date() + timedelta(days=offset)
+            start_hour, start_minute = ((6, 50) if symbol and "@MISX" in symbol.upper() else (9, 0))
+            candidate = datetime(day.year, day.month, day.day, start_hour, start_minute, tzinfo=current.tzinfo)
+            probe = candidate.replace(hour=10, minute=0)
+            if candidate <= current:
+                continue
+            if self.get_regime(symbol, now=probe, market_data_live=True).get("allow_entries"):
+                return candidate
+        return current + timedelta(days=10)
 
     def _forts_session(self, h, m):
         now_min = self._minute_of_day(h, m)
@@ -110,3 +125,11 @@ class SessionManager:
             return {"phase": "evening", "allow_entries": True}
 
         return {"phase": "closed", "allow_entries": False}
+    WEEKEND_CLOSED_DATES_2026 = {
+        date(2026,1,3),date(2026,1,4),date(2026,1,10),date(2026,1,11),
+        date(2026,2,14),date(2026,2,15),date(2026,3,7),date(2026,3,8),
+        date(2026,3,21),date(2026,3,22),date(2026,5,9),date(2026,5,10),
+        date(2026,6,20),date(2026,6,21),date(2026,8,1),date(2026,8,2),
+        date(2026,8,15),date(2026,8,16),date(2026,9,12),date(2026,9,13),
+        date(2026,10,24),date(2026,10,25),date(2026,12,5),date(2026,12,6),
+    }
