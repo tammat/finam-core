@@ -50,6 +50,8 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from finam_core.strategy.ng_volatility_breakout import NgVolatilityBreakout
 from finam_core.strategy.br_regime_layer import BRRegimeLayer
 from finam_core.strategy.br_volatility_intelligence import BRVolatilityIntelligence
@@ -173,6 +175,22 @@ LOG = logging.getLogger(__name__)
 
 # Русский комментарий: глобальный debug-флаг pipeline.
 PIPE_DEBUG = os.getenv("PIPE_DEBUG", "0") == "1"
+
+
+def futures_overnight_entry_guard_v1(
+    *, symbol: str, intent_type: str, now_msk: datetime,
+    cutoff_hour: int = 22, cutoff_minute: int = 30,
+) -> tuple[bool, str]:
+    """Fail closed before the interval where a virtual stop cannot be observed."""
+    if str(intent_type or "ENTRY").upper() == "EXIT":
+        return True, "EXIT_ALWAYS_ALLOWED"
+    if not str(symbol or "").upper().endswith("@RTSX"):
+        return True, "NOT_FUTURES"
+    current_minute = int(now_msk.hour) * 60 + int(now_msk.minute)
+    cutoff = int(cutoff_hour) * 60 + int(cutoff_minute)
+    if current_minute >= cutoff or current_minute < 7 * 60:
+        return False, "FUTURES_OVERNIGHT_GAP_RISK"
+    return True, "FUTURES_SESSION_ENTRY_WINDOW"
 
 
 # PIPELINE DEBUG FLAG
@@ -5943,6 +5961,89 @@ class PaperTradingPipeline:
                     intent, "paper_shadow_only_no_promoted_oos"
                 )
                 return
+
+            # Adaptive Paper is a deliberately tiny sequential experiment.
+            # Enforce its limits at execution time; columns in the control
+            # table alone are not a risk guard.
+            try:
+                with self.pg_logger._connect() as pilot_conn:
+                    with pilot_conn.cursor() as pilot_cursor:
+                        pilot_cursor.execute("""
+                            SELECT p.max_open_positions,p.max_pilot_trades,
+                                   p.activated_at
+                            FROM analytics.adaptive_regime_paper_pilot_v1 p
+                            WHERE p.status_code='PILOT_ACTIVE'
+                              AND p.symbol=%s
+                              AND p.side_code=CASE WHEN upper(%s)='BUY'
+                                                   THEN 'LONG' ELSE 'SHORT' END
+                              AND p.strategy_code=%s
+                              AND p.candidate_code=%s
+                              AND p.regime_code=%s
+                            ORDER BY p.activated_at DESC LIMIT 1
+                        """, cache_key)
+                        pilot = pilot_cursor.fetchone()
+                        if pilot:
+                            pilot_cursor.execute(
+                                "SELECT count(*) FROM positions WHERE abs(qty)>1e-12"
+                            )
+                            open_positions = int(pilot_cursor.fetchone()[0] or 0)
+                            pilot_cursor.execute("""
+                                SELECT count(*)
+                                FROM closed_trades
+                                WHERE trade_source='paper' AND symbol=%s
+                                  AND upper(side)=CASE WHEN upper(%s)='BUY'
+                                                       THEN 'LONG' ELSE 'SHORT' END
+                                  AND strategy=%s AND entry_ts>=%s
+                                  AND coalesce(
+                                    payload->'features'->>'entry_exit_candidate_code',
+                                    payload->'context'->>'entry_exit_candidate_code',''
+                                  )=%s
+                            """, (
+                                cache_key[0], cache_key[1], cache_key[2],
+                                pilot[2], cache_key[3],
+                            ))
+                            pilot_trades = int(pilot_cursor.fetchone()[0] or 0)
+                            if open_positions >= int(pilot[0]):
+                                self._reject_persisted_signal_v1(
+                                    intent, "adaptive_pilot_max_open_positions"
+                                )
+                                return
+                            if pilot_trades >= int(pilot[1]):
+                                self._reject_persisted_signal_v1(
+                                    intent, "adaptive_pilot_trade_budget_exhausted"
+                                )
+                                return
+                            pilot_quantity = float(
+                                os.getenv("ADAPTIVE_PILOT_QUANTITY", "1")
+                            )
+                            intent["qty"] = min(
+                                float(intent.get("qty") or pilot_quantity), pilot_quantity
+                            )
+                            intent.setdefault("features", {})[
+                                "adaptive_pilot_execution_guard"
+                            ] = "MAX_ONE_OPEN_MIN_QTY_V1"
+            except Exception as exc:
+                self._log_dedup(
+                    "PIPE_ADAPTIVE_PILOT_EXECUTION_GUARD_ERROR",
+                    f"PIPE_ADAPTIVE_PILOT_EXECUTION_GUARD_ERROR {type(exc).__name__}:{exc}",
+                    heartbeat_sec=300,
+                )
+                self._reject_persisted_signal_v1(
+                    intent, "adaptive_pilot_execution_guard_error"
+                )
+                return
+
+
+        overnight_allowed, overnight_reason = futures_overnight_entry_guard_v1(
+            symbol=str(intent.get("symbol") or sym),
+            intent_type=str(intent.get("intent_type") or "ENTRY"),
+            now_msk=datetime.now(ZoneInfo("Europe/Moscow")),
+            cutoff_hour=int(os.getenv("PAPER_FUTURES_ENTRY_CUTOFF_HOUR_MSK", "22")),
+            cutoff_minute=int(os.getenv("PAPER_FUTURES_ENTRY_CUTOFF_MINUTE_MSK", "30")),
+        )
+        if not overnight_allowed:
+            self._reject_persisted_signal_v1(intent, overnight_reason.lower())
+            return
 
 
 

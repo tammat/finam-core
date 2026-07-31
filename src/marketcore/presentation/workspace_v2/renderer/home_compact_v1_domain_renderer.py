@@ -331,7 +331,7 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
 def _shadow_dynamics_section(snapshot):
     headers = (
         "Инструмент", "Направление", "Shadow-вариант", "Оценено",
-        "Победы", "Net, R", "Exp, R", "Последние 20", "Динамика", "Обновлено",
+        "Победы", "Net, R", "Exp, R", "Последние 20", "Динамика", "Последний результат",
     )
     header = RenderNodeV2(
         RenderNodeTypeV2.TABLE_ROW, "home.compact.shadow.header",
@@ -340,8 +340,17 @@ def _shadow_dynamics_section(snapshot):
             for i, label in enumerate(headers)
         ),
     )
+    items = tuple(snapshot.get("shadow_dynamics") or ())
+    stream_latest = next(
+        (item.get("stream_latest_result_ts") for item in items
+         if item.get("stream_latest_result_ts")),
+        None,
+    )
+    stream_freshness = (
+        stream_latest.strftime("%d.%m %H:%M") if stream_latest else "нет результатов"
+    )
     rows = []
-    for index, item in enumerate(snapshot.get("shadow_dynamics") or (), start=1):
+    for index, item in enumerate(items, start=1):
         recent = item.get("recent_expectancy_r")
         previous = item.get("previous_expectancy_r")
         delta = None if recent is None or previous is None else float(recent) - float(previous)
@@ -382,6 +391,8 @@ def _shadow_dynamics_section(snapshot):
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.shadow.title",
               "Research Shadow · результаты и динамика (не OOS)", level="SECTION"),
         _leaf(RenderNodeTypeV2.TEXT, "home.compact.shadow.help",
+              f"Последний завершённый результат во всём Shadow-потоке: {stream_freshness}. "
+              "Время в строке относится только к показанному победителю. "
               "Динамика сравнивает средний результат последних 20 наблюдений "
               "с предыдущими 20. Эти результаты исследовательские и не являются "
               "доказанным edge; показан один лучший вариант на инструмент и направление, "

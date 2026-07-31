@@ -193,6 +193,8 @@ def test_unproven_paper_is_capped_and_shadow_is_not_called_oos():
     assert "shadow_dynamics" in resolver
     assert "Доказанных связок: 0" in renderer
     assert "Research Shadow · результаты и динамика (не OOS)" in renderer
+    assert "stream_latest_result_ts" in resolver
+    assert "Последний завершённый результат во всём Shadow-потоке" in renderer
 
 
 def test_paper_entries_are_shadow_only_until_promoted_oos_exists():

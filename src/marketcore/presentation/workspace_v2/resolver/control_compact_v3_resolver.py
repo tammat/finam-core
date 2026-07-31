@@ -595,6 +595,7 @@ class ControlCompactV3Resolver:
                     GROUP BY symbol_code,side_code,candidate_code
                     ), best_per_direction AS (
                       SELECT aggregated.*,
+                             max(latest_result_ts) OVER () AS stream_latest_result_ts,
                              row_number() OVER (
                                PARTITION BY symbol_code,side_code
                                ORDER BY recent_expectancy_r DESC NULLS LAST,

@@ -44,6 +44,11 @@ def test_pipeline_accepts_only_active_adaptive_pilot() -> None:
     assert "AND p.regime_code=%s" in source
     assert "AND symbol=%s" in source
     assert "AND strategy_code=%s" in source
+    assert "adaptive_pilot_max_open_positions" in source
+    assert "adaptive_pilot_trade_budget_exhausted" in source
+    assert "adaptive_pilot_execution_guard_error" in source
+    assert 'SELECT count(*) FROM positions WHERE abs(qty)>1e-12' in source
+    assert 'intent["qty"] = min(' in source
 
 
 def test_family_pooling_and_entry_diagnostics_are_wired() -> None:

@@ -268,6 +268,12 @@ def load_fills(conn, symbol: str, args: argparse.Namespace) -> list[dict]:
                      NULLIF(s.payload->'features'->>'regime_normalized_slope','')) AS regime_normalized_slope,
             COALESCE(NULLIF(t.payload->>'regime_confirmed_bars',''),
                      NULLIF(s.payload->'features'->>'regime_confirmed_bars','')) AS regime_confirmed_bars,
+            COALESCE(NULLIF(s.payload->'features'->>'entry_exit_candidate_code',''),
+                     NULLIF(t.payload->'features'->>'entry_exit_candidate_code',''),
+                     NULLIF(t.payload->>'entry_exit_candidate_code','')) AS entry_exit_candidate_code,
+            COALESCE(NULLIF(s.payload->'features'->>'entry_exit_profile_id',''),
+                     NULLIF(t.payload->'features'->>'entry_exit_profile_id',''),
+                     NULLIF(t.payload->>'entry_exit_profile_id','')) AS entry_exit_profile_id,
             s.payload AS signal_payload,
             t.payload AS trade_payload
         FROM fills f
@@ -397,6 +403,8 @@ def reconstruct(symbol: str, fills: list[dict], pnl_spec: PnlUnitSpec | None = N
                     "regime_adx": f.get("regime_adx"),
                     "regime_normalized_slope": f.get("regime_normalized_slope"),
                     "regime_confirmed_bars": f.get("regime_confirmed_bars"),
+                    "entry_exit_candidate_code": f.get("entry_exit_candidate_code"),
+                    "entry_exit_profile_id": f.get("entry_exit_profile_id"),
                     "commission_per_unit": float(f.get("commission") or 0.0) / qty,
                 })
 
@@ -446,6 +454,8 @@ def reconstruct(symbol: str, fills: list[dict], pnl_spec: PnlUnitSpec | None = N
                     "regime_adx": f.get("regime_adx"),
                     "regime_normalized_slope": f.get("regime_normalized_slope"),
                     "regime_confirmed_bars": f.get("regime_confirmed_bars"),
+                    "entry_exit_candidate_code": f.get("entry_exit_candidate_code"),
+                    "entry_exit_profile_id": f.get("entry_exit_profile_id"),
                     "commission_per_unit": float(f.get("commission") or 0.0) / qty,
                 })
 
@@ -511,6 +521,17 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
     exit_fill_qty = float(exit_fill.get("qty") or qty)
     exit_commission = float(exit_fill.get("commission") or 0.0) * qty / exit_fill_qty
     commission = entry_commission + exit_commission
+    net_pnl = float(pnl) - commission
+    stop_price = entry.get("stop_price")
+    try:
+        stop_distance = abs(float(entry["price"]) - float(stop_price))
+        initial_risk_rub = (
+            stop_distance * float(pnl_spec.price_to_rub_multiplier) * qty
+            if stop_distance > 0 else None
+        )
+    except (TypeError, ValueError):
+        initial_risk_rub = None
+    net_pnl_r = net_pnl / initial_risk_rub if initial_risk_rub else None
 
     return {
         "trade_id": trade_id,
@@ -524,7 +545,9 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
         "exit_price": float(exit_fill["price"]),
         "pnl_points": float(pnl),
         "commission": commission,
-        "net_pnl": float(pnl) - commission,
+        "net_pnl": net_pnl,
+        "initial_risk_rub": initial_risk_rub,
+        "net_pnl_r": net_pnl_r,
         "entry_fill_id": entry.get("fill_id"),
         "exit_fill_id": exit_fill.get("fill_id"),
         "entry_signal_id": entry_signal_id,
@@ -564,6 +587,11 @@ def build_trade(symbol: str, trade_side: str, qty: float, entry: dict, exit_fill
             "actual_exit_source": exit_fill.get("signal_source"),
             "entry_stop_price": entry.get("stop_price"),
             "entry_take_price": entry.get("take_price"),
+            "initial_risk_rub": initial_risk_rub,
+            "net_pnl_r": net_pnl_r,
+            "r_observable": net_pnl_r is not None,
+            "entry_exit_candidate_code": entry.get("entry_exit_candidate_code"),
+            "entry_exit_profile_id": entry.get("entry_exit_profile_id"),
             "regime_source_version": entry.get("regime_source_version"),
             "regime_timeframe": entry.get("regime_timeframe"),
             "regime_bar_ts": entry.get("regime_bar_ts"),
@@ -665,6 +693,12 @@ def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff, context_act
                 "exit_fill_id": t["exit_fill_id"],
                 "exit_signal_id": t["exit_signal_id"],
                 "materializer": "paper_fill_materializer_v2",
+                "net_pnl_r": t["net_pnl_r"],
+                "r_observable": t["net_pnl_r"] is not None,
+                "features": {
+                    "entry_exit_candidate_code": t["raw"]["entry_exit_candidate_code"],
+                    "entry_exit_profile_id": t["raw"]["entry_exit_profile_id"],
+                },
                 "pnl_units": {
                     "version": "PNL_UNITS_V2_RUB",
                     "currency": t["raw"]["pnl_currency"],
@@ -686,6 +720,11 @@ def upsert_canonical_trades(conn, trades: list[dict], legacy_cutoff, context_act
                     "actual_exit_reason": t["raw"]["actual_exit_reason"],
                     "entry_stop_price": t["raw"]["entry_stop_price"],
                     "entry_take_price": t["raw"]["entry_take_price"],
+                    "initial_risk_rub": t["initial_risk_rub"],
+                    "net_pnl_r": t["net_pnl_r"],
+                    "r_observable": t["net_pnl_r"] is not None,
+                    "entry_exit_candidate_code": t["raw"]["entry_exit_candidate_code"],
+                    "entry_exit_profile_id": t["raw"]["entry_exit_profile_id"],
                     "regime_source_version": t["raw"]["regime_source_version"],
                     "regime_timeframe": t["raw"]["regime_timeframe"],
                     "regime_bar_ts": t["raw"]["regime_bar_ts"],
@@ -720,6 +759,11 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
                    root_symbol=%(root_symbol)s,entry_regime=%(entry_regime)s,
                    exit_regime=%(exit_regime)s,portfolio_scope=%(portfolio_scope)s,
                    payload=payload || jsonb_build_object(
+                     'net_pnl_r',to_jsonb(%(net_pnl_r)s::numeric),
+                     'r_observable',to_jsonb(%(r_observable)s::boolean),
+                     'features',jsonb_build_object(
+                       'entry_exit_candidate_code',%(entry_exit_candidate_code)s::text,
+                       'entry_exit_profile_id',%(entry_exit_profile_id)s::text),
                      'pnl_units',jsonb_build_object(
                        'version','PNL_UNITS_V2_RUB','currency',%(pnl_currency)s::text,
                        'price_to_rub_multiplier',%(price_to_rub_multiplier)s::numeric,
@@ -737,6 +781,11 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
                        'actual_exit_reason',%(actual_exit_reason)s::text,
                        'entry_stop_price',%(entry_stop_price)s::numeric,
                        'entry_take_price',%(entry_take_price)s::numeric,
+                       'initial_risk_rub',%(initial_risk_rub)s::numeric,
+                       'net_pnl_r',%(net_pnl_r)s::numeric,
+                       'r_observable',%(r_observable)s::boolean,
+                       'entry_exit_candidate_code',%(entry_exit_candidate_code)s::text,
+                       'entry_exit_profile_id',%(entry_exit_profile_id)s::text,
                        'regime_source_version',%(regime_source_version)s::text,
                        'regime_timeframe',%(regime_timeframe)s::text,
                        'regime_bar_ts',%(regime_bar_ts)s::text,
@@ -754,6 +803,7 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
                    OR gross_pnl IS DISTINCT FROM %(pnl_points)s
                    OR commission IS DISTINCT FROM %(commission)s
                    OR net_pnl IS DISTINCT FROM %(net_pnl)s
+                   OR payload->>'net_pnl_r' IS DISTINCT FROM %(net_pnl_r)s::text
                    OR payload->'pnl_units'->>'version' IS DISTINCT FROM 'PNL_UNITS_V2_RUB'
                    OR root_symbol IS DISTINCT FROM %(root_symbol)s
                    OR entry_regime IS DISTINCT FROM %(entry_regime)s
@@ -771,6 +821,11 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
                         'actual_exit_reason',%(actual_exit_reason)s::text,
                         'entry_stop_price',%(entry_stop_price)s::numeric,
                         'entry_take_price',%(entry_take_price)s::numeric,
+                        'initial_risk_rub',%(initial_risk_rub)s::numeric,
+                        'net_pnl_r',%(net_pnl_r)s::numeric,
+                        'r_observable',%(r_observable)s::boolean,
+                        'entry_exit_candidate_code',%(entry_exit_candidate_code)s::text,
+                        'entry_exit_profile_id',%(entry_exit_profile_id)s::text,
                         'regime_source_version',%(regime_source_version)s::text,
                         'regime_timeframe',%(regime_timeframe)s::text,
                         'regime_bar_ts',%(regime_bar_ts)s::text,
@@ -792,6 +847,11 @@ def refresh_canonical_attribution(conn, trades: list[dict], context_activated_at
              "pnl_spec_source": t["raw"]["pnl_spec_source"],
              "entry_stop_price": t["raw"]["entry_stop_price"],
              "entry_take_price": t["raw"]["entry_take_price"],
+             "initial_risk_rub": t["initial_risk_rub"],
+             "net_pnl_r": t["net_pnl_r"],
+             "r_observable": t["net_pnl_r"] is not None,
+             "entry_exit_candidate_code": t["raw"]["entry_exit_candidate_code"],
+             "entry_exit_profile_id": t["raw"]["entry_exit_profile_id"],
              "regime_source_version": t["raw"]["regime_source_version"],
              "regime_timeframe": t["raw"]["regime_timeframe"],
              "regime_bar_ts": t["raw"]["regime_bar_ts"],

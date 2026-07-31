@@ -37,6 +37,63 @@ def test_materializer_writes_both_canonical_and_analytics_tables() -> None:
     assert "net_pnl=%(net_pnl)s" in text
     assert "PNL_UNIT_FUTURES_SPEC_MISSING" in text
     assert "IS DISTINCT FROM 'PNL_UNITS_V2_RUB'" in text
+    assert '"net_pnl_r": net_pnl_r' in text
+    assert '"r_observable": net_pnl_r is not None' in text
+    assert '"entry_exit_candidate_code": entry.get("entry_exit_candidate_code")' in text
+    assert "'net_pnl_r',to_jsonb(%(net_pnl_r)s::numeric)" in text
+
+
+def test_materializer_calculates_net_r_from_entry_stop_after_costs() -> None:
+    path = ROOT / "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py"
+    spec = importlib.util.spec_from_file_location("paper_materializer_r", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    entry = {
+        "fill_id": "entry", "signal_id": "signal", "price": 100.0,
+        "ts": datetime(2026, 7, 31, 6, 0, tzinfo=timezone.utc),
+        "stop_price": 98.0, "take_price": 104.0,
+        "commission_per_unit": 0.25,
+        "entry_exit_candidate_code": "CONFIRM_1_S2_R4",
+        "entry_exit_profile_id": "17",
+    }
+    exit_fill = {
+        "fill_id": "exit", "signal_id": "exit-signal", "price": 104.0,
+        "qty": 1.0, "commission": 0.25, "side": "SELL",
+        "ts": datetime(2026, 7, 31, 6, 15, tzinfo=timezone.utc),
+    }
+    spec_rub = module.PnlUnitSpec("TEST", "TEST", 10.0, source="TEST")
+    trade = module.build_trade("TEST", "LONG", 1.0, entry, exit_fill, 40.0, spec_rub)
+
+    assert trade["initial_risk_rub"] == 20.0
+    assert trade["net_pnl"] == 39.5
+    assert trade["net_pnl_r"] == 1.975
+    assert trade["raw"]["r_observable"] is True
+    assert trade["raw"]["entry_exit_candidate_code"] == "CONFIRM_1_S2_R4"
+
+
+def test_materializer_does_not_invent_r_without_entry_stop() -> None:
+    path = ROOT / "src/scripts/analytics/materialize_closed_trades_from_fills_v1.py"
+    spec = importlib.util.spec_from_file_location("paper_materializer_no_r", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    entry = {
+        "fill_id": "entry", "price": 100.0,
+        "ts": datetime(2026, 7, 31, 6, 0, tzinfo=timezone.utc),
+        "commission_per_unit": 0.0,
+    }
+    exit_fill = {
+        "fill_id": "exit", "price": 101.0, "qty": 1.0, "commission": 0.0,
+        "side": "SELL", "ts": datetime(2026, 7, 31, 6, 5, tzinfo=timezone.utc),
+    }
+    trade = module.build_trade(
+        "TEST", "LONG", 1.0, entry, exit_fill, 1.0,
+        module.PnlUnitSpec("TEST", "TEST", 1.0, source="TEST"),
+    )
+    assert trade["net_pnl_r"] is None
+    assert trade["raw"]["r_observable"] is False
 
 
 def test_materializer_does_not_inherit_trading_symbol_scope() -> None:
