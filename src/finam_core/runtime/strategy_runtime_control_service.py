@@ -62,6 +62,22 @@ class StrategyRuntimeControlService:
         row = cur.fetchone()
         return bool(row and row[0])
 
+    @staticmethod
+    def _has_promoted_oos_edge(cur: Any) -> bool:
+        """Only an explicitly promoted OOS result removes the Paper safety cap."""
+        cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM analytics.edge_oos_result_v1
+                WHERE verdict_code = 'OOS_PASS'
+                  AND promotion_allowed = true
+            )
+            """
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
+
     def allow_paper(
         self,
         symbol: str,
@@ -87,12 +103,26 @@ class StrategyRuntimeControlService:
                 with self.pg_logger._connect() as runtime_conn:
                     with runtime_conn.cursor() as cur:
                         if self._scope_bootstrap_allowed(cur, portfolio_scope):
-                            return True, qty, f"runtime_control_scope_bootstrap:{portfolio_scope}"
+                            promoted = self._has_promoted_oos_edge(cur)
+                            safe_qty = float(qty) if promoted else min(abs(float(qty)), 1.0)
+                            reason = (
+                                f"runtime_control_scope_bootstrap:{portfolio_scope}"
+                                if promoted
+                                else f"runtime_control_experimental_cap:no_promoted_oos:{portfolio_scope}"
+                            )
+                            return True, safe_qty, reason
                         row, matched_symbol, matched_strategy = self._lookup_control(cur, candidates)
             elif conn is not None:
                 with conn.cursor() as cur:
                     if self._scope_bootstrap_allowed(cur, portfolio_scope):
-                        return True, qty, f"runtime_control_scope_bootstrap:{portfolio_scope}"
+                        promoted = self._has_promoted_oos_edge(cur)
+                        safe_qty = float(qty) if promoted else min(abs(float(qty)), 1.0)
+                        reason = (
+                            f"runtime_control_scope_bootstrap:{portfolio_scope}"
+                            if promoted
+                            else f"runtime_control_experimental_cap:no_promoted_oos:{portfolio_scope}"
+                        )
+                        return True, safe_qty, reason
                     row, matched_symbol, matched_strategy = self._lookup_control(cur, candidates)
             else:
                 return True, qty, f"runtime_control_no_connection_provider:control_symbol={control_symbol}"

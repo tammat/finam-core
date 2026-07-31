@@ -154,6 +154,18 @@ class ControlCompactV3Resolver:
                 oos_pass = int((cursor.fetchone() or {}).get("oos_pass") or 0)
 
                 cursor.execute("""
+                    SELECT
+                      (SELECT count(*)::int
+                       FROM analytics.edge_oos_result_v1
+                       WHERE verdict_code='OOS_PASS'
+                         AND coalesce(promotion_allowed,false)) AS promoted_oos,
+                      (SELECT count(*)::int
+                       FROM strategy_promotion_runtime_feed
+                       WHERE coalesce(allow_paper_signal,false)) AS paper_admitted
+                """)
+                promotion_summary = dict(cursor.fetchone() or {})
+
+                cursor.execute("""
                     SELECT stream_code, caption_ru, state_code, allocation_share, updated_at
                     FROM analytics.research_stream_v1
                     WHERE stream_code IN ('FRESH_V5_CONFIRMED_EQUITY','FRESH_V5_CONFIRMED_FUTURES')
@@ -528,6 +540,34 @@ class ControlCompactV3Resolver:
                     ORDER BY signal_ts DESC,id DESC LIMIT 18""")
                 market_regime_shadow_variants = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""
+                    WITH ranked AS (
+                      SELECT symbol_code,side_code,candidate_code,shadow_net_r,
+                             label_end_ts,generated_at,
+                             row_number() OVER (
+                               PARTITION BY symbol_code,side_code,candidate_code
+                               ORDER BY label_end_ts DESC NULLS LAST,generated_at DESC
+                             ) AS rn
+                      FROM analytics.entry_exit_signal_shadow_pair_v2
+                      WHERE shadow_entered
+                        AND shadow_net_r IS NOT NULL
+                    )
+                    SELECT symbol_code,side_code,candidate_code,
+                           count(*)::int AS evaluated,
+                           count(*) FILTER (WHERE shadow_net_r>0)::int AS wins,
+                           avg(shadow_net_r) AS expectancy_r,
+                           sum(shadow_net_r) AS net_r,
+                           avg(shadow_net_r) FILTER (WHERE rn<=20) AS recent_expectancy_r,
+                           avg(shadow_net_r) FILTER (WHERE rn>20 AND rn<=40) AS previous_expectancy_r,
+                           max(label_end_ts) AS latest_result_ts,
+                           max(generated_at) AS updated_at
+                    FROM ranked
+                    GROUP BY symbol_code,side_code,candidate_code
+                    ORDER BY count(*) DESC,avg(shadow_net_r) DESC
+                    LIMIT 20
+                """)
+                shadow_dynamics = [dict(row) for row in cursor.fetchall()]
+
         for row in links:
             count = int(row["accumulated"] or 0)
             row["target"] = TARGET_TRADES
@@ -584,6 +624,7 @@ class ControlCompactV3Resolver:
             "open_position_diagnostics": open_position_diagnostics,
             "ready_links": ready,
             "oos_pass": oos_pass,
+            "promotion_summary": promotion_summary,
             "process": process,
             "constraint": constraint,
             "next_action": next_action,
@@ -606,4 +647,5 @@ class ControlCompactV3Resolver:
             "v5_oos_runs": v5_oos_runs,
             "market_regime_context": market_regime_context,
             "market_regime_shadow_variants": market_regime_shadow_variants,
+            "shadow_dynamics": shadow_dynamics,
         }

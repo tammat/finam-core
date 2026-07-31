@@ -166,3 +166,29 @@ def test_legacy_filled_signals_are_quarantined_outside_v5():
     assert "LEGACY_FILLED_WITHOUT_CANONICAL_TRADE_OR_V5_SCOPE" in sql
     assert "sf.portfolio_scope LIKE 'FRESH_V5%'" in sql
     assert "status='ARCHIVED_LEGACY'" in sql
+
+
+def test_unproven_paper_is_capped_and_shadow_is_not_called_oos():
+    service = (
+        ROOT / "src/finam_core/runtime/strategy_runtime_control_service.py"
+    ).read_text()
+    pipeline = (
+        ROOT / "src/finam_core/pipelines/paper_pipeline.py"
+    ).read_text()
+    resolver = (
+        ROOT
+        / "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py"
+    ).read_text()
+    renderer = (
+        ROOT
+        / "src/marketcore/presentation/workspace_v2/renderer/home_compact_v1_domain_renderer.py"
+    ).read_text()
+
+    assert "runtime_control_experimental_cap:no_promoted_oos" in service
+    assert "min(abs(float(qty)), 1.0)" in service
+    assert 'PAPER_UNPROVEN_EDGE_SAFE_MODE", "1"' in pipeline
+    assert "experimental_paper_single_position" in pipeline
+    assert "promotion_summary" in resolver
+    assert "shadow_dynamics" in resolver
+    assert "Доказанных связок: 0" in renderer
+    assert "Research Shadow · результаты и динамика (не OOS)" in renderer

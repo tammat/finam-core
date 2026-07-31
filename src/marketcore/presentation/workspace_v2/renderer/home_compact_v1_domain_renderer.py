@@ -77,11 +77,26 @@ def _now_section(snapshot):
     outside = int(summary.get("out_of_session") or 0)
     data_ok = bool(freshness) and attention == 0
     quality_text = f"свежие {ready} · задержка {attention} · вне сессии {outside}"
+    promotion = snapshot.get("promotion_summary") or {}
+    promoted = int(promotion.get("promoted_oos") or 0)
+    admitted = int(promotion.get("paper_admitted") or 0)
+    if promoted > 0 and admitted > 0:
+        paper_text = f"Допущено связок: {admitted} · подтверждено OOS: {promoted}"
+        paper_status = "OK"
+    else:
+        paper_text = (
+            "Доказанных связок: 0 · Paper в экспериментальном режиме "
+            "с минимальным размером · REAL выключен"
+        )
+        paper_status = "WARNING"
     metrics = RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.now.metrics", children=(
         _row("mode", "Система", "Собирает примеры автоматически"),
         _row("data", "Данные", quality_text,
              status="OK" if data_ok else "WARNING",
              source="market_bars", source_as_of=worst.get("latest_bar")),
+        _row("paper", "Paper", paper_text, status=paper_status,
+             source="analytics.edge_oos_result_v1",
+             source_as_of=snapshot.get("generated_at")),
         _row("safety", "Реальные сделки", "Выключены"),
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(
@@ -295,6 +310,72 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, f"home.compact.trades.{code}", children=(
         _leaf(RenderNodeTypeV2.TITLE, f"home.compact.trades.{code}.title", title, level="SECTION"),
+        table,
+    ))
+
+
+def _shadow_dynamics_section(snapshot):
+    headers = (
+        "Инструмент", "Направление", "Shadow-вариант", "Оценено",
+        "Победы", "Net, R", "Exp, R", "Последние 20", "Динамика", "Обновлено",
+    )
+    header = RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW, "home.compact.shadow.header",
+        children=tuple(
+            _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"home.compact.shadow.header.{i}", label)
+            for i, label in enumerate(headers)
+        ),
+    )
+    rows = []
+    for index, item in enumerate(snapshot.get("shadow_dynamics") or (), start=1):
+        recent = item.get("recent_expectancy_r")
+        previous = item.get("previous_expectancy_r")
+        delta = None if recent is None or previous is None else float(recent) - float(previous)
+        status = (
+            "PROFIT" if recent is not None and float(recent) > 0
+            else "LOSS" if recent is not None and float(recent) < 0 else None
+        )
+        updated = item.get("latest_result_ts") or item.get("updated_at")
+        updated_text = updated.strftime("%d.%m %H:%M") if updated else "—"
+        def metric(value):
+            return "—" if value is None else f"{float(value):+.2f}".replace(".", ",")
+        rows.append(RenderNodeV2(
+            RenderNodeTypeV2.TABLE_ROW, f"home.compact.shadow.row.{index}",
+            children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.symbol", _instrument_name(item)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.side", str(item.get("side_code") or "—")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.candidate", str(item.get("candidate_code") or "—")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.evaluated", str(int(item.get("evaluated") or 0))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.wins", str(int(item.get("wins") or 0))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.net", metric(item.get("net_r"))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.exp", metric(item.get("expectancy_r"))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.recent", metric(recent), status=status),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.delta", metric(delta),
+                      status="PROFIT" if delta is not None and delta > 0 else "LOSS" if delta is not None and delta < 0 else None),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.updated", updated_text),
+            ),
+        ))
+    if not rows:
+        rows.append(RenderNodeV2(
+            RenderNodeTypeV2.TABLE_ROW, "home.compact.shadow.empty",
+            children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, "home.compact.shadow.empty.text",
+                      "Завершённых Shadow-наблюдений пока нет"),
+                *tuple(_leaf(RenderNodeTypeV2.TABLE_CELL,
+                             f"home.compact.shadow.empty.blank.{i}", "") for i in range(9)),
+            ),
+        ))
+    table = RenderNodeV2(RenderNodeTypeV2.TABLE, "home.compact.shadow.table", children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "home.compact.shadow.head", children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "home.compact.shadow.body", children=tuple(rows)),
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.shadow", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.shadow.title",
+              "Research Shadow · результаты и динамика (не OOS)", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.shadow.help",
+              "Динамика сравнивает средний результат последних 20 наблюдений "
+              "с предыдущими 20. Эти результаты исследовательские и не являются "
+              "доказанным edge; заявки брокеру не отправляются."),
         table,
     ))
 
@@ -592,6 +673,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),
+        _shadow_dynamics_section(snapshot),
         _oos_evidence_section(snapshot),
         _optimizer_section(snapshot),
         _attention_section(snapshot),

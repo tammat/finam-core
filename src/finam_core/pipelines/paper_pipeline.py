@@ -6150,6 +6150,13 @@ class PaperTradingPipeline:
 
         # === PYRAMIDING (LEVEL 2: add to winners only) ===
         if (not is_exit_intent) and current_qty != 0.0:
+            if os.getenv("PAPER_UNPROVEN_EDGE_SAFE_MODE", "1") == "1":
+                print(
+                    f"PIPE_EXPERIMENTAL_PAPER_PYRAMID_BLOCK symbol={sym} qty={current_qty}",
+                    flush=True,
+                )
+                self._reject_persisted_signal_v1(intent, "experimental_paper_single_position")
+                return
             side = intent.get("side")
 
             # позиция должна совпадать по направлению

@@ -15,6 +15,7 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     assert sections == [
         "home.compact.now", "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
+        "home.compact.shadow",
         "home.compact.oos", "home.compact.optimizer", "home.compact.attention",
     ]
     actions = [node for node in nodes if node.node_type is RenderNodeTypeV2.ACTION]
