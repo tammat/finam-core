@@ -37,6 +37,83 @@ def _metric_row(code, label, value):
     ))
 
 
+def _signal_funnel_section(snapshot):
+    stages = snapshot.get("signal_funnel_stages") or ()
+    reasons = snapshot.get("signal_funnel_reasons") or ()
+    stage_labels = {
+        "EVALUATIONS": "Проверки условий (диагностика)",
+        "SIGNALS": "Независимые возможности",
+        "SHADOW": "Оценено в Shadow",
+        "ORDERS": "Допущено в Paper",
+        "ACKS": "Заявка подтверждена",
+        "FILLS": "Исполнено",
+        "TRADES": "Сделка зарегистрирована",
+    }
+    reason_labels = {
+        "PROTECTION": "Штатная защита — не потеря edge",
+        "CONTROL": "Управляемый режим — без заявки",
+        "MARKET": "Рынок и режим",
+        "TECHNICAL": "Технические потери — исправлять",
+        "RESEARCH": "Только Shadow до OOS PASS",
+        "EDGE": "Не прошло статистический фильтр",
+        "DATA": "Качество или свежесть данных",
+        "RISK": "Риск",
+        "VOLATILITY": "Волатильность",
+        "BLOCK": "Прочие блокировки",
+        "OTHER": "Прочее",
+    }
+    stage_rows = []
+    for index, row in enumerate(stages, start=1):
+        code = str(row.get("stage_code") or "UNKNOWN")
+        rate = row.get("pass_rate_pct")
+        rate_text = "—" if rate is None else f"{float(rate):.1f}%"
+        stage_rows.append(RenderNodeV2(
+            RenderNodeTypeV2.TABLE_ROW, f"control.v3.signal_funnel.stage.{index}",
+            state=RenderNodeStateV2(status_code=(
+                "WARNING" if code in {"SHADOW", "ORDERS"} else "OK"
+            )), children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.signal_funnel.stage.{index}.name",
+                      stage_labels.get(code, str(row.get("stage_name") or code))),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.signal_funnel.stage.{index}.count",
+                      int(row.get("stage_count") or 0), "INTEGER"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.signal_funnel.stage.{index}.rate",
+                      rate_text),
+            )
+        ))
+    stage_header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.signal_funnel.stage.header", children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.signal_funnel.stage.header.{i}", label)
+        for i, label in enumerate(("Этап", "Количество", "От независимых возможностей"), start=1)
+    ))
+    reason_rows = []
+    for index, row in enumerate(reasons, start=1):
+        code = str(row.get("reason_group") or "OTHER")
+        reason_rows.append(RenderNodeV2(
+            RenderNodeTypeV2.METRIC_ROW, f"control.v3.signal_funnel.reason.{index}",
+            state=RenderNodeStateV2(status_code=(
+                "BLOCKED" if code == "TECHNICAL" else
+                "WARNING" if code in {"DATA", "EDGE", "MARKET"} else "OK"
+            )), children=(
+                _leaf(RenderNodeTypeV2.METRIC_LABEL, f"control.v3.signal_funnel.reason.{index}.label",
+                      reason_labels.get(code, code)),
+                _leaf(RenderNodeTypeV2.METRIC_VALUE, f"control.v3.signal_funnel.reason.{index}.value",
+                      int(row.get("rows_total") or 0), "INTEGER"),
+            )
+        ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.signal_funnel", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.signal_funnel.title",
+              "Воронка независимых сигналов", level="SECTION"),
+        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.signal_funnel.subtitle",
+              "Одна возможность = инструмент + направление + стратегия + таймфрейм + закрытый бар"),
+        RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.signal_funnel.stage.table", children=(
+            RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.signal_funnel.stage.head", children=(stage_header,)),
+            RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.signal_funnel.stage.body", children=tuple(stage_rows)),
+        )),
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.signal_funnel.reasons.title",
+              "Почему возможности не дошли до Paper", level="CARD"),
+        *reason_rows,
+    ))
+
+
 def _command(code, label, action_id, command_code, *, target_id=None,
              enabled=True, requires_approval=False, rollback_code=None):
     return RenderNodeV2(
@@ -561,6 +638,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
               "Поиск устойчивого преимущества · без реальных сделок"),
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
         _compact_state_section(snapshot, raw_process_status),
+        _signal_funnel_section(snapshot),
         _market_regime_section(snapshot),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
         _multi_asset_section(snapshot.get("asset_branches") or (),

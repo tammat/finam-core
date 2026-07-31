@@ -38,6 +38,35 @@ class ControlCompactV3Resolver:
                 """)
                 audit = dict(cursor.fetchone() or {})
                 cursor.execute("""
+                    WITH latest AS (
+                      SELECT signal_funnel_snapshot_id
+                      FROM analytics.signal_funnel_snapshot_v1
+                      ORDER BY created_at DESC LIMIT 1
+                    )
+                    SELECT stage_code,stage_name,stage_count,previous_stage_count,
+                           pass_rate_pct,stage_status,evidence_json,created_at
+                    FROM analytics.signal_funnel_stage_v1
+                    WHERE signal_funnel_snapshot_id=(SELECT signal_funnel_snapshot_id FROM latest)
+                    ORDER BY stage_order
+                """)
+                signal_funnel_stages = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""
+                    WITH latest AS (
+                      SELECT signal_funnel_reason_snapshot_id
+                      FROM analytics.signal_funnel_reason_snapshot_v1
+                      ORDER BY created_at DESC LIMIT 1
+                    )
+                    SELECT reason_group,sum(rows_total)::int AS rows_total,
+                           count(*)::int AS reason_values,max(created_at) AS updated_at
+                    FROM analytics.signal_funnel_reason_v1
+                    WHERE signal_funnel_reason_snapshot_id=(
+                      SELECT signal_funnel_reason_snapshot_id FROM latest
+                    )
+                    GROUP BY reason_group
+                    ORDER BY sum(rows_total) DESC
+                """)
+                signal_funnel_reasons = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""
                     SELECT count(*)::int AS open_positions
                     FROM analytics.paper_research_position_projection_v1
                     WHERE portfolio_scope IN %s
@@ -692,4 +721,6 @@ class ControlCompactV3Resolver:
             "market_regime_context": market_regime_context,
             "market_regime_shadow_variants": market_regime_shadow_variants,
             "shadow_dynamics": shadow_dynamics,
+            "signal_funnel_stages": signal_funnel_stages,
+            "signal_funnel_reasons": signal_funnel_reasons,
         }
