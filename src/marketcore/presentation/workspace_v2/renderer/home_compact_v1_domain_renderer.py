@@ -192,6 +192,7 @@ def _exit_reason_text(reason, active=False):
         "stall_exit_long": "выход из-за отсутствия движения",
         "stall_exit_short": "выход из-за отсутствия движения",
         "hard_max_hold_exit": "аварийный лимит удержания",
+        "paper_session_end_exit": "аварийное закрытие перед концом сессии",
         "hard_max_hold_trend_extension": "удержание продлено по подтверждённому тренду",
     }
     return labels.get(str(reason or ""), str(reason or "не указана").replace("_", " "))

@@ -56,6 +56,7 @@ from finam_core.strategy.br_volatility_intelligence import BRVolatilityIntellige
 from finam_core.features.volume_features import BarVolumeFeatureEngine
 from finam_core.strategy.exit_engine import (
     ExitDecision, ExitEngine, ExitStateMachine, apply_hard_max_hold,
+    apply_paper_session_end_exit,
     hard_exit_limit_seconds,
 )
 from types import SimpleNamespace
@@ -3144,6 +3145,18 @@ class PaperTradingPipeline:
                 flush=True,
             )
 
+        # Аварийный Paper-only выход до вечернего клиринга. Он применяется к
+        # последней доступной котировке и не зависит от прихода баров ночью.
+        if str(self.runtime_config.get("EXECUTION_MODE", "paper")).lower() == "paper":
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            decision = apply_paper_session_end_exit(
+                decision=decision,
+                now_msk=datetime.now(ZoneInfo("Europe/Moscow")),
+                cutoff_hour=int(os.getenv("PAPER_SESSION_END_EXIT_HOUR_MSK", "23")),
+                cutoff_minute=int(os.getenv("PAPER_SESSION_END_EXIT_MINUTE_MSK", "40")),
+            )
+
         decision_before_hard_exit = decision
         decision = apply_hard_max_hold(
             decision=decision, symbol=symbol, position_age_sec=position_age_sec,
@@ -5607,6 +5620,23 @@ class PaperTradingPipeline:
                     return
 
         # Русский комментарий: SIGNAL SNAPSHOT V1 — сохраняем наблюдаемый контекст сигнала до risk/order gate.
+        # Дешёвый embargo выполняется до persistence. Повтор при открытой позиции
+        # либо в cooldown не является новым независимым наблюдением и не должен
+        # раздувать выборку RISK_REJECTED.
+        if str(intent.get("intent_type") or "ENTRY").upper() != "EXIT":
+            pre_symbol = str(intent.get("symbol") or sym or "")
+            pre_side = str(intent.get("side") or "")
+            self._restore_pm_position_from_projection_v1(pre_symbol)
+            pre_anti_ok, pre_anti_reason = self._anti_reentry_allows(pre_symbol, pre_side)
+            if not pre_anti_ok:
+                self._log_dedup(
+                    f"PIPE_PRE_PERSISTENCE_EMBARGO:{pre_symbol}:{pre_side}",
+                    f"PIPE_PRE_PERSISTENCE_EMBARGO symbol={pre_symbol} side={pre_side} "
+                    f"reason={pre_anti_reason}",
+                    heartbeat_sec=60,
+                )
+                return
+
         try:
             features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
             intent["signal_quality_snapshot"] = {
@@ -8655,6 +8685,8 @@ class PaperTradingPipeline:
                 session_open=bool(session.get("allow_entries", False)),
                 is_futures=symbol.endswith("@RTSX"),
                 cost_verified_at=cost_verified_at,
+                session_minutes_remaining=self._session_minutes_remaining_v1(),
+                entry_cutoff_minutes=float(os.getenv("PAPER_ENTRY_CUTOFF_MINUTES", "30")),
             )
         except Exception as exc:
             self._log_dedup(
@@ -8673,6 +8705,16 @@ class PaperTradingPipeline:
                 heartbeat_sec=60,
             )
         return decision.allowed, decision.reason_code
+
+    @staticmethod
+    def _session_minutes_remaining_v1() -> float:
+        """Минуты до конца текущей MOEX-сессии по московскому времени."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        current = datetime.now(ZoneInfo("Europe/Moscow"))
+        close_minute = 19 * 60 if current.weekday() in (5, 6) else 23 * 60 + 50
+        return float(close_minute - (current.hour * 60 + current.minute))
 
     def _entry_confidence_gate_if_enabled(self, intent: dict, market_state: dict) -> bool:
         """Русский комментарий: confirmation gate перед Risk/Execution для новых входов."""

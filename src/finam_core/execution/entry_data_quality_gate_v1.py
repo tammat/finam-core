@@ -25,6 +25,8 @@ def evaluate_entry_data_quality_v1(
     cost_verified_at: datetime | None,
     now: datetime | None = None,
     cost_max_age_seconds: int = 172800,
+    session_minutes_remaining: float | None = None,
+    entry_cutoff_minutes: float = 30.0,
 ) -> EntryDataQualityDecisionV1:
     """Fail-closed admission using only completed, continuous market bars."""
     current = now or datetime.now(timezone.utc)
@@ -32,6 +34,11 @@ def evaluate_entry_data_quality_v1(
         current = current.replace(tzinfo=timezone.utc)
     if not session_open:
         return EntryDataQualityDecisionV1(False, "MARKET_SESSION_CLOSED")
+    if (
+        session_minutes_remaining is not None
+        and float(session_minutes_remaining) <= max(0.0, float(entry_cutoff_minutes))
+    ):
+        return EntryDataQualityDecisionV1(False, "SESSION_CLOSE_ENTRY_CUTOFF")
 
     interval = timeframe_seconds(timeframe)
     bars = sorted(

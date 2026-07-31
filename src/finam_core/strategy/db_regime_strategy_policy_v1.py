@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from finam_core.strategy.regime_strategy_policy_v1 import RegimeStrategyDecisionV1
+
+LOG = logging.getLogger(__name__)
 
 
 class DbRegimeStrategyPolicyV1:
@@ -38,6 +41,7 @@ class DbRegimeStrategyPolicyV1:
             return cached[1]
 
         decision: RegimeStrategyDecisionV1 | None = None
+        query_succeeded = False
         try:
             with self.pg_logger._connect() as conn:
                 with conn.cursor() as cur:
@@ -59,6 +63,7 @@ class DbRegimeStrategyPolicyV1:
                         key,
                     )
                     row = cur.fetchone()
+            query_succeeded = True
             if row:
                 decision = RegimeStrategyDecisionV1(
                     strategy_code=str(row[0]),
@@ -70,7 +75,14 @@ class DbRegimeStrategyPolicyV1:
                     max_holding_bars=int(row[5]),
                 )
         except Exception:
-            decision = None
+            # Временный сбой БД не равен отсутствующей политике. Не прячем
+            # первопричину и не удерживаем ложный fail-closed результат 60 секунд.
+            LOG.exception(
+                "FUTURES_DB_POLICY_QUERY_FAILED asset_group=%s trend=%s",
+                key[0],
+                key[1],
+            )
 
-        self._cache[key] = (now, decision)
+        if query_succeeded:
+            self._cache[key] = (now, decision)
         return decision

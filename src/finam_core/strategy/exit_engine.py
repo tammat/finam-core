@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import os
 
 
@@ -53,6 +54,23 @@ def apply_hard_max_hold(*, decision: ExitDecision, symbol: str,
     if favorable_trend_confirmed and age < limit * 2.0:
         return ExitDecision(False, "hard_max_hold_trend_extension", decision.stop_price)
     return ExitDecision(True, "hard_max_hold_exit", decision.stop_price)
+
+
+def apply_paper_session_end_exit(
+    *,
+    decision: ExitDecision,
+    now_msk: datetime,
+    cutoff_hour: int = 23,
+    cutoff_minute: int = 40,
+) -> ExitDecision:
+    """Последний аварийный Paper-барьер: не переносить intraday через ночь."""
+    if decision.should_exit:
+        return decision
+    current_minute = int(now_msk.hour) * 60 + int(now_msk.minute)
+    cutoff = int(cutoff_hour) * 60 + int(cutoff_minute)
+    if current_minute >= cutoff:
+        return ExitDecision(True, "paper_session_end_exit", decision.stop_price)
+    return decision
 
 
 class ExitEngine:

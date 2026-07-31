@@ -40,6 +40,19 @@ class _Logger:
         yield _Connection(self.cursor)
 
 
+class _TransientLogger:
+    def __init__(self, row):
+        self.row = row
+        self.calls = 0
+
+    @contextmanager
+    def _connect(self):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("temporary database outage")
+        yield _Connection(_Cursor(self.row))
+
+
 def test_policy_is_loaded_from_database():
     logger = _Logger(
         (
@@ -80,3 +93,19 @@ def test_missing_or_unconfirmed_policy_fails_closed():
         data_ready=False,
         stale=False,
     ) is None
+
+
+def test_transient_database_failure_is_not_cached():
+    logger = _TransientLogger(
+        ("BR_CONSERVATIVE_BREAKOUT", "BUY", False, 1.5, "DYNAMIC_EXIT_V1", 20)
+    )
+    resolver = DbRegimeStrategyPolicyV1(logger)
+    common = dict(
+        asset_group="FUTURES_BR",
+        trend="trend_up",
+        data_ready=True,
+        stale=False,
+    )
+    assert resolver.resolve(**common) is None
+    assert resolver.resolve(**common) is not None
+    assert logger.calls == 2

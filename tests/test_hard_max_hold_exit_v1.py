@@ -1,4 +1,12 @@
-from finam_core.strategy.exit_engine import ExitDecision, apply_hard_max_hold, hard_exit_limit_seconds
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from finam_core.strategy.exit_engine import (
+    ExitDecision,
+    apply_hard_max_hold,
+    apply_paper_session_end_exit,
+    hard_exit_limit_seconds,
+)
 
 
 def test_hard_exit_converts_hold_without_operator_approval(monkeypatch):
@@ -59,3 +67,19 @@ def test_asset_class_limits_are_explicit(monkeypatch):
     assert hard_exit_limit_seconds("GDU6@RTSX") == 36000
     assert hard_exit_limit_seconds("MXU6@RTSX") == 28800
     assert hard_exit_limit_seconds("SBER@MISX") == 28800
+
+
+def test_paper_session_end_exit_is_last_intraday_safety_barrier():
+    hold = ExitDecision(False, "hold_long", 99)
+    before = datetime(2026, 7, 29, 23, 39, tzinfo=ZoneInfo("Europe/Moscow"))
+    cutoff = datetime(2026, 7, 29, 23, 40, tzinfo=ZoneInfo("Europe/Moscow"))
+    assert not apply_paper_session_end_exit(decision=hold, now_msk=before).should_exit
+    result = apply_paper_session_end_exit(decision=hold, now_msk=cutoff)
+    assert result.should_exit
+    assert result.reason == "paper_session_end_exit"
+
+
+def test_paper_session_end_does_not_override_protective_exit():
+    stop = ExitDecision(True, "stop_loss_long", 90)
+    now = datetime(2026, 7, 29, 23, 45, tzinfo=ZoneInfo("Europe/Moscow"))
+    assert apply_paper_session_end_exit(decision=stop, now_msk=now) == stop

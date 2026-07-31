@@ -34,6 +34,25 @@ def test_fails_closed_for_session_stale_gap_and_cost() -> None:
     ).reason_code == "CONTRACT_COST_SPEC_STALE"
 
 
+def test_blocks_new_entry_near_session_close() -> None:
+    decision = evaluate_entry_data_quality_v1(
+        timeframe="M1", completed_bar_times=bars(), session_open=True,
+        is_futures=False, cost_verified_at=None, now=NOW,
+        session_minutes_remaining=20, entry_cutoff_minutes=30,
+    )
+    assert not decision.allowed
+    assert decision.reason_code == "SESSION_CLOSE_ENTRY_CUTOFF"
+
+
+def test_allows_entry_before_session_cutoff() -> None:
+    decision = evaluate_entry_data_quality_v1(
+        timeframe="M1", completed_bar_times=bars(), session_open=True,
+        is_futures=False, cost_verified_at=None, now=NOW,
+        session_minutes_remaining=31, entry_cutoff_minutes=30,
+    )
+    assert decision.allowed
+
+
 def test_pipeline_applies_gate_only_to_entries_and_fails_closed() -> None:
     source = open("src/finam_core/pipelines/paper_pipeline.py", encoding="utf-8").read()
     assert "_entry_data_quality_gate_v1" in source
