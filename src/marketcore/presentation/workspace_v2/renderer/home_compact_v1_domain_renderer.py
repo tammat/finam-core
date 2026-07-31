@@ -437,7 +437,61 @@ def _optimizer_section(snapshot):
                          "GAZP": "Газпром", "LKOH": "Лукойл", "NVTK": "Новатэк",
                          "SBER": "Сбербанк", "SBERP": "Сбербанк-п", "VTBR": "ВТБ"}
     side_labels = {"LONG": "покупка", "SHORT": "продажа"}
-    for index, item in enumerate(snapshot.get("entry_exit_recommendations") or (), start=1):
+    family_labels = {
+        "ADAPTIVE_OR_SKIP": "адаптивный вход или пропуск",
+        "CONFIRM_1": "подтверждение одной свечой",
+        "RETEST_3": "ретест до трёх свечей",
+    }
+    status_labels = {
+        "SHADOW_COLLECTING": "накапливает независимые Shadow-наблюдения",
+        "PILOT_ACTIVE": "минимальный Paper-пилот активен",
+        "PAPER_CONFIRMED": "Paper-профиль подтверждён",
+        "ROLLED_BACK": "Paper-пилот автоматически откачен",
+    }
+    for index, item in enumerate(snapshot.get("adaptive_policy_families") or (), start=1):
+        evidence = item.get("evidence") or {}
+        quality = evidence.get("entry_quality") or {}
+        exp = float(item.get("shadow_expectancy") or 0)
+        pf = item.get("shadow_profit_factor")
+        diagnostics = (
+            f"задержка {quality.get('mean_delay_bars') or '—'} свеч.; "
+            f"ухудшение входа {quality.get('mean_entry_slippage_r') or '—'}R; "
+            f"MFE {quality.get('mean_mfe_r') or '—'}R; "
+            f"MAE {quality.get('mean_mae_r') or '—'}R; "
+            f"эффективность выхода {quality.get('mean_exit_efficiency') or '—'}"
+        )
+        cards.append(RenderNodeV2(
+            RenderNodeTypeV2.CARD,
+            f"home.compact.optimizer.family.{index}",
+            children=(
+                _leaf(
+                    RenderNodeTypeV2.TITLE,
+                    f"home.compact.optimizer.family.{index}.title",
+                    f"{item.get('symbol')} · {side_labels.get(str(item.get('side_code')), item.get('side_code'))} · "
+                    f"{family_labels.get(str(item.get('policy_family')), item.get('policy_family'))}",
+                    level="CARD",
+                ),
+                _leaf(
+                    RenderNodeTypeV2.TEXT,
+                    f"home.compact.optimizer.family.{index}.evidence",
+                    f"{int(item.get('shadow_observations') or 0)} независимых событий · "
+                    f"Exp {exp:+.2f}R · PF {float(pf):.2f}" if pf is not None else
+                    f"{int(item.get('shadow_observations') or 0)} независимых событий · Exp {exp:+.2f}R · PF —",
+                ),
+                _leaf(
+                    RenderNodeTypeV2.TEXT,
+                    f"home.compact.optimizer.family.{index}.diagnostics",
+                    diagnostics,
+                ),
+                _leaf(
+                    RenderNodeTypeV2.TEXT,
+                    f"home.compact.optimizer.family.{index}.status",
+                    status_labels.get(str(item.get("status_code")), str(item.get("status_code"))),
+                ),
+            ),
+        ))
+    legacy_recommendations = () if cards else (snapshot.get("entry_exit_recommendations") or ())
+    for index, item in enumerate(legacy_recommendations, start=1):
         metrics = item.get("metrics") or {}
         paper_metrics = item.get("challenger_paper_metrics") or {}
         champion_metrics = item.get("champion_metrics") or {}

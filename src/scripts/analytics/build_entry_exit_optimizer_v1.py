@@ -277,6 +277,11 @@ def main() -> int:
                                  "regime":str(trade.get("regime") or "UNKNOWN"),
                                  "entry_decision":outcome.entry_decision,
                                  "entry_decision_reason":outcome.entry_decision_reason,
+                                 "entry_delay_bars":outcome.entry_delay_bars,
+                                 "entry_slippage_r":outcome.entry_slippage_r,
+                                 "mfe_r":outcome.mfe_r,
+                                 "mae_r":outcome.mae_r,
+                                 "exit_efficiency":outcome.exit_efficiency,
                                  "source_id":int(trade["id"]),
                                  "label_start_ts":trade["entry_ts"],
                                  "label_end_ts":trade["entry_ts"] + horizon})
@@ -286,7 +291,8 @@ def main() -> int:
                        symbol_code,side_code,candidate_code,entry_mode,stop_atr,take_atr,
                        actual_net_r,shadow_entered,shadow_net_r,placebo_net_r,shadow_exit_reason,
                        entry_decision,entry_decision_reason,entry_context,label_start_ts,label_end_ts)
-                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                             %s::jsonb,%s,%s)
                       ON CONFLICT(source_signal_id,candidate_code) DO UPDATE SET
                        actual_net_r=excluded.actual_net_r,shadow_entered=excluded.shadow_entered,
                        shadow_net_r=excluded.shadow_net_r,placebo_net_r=excluded.placebo_net_r,
@@ -312,6 +318,19 @@ def main() -> int:
                                    "higher_timeframe_aligned":
                                        entry_context.higher_timeframe_aligned}),
                        trade["entry_ts"],label_end))
+                    cur.execute("""INSERT INTO analytics.entry_exit_shadow_diagnostic_v1(
+                        source_signal_id,candidate_code,entry_delay_bars,entry_slippage_r,
+                        mfe_r,mae_r,exit_efficiency)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s)
+                      ON CONFLICT(source_signal_id,candidate_code) DO UPDATE SET
+                        entry_delay_bars=excluded.entry_delay_bars,
+                        entry_slippage_r=excluded.entry_slippage_r,
+                        mfe_r=excluded.mfe_r,mae_r=excluded.mae_r,
+                        exit_efficiency=excluded.exit_efficiency,
+                        generated_at=clock_timestamp()""",
+                      (trade["id"],variant.code,outcome.entry_delay_bars,
+                       outcome.entry_slippage_r,outcome.mfe_r,outcome.mae_r,
+                       outcome.exit_efficiency))
                 evaluation_rows = [row for row in rows if row["source_id"] in eligible_ids]
                 explicit_oos = [row for row in rows if row["source_id"] in oos_ids]
                 metrics = evaluate_walk_forward(evaluation_rows, oos_rows=explicit_oos)

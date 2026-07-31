@@ -47,6 +47,11 @@ class Outcome:
     net_r: float | None
     entry_decision: str = "UNKNOWN"
     entry_decision_reason: str = "NOT_AUDITED"
+    entry_delay_bars: int | None = None
+    entry_slippage_r: float | None = None
+    mfe_r: float | None = None
+    mae_r: float | None = None
+    exit_efficiency: float | None = None
 
 
 def default_variants(strategy: str) -> tuple[Variant, ...]:
@@ -224,8 +229,17 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
     stop = entry - direction * risk
     take = entry + direction * atr * variant.take_atr
     best = entry
+    favourable = adverse = 0.0
     exit_price, reason = bars[-1].close, "HORIZON_MARK"
     for bar in bars[start:]:
+        favourable = max(
+            favourable,
+            direction * ((bar.high if direction > 0 else bar.low) - entry),
+        )
+        adverse = max(
+            adverse,
+            -direction * ((bar.low if direction > 0 else bar.high) - entry),
+        )
         # `stop` is based only on earlier completed candles.  Raising it from
         # this candle's favourable extreme before inspecting its adverse
         # extreme would assume an unknowable high/low order.
@@ -251,8 +265,13 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
             candidate = best - direction * distance
             stop = max(stop, candidate) if direction > 0 else min(stop, candidate)
     net_r = (direction * (exit_price - entry) - max(0.0, roundtrip_cost_price)) / risk
+    gross_capture = direction * (exit_price - entry)
+    exit_efficiency = gross_capture / favourable if favourable > 0 else 0.0
     return Outcome(True, round(entry, 8), round(exit_price, 8), reason, round(net_r, 8),
-                   entry_decision, entry_decision_reason)
+                   entry_decision, entry_decision_reason, start,
+                   round(direction * (entry - signal_price) / risk, 8),
+                   round(favourable / risk, 8), round(adverse / risk, 8),
+                   round(exit_efficiency, 8))
 
 
 def max_drawdown_r(values: list[float]) -> float:

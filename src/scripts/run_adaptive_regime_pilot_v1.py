@@ -83,31 +83,60 @@ def main() -> int:
         if not cur.fetchone()["locked"]:
             print("VERDICT=ADAPTIVE_REGIME_PILOT_ALREADY_RUNNING")
             return 0
-        cur.execute("""SELECT * FROM analytics.entry_exit_signal_shadow_pair_v2
-            WHERE shadow_entered AND shadow_net_r IS NOT NULL
-              AND label_end_ts>=clock_timestamp()-(%s*interval '1 day')
-            ORDER BY label_end_ts,source_signal_id,candidate_code""", (LOOKBACK_DAYS,))
+        cur.execute("""SELECT p.*,d.entry_delay_bars,d.entry_slippage_r,
+                   d.mfe_r,d.mae_r,d.exit_efficiency
+            FROM analytics.entry_exit_signal_shadow_pair_v2 p
+            LEFT JOIN analytics.entry_exit_shadow_diagnostic_v1 d
+              USING(source_signal_id,candidate_code)
+            WHERE p.shadow_entered AND p.shadow_net_r IS NOT NULL
+              AND p.label_end_ts>=clock_timestamp()-(%s*interval '1 day')
+            ORDER BY p.label_end_ts,p.source_signal_id,p.candidate_code""", (LOOKBACK_DAYS,))
         groups = defaultdict(list)
         for row in cur.fetchall():
+            if row["entry_mode"] not in {"ADAPTIVE", "CONFIRM_1", "RETEST_3"}:
+                continue
             regime = str((row["entry_context"] or {}).get("regime") or "UNKNOWN")
-            key = (row["symbol_code"], row["side_code"], row["strategy_code"],
-                   row["candidate_code"], regime)
+            family = "ADAPTIVE_OR_SKIP" if row["entry_mode"] == "ADAPTIVE" else row["entry_mode"]
+            key = (row["symbol_code"], row["side_code"], row["strategy_code"], family, regime)
             groups[key].append(row)
-        for (symbol, side, strategy, code, regime), raw_rows in groups.items():
-            # At most one observation for a 15-minute market event.
-            independent = {}
+        cur.execute("""UPDATE analytics.adaptive_regime_paper_pilot_v1
+            SET status_code='SUPERSEDED',evaluated_at=clock_timestamp()
+            WHERE source_version IN ('ADAPTIVE_REGIME_PILOT_V1','ADAPTIVE_REGIME_PILOT_V2')
+              AND status_code='SHADOW_COLLECTING'""")
+        for (symbol, side, strategy, family, regime), raw_rows in groups.items():
+            # Risk geometries inside one policy are not independent candidates.
+            # One market event contributes the median result of that family.
+            independent = defaultdict(list)
             for row in raw_rows:
                 ts = row["label_start_ts"]
                 bucket = ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
-                independent[bucket] = row
-            rows = sorted(independent.values(), key=lambda row: row["label_end_ts"])
-            values = [dec(row["shadow_net_r"]) for row in rows]
-            placebo_rows = [row for row in rows if row["placebo_net_r"] is not None]
-            placebo_values = [dec(row["placebo_net_r"]) for row in placebo_rows]
+                independent[bucket].append(row)
+            events = sorted(independent.items())
+            values = [
+                Decimal(str(statistics.median([float(row["shadow_net_r"]) for row in rows])))
+                for _, rows in events
+            ]
+            placebo_values = [
+                Decimal(str(statistics.median([
+                    float(row["placebo_net_r"]) for row in rows
+                    if row["placebo_net_r"] is not None
+                ])))
+                for _, rows in events
+                if any(row["placebo_net_r"] is not None for row in rows)
+            ]
             metric, placebo_metric = performance(values), performance(placebo_values)
-            placebo_coverage = Decimal(len(placebo_rows)) / len(rows) if rows else Decimal(0)
+            placebo_coverage = Decimal(len(placebo_values)) / len(events) if events else Decimal(0)
             status, reason = shadow_decision(metric, placebo_metric, placebo_coverage)
-            identity = f"{symbol}|{side}|{strategy}|{code}|{regime}"
+            representatives = {}
+            for row in raw_rows:
+                representatives.setdefault(row["candidate_code"], row)
+            ordered_profiles = sorted(
+                representatives.values(),
+                key=lambda row: (dec(row["stop_atr"]), dec(row["take_atr"]), row["candidate_code"]),
+            )
+            selected = ordered_profiles[len(ordered_profiles) // 2]
+            code = selected["candidate_code"]
+            identity = f"{symbol}|{side}|{strategy}|{family}|{regime}"
             pilot_id = uuid.uuid5(NAMESPACE, identity)
             cur.execute("""SELECT * FROM analytics.adaptive_regime_paper_pilot_v1
                 WHERE pilot_id=%s""", (str(pilot_id),))
@@ -151,7 +180,7 @@ def main() -> int:
                                "shadow_expectancy_r": str(metric["expectancy"]),
                                "placebo_expectancy_r": str(placebo_metric["expectancy"]),
                            })))
-                    activated_at = rows[-1]["label_end_ts"]
+                    activated_at = max(row["label_end_ts"] for row in raw_rows)
                     activated += 1
             paper_values = []
             if activated_at and status in {"PILOT_ACTIVE", "PAPER_CONFIRMED"}:
@@ -182,11 +211,34 @@ def main() -> int:
             paper_metric = performance(paper_values)
             evidence = {
                 "lookback_days": LOOKBACK_DAYS, "regime": regime,
+                "policy_family": family,
+                "risk_profiles_pooled": len(representatives),
+                "representative_selection": "DETERMINISTIC_MEDIAN_RISK_NOT_BEST_PNL",
                 "independence_bucket_minutes": 15,
                 "shadow_r": {key: str(value) for key, value in metric.items()},
                 "placebo_r": {key: str(value) for key, value in placebo_metric.items()},
                 "placebo_coverage": str(placebo_coverage), "decision_reason": reason,
                 "paper_r": {key: str(value) for key, value in paper_metric.items()},
+                "entry_quality": {
+                    "mean_delay_bars": str(statistics.mean([
+                        float(row["entry_delay_bars"]) for row in raw_rows
+                        if row.get("entry_delay_bars") is not None
+                    ])) if any(row.get("entry_delay_bars") is not None for row in raw_rows) else None,
+                    "mean_entry_slippage_r": str(statistics.mean([
+                        float(row["entry_slippage_r"]) for row in raw_rows
+                        if row.get("entry_slippage_r") is not None
+                    ])) if any(row.get("entry_slippage_r") is not None for row in raw_rows) else None,
+                    "mean_mfe_r": str(statistics.mean([
+                        float(row["mfe_r"]) for row in raw_rows if row.get("mfe_r") is not None
+                    ])) if any(row.get("mfe_r") is not None for row in raw_rows) else None,
+                    "mean_mae_r": str(statistics.mean([
+                        float(row["mae_r"]) for row in raw_rows if row.get("mae_r") is not None
+                    ])) if any(row.get("mae_r") is not None for row in raw_rows) else None,
+                    "mean_exit_efficiency": str(statistics.mean([
+                        float(row["exit_efficiency"]) for row in raw_rows
+                        if row.get("exit_efficiency") is not None
+                    ])) if any(row.get("exit_efficiency") is not None for row in raw_rows) else None,
+                },
                 "real_trading_allowed": False,
             }
             cur.execute("""INSERT INTO analytics.adaptive_regime_paper_pilot_v1(
@@ -210,7 +262,7 @@ def main() -> int:
                 evaluated_at=clock_timestamp(),evidence=EXCLUDED.evidence,
                 source_version=EXCLUDED.source_version""",
               (str(pilot_id), str(pilot_id), symbol, side, strategy, regime, code,
-               rows[-1]["entry_mode"], rows[-1]["stop_atr"], rows[-1]["take_atr"], status,
+               selected["entry_mode"], selected["stop_atr"], selected["take_atr"], status,
                metric["observations"], metric["profit_factor"], metric["expectancy"],
                metric["max_drawdown"], paper_metric["observations"],
                paper_metric["profit_factor"], paper_metric["expectancy"],

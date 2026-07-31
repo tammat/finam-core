@@ -30,6 +30,9 @@ def test_pilot_never_enables_real_trading() -> None:
     source = SOURCE.read_text()
     assert 'print("real_trading_allowed=0")' in source
     assert "PILOT_DRAWDOWN_REACHED_TWO_R" in source
+    assert "DETERMINISTIC_MEDIAN_RISK_NOT_BEST_PNL" in source
+    assert "ADAPTIVE_OR_SKIP" in source
+    assert "entry_delay_bars" in source
 
 
 def test_pipeline_accepts_only_active_adaptive_pilot() -> None:
@@ -41,3 +44,17 @@ def test_pipeline_accepts_only_active_adaptive_pilot() -> None:
     assert "AND p.regime_code=%s" in source
     assert "AND symbol=%s" in source
     assert "AND strategy_code=%s" in source
+
+
+def test_family_pooling_and_entry_diagnostics_are_wired() -> None:
+    controller = SOURCE.read_text()
+    builder = Path("src/scripts/analytics/build_entry_exit_optimizer_v1.py").read_text()
+    renderer = Path(
+        "src/marketcore/presentation/workspace_v2/renderer/"
+        "home_compact_v1_domain_renderer.py"
+    ).read_text()
+    assert "ADAPTIVE_OR_SKIP" in controller
+    assert "DETERMINISTIC_MEDIAN_RISK_NOT_BEST_PNL" in controller
+    assert "entry_exit_shadow_diagnostic_v1" in builder
+    assert "mean_entry_slippage_r" in controller
+    assert "adaptive_policy_families" in renderer

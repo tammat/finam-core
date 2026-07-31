@@ -525,6 +525,28 @@ class ControlCompactV3Resolver:
                 """)
                 entry_exit_recommendations = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""
+                    SELECT symbol,side_code,strategy_code,regime_code,
+                           CASE entry_mode
+                             WHEN 'ADAPTIVE' THEN 'ADAPTIVE_OR_SKIP'
+                             ELSE entry_mode
+                           END policy_family,
+                           candidate_code,status_code,shadow_observations,
+                           shadow_expectancy,shadow_profit_factor,
+                           paper_observations,paper_expectancy,paper_profit_factor,
+                           evidence,evaluated_at
+                    FROM analytics.adaptive_regime_paper_pilot_v1
+                    WHERE status_code<>'SUPERSEDED'
+                    ORDER BY CASE status_code
+                               WHEN 'PAPER_CONFIRMED' THEN 0
+                               WHEN 'PILOT_ACTIVE' THEN 1
+                               WHEN 'SHADOW_COLLECTING' THEN 2
+                               ELSE 3 END,
+                             shadow_observations DESC,evaluated_at DESC
+                    LIMIT 12
+                """)
+                adaptive_policy_families = [dict(row) for row in cursor.fetchall()]
+
                 cursor.execute("SELECT * FROM analytics.v5_oos_evidence_panel_v1")
                 v5_oos_evidence = dict(cursor.fetchone() or {})
                 cursor.execute("""SELECT r.status_code,r.reason_code,r.observations_included,
@@ -663,6 +685,7 @@ class ControlCompactV3Resolver:
             "universe_summary": universe_summary,
             "recent_trade_events": recent_trade_events,
             "entry_exit_recommendations": entry_exit_recommendations,
+            "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,
             "market_regime_context": market_regime_context,
