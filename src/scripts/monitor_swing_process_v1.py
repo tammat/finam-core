@@ -1,16 +1,50 @@
 from __future__ import annotations
 import os
 from datetime import datetime,timedelta,timezone
+from zoneinfo import ZoneInfo
 import uuid
 import psycopg2,psycopg2.extras
 
 DB=os.getenv("DATABASE_URL","postgresql:///finam_core")
 INTERVAL_HOURS={"H1":1,"H4":4,"D1":24}
 STALE_HOURS={"H1":4,"H4":12,"D1":72}
+MOSCOW=ZoneInfo("Europe/Moscow")
 
-def estimate_ready(latest,remaining,timeframe):
+def session_bounds(symbol,timeframe,local_day):
+  start_hour=8 if timeframe=="H4" else 7
+  end_hour=20 if timeframe=="H4" else 23
+  if symbol in {"IMOEX","IMOEX2","RTSI"}: end_hour=16 if timeframe=="H4" else 19
+  return (datetime.combine(local_day,datetime.min.time(),MOSCOW)+timedelta(hours=start_hour),
+          datetime.combine(local_day,datetime.min.time(),MOSCOW)+timedelta(hours=end_hour))
+
+def session_open(symbol,timeframe,now):
+  local=now.astimezone(MOSCOW)
+  if local.weekday()>=5: return False
+  start,end=session_bounds(symbol,timeframe,local.date())
+  return start<=local<=end
+
+def source_is_stale(latest,now,symbol,timeframe):
+  if latest is None: return True
+  if timeframe=="D1": return (now-latest).total_seconds()/3600>STALE_HOURS[timeframe]
+  if not session_open(symbol,timeframe,now): return False
+  start,_=session_bounds(symbol,timeframe,now.astimezone(MOSCOW).date())
+  effective=max(latest,start.astimezone(timezone.utc))
+  return (now-effective).total_seconds()/3600>STALE_HOURS[timeframe]
+
+def estimate_ready(latest,remaining,timeframe,symbol=""):
   if latest is None: return None
-  if timeframe!="D1": return latest+timedelta(hours=remaining*INTERVAL_HOURS[timeframe])
+  if timeframe!="D1":
+    result=latest.astimezone(MOSCOW); added=0; step=timedelta(hours=INTERVAL_HOURS[timeframe])
+    while added<remaining:
+      result+=step
+      start,end=session_bounds(symbol,timeframe,result.date())
+      if result.weekday()<5 and start<=result<=end: added+=1
+      elif result.weekday()>=5 or result>end:
+        result+=timedelta(days=1)
+        while result.weekday()>=5: result+=timedelta(days=1)
+        result=session_bounds(symbol,timeframe,result.date())[0]
+        added+=1
+    return result
   result=latest; added=0
   while added<remaining:
     result+=timedelta(days=1)
@@ -38,9 +72,9 @@ with psycopg2.connect(DB) as connection:
         latest=source["latest"]; age=(now-latest).total_seconds()/3600 if latest else None
         if accumulated>=required: status,reason="READY","FUTURE_SAMPLE_READY"; ready+=1
         elif latest is None: status,reason="NO_SOURCE","SWING_BAR_SOURCE_MISSING"; stale+=1
-        elif age>STALE_HOURS[item["timeframe"]]: status,reason="STALE","SWING_BAR_SOURCE_STALE"; stale+=1
+        elif source_is_stale(latest,now,item["symbol"],item["timeframe"]): status,reason="STALE","SWING_BAR_SOURCE_STALE"; stale+=1
         else: status,reason="WAITING","ACCUMULATING_FUTURE_BARS"; waiting+=1
-        eta=estimate_ready(latest,remaining,item["timeframe"])
+        eta=estimate_ready(latest,remaining,item["timeframe"],item["symbol"])
         cursor.execute("""INSERT INTO analytics.swing_future_data_readiness_v1
           (monitor_run_id,plan_item_id,accumulated_bars,required_bars,remaining_bars,latest_bar_ts,
            source_age_hours,readiness_status,estimated_ready_at,reason_code)

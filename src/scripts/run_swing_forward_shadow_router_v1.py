@@ -127,6 +127,21 @@ def main() -> int:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(DDL)
+            cur.execute("""UPDATE analytics.swing_shadow_observation_v1 observation
+                SET observation_status='EXPIRED_ORPHAN',
+                    signal_context=coalesce(observation.signal_context,'{}'::jsonb)
+                      || jsonb_build_object(
+                           'archive_reason','ORPHAN_COHORT_WITHOUT_RUNNING_LIFECYCLE',
+                           'archived_at',clock_timestamp()),
+                    updated_at=clock_timestamp()
+                WHERE observation.observation_status='PENDING_ENTRY'
+                  AND observation.created_at < clock_timestamp()-interval '1 hour'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM analytics.swing_candidate_lifecycle_v1 lifecycle
+                    WHERE lifecycle.shadow_cohort_id=observation.swing_shadow_cohort_id
+                      AND lifecycle.stage_code='SHADOW'
+                      AND lifecycle.status_code='RUNNING')""")
+            orphaned = cur.rowcount
             cur.execute("""SELECT c.swing_shadow_cohort_id
                 FROM analytics.swing_shadow_cohort_v1 c
                 JOIN analytics.swing_candidate_lifecycle_v1 l
@@ -136,6 +151,7 @@ def main() -> int:
                 ORDER BY c.created_at DESC LIMIT 1""")
             latest = cur.fetchone()
             if not latest:
+                print(f"orphan_pending_archived={orphaned}")
                 print("VERDICT=SWING_FORWARD_SHADOW_ROUTER_V1_NO_COHORT")
                 return 0
             cohort_id = latest["swing_shadow_cohort_id"]
@@ -229,6 +245,7 @@ def main() -> int:
                 FROM analytics.swing_shadow_observation_v1 WHERE swing_shadow_cohort_id=%s""", (cohort_id,))
             summary = dict(cur.fetchone())
     print(f"cohort_id={cohort_id}")
+    print(f"orphan_pending_archived={orphaned}")
     print(f"candidates={len(candidates)}")
     print(f"signals_created={created}")
     print(f"entries_created={entered}")

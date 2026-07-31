@@ -246,3 +246,17 @@ def test_swing_significance_uses_non_overlapping_trades() -> None:
     assert 'allow_overlapping_positions", False' in validation
     assert "OVERLAPPING_TRADE_SAMPLES" in migration
     assert "promotion_allowed boolean NOT NULL DEFAULT false" in migration
+def test_swing_freshness_is_session_aware_and_eta_skips_closed_hours():
+    monitor = (ROOT / "src/scripts/monitor_swing_process_v1.py").read_text()
+    assert "def session_open(" in monitor
+    assert "def source_is_stale(" in monitor
+    assert "if not session_open(symbol,timeframe,now): return False" in monitor
+    assert "session_bounds(symbol,timeframe,result.date())" in monitor
+
+
+def test_swing_router_archives_only_orphan_pending_entries():
+    router = (ROOT / "src/scripts/run_swing_forward_shadow_router_v1.py").read_text()
+    assert "observation_status='EXPIRED_ORPHAN'" in router
+    assert "ORPHAN_COHORT_WITHOUT_RUNNING_LIFECYCLE" in router
+    assert "observation.observation_status='PENDING_ENTRY'" in router
+    assert "lifecycle.status_code='RUNNING'" in router
