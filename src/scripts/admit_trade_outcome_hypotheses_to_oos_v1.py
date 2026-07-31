@@ -11,7 +11,61 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE = "TRADE_OUTCOME_OOS_ADMISSION_V1"
 MIN_CONTEXT_COVERAGE = float(os.getenv("TRADE_OUTCOME_HYPOTHESIS_MIN_CONTEXT_COVERAGE", "0.80"))
 MIN_MICROSTRUCTURE_COVERAGE = float(os.getenv("MICROSTRUCTURE_MIN_COVERAGE", "0.80"))
-MIN_TRADES = int(os.getenv("TRADE_OUTCOME_HYPOTHESIS_MIN_TRADES", "80"))
+MIN_TRADES = int(os.getenv("TRADE_OUTCOME_HYPOTHESIS_MIN_TRADES", "15"))
+
+
+def _refresh_fresh_v5_hypotheses(cursor) -> int:
+    """Регистрирует текущие Paper-когорты; QUEUED/RUNNING OOS не изменяются."""
+    cursor.execute("""SELECT max(exit_ts) source_max_closed_at,count(*)::int total,
+        count(*) FILTER(WHERE net_pnl>0)::int profitable,
+        count(*) FILTER(WHERE net_pnl<0)::int losses
+      FROM analytics.closed_trades_fresh_v5_confirmed""")
+    source = cursor.fetchone()
+    if not source or not int(source["total"] or 0):
+        return 0
+    cursor.execute("""SELECT run_id FROM analytics.trade_outcome_pattern_run_v1
+        WHERE source_max_closed_at=%s ORDER BY created_at DESC LIMIT 1""",
+                   (source["source_max_closed_at"],))
+    existing = cursor.fetchone()
+    run_id = existing["run_id"] if existing else uuid.uuid4()
+    if not existing:
+        cursor.execute("""INSERT INTO analytics.trade_outcome_pattern_run_v1(
+            run_id,source_max_closed_at,total_trades,profitable_trades,loss_trades)
+          VALUES(%s,%s,%s,%s,%s)""",
+          (str(run_id),source["source_max_closed_at"],source["total"],
+           source["profitable"],source["losses"]))
+    cursor.execute("""INSERT INTO analytics.trade_outcome_hypothesis_v1(
+        hypothesis_id,hypothesis_key,source_run_id,hypothesis_type,strategy_code,
+        side_code,session_code,holding_code,trades,context_complete_trades,
+        profit_factor,expectancy,priority_score,lifecycle_state,recommendation_code,
+        evidence,regime_code,symbol)
+      SELECT gen_random_uuid(),
+        concat_ws(':','FRESH_V5',g.portfolio_scope,g.symbol,g.strategy_code,g.side_code,
+                  g.session_code,g.regime_code,g.exit_code),
+        %s,'FILTER_OOS_CANDIDATE',g.strategy_code,g.side_code,g.session_code,g.exit_code,
+        g.trades,g.trades,g.net_profit_factor,g.net_expectancy,
+        g.trades + greatest(g.net_expectancy,0),
+        CASE WHEN g.trades >= %s THEN 'READY_FOR_OOS' ELSE 'WAITING_FRESH_DATA' END,
+        CASE WHEN g.trades >= %s THEN 'FREEZE_FOR_FUTURE_OOS'
+             ELSE 'ACCUMULATE_FRESH_SAMPLE' END,
+        jsonb_build_object('source','FRESH_V5_COHORT_REGISTRATION',
+                           'portfolio_scope',g.portfolio_scope,
+                           'admission_status',g.admission_status,
+                           'reason_code',g.reason_code),
+        g.regime_code,g.symbol
+      FROM analytics.fresh_v5_frozen_cost_admission_guard_v2 g
+      ON CONFLICT(hypothesis_key) DO UPDATE SET
+        trades=excluded.trades,context_complete_trades=excluded.context_complete_trades,
+        profit_factor=excluded.profit_factor,expectancy=excluded.expectancy,
+        priority_score=excluded.priority_score,lifecycle_state=excluded.lifecycle_state,
+        recommendation_code=excluded.recommendation_code,evidence=excluded.evidence,
+        updated_at=clock_timestamp()
+      WHERE NOT EXISTS (
+        SELECT 1 FROM analytics.trade_outcome_oos_admission_v1 a
+        WHERE a.hypothesis_id=analytics.trade_outcome_hypothesis_v1.hypothesis_id
+          AND a.status_code IN ('QUEUED','RUNNING','OOS_PASS','OOS_FAIL','CLOSED')
+      )""", (str(run_id), MIN_TRADES, MIN_TRADES))
+    return max(0, int(cursor.rowcount or 0))
 
 
 def main() -> int:
@@ -21,6 +75,7 @@ def main() -> int:
             if not cursor.fetchone()["locked"]:
                 print("VERDICT=TRADE_OUTCOME_OOS_ADMISSION_ALREADY_RUNNING")
                 return 0
+            refreshed = _refresh_fresh_v5_hypotheses(cursor)
             cursor.execute("""SELECT h.hypothesis_id,h.strategy_code,coalesce(sm.oos_strategy_code,h.strategy_code) AS oos_strategy_code,
                        coalesce(sm.oos_timeframe,'M5') AS oos_timeframe,h.side_code,h.symbol,h.session_code,
                        h.holding_code,h.regime_code,h.lifecycle_state,h.recommendation_code,
@@ -47,7 +102,7 @@ def main() -> int:
                 LEFT JOIN LATERAL (
                     SELECT g.*
                     FROM analytics.fresh_v5_frozen_cost_admission_guard_v2 g
-                    WHERE (h.symbol IS NULL OR g.symbol=h.symbol)
+                    WHERE (h.symbol IS NULL OR g.symbol=h.symbol OR g.symbol LIKE h.symbol || '%')
                       AND g.strategy_code=h.strategy_code
                       AND upper(g.side_code)=upper(h.side_code)
                       AND (h.session_code IS NULL OR g.session_code=h.session_code)
@@ -93,13 +148,14 @@ def main() -> int:
                         row["quarantine_reason_code"] or "EARLY_NEGATIVE_AFTER_COSTS"
                     )
                 elif v5_trades < MIN_TRADES:
-                    status, reason = "WAITING_FRESH_DATA", "FRESH_SAMPLE_BELOW_80"
-                elif cost_status != "ELIGIBLE_OOS":
+                    status, reason = "WAITING_FRESH_DATA", "FRESH_SAMPLE_BELOW_FREEZE_THRESHOLD"
+                elif (
+                    float(row["net_expectancy"] or 0) <= 0
+                    or float(row["net_profit_factor"] or 0) < 1.15
+                ):
                     status, reason = "REJECTED_COSTS", str(
-                        row["cost_reason_code"] or "V5_COST_ADMISSION_NOT_CONFIRMED"
+                        row["cost_reason_code"] or "V5_PRE_FREEZE_EDGE_NOT_POSITIVE"
                     )
-                elif row["lifecycle_state"] != "READY_FOR_OOS":
-                    status, reason = "WAITING_HYPOTHESIS", "HYPOTHESIS_NOT_READY_FOR_OOS"
                 elif int(row["context_complete_trades"]) < int(row["trades"]) * MIN_CONTEXT_COVERAGE:
                     status, reason = "WAITING_CONTEXT", "FRESH_CONTEXT_BELOW_THRESHOLD"
                 elif micro < MIN_MICROSTRUCTURE_COVERAGE:
@@ -112,7 +168,7 @@ def main() -> int:
                     "symbol": row["symbol"], "session_code": row["session_code"],
                     "holding_code": row["holding_code"], "regime_code": row["regime_code"],
                     "recommendation_code": row["recommendation_code"],
-                    "fresh_cohort": "FRESH_V5_CONFIRM", "minimum_closed_trades": MIN_TRADES,
+                    "fresh_cohort": "FRESH_V5_CONFIRMED", "minimum_closed_trades": MIN_TRADES,
                     "v5_closed_trades": v5_trades,
                     "net_expectancy": float(row["net_expectancy"] or 0),
                     "net_profit_factor": float(row["net_profit_factor"] or 0),
@@ -152,6 +208,7 @@ def main() -> int:
                      row["context_complete_trades"],micro,MIN_MICROSTRUCTURE_COVERAGE,status,reason,request,
                      row["net_expectancy"],row["net_profit_factor"],row["execution_cost"],cost_status))
                 counts[status] = counts.get(status, 0) + 1
+    print(f"fresh_v5_hypotheses_refreshed={refreshed}")
     print(" ".join(f"{status}={count}" for status, count in sorted(counts.items())))
     print(f"VERDICT={SOURCE}_OK")
     return 0

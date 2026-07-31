@@ -57,6 +57,16 @@ def test_worker_accepts_only_paper_v5_source() -> None:
     assert "payload->'context'->>'cohort'" in source
 
 
+def test_admission_normalizes_contract_root_and_freezes_before_oos() -> None:
+    source = Path("src/scripts/admit_trade_outcome_hypotheses_to_oos_v1.py").read_text()
+    assert "g.symbol LIKE h.symbol || '%'" in source
+    assert 'TRADE_OUTCOME_HYPOTHESIS_MIN_TRADES", "15"' in source
+    assert '"fresh_cohort": "FRESH_V5_CONFIRMED"' in source
+    assert "_refresh_fresh_v5_hypotheses" in source
+    assert "FRESH_V5_COHORT_REGISTRATION" in source
+    assert "FREEZE_FOR_FUTURE_OOS" in source
+
+
 def test_db_admission_to_audit_to_running_verdict_is_transactional() -> None:
     connection=psycopg2.connect(os.getenv("DATABASE_URL","postgresql:///finam_core"))
     try:

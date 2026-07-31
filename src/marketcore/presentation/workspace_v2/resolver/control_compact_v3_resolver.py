@@ -501,6 +501,20 @@ class ControlCompactV3Resolver:
                 """)
                 entry_exit_recommendations = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("SELECT * FROM analytics.v5_oos_evidence_panel_v1")
+                v5_oos_evidence = dict(cursor.fetchone() or {})
+                cursor.execute("""SELECT r.status_code,r.reason_code,r.observations_included,
+                           r.observations_excluded,r.minimum_observations,r.expectancy,
+                           r.profit_factor,r.confirmation_after_ts,r.updated_at,
+                           a.symbol,a.oos_request->>'paper_strategy_code' AS strategy_code,
+                           a.oos_request->>'side_code' AS side_code
+                    FROM analytics.v5_oos_run_v1 r
+                    JOIN analytics.trade_outcome_oos_admission_v1 a USING(admission_id)
+                    ORDER BY CASE r.status_code WHEN 'OOS_PASS' THEN 0
+                              WHEN 'COLLECTING' THEN 1 ELSE 2 END,
+                             r.updated_at DESC LIMIT 12""")
+                v5_oos_runs = [dict(row) for row in cursor.fetchall()]
+
                 cursor.execute("""SELECT * FROM analytics.market_regime_context_v1
                     ORDER BY context_ts DESC LIMIT 1""")
                 market_regime_context = dict(cursor.fetchone() or {})
@@ -584,6 +598,8 @@ class ControlCompactV3Resolver:
             "universe_summary": universe_summary,
             "recent_trade_events": recent_trade_events,
             "entry_exit_recommendations": entry_exit_recommendations,
+            "v5_oos_evidence": v5_oos_evidence,
+            "v5_oos_runs": v5_oos_runs,
             "market_regime_context": market_regime_context,
             "market_regime_shadow_variants": market_regime_shadow_variants,
         }

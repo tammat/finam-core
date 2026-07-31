@@ -495,6 +495,75 @@ def _optimizer_section(snapshot):
     ))
 
 
+def _oos_evidence_section(snapshot):
+    evidence = snapshot.get("v5_oos_evidence") or {}
+    runs = list(snapshot.get("v5_oos_runs") or ())
+
+    def fmt(value, digits=2):
+        return "нет данных" if value is None else f"{float(value):.{digits}f}".replace(".", ",")
+
+    top_trade = float(evidence.get("top_trade_profit_share") or 0)
+    top_symbol = float(evidence.get("top_symbol_profit_share") or 0)
+    rows = [
+        _row("oos.paper", "Текущий Paper",
+             f"{int(evidence.get('paper_trades') or 0)} закрытых сделок · "
+             f"PF {fmt(evidence.get('paper_profit_factor'))} · "
+             f"медиана {fmt(evidence.get('paper_median_pnl'))} ₽"),
+        _row("oos.freeze", "Фиксация гипотезы",
+             f"лучшая однородная группа: "
+             f"{int(evidence.get('best_training_trades') or 0)} из 15 сделок · "
+             f"ожидают накопления {int(evidence.get('waiting_admissions') or 0)}",
+             status="OK" if int(evidence.get("frozen_admissions") or 0) else "WARNING"),
+        _row("oos.isolation", "Проверка на новых сделках",
+             f"собирается {int(evidence.get('collecting_runs') or 0)} · "
+             f"PASS {int(evidence.get('passed_runs') or 0)} · "
+             f"FAIL {int(evidence.get('failed_runs') or 0)} · "
+             f"включено {int(evidence.get('oos_included') or 0)} · "
+             f"исключено аудитом {int(evidence.get('oos_excluded') or 0)}",
+             status="OK" if int(evidence.get("passed_runs") or 0) else "WARNING"),
+        _row("oos.controls", "Shadow против placebo",
+             f"Shadow {fmt(evidence.get('shadow_expectancy_r'))}R · "
+             f"placebo {fmt(evidence.get('placebo_expectancy_r'))}R",
+             status="OK" if evidence.get("shadow_expectancy_r") is not None
+             and evidence.get("placebo_expectancy_r") is not None
+             and float(evidence["shadow_expectancy_r"]) > float(evidence["placebo_expectancy_r"])
+             else "WARNING"),
+        _row("oos.concentration", "Концентрация прибыли",
+             f"лучшая сделка {top_trade:.0%} · лучший инструмент {top_symbol:.0%}",
+             status="WARNING" if top_trade > 0.35 or top_symbol > 0.60 else "OK"),
+    ]
+    status_labels = {
+        "COLLECTING": "Идёт независимая проверка",
+        "OOS_PASS": "Edge подтверждён",
+        "OOS_FAIL": "Edge не подтверждён",
+        "ERROR": "Ошибка проверки",
+    }
+    for index, run in enumerate(runs[:5], start=1):
+        status = str(run.get("status_code") or "COLLECTING")
+        rows.append(_row(
+            f"oos.run.{index}",
+            f"{run.get('symbol') or '—'} · {run.get('side_code') or '—'}",
+            f"{status_labels.get(status, 'Ожидает данных')}: "
+            f"{int(run.get('observations_included') or 0)} из "
+            f"{int(run.get('minimum_observations') or 20)} будущих наблюдений · "
+            f"PF {fmt(run.get('profit_factor'))} · Exp {fmt(run.get('expectancy'))}",
+            status="OK" if status == "OOS_PASS" else
+                   "BLOCKED" if status == "OOS_FAIL" else "WARNING",
+            source="analytics.v5_oos_run_v1", source_as_of=run.get("updated_at"),
+        ))
+    rows.append(_leaf(
+        RenderNodeTypeV2.TEXT, "home.compact.oos.help",
+        "Paper-история только замораживает гипотезу. PASS считается на сделках "
+        "после момента её фиксации; повторное использование запрещено. REAL выключен.",
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.oos", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.oos.title",
+              "Доказательность V5 OOS", level="SECTION"),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST,
+                     "home.compact.oos.metrics", children=tuple(rows)),
+    ))
+
+
 def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "home.compact.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.title", "MarketCore", level="PAGE"),
@@ -504,6 +573,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),
+        _oos_evidence_section(snapshot),
         _optimizer_section(snapshot),
         _attention_section(snapshot),
     ))
