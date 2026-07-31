@@ -12,6 +12,7 @@ SOURCE = "TRADE_OUTCOME_OOS_ADMISSION_V1"
 MIN_CONTEXT_COVERAGE = float(os.getenv("TRADE_OUTCOME_HYPOTHESIS_MIN_CONTEXT_COVERAGE", "0.80"))
 MIN_MICROSTRUCTURE_COVERAGE = float(os.getenv("MICROSTRUCTURE_MIN_COVERAGE", "0.80"))
 MIN_TRADES = int(os.getenv("TRADE_OUTCOME_HYPOTHESIS_MIN_TRADES", "15"))
+FAMILY_FREEZE_MIN_TRADES = int(os.getenv("V5_FAMILY_FREEZE_MIN_TRADES", "10"))
 
 
 def _refresh_fresh_v5_hypotheses(cursor) -> int:
@@ -68,6 +69,182 @@ def _refresh_fresh_v5_hypotheses(cursor) -> int:
     return max(0, int(cursor.rowcount or 0))
 
 
+def _freeze_best_family_candidate(cursor) -> int:
+    """Freeze one broad, risk-normalized family for genuinely future-only OOS.
+
+    Exact session/regime/exit cells remain diagnostic.  Selecting one
+    instrument/side family avoids starving every OOS run with 1-3 observations.
+    The candidate is selected once; an existing admission is immutable.
+    """
+    cursor.execute("""
+        SELECT EXISTS (
+          SELECT 1
+          FROM analytics.entry_exit_runtime_profile_v1
+          WHERE execution_mode='paper' AND status='ACTIVE'
+        ) AS has_active_profile
+    """)
+    profile_state = cursor.fetchone()
+    if not profile_state or not profile_state["has_active_profile"]:
+        return 0
+
+    cursor.execute("""
+        SELECT h.scope_code,h.symbol_code,h.strategy_code,h.side_code,
+               h.closed_trades,h.expectancy,h.profit_factor,h.expectancy_r,
+               r.candidate_code,r.entry_mode,r.stop_atr,r.take_atr,
+               r.trail_after_r,r.trail_atr,r.pairs,
+               max(c.exit_ts) AS purge_before_ts,
+               greatest(60,ceil(max(extract(epoch FROM (c.exit_ts-c.entry_ts)))))::int
+                 AS embargo_seconds,
+               max(c.portfolio_scope) AS portfolio_scope
+        FROM analytics.hierarchical_evidence_v1 h
+        JOIN analytics.entry_exit_recommendation_v1 r
+          ON r.strategy_code=h.strategy_code
+         AND r.side_code=h.side_code
+         AND r.symbol_group=regexp_replace(h.symbol_code,'@.*$','')
+        JOIN analytics.entry_exit_runtime_profile_v1 p
+          ON p.strategy_code=r.strategy_code
+         AND p.symbol_group=r.symbol_group
+         AND p.side_code=r.side_code
+         AND p.candidate_code=r.candidate_code
+         AND p.execution_mode='paper'
+         AND p.status='ACTIVE'
+        JOIN analytics.closed_trades_fresh_v5_confirmed c
+          ON c.symbol=h.symbol_code
+         AND coalesce(nullif(c.strategy,''),'UNASSIGNED')=h.strategy_code
+         AND upper(coalesce(nullif(c.side,''),'UNKNOWN'))=h.side_code
+        WHERE h.cohort_code='FRESH_V5_CONFIRM'
+          AND h.level_code='INSTRUMENT_SIDE'
+          AND h.closed_trades >= %s
+          AND h.expectancy > 0
+          AND h.profit_factor_observable
+          AND h.profit_factor >= 1.15
+          AND h.r_observable
+          AND h.expectancy_r > 0
+          AND r.pairs >= %s
+          AND coalesce((r.metrics->'negative_control'->>'passed')::boolean,false)
+          AND coalesce((r.metrics->'negative_control'->>'candidate_expectancy_r')::numeric,0)>0
+          AND coalesce((r.metrics->'negative_control'->>'delta_lower_bound_r')::numeric,0)>0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM analytics.trade_outcome_oos_admission_v1 a
+            WHERE a.oos_request->>'family_policy'='INSTRUMENT_SIDE_V1'
+              AND a.status_code IN ('QUEUED','RUNNING','OOS_PASS','OOS_FAIL')
+          )
+        GROUP BY h.scope_code,h.symbol_code,h.strategy_code,h.side_code,
+                 h.closed_trades,h.expectancy,h.profit_factor,h.expectancy_r,
+                 r.candidate_code,r.entry_mode,r.stop_atr,r.take_atr,
+                 r.trail_after_r,r.trail_atr,r.pairs,r.metrics
+        ORDER BY r.pairs DESC,
+                 (r.metrics->'negative_control'->>'delta_lower_bound_r')::numeric DESC,
+                 h.closed_trades DESC
+        LIMIT 1
+    """, (FAMILY_FREEZE_MIN_TRADES,FAMILY_FREEZE_MIN_TRADES))
+    candidate = cursor.fetchone()
+    if not candidate:
+        return 0
+
+    confirmation_after = (
+        candidate["purge_before_ts"]
+        + timedelta(seconds=int(candidate["embargo_seconds"]))
+    )
+    hypothesis_key = (
+        f"FRESH_V5_FAMILY:{candidate['portfolio_scope']}:{candidate['symbol_code']}:"
+        f"{candidate['strategy_code']}:{candidate['side_code']}"
+    )
+    cursor.execute("""
+        SELECT run_id
+        FROM analytics.trade_outcome_pattern_run_v1
+        ORDER BY source_max_closed_at DESC NULLS LAST,created_at DESC
+        LIMIT 1
+    """)
+    source_run = cursor.fetchone()
+    if not source_run:
+        return 0
+    cursor.execute("""
+        INSERT INTO analytics.trade_outcome_hypothesis_v1(
+          hypothesis_id,hypothesis_key,source_run_id,hypothesis_type,strategy_code,
+          side_code,session_code,holding_code,trades,context_complete_trades,
+          profit_factor,expectancy,priority_score,lifecycle_state,recommendation_code,
+          evidence,regime_code,symbol)
+        VALUES(gen_random_uuid(),%s,%s,'FILTER_OOS_CANDIDATE',%s,%s,'*','*',%s,%s,
+               %s,%s,1000,'READY_FOR_OOS','FREEZE_FAMILY_FOR_FUTURE_OOS',
+               %s::jsonb,'*',%s)
+        ON CONFLICT(hypothesis_key) DO NOTHING
+        RETURNING hypothesis_id
+    """, (
+        hypothesis_key, source_run["run_id"], candidate["strategy_code"],
+        candidate["side_code"], candidate["closed_trades"], candidate["closed_trades"],
+        candidate["profit_factor"], candidate["expectancy"],
+        psycopg2.extras.Json({
+            "family_policy": "INSTRUMENT_SIDE_V1",
+            "selection_metric": "MATCHED_PAPER_SHADOW_BEATS_PLACEBO",
+            "training_expectancy_r": float(candidate["expectancy_r"]),
+            "candidate_code": candidate["candidate_code"],
+            "entry_mode": candidate["entry_mode"],
+            "stop_atr": float(candidate["stop_atr"]),
+            "take_atr": float(candidate["take_atr"]),
+            "immutable_after_freeze": True,
+        }),
+        candidate["symbol_code"],
+    ))
+    inserted = cursor.fetchone()
+    if not inserted:
+        return 0
+    request = psycopg2.extras.Json({
+        "source": SOURCE,
+        "family_policy": "INSTRUMENT_SIDE_V1",
+        "paper_strategy_code": candidate["strategy_code"],
+        "strategy_code": candidate["strategy_code"],
+        "timeframe": "M5",
+        "side_code": candidate["side_code"],
+        "symbol": candidate["symbol_code"],
+        "session_code": "*",
+        "holding_code": "*",
+        "regime_code": "*",
+        "fresh_cohort": "FRESH_V5_CONFIRMED",
+        "minimum_closed_trades": FAMILY_FREEZE_MIN_TRADES,
+        "v5_closed_trades": candidate["closed_trades"],
+        "net_expectancy": float(candidate["expectancy"]),
+        "net_profit_factor": float(candidate["profit_factor"]),
+        "promotion_allowed": False,
+        "frozen_profile": {
+            "candidate_code": candidate["candidate_code"],
+            "entry_mode": candidate["entry_mode"],
+            "stop_atr": float(candidate["stop_atr"]),
+            "take_atr": float(candidate["take_atr"]),
+            "trail_after_r": (
+                None if candidate["trail_after_r"] is None
+                else float(candidate["trail_after_r"])
+            ),
+            "trail_atr": (
+                None if candidate["trail_atr"] is None
+                else float(candidate["trail_atr"])
+            ),
+        },
+        "temporal_isolation": {
+            "policy": "PURGED_EMBARGO_V5_V1",
+            "future_data_only": True,
+            "purge_before_ts": candidate["purge_before_ts"].isoformat(),
+            "embargo_seconds": int(candidate["embargo_seconds"]),
+            "confirmation_after_ts": confirmation_after.isoformat(),
+        },
+    })
+    cursor.execute("""
+        INSERT INTO analytics.trade_outcome_oos_admission_v1(
+          admission_id,hypothesis_id,symbol,fresh_closed_trades,context_complete_trades,
+          microstructure_coverage_ratio,required_microstructure_coverage,status_code,
+          reason_code,oos_request,net_expectancy,net_profit_factor,execution_cost,
+          cost_admission_status)
+        VALUES(gen_random_uuid(),%s,%s,%s,%s,0,0,'QUEUED',
+               'READY_FOR_FAMILY_FUTURE_OOS',%s,%s,%s,0,'FAMILY_OOS_QUEUED')
+    """, (
+        inserted["hypothesis_id"], candidate["symbol_code"],
+        candidate["closed_trades"], candidate["closed_trades"], request,
+        candidate["expectancy"], candidate["profit_factor"],
+    ))
+    return 1
+
+
 def main() -> int:
     with psycopg2.connect(DB) as connection:
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
@@ -76,6 +253,7 @@ def main() -> int:
                 print("VERDICT=TRADE_OUTCOME_OOS_ADMISSION_ALREADY_RUNNING")
                 return 0
             refreshed = _refresh_fresh_v5_hypotheses(cursor)
+            family_frozen = _freeze_best_family_candidate(cursor)
             cursor.execute("""SELECT h.hypothesis_id,h.strategy_code,coalesce(sm.oos_strategy_code,h.strategy_code) AS oos_strategy_code,
                        coalesce(sm.oos_timeframe,'M5') AS oos_timeframe,h.side_code,h.symbol,h.session_code,
                        h.holding_code,h.regime_code,h.lifecycle_state,h.recommendation_code,
@@ -209,6 +387,7 @@ def main() -> int:
                      row["net_expectancy"],row["net_profit_factor"],row["execution_cost"],cost_status))
                 counts[status] = counts.get(status, 0) + 1
     print(f"fresh_v5_hypotheses_refreshed={refreshed}")
+    print(f"family_oos_candidates_frozen={family_frozen}")
     print(" ".join(f"{status}={count}" for status, count in sorted(counts.items())))
     print(f"VERDICT={SOURCE}_OK")
     return 0

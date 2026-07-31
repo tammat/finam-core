@@ -5810,35 +5810,72 @@ class PaperTradingPipeline:
             str(intent.get("intent_type") or "ENTRY").upper() != "EXIT"
             and os.getenv("PAPER_REQUIRE_PROMOTED_OOS", "1") == "1"
         ):
-            promoted_oos = False
+            paper_oos_allowed = False
             try:
-                cache_until = float(
-                    getattr(self, "_promoted_oos_cache_until_v1", 0.0) or 0.0
+                cache_key = (
+                    str(intent.get("symbol") or sym),
+                    str(intent.get("side") or ""),
+                    str(
+                        intent.get("strategy")
+                        or (intent.get("features") or {}).get("strategy")
+                        or "UNASSIGNED"
+                    ),
                 )
-                if time.time() >= cache_until:
+                cache = dict(getattr(self, "_paper_oos_gate_cache_v1", {}) or {})
+                cached = cache.get(cache_key)
+                if not cached or time.time() >= float(cached[1]):
                     with self.pg_logger._connect() as oos_conn:
                         with oos_conn.cursor() as oos_cursor:
                             oos_cursor.execute("""
-                                SELECT EXISTS (
-                                  SELECT 1
-                                  FROM analytics.edge_oos_result_v1
-                                  WHERE verdict_code='OOS_PASS'
-                                    AND promotion_allowed=true
+                                SELECT (
+                                  EXISTS (
+                                    SELECT 1
+                                    FROM analytics.edge_oos_result_v1
+                                    WHERE verdict_code='OOS_PASS'
+                                      AND promotion_allowed=true
+                                  )
+                                  OR EXISTS (
+                                    SELECT 1
+                                    FROM analytics.trade_outcome_oos_admission_v1 a
+                                    WHERE a.status_code IN ('QUEUED','RUNNING')
+                                      AND a.symbol=%s
+                                      AND upper(a.oos_request->>'side_code')=
+                                          CASE WHEN upper(%s)='BUY' THEN 'LONG' ELSE 'SHORT' END
+                                      AND a.oos_request->>'paper_strategy_code'=%s
+                                      AND a.oos_request->>'family_policy'='INSTRUMENT_SIDE_V1'
+                                      AND a.oos_request->'frozen_profile'->>'candidate_code'=%s
+                                      AND clock_timestamp() >=
+                                          (a.oos_request->'temporal_isolation'
+                                            ->>'confirmation_after_ts')::timestamptz
+                                  )
                                 )
-                            """)
+                            """, (
+                                str(intent.get("symbol") or sym),
+                                str(intent.get("side") or ""),
+                                str(
+                                    intent.get("strategy")
+                                    or (intent.get("features") or {}).get("strategy")
+                                    or "UNASSIGNED"
+                                ),
+                                str(
+                                    (intent.get("features") or {}).get(
+                                        "entry_exit_candidate_code"
+                                    )
+                                    or "NO_FROZEN_PROFILE"
+                                ),
+                            ))
                             row = oos_cursor.fetchone()
-                    self._promoted_oos_cache_v1 = bool(row and row[0])
-                    self._promoted_oos_cache_until_v1 = time.time() + 60.0
-                promoted_oos = bool(
-                    getattr(self, "_promoted_oos_cache_v1", False)
-                )
+                    cache[cache_key] = (bool(row and row[0]), time.time() + 60.0)
+                    self._paper_oos_gate_cache_v1 = cache
+                    cached = cache[cache_key]
+                paper_oos_allowed = bool(cached[0])
             except Exception as exc:
                 self._log_dedup(
                     "PIPE_PROMOTED_OOS_GATE_ERROR",
                     f"PIPE_PROMOTED_OOS_GATE_ERROR {type(exc).__name__}:{exc}",
                     heartbeat_sec=300,
                 )
-            if not promoted_oos:
+            if not paper_oos_allowed:
                 self._log_dedup(
                     f"PIPE_PAPER_SHADOW_ONLY_NO_OOS:{sym}",
                     f"PIPE_PAPER_SHADOW_ONLY_NO_OOS symbol={sym} "

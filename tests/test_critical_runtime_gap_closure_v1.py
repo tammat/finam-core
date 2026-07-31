@@ -205,3 +205,24 @@ def test_paper_entries_are_shadow_only_until_promoted_oos_exists():
     assert pipeline.index("signal_repository.save_signal(intent)") < pipeline.index(
         "PIPE_PAPER_SHADOW_ONLY_NO_OOS"
     )
+    assert "family_policy'='INSTRUMENT_SIDE_V1" in pipeline
+    assert "confirmation_after_ts')::timestamptz" in pipeline
+
+
+def test_v5_family_oos_freezes_one_risk_normalized_candidate():
+    source = (
+        ROOT / "src/scripts/admit_trade_outcome_hypotheses_to_oos_v1.py"
+    ).read_text()
+    assert "def _freeze_best_family_candidate" in source
+    assert "h.level_code='INSTRUMENT_SIDE'" in source
+    assert "h.expectancy_r > 0" in source
+    assert "entry_exit_runtime_profile_v1 p" in source
+    assert "p.status='ACTIVE'" in source
+    assert "negative_control'->>'passed" in source
+    assert "delta_lower_bound_r" in source
+    assert "MATCHED_PAPER_SHADOW_BEATS_PLACEBO" in source
+    assert '"frozen_profile"' in source
+    assert "LIMIT 1" in source
+    assert '"future_data_only": True' in source
+    assert '"family_policy": "INSTRUMENT_SIDE_V1"' in source
+    assert "READY_FOR_FAMILY_FUTURE_OOS" in source
