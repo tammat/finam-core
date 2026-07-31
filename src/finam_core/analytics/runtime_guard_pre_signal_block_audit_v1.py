@@ -48,6 +48,17 @@ class RuntimeGuardPreSignalBlockAuditV1:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
                 """)
+                cur.execute("""
+                ALTER TABLE runtime_guard_pre_signal_block_audit_v1
+                  ADD COLUMN IF NOT EXISTS event_key TEXT,
+                  ADD COLUMN IF NOT EXISTS side TEXT,
+                  ADD COLUMN IF NOT EXISTS decision TEXT;
+                """)
+                cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_runtime_guard_pre_signal_event_v1
+                ON runtime_guard_pre_signal_block_audit_v1(event_key)
+                WHERE event_key IS NOT NULL;
+                """)
 
                 cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_runtime_guard_pre_signal_block_audit_v1_symbol_ts
@@ -87,6 +98,10 @@ class RuntimeGuardPreSignalBlockAuditV1:
         trend: str | None = None,
         volatility: str | None = None,
         payload: dict[str, Any] | None = None,
+        event_key: str | None = None,
+        side: str | None = None,
+        decision: str | None = None,
+        ts: Any = None,
     ) -> None:
         payload = payload if isinstance(payload, dict) else {}
 
@@ -108,6 +123,7 @@ class RuntimeGuardPreSignalBlockAuditV1:
                     trend,
                     volatility,
                     payload
+                    ,event_key, side, decision, ts
                 )
                 VALUES (
                     %(symbol)s,
@@ -123,8 +139,17 @@ class RuntimeGuardPreSignalBlockAuditV1:
                     %(regime)s,
                     %(trend)s,
                     %(volatility)s,
-                    %(payload)s
+                    %(payload)s,
+                    %(event_key)s,
+                    %(side)s,
+                    %(decision)s,
+                    coalesce(%(ts)s, now())
                 )
+                ON CONFLICT (event_key) WHERE event_key IS NOT NULL DO UPDATE SET
+                  block_type=excluded.block_type,
+                  block_reason=excluded.block_reason,
+                  decision=excluded.decision,
+                  payload=runtime_guard_pre_signal_block_audit_v1.payload || excluded.payload
                 """, {
                     "symbol": symbol,
                     "strategy": strategy,
@@ -140,6 +165,10 @@ class RuntimeGuardPreSignalBlockAuditV1:
                     "trend": trend,
                     "volatility": volatility,
                     "payload": Jsonb(payload),
+                    "event_key": event_key,
+                    "side": side,
+                    "decision": decision,
+                    "ts": ts,
                 })
 
             conn.commit()

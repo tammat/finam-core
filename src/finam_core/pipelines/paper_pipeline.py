@@ -5204,12 +5204,49 @@ class PaperTradingPipeline:
         # =========================================================
         # === REGIME FILTER
         # =========================================================
+        if not is_force_intent:
+            self._audit_pre_signal_candidate_v1(
+                raw_intent=raw_intent,
+                symbol=str(sym),
+                regime=regime,
+                decision="DETECTED",
+                reason="ENTRY_CANDIDATE_DETECTED",
+            )
         if (not is_force_intent) and not regime.is_tradeable():
+            market_context = self._market_context_admission_v1()
+            shadow_saved = False
+            if market_context.shadow_allowed:
+                shadow_saved = self._persist_pre_signal_shadow_candidate_v1(
+                    raw_intent=raw_intent,
+                    symbol=str(sym),
+                    regime=regime,
+                    market_context=market_context,
+                )
+            self._audit_pre_signal_candidate_v1(
+                raw_intent=raw_intent,
+                symbol=str(sym),
+                regime=regime,
+                decision=(
+                    "INDEX_ONLY_SHADOW"
+                    if market_context.mode == "INDEX_ONLY" and shadow_saved
+                    else "REGIME_BLOCK"
+                ),
+                reason=market_context.reason,
+            )
             print(
-                f"PIPE_REGIME_BLOCK trend={regime.trend} vol={regime.volatility}",
+                f"PIPE_REGIME_BLOCK trend={regime.trend} vol={regime.volatility} "
+                f"market_context={market_context.mode} shadow_saved={int(shadow_saved)}",
                 flush=True,
             )
             return
+        if not is_force_intent:
+            self._audit_pre_signal_candidate_v1(
+                raw_intent=raw_intent,
+                symbol=str(sym),
+                regime=regime,
+                decision="REGIME_PASSED",
+                reason="LOCAL_REGIME_TRADEABLE",
+            )
         # =========================================================
         # === SIGNAL INTENT V2 COMPATIBILITY BRIDGE
         # =========================================================
@@ -9005,6 +9042,10 @@ class PaperTradingPipeline:
         trend: str | None = None,
         volatility: str | None = None,
         payload: dict | None = None,
+        event_key: str | None = None,
+        side: str | None = None,
+        decision: str | None = None,
+        ts=None,
     ) -> None:
         """Русский комментарий: сохраняет pre-signal блокировки без влияния на execution."""
         try:
@@ -9033,9 +9074,170 @@ class PaperTradingPipeline:
                 trend=trend,
                 volatility=volatility,
                 payload=payload or {},
+                event_key=event_key,
+                side=side,
+                decision=decision,
+                ts=ts,
             )
         except Exception as exc:
             print(f"RUNTIME_GUARD_PRE_SIGNAL_BLOCK_AUDIT_FAILED error={exc}", flush=True)
+
+    def _market_context_admission_v1(self):
+        """Read current index/RVI freshness without granting execution itself."""
+        from datetime import datetime, timezone
+        import psycopg
+
+        from finam_core.analytics.market_context_admission_v1 import (
+            decide_market_context_admission_v1,
+        )
+        from finam_core.analytics.statistics_repository import build_psycopg_url
+
+        index_bar_ts = None
+        rvi_bar_ts = None
+        try:
+            with psycopg.connect(os.getenv("DATABASE_URL") or build_psycopg_url()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT
+                          (SELECT max(ts) FROM market_bars
+                           WHERE symbol='IMOEX2' AND timeframe='M1') AS index_bar_ts,
+                          (SELECT max(ts) FROM market_bars
+                           WHERE symbol LIKE 'VI%%@RTSX' AND timeframe='M1') AS rvi_bar_ts
+                    """)
+                    row = cur.fetchone()
+                    if row:
+                        index_bar_ts, rvi_bar_ts = row
+        except Exception as exc:
+            print(
+                f"PIPE_MARKET_CONTEXT_FRESHNESS_READ_FAILED error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+        return decide_market_context_admission_v1(
+            now=datetime.now(timezone.utc),
+            index_bar_ts=index_bar_ts,
+            rvi_bar_ts=rvi_bar_ts,
+            index_max_age_seconds=int(os.getenv("MARKET_CONTEXT_INDEX_MAX_AGE_SEC", "600")),
+            rvi_max_age_seconds=int(os.getenv("MARKET_CONTEXT_RVI_MAX_AGE_SEC", "1800")),
+        )
+
+    @staticmethod
+    def _pre_signal_intent_value_v1(raw_intent, key: str, default=None):
+        if isinstance(raw_intent, dict):
+            value = raw_intent.get(key)
+            if value is None and isinstance(raw_intent.get("features"), dict):
+                value = raw_intent["features"].get(key)
+            return default if value is None else value
+        value = getattr(raw_intent, key, None)
+        if value is None:
+            features = getattr(raw_intent, "features", None)
+            if isinstance(features, dict):
+                value = features.get(key)
+        return default if value is None else value
+
+    def _pre_signal_candidate_key_v1(self, raw_intent, symbol: str, regime) -> str:
+        from datetime import datetime, timezone
+
+        from finam_core.analytics.market_context_admission_v1 import (
+            independent_candidate_key_v1,
+        )
+
+        price = float(
+            self._pre_signal_intent_value_v1(
+                raw_intent, "entry_price",
+                self._pre_signal_intent_value_v1(raw_intent, "price", 0.0),
+            ) or 0.0
+        )
+        atr = float(
+            self._pre_signal_intent_value_v1(
+                raw_intent, "atr", getattr(regime, "atr", 0.0)
+            ) or 0.0
+        )
+        strategy = str(
+            self._pre_signal_intent_value_v1(
+                raw_intent, "strategy", self._strategy_name_for_symbol(symbol)
+            )
+        )
+        side = str(self._pre_signal_intent_value_v1(raw_intent, "side", "UNKNOWN"))
+        return independent_candidate_key_v1(
+            strategy=strategy,
+            symbol=symbol,
+            side=side,
+            event_ts=datetime.now(timezone.utc),
+            price=price,
+            atr=atr,
+            regime=str(getattr(regime, "type", None) or getattr(regime, "trend", "UNKNOWN")),
+            futures=symbol.upper().endswith("@RTSX"),
+        )
+
+    def _audit_pre_signal_candidate_v1(
+        self, *, raw_intent, symbol: str, regime, decision: str, reason: str
+    ) -> None:
+        event_key = self._pre_signal_candidate_key_v1(raw_intent, symbol, regime)
+        side = str(self._pre_signal_intent_value_v1(raw_intent, "side", "UNKNOWN"))
+        self._save_pre_signal_block_audit_v1(
+            symbol=symbol,
+            strategy=str(
+                self._pre_signal_intent_value_v1(
+                    raw_intent, "strategy", self._strategy_name_for_symbol(symbol)
+                )
+            ),
+            timeframe=str(
+                self._pre_signal_intent_value_v1(
+                    raw_intent, "timeframe", getattr(self, "timeframe", "M5")
+                )
+            ),
+            block_type="ENTRY_CANDIDATE",
+            block_reason=reason,
+            price=self._pre_signal_intent_value_v1(raw_intent, "entry_price"),
+            atr=getattr(regime, "atr", None),
+            regime=str(getattr(regime, "type", None) or ""),
+            trend=str(getattr(regime, "trend", None) or ""),
+            volatility=str(getattr(regime, "volatility", None) or ""),
+            event_key=event_key,
+            side=side,
+            decision=decision,
+            payload={"source": "paper_pipeline", "candidate_key": event_key},
+        )
+
+    def _persist_pre_signal_shadow_candidate_v1(
+        self, *, raw_intent, symbol: str, regime, market_context
+    ) -> bool:
+        """Persist one independent research observation; never route an order."""
+        repository = getattr(self, "signal_repository", None)
+        if repository is None:
+            return False
+        try:
+            normalized = StrategyIntentAdapter.normalize(raw_intent)
+            intent = StrategyIntentAdapter.to_pipeline_dict(normalized)
+            event_key = self._pre_signal_candidate_key_v1(intent, symbol, regime)
+            intent["signal_id"] = event_key
+            intent["status"] = "RISK_REJECTED"
+            intent["portfolio_scope"] = "FRESH_V5_INDEX_ONLY_SHADOW"
+            intent.setdefault("context", {})
+            intent["context"].update({
+                "cohort": "FRESH_V5_INDEX_ONLY_SHADOW",
+                "market_context_mode": market_context.mode,
+                "paper_allowed": False,
+                "shadow_only": True,
+            })
+            signal_id = repository.save_signal(intent)
+            repository.mark_rejected(
+                signal_id,
+                f"market_context:{market_context.mode}:{market_context.reason}",
+            )
+            print(
+                f"PIPE_PRE_SIGNAL_SHADOW_SAVED symbol={symbol} "
+                f"signal_id={signal_id} mode={market_context.mode} paper_allowed=0",
+                flush=True,
+            )
+            return True
+        except Exception as exc:
+            print(
+                f"PIPE_PRE_SIGNAL_SHADOW_SAVE_FAILED symbol={symbol} "
+                f"error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+            return False
 
 
     def _is_runtime_strategy_blocked_v1(self, symbol: str, strategy: str) -> tuple[bool, str]:

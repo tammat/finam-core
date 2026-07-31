@@ -485,6 +485,14 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool, dict]:
                              coalesce(ts, created_at), id
                 )
                 SELECT
+                    (SELECT count(DISTINCT event_key)
+                       FROM public.runtime_guard_pre_signal_block_audit_v1
+                       WHERE ts >= date_trunc('day', now())
+                         AND block_type='ENTRY_CANDIDATE') AS candidates,
+                    (SELECT count(DISTINCT event_key)
+                       FROM public.runtime_guard_pre_signal_block_audit_v1
+                       WHERE ts >= date_trunc('day', now())
+                         AND decision IN ('INDEX_ONLY_SHADOW','REGIME_BLOCK')) AS pre_signal_blocked,
                     (SELECT count(*) FROM today_signals) AS raw_signals,
                     (SELECT count(*) FROM independent) AS independent_signals,
                     (SELECT count(*) FROM independent WHERE status='RISK_REJECTED') AS rejected,
@@ -526,10 +534,24 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool, dict]:
                     ORDER BY strategy, symbol_group, upper(side), signal_window,
                              coalesce(ts, created_at), id
                 )
-                SELECT coalesce(rejection_reason, 'Без указанной причины') AS reason, count(*) AS rows_total
-                FROM independent
-                WHERE status='RISK_REJECTED'
-                GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+                SELECT stage, reason, rows_total
+                FROM (
+                    SELECT 'До сигнала' AS stage,
+                           coalesce(block_reason, 'Без указанной причины') AS reason,
+                           count(DISTINCT event_key) AS rows_total
+                    FROM public.runtime_guard_pre_signal_block_audit_v1
+                    WHERE ts >= date_trunc('day', now())
+                      AND decision IN ('INDEX_ONLY_SHADOW','REGIME_BLOCK')
+                    GROUP BY 1,2
+                    UNION ALL
+                    SELECT 'После сигнала' AS stage,
+                           coalesce(rejection_reason, 'Без указанной причины') AS reason,
+                           count(*) AS rows_total
+                    FROM independent
+                    WHERE status='RISK_REJECTED'
+                    GROUP BY 1,2
+                ) losses
+                ORDER BY rows_total DESC LIMIT 10
             """)
             daily["reasons"] = [dict(row) for row in cur.fetchall()]
     return stages, reasons, comparable, daily
@@ -1151,6 +1173,8 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         for row in funnel_reasons
     )
     daily_funnel_stages = (
+        ("Кандидаты входа", daily_funnel.get("candidates", 0)),
+        ("Блокировки до сигнала", daily_funnel.get("pre_signal_blocked", 0)),
         ("Сырые события", daily_funnel.get("raw_signals", 0)),
         ("Независимые сигналы", daily_funnel.get("independent_signals", 0)),
         ("Shadow-наблюдения", daily_funnel.get("shadow", 0)),
@@ -1163,9 +1187,9 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         for label, value in daily_funnel_stages
     )
     daily_reason_rows = "".join(
-        f"<tr><td>{html.escape(str(row['reason']))}</td><td>{int(row['rows_total'])}</td></tr>"
+        f"<tr><td>{html.escape(str(row['stage']))}</td><td>{html.escape(str(row['reason']))}</td><td>{int(row['rows_total'])}</td></tr>"
         for row in daily_funnel.get("reasons", [])
-    ) or "<tr><td>Сегодня независимых отклонённых сигналов нет</td><td>0</td></tr>"
+    ) or "<tr><td>—</td><td>Сегодня отклонённых кандидатов нет</td><td>0</td></tr>"
     last_signal_at = daily_funnel.get("last_signal_at")
     daily_funnel_note = (
         f"Последний сигнал сегодня: {last_signal_at:%H:%M:%S}"
@@ -1326,7 +1350,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <section id="signal-funnel" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar"><div><p class="mc-edge-eyebrow">SIGNAL FUNNEL</p><h2>Воронка сигналов</h2>
           <p>{html.escape(daily_funnel_note)} · дневные значения не смешиваются с историей</p></div><span class="mc-oos-badge {'fail' if live_boundary_blocked or not funnel_comparable else 'pass'}">{'LIVE ЗАБЛОКИРОВАН' if live_boundary_blocked else ('СОПОСТАВИМО' if funnel_comparable else 'НЕТ СВЯЗНОСТИ')}</span></div>
           <h3>Сегодня</h3><div class="mc-oos-kpis mc-funnel-kpis">{daily_funnel_cards}</div>
-          <details class="mc-table-spoiler" open><summary>Почему независимые сигналы не дошли до Paper <span>{int(daily_funnel.get('rejected', 0) or 0)}</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Причина</th><th>Сигналов</th></tr></thead><tbody>{daily_reason_rows}</tbody></table></div></details>
+          <details class="mc-table-spoiler" open><summary>Почему кандидаты не дошли до Paper <span>{int(daily_funnel.get('pre_signal_blocked', 0) or 0) + int(daily_funnel.get('rejected', 0) or 0)}</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Этап</th><th>Причина</th><th>Сигналов</th></tr></thead><tbody>{daily_reason_rows}</tbody></table></div></details>
           <details class="mc-table-spoiler"><summary>Историческая техническая воронка <span>{len(funnel_stages)} стадий</span></summary><div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div></details>
           <details class="mc-table-spoiler"><summary>Диагностические события и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Варианты причин</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div><p>Диагностические события собраны из журналов системы и не считаются потерями между этапами воронки.</p></details></section>
         <section id="strategy-generator" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">HYPOTHESIS PARAMETER SPACE V2</p><h2>Генератор стратегий</h2>

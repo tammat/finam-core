@@ -25,7 +25,7 @@ def test_signal_funnel_separates_today_from_history() -> None:
         "src/marketcore/presentation/workspace_v2/edge_oos_control_center_v1.py"
     ).read_text()
     assert "Независимые сигналы" in source
-    assert "Почему независимые сигналы не дошли до Paper" in source
+    assert "Почему кандидаты не дошли до Paper" in source
     assert "Историческая техническая воронка" in source
     assert "date_bin(interval '30 minutes'" in source
     assert "entry_exit_signal_shadow_pair_v2" in source
