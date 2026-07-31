@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from marketcore.presentation.render_tree.v2 import (
@@ -231,8 +231,21 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
              if bool(item.get("is_futures")) == futures]
     for index, item in enumerate(items, start=1):
         event_ts = item.get("event_ts")
-        time_text = event_ts.astimezone(local_tz).strftime("%H:%M:%S") if event_ts else "—"
+        opened_at = item.get("opened_at") or event_ts
+        carryover = bool(
+            opened_at
+            and opened_at.astimezone(local_tz).date() < datetime.now(local_tz).date()
+        )
+        time_text = (
+            opened_at.astimezone(local_tz).strftime(
+                "%d.%m %H:%M" if carryover else "%H:%M:%S"
+            )
+            if opened_at else "—"
+        )
         status = "Закрыта" if item.get("event_status") == "CLOSED" else "Активна"
+        status_text = (
+            "Активна · перенос" if status == "Активна" and carryover else status
+        )
         direction = "LONG" if item.get("direction") == "LONG" else "SHORT"
         pnl = item.get("net_pnl")
         pnl_status = "PROFIT" if pnl is not None and float(pnl) > 0 else (
@@ -241,7 +254,7 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
         def number(value):
             return "—" if value is None else f"{float(value):.4f}".rstrip("0").rstrip(".").replace(".", ",")
         exit_text = (
-            (f"{float(pnl):+.2f} ₽".replace(".", ",") if pnl is not None else "—")
+            (f"≈ {float(pnl):+.2f} ₽".replace(".", ",") if pnl is not None else "—")
             if status == "Активна" else number(item.get("exit_price"))
         )
         rows.append(RenderNodeV2(
@@ -256,7 +269,7 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.exit", exit_text, status=pnl_status if status == "Активна" else None),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.holding", _holding_text(item.get("holding_seconds"), status == "Активна")),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.reason", _exit_reason_text(item.get("exit_reason"), status == "Активна")),
-                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.trade_state", status),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.trade_state", status_text),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.pnl", number(pnl), status=pnl_status),
             ),
         ))

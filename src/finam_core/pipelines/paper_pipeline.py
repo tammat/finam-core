@@ -3857,6 +3857,7 @@ class PaperTradingPipeline:
 
         market_data_live = self._is_verified_live_quote_event(event, ts)
         storage_session = self.session.get_regime(sym, market_data_live=market_data_live)
+        position_management_only = False
 
         # Старая snapshot-котировка не должна превращаться в новые M1/M5/M15 свечи.
         if market_data_live and self._has_new_trade_progress(event):
@@ -3886,12 +3887,35 @@ class PaperTradingPipeline:
                 msg = f"PIPE_PORTFOLIO_KILL_SWITCH_BLOCK {kill_reason}"
                 print(msg, flush=True)
                 self._notify_telegram_event(f"🛑 Portfolio kill-switch\n{kill_reason}")
-            return
+            if self.execution_mode == "paper" and self._has_scoped_research_position_v1(sym):
+                position_management_only = True
+                self._log_dedup(
+                    f"PIPE_KILL_SWITCH_POSITION_MANAGEMENT_ONLY:{sym}",
+                    f"PIPE_KILL_SWITCH_POSITION_MANAGEMENT_ONLY symbol={sym} reason={kill_reason}",
+                    heartbeat_sec=60,
+                )
+            else:
+                return
 
         # =========================================================
         # === SESSION LAYER (ЕДИНЫЙ ИСТОЧНИК)
         # =========================================================
         session = storage_session
+        if (
+            self.execution_mode == "paper"
+            and
+            not session.get("allow_entries", False)
+            and self._has_scoped_research_position_v1(sym)
+        ):
+            position_management_only = True
+            session = dict(session)
+            session["allow_entries"] = True
+            self._log_dedup(
+                f"PIPE_SESSION_POSITION_MANAGEMENT_ONLY:{sym}",
+                f"PIPE_SESSION_POSITION_MANAGEMENT_ONLY symbol={sym} "
+                f"phase={storage_session.get('phase')}",
+                heartbeat_sec=60,
+            )
         # === FORCE OVERRIDE (DEV MODE) ===
         if os.getenv("SESSION_OVERRIDE", "0") == "1":
             self._log_dedup(
@@ -4152,6 +4176,11 @@ class PaperTradingPipeline:
                 )
                 return
 
+
+        if position_management_only:
+            # Existing positions must reach stop/take/trailing, but the session
+            # or kill-switch gate still forbids every new entry.
+            return
 
         # =========================================================
         # === FORCE TEST SIGNAL (E2E PIPELINE SMOKE)
@@ -8808,6 +8837,33 @@ class PaperTradingPipeline:
             )
             return True
 
+    def _open_scoped_research_symbols_v1(self) -> list[str]:
+        """Open V5 Paper positions are mandatory market-data subscriptions."""
+        try:
+            database_url = os.getenv("DATABASE_URL", "")
+            if not database_url:
+                return []
+            import psycopg
+
+            with psycopg.connect(database_url) as conn:
+                rows = conn.execute("""
+                    SELECT DISTINCT symbol
+                    FROM analytics.paper_research_position_projection_v1
+                    WHERE portfolio_scope LIKE 'FRESH_V5%%'
+                      AND symbol NOT LIKE 'TEST@%%'
+                      AND abs(coalesce(nullif(state->>'net_qty','')::double precision,
+                                       nullif(state->>'qty','')::double precision,0)) > 1e-9
+                    ORDER BY symbol
+                """).fetchall()
+            return [str(row[0]) for row in rows if row and row[0]]
+        except Exception as exc:
+            self._log_dedup(
+                "PIPE_OPEN_POSITION_SUBSCRIPTION_READ_ERROR",
+                f"PIPE_OPEN_POSITION_SUBSCRIPTION_READ_ERROR {type(exc).__name__}:{exc}",
+                heartbeat_sec=300,
+            )
+            return []
+
     def _runtime_symbol_reload_if_due(self, current_symbols: list[str]) -> list[str]:
         """Русский комментарий: периодически перечитывает runtime-universe из dynamic_watchlist."""
         try:
@@ -8839,20 +8895,33 @@ class PaperTradingPipeline:
                 self.runtime_symbol_reload_service = svc
 
             decision = svc.decide(current_symbols)
+            open_position_symbols = self._open_scoped_research_symbols_v1()
+            effective_active_symbols = list(dict.fromkeys(
+                [*decision.active_symbols, *open_position_symbols]
+            ))
+            effective_added_symbols = list(dict.fromkeys(
+                [*decision.added_symbols,
+                 *(symbol for symbol in open_position_symbols if symbol not in current_symbols)]
+            ))
+            effective_removed_symbols = [
+                symbol for symbol in decision.removed_symbols
+                if symbol not in open_position_symbols
+            ]
 
             self._log_dedup(
                 "PIPE_RUNTIME_SYMBOL_RELOAD",
                 "PIPE_RUNTIME_SYMBOL_RELOAD "
-                f"active={','.join(decision.active_symbols)} "
-                f"added={','.join(decision.added_symbols)} "
-                f"removed={','.join(decision.removed_symbols)}",
+                f"active={','.join(effective_active_symbols)} "
+                f"added={','.join(effective_added_symbols)} "
+                f"removed={','.join(effective_removed_symbols)} "
+                f"open_position_pins={','.join(open_position_symbols)}",
                 heartbeat_sec=float(os.getenv("RUNTIME_SYMBOL_RELOAD_LOG_SEC", "60")),
             )
 
             if not hasattr(self, "strategy_by_symbol") or self.strategy_by_symbol is None:
                 self.strategy_by_symbol = {}
 
-            for dynamic_symbol in decision.added_symbols:
+            for dynamic_symbol in effective_added_symbols:
                 if dynamic_symbol not in self.strategy_by_symbol:
                     # EQUITY_STRATEGY_WIRING_PATCH_V1
                     # Русский комментарий: для equity-symbol стратегия должна браться
@@ -8873,7 +8942,7 @@ class PaperTradingPipeline:
                     )
 
             # Русский комментарий: удаляем runtime strategy/state только если по символу нет открытой позиции.
-            for stale_symbol in decision.removed_symbols:
+            for stale_symbol in effective_removed_symbols:
                 try:
                     position_qty = 0.0
                     try:
@@ -8912,13 +8981,13 @@ class PaperTradingPipeline:
                     )
 
             # Русский комментарий: runtime MarketData resubscribe без restart pipeline.
-            self._runtime_active_symbols = decision.active_symbols
+            self._runtime_active_symbols = effective_active_symbols
 
             # Flat-only rollover может заменить BR-контракт в runtime-universe без
             # restart процесса. Не переносим состояние breakout между контрактами
             # и дополнительно отказываемся менять генератор при локальной позиции.
             active_br = next(
-                (str(symbol) for symbol in decision.active_symbols if str(symbol).startswith("BR")),
+                (str(symbol) for symbol in effective_active_symbols if str(symbol).startswith("BR")),
                 "",
             )
             if active_br and active_br != str(getattr(self, "br_breakout_symbol", "")):
@@ -8956,12 +9025,12 @@ class PaperTradingPipeline:
                 marketdata = getattr(self, "marketdata", None)
 
                 if marketdata is not None and hasattr(marketdata, "ensure_subscribed"):
-                    marketdata.ensure_subscribed(decision.active_symbols)
+                    marketdata.ensure_subscribed(effective_active_symbols)
 
                     self._log_dedup(
                         "PIPE_RUNTIME_MD_RESUBSCRIBE",
                         "PIPE_RUNTIME_MD_RESUBSCRIBE "
-                        f"symbols={','.join(decision.active_symbols)}",
+                        f"symbols={','.join(effective_active_symbols)}",
                         heartbeat_sec=float(os.getenv("RUNTIME_MD_RESUBSCRIBE_LOG_SEC", "60")),
                     )
 
@@ -8972,7 +9041,7 @@ class PaperTradingPipeline:
                     heartbeat_sec=300,
                 )
 
-            return decision.active_symbols
+            return effective_active_symbols
 
         except Exception as exc:
             self._log_dedup(

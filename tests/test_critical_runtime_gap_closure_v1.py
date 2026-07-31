@@ -58,6 +58,42 @@ def test_home_trade_tables_include_colored_daily_total():
     assert '"LOSS" if daily_total' in source
 
 
+def test_open_paper_positions_are_managed_before_entry_gates():
+    source = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
+    assert "PIPE_SESSION_POSITION_MANAGEMENT_ONLY" in source
+    assert "PIPE_KILL_SWITCH_POSITION_MANAGEMENT_ONLY" in source
+    assert "if position_management_only:" in source
+    assert source.index("PIPE_SESSION_POSITION_MANAGEMENT_ONLY") < source.index(
+        "=== EXIT ENGINE ROUTE"
+    )
+    assert source.index("if position_management_only:") > source.index(
+        "=== EXIT ENGINE ROUTE"
+    )
+    assert 'self.execution_mode == "paper"' in source
+
+
+def test_open_paper_positions_are_pinned_to_market_data_subscription():
+    source = (ROOT / "src/finam_core/pipelines/paper_pipeline.py").read_text()
+    assert "def _open_scoped_research_symbols_v1" in source
+    assert "open_position_pins=" in source
+    assert "effective_active_symbols" in source
+    assert "marketdata.ensure_subscribed(effective_active_symbols)" in source
+
+
+def test_trade_ui_marks_carryover_and_preliminary_open_pnl():
+    resolver = (
+        ROOT
+        / "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py"
+    ).read_text()
+    renderer = (
+        ROOT
+        / "src/marketcore/presentation/workspace_v2/renderer/home_compact_v1_domain_renderer.py"
+    ).read_text()
+    assert "x.opened_at,x.quote_ts" in resolver
+    assert '"Активна · перенос"' in renderer
+    assert 'f"≈ {float(pnl):+.2f} ₽"' in renderer
+
+
 def test_lifecycle_is_single_position_per_scope_and_symbol():
     repository = (
         ROOT / "src/finam_core/execution/position_lifecycle_state_repository.py"

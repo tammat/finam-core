@@ -327,7 +327,9 @@ class ControlCompactV3Resolver:
                              coalesce(c.holding_seconds,c.hold_seconds)::bigint AS holding_seconds,
                              c.strategy AS entry_signal,
                              coalesce(c.payload->'context'->>'actual_exit_reason',
-                                      c.payload->'context'->>'exit_rule', 'unknown') AS exit_reason
+                                      c.payload->'context'->>'exit_rule', 'unknown') AS exit_reason,
+                             coalesce(c.entry_ts,c.opened_at,c.created_at) AS opened_at,
+                             coalesce(c.exit_ts,c.closed_at,c.created_at) AS quote_ts
                       FROM closed_trades c
                       LEFT JOIN LATERAL (
                         SELECT buy_sell_fee,source_payload
@@ -358,7 +360,9 @@ class ControlCompactV3Resolver:
                                   ELSE NULL END AS net_pnl,
                              extract(epoch FROM clock_timestamp()-coalesce(l.created_at,p.updated_at))::bigint AS holding_seconds,
                              coalesce(signal.strategy,'UNASSIGNED') AS entry_signal,
-                             'position_open'::text AS exit_reason
+                             'position_open'::text AS exit_reason,
+                             coalesce(l.created_at,p.updated_at) AS opened_at,
+                             b.ts AS quote_ts
                       FROM analytics.paper_research_position_projection_v1 p
                       CROSS JOIN LATERAL (
                         SELECT coalesce(nullif(p.state->>'net_qty','')::numeric,
@@ -392,7 +396,7 @@ class ControlCompactV3Resolver:
                         ORDER BY spec.valid_from DESC LIMIT 1
                       ) ms ON true
                       LEFT JOIN LATERAL (
-                        SELECT close
+                        SELECT close, ts
                         FROM market_bars mb
                         WHERE mb.symbol=p.symbol
                         ORDER BY mb.ts DESC LIMIT 1
@@ -415,7 +419,7 @@ class ControlCompactV3Resolver:
                     )
                     SELECT x.event_ts,x.symbol,x.event_status,x.direction,
                            x.entry_price,x.exit_price,x.net_pnl,x.holding_seconds,x.entry_signal,x.exit_reason,
-                           x.is_futures,x.daily_net_pnl,
+                           x.is_futures,x.daily_net_pnl,x.opened_at,x.quote_ts,
                            CASE WHEN r.display_name IS DISTINCT FROM x.symbol
                                 THEN r.display_name END AS instrument_name
                     FROM ranked x
