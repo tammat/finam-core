@@ -228,6 +228,44 @@ def test_adaptive_retest_rejects_unknown_runaway_then_retest_order():
     assert out.entry_decision_reason.endswith("RUNAWAY_OR_AMBIGUOUS_BAR")
 
 
+def test_expert_ng_policy_requires_mtf_trend_volume_and_atr():
+    context = EntryContext(
+        atr_percentile=0.5, relative_volume=1.4, regime="trend_up_normal_vol",
+        strategy="NG_CONSERVATIVE_BREAKOUT_M1", higher_timeframe_aligned=True,
+    )
+    assert adaptive_entry_decision(
+        context, take_atr=2.4, policy_code="EXPERT_NG"
+    ) == ("CONFIRM_1", "NG_MTF_VOLUME_CONFIRM")
+    blocked = EntryContext(
+        atr_percentile=0.5, relative_volume=1.4, regime="trend_up_normal_vol",
+        strategy="NG_CONSERVATIVE_BREAKOUT_M1", higher_timeframe_aligned=False,
+    )
+    assert adaptive_entry_decision(
+        blocked, take_atr=2.4, policy_code="EXPERT_NG"
+    )[0] == "SKIP"
+
+
+def test_expert_variants_are_shadow_only_and_small():
+    from finam_core.analytics.entry_exit_optimizer import expert_shadow_variants
+
+    strategies = (
+        "BR_CONSERVATIVE_BREAKOUT", "NG_CONSERVATIVE_BREAKOUT_M1",
+        "CNY_REGIME_FUTURES", "USD_REGIME_FUTURES", "GOLD_TREND_BREAKOUT",
+        "MEAN_REVERSION_EQUITY", "VOLATILITY_BREAKOUT_EQUITY",
+    )
+    variants = [expert_shadow_variants(strategy)[0] for strategy in strategies]
+    assert all(variant.shadow_only for variant in variants)
+    assert len({variant.policy_code for variant in variants}) == 6
+
+
+def test_optimizer_cannot_promote_expert_shadow_policy():
+    source = open(
+        "src/scripts/analytics/build_entry_exit_optimizer_v1.py", encoding="utf-8"
+    ).read()
+    assert "and not item[0].shadow_only" in source
+    assert "higher_timeframe_aligned" in source
+
+
 def test_entry_context_query_requires_completed_bar_cutoff():
     source = open(
         "src/scripts/analytics/build_entry_exit_optimizer_v1.py", encoding="utf-8"

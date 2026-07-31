@@ -436,6 +436,12 @@ def _optimizer_section(snapshot):
                 f"{int(item.get('adaptive_pairs') or 0)} из {adaptive_required} пар; "
                 f"сам выбирает вход сразу, подтверждение, ретест или пропуск; {decision_text}."
             )
+        if metrics.get("shadow_only"):
+            parameters += (
+                f" Экспертная политика: "
+                f"{metrics.get('expert_policy_label') or 'специализированный фильтр'}. "
+                "Только Shadow; автоматическое назначение в Paper запрещено."
+            )
         champion_code = str(item.get("champion_candidate_code") or "CURRENT_PAPER")
         challenger_code = str(item.get("challenger_candidate_code") or item.get("candidate_code") or "—")
         paper_stop = item.get("paper_stop_atr")

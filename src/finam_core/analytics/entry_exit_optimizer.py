@@ -23,6 +23,7 @@ class EntryContext:
     regime: str = "UNKNOWN"
     cost_to_atr: float = 0.0
     strategy: str = ""
+    higher_timeframe_aligned: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,8 @@ class Variant:
     take_atr: float
     trail_after_r: float | None = None
     trail_atr: float | None = None
+    policy_code: str = "GENERIC"
+    shadow_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,12 +66,44 @@ def default_variants(strategy: str) -> tuple[Variant, ...]:
     return tuple(result)
 
 
-def adaptive_entry_decision(context: EntryContext, *, take_atr: float) -> tuple[str, str]:
+def expert_shadow_variants(strategy: str) -> tuple[Variant, ...]:
+    """Один заранее заданный экспертный Challenger на семейство, только Shadow."""
+    code = str(strategy or "").upper()
+    mapping = {
+        "BR_CONSERVATIVE_BREAKOUT": Variant(
+            "EXPERT_BR_RETEST_VOLUME", "ADAPTIVE", 1.6, 2.6, 1.2, 1.0,
+            "EXPERT_BR", True),
+        "NG_CONSERVATIVE_BREAKOUT_M1": Variant(
+            "EXPERT_NG_CONFIRM_TREND", "ADAPTIVE", 1.8, 2.4, 1.0, 1.2,
+            "EXPERT_NG", True),
+        "CNY_REGIME_FUTURES": Variant(
+            "EXPERT_FX_RETEST_COST", "ADAPTIVE", 1.4, 2.0, 1.0, 0.9,
+            "EXPERT_FX", True),
+        "USD_REGIME_FUTURES": Variant(
+            "EXPERT_FX_RETEST_COST", "ADAPTIVE", 1.4, 2.0, 1.0, 0.9,
+            "EXPERT_FX", True),
+        "GOLD_TREND_BREAKOUT": Variant(
+            "EXPERT_GOLD_CONFIRM_MTF", "ADAPTIVE", 1.7, 2.7, 1.2, 1.0,
+            "EXPERT_GOLD", True),
+        "MEAN_REVERSION_EQUITY": Variant(
+            "EXPERT_EQUITY_RANGE_RETEST", "ADAPTIVE", 1.3, 1.6, 1.0, 0.8,
+            "EXPERT_EQUITY_MR", True),
+        "VOLATILITY_BREAKOUT_EQUITY": Variant(
+            "EXPERT_EQUITY_BREAKOUT_CONFIRM", "ADAPTIVE", 1.5, 2.2, 1.0, 0.9,
+            "EXPERT_EQUITY_BO", True),
+    }
+    return (mapping[code],) if code in mapping else ()
+
+
+def adaptive_entry_decision(
+    context: EntryContext, *, take_atr: float, policy_code: str = "GENERIC"
+) -> tuple[str, str]:
     """Route a signal using orthogonal, pre-entry features; fail closed."""
     regime = context.regime.upper()
     rel_volume = max(0.0, context.relative_volume)
     atr_percentile = min(1.0, max(0.0, context.atr_percentile))
     cost_to_atr = max(0.0, context.cost_to_atr)
+    policy = str(policy_code or "GENERIC").upper()
 
     # Do not enter if even the nominal target has too little room after costs.
     if rel_volume < 0.60:
@@ -77,6 +112,34 @@ def adaptive_entry_decision(context: EntryContext, *, take_atr: float) -> tuple[
         return "SKIP", "COST_TOO_HIGH_FOR_TARGET"
     is_range = "RANGE" in regime
     is_trend = "TREND" in regime and not is_range
+    aligned = context.higher_timeframe_aligned is True
+    if policy.startswith("EXPERT_") and not aligned:
+        return "SKIP", "HIGHER_TIMEFRAME_NOT_ALIGNED"
+    if policy == "EXPERT_BR":
+        if not is_trend or rel_volume < 1.10:
+            return "SKIP", "BR_TREND_OR_VOLUME_NOT_CONFIRMED"
+        return ("CONFIRM_1", "BR_HIGH_VOL_CONFIRM"
+                ) if atr_percentile >= 0.80 else ("RETEST_3", "BR_TREND_RETEST")
+    if policy == "EXPERT_NG":
+        if not is_trend or rel_volume < 1.25 or not 0.25 <= atr_percentile <= 0.85:
+            return "SKIP", "NG_STRICT_TREND_VOLUME_ATR_GATE"
+        return "CONFIRM_1", "NG_MTF_VOLUME_CONFIRM"
+    if policy == "EXPERT_FX":
+        if not is_trend or rel_volume < 0.80:
+            return "SKIP", "FX_TREND_OR_LIQUIDITY_GATE"
+        return "RETEST_3", "FX_COST_AWARE_RETEST"
+    if policy == "EXPERT_GOLD":
+        if not is_trend or rel_volume < 1.15 or atr_percentile < 0.30:
+            return "SKIP", "GOLD_MTF_VOLUME_ATR_GATE"
+        return "CONFIRM_1", "GOLD_MTF_BREAKOUT_CONFIRM"
+    if policy == "EXPERT_EQUITY_MR":
+        if not is_range or rel_volume < 0.70 or atr_percentile > 0.80:
+            return "SKIP", "EQUITY_RANGE_QUALITY_GATE"
+        return "RETEST_3", "EQUITY_RANGE_RETEST"
+    if policy == "EXPERT_EQUITY_BO":
+        if not is_trend or rel_volume < 1.25:
+            return "SKIP", "EQUITY_BREAKOUT_TREND_VOLUME_GATE"
+        return "CONFIRM_1", "EQUITY_BREAKOUT_CONFIRM"
     if is_range:
         return (("RETEST_3", "RANGE_MEAN_REVERSION")
                 if context.strategy.upper() == "MEAN_REVERSION_EQUITY"
@@ -94,7 +157,9 @@ def adaptive_entry_mode(context: EntryContext, *, take_atr: float) -> str:
 
 def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar], *,
            atr: float, context: EntryContext | None = None,
-           take_atr: float = 0.0) -> tuple[tuple[int, float] | None, str, str]:
+           take_atr: float = 0.0,
+           variant_policy_code: str = "GENERIC",
+           ) -> tuple[tuple[int, float] | None, str, str]:
     if not bars:
         return None, entry_mode, "NO_FUTURE_BARS"
     direction = 1 if side.upper() in {"LONG", "BUY"} else -1
@@ -102,7 +167,8 @@ def _entry(entry_mode: str, signal_price: float, side: str, bars: list[Bar], *,
     decision_reason = "FIXED_ENTRY_MODE"
     if entry_mode == "ADAPTIVE":
         entry_mode, decision_reason = adaptive_entry_decision(
-            context or EntryContext(), take_atr=take_atr)
+            context or EntryContext(), take_atr=take_atr,
+            policy_code=variant_policy_code)
         if entry_mode == "SKIP":
             return None, entry_mode, decision_reason
         adaptive_retest = entry_mode == "RETEST_3"
@@ -147,7 +213,8 @@ def simulate_variant(*, signal_price: float, side: str, atr: float,
         return Outcome(False, None, None, "INVALID_INPUT", None)
     selected, entry_decision, entry_decision_reason = _entry(
         variant.entry_mode, signal_price, side, bars, atr=atr,
-        context=entry_context, take_atr=variant.take_atr)
+        context=entry_context, take_atr=variant.take_atr,
+        variant_policy_code=variant.policy_code)
     if selected is None:
         return Outcome(False, None, None, "ENTRY_FILTERED", None,
                        entry_decision, entry_decision_reason)

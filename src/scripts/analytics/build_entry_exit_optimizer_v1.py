@@ -11,7 +11,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.entry_exit_optimizer import (
-    Bar, EntryContext, Variant, default_variants, evaluate_active_paper_champion, evaluate_paper_challenger,
+    Bar, EntryContext, Variant, default_variants, expert_shadow_variants,
+    evaluate_active_paper_champion, evaluate_paper_challenger,
     evaluate_walk_forward, parameter_plateau_check, simulate_variant,
 )
 from finam_core.research.purged_split import purged_temporal_split
@@ -111,7 +112,7 @@ def research_family(strategy: str) -> str:
 
 
 def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
-                            roundtrip_cost_price: float) -> EntryContext:
+                            roundtrip_cost_price: float, side: str) -> EntryContext:
     """Build context strictly from bars completed before the signal timestamp."""
     completed_cutoff = trade["entry_ts"] - timeframe_delta(timeframe)
     cursor.execute("""SELECT open::float8,high::float8,low::float8,close::float8,volume::float8
@@ -124,12 +125,24 @@ def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
     volumes = [max(float(row["volume"] or 0.0), 0.0) for row in history]
     baseline = median(volumes[:-1]) if len(volumes) > 1 else 0.0
     relative_volume = volumes[-1] / baseline if baseline > 0 and volumes else 1.0
+    cursor.execute("""SELECT close::float8 FROM market_bars
+                      WHERE symbol=%s AND timeframe='M15'
+                        AND ts + interval '15 minutes' <= %s
+                      ORDER BY ts DESC LIMIT 8""",
+                   (trade["symbol"], trade["entry_ts"]))
+    higher_closes = [float(row["close"]) for row in reversed(cursor.fetchall())]
+    direction = 1 if side == "LONG" else -1
+    higher_timeframe_aligned = (
+        len(higher_closes) >= 4
+        and direction * (higher_closes[-1] - higher_closes[0]) > 0
+    )
     return EntryContext(
         atr_percentile=atr_percentile,
         relative_volume=relative_volume,
         regime=str(trade.get("regime") or "UNKNOWN"),
         cost_to_atr=max(0.0, roundtrip_cost_price) / atr,
         strategy=str(trade["strategy"]),
+        higher_timeframe_aligned=higher_timeframe_aligned,
     )
 
 
@@ -194,7 +207,8 @@ def main() -> int:
             trade["exit_ts"] = trade["entry_ts"] + (
                 timeframe_delta(SUPPORTED[strategy]) * SHADOW_HORIZON_BARS[strategy])
             entry_context = entry_context_at_signal(
-                cur, trade, SUPPORTED[strategy], float(atr), economics["roundtrip_cost_price"])
+                cur, trade, SUPPORTED[strategy], float(atr),
+                economics["roundtrip_cost_price"], side)
             groups[(strategy,group,side)].append(
                 (trade,float(atr),bars,economics,horizon_complete,entry_context))
 
@@ -212,7 +226,8 @@ def main() -> int:
                             if split else {int(trades[0][0]["id"])})
             oos_ids = ({int(bundle[0]["id"]) for bundle in split.test} if split else set())
             candidate_results = []
-            for variant in default_variants(strategy):
+            variants = default_variants(strategy) + expert_shadow_variants(strategy)
+            for variant in variants:
                 rows = []
                 for trade,atr,bars,economics,horizon_complete,entry_context in trades:
                     risk = atr * variant.stop_atr
@@ -293,7 +308,10 @@ def main() -> int:
                                    "relative_volume":entry_context.relative_volume,
                                    "regime":entry_context.regime,
                                    "cost_to_atr":entry_context.cost_to_atr,
-                                   "strategy":entry_context.strategy}),trade["entry_ts"],label_end))
+                                   "strategy":entry_context.strategy,
+                                   "higher_timeframe_aligned":
+                                       entry_context.higher_timeframe_aligned}),
+                       trade["entry_ts"],label_end))
                 evaluation_rows = [row for row in rows if row["source_id"] in eligible_ids]
                 explicit_oos = [row for row in rows if row["source_id"] in oos_ids]
                 metrics = evaluate_walk_forward(evaluation_rows, oos_rows=explicit_oos)
@@ -311,6 +329,16 @@ def main() -> int:
                     row["entry_decision_reason"] for row in rows))
                 metrics["stop_atr"] = variant.stop_atr
                 metrics["take_atr"] = variant.take_atr
+                metrics["policy_code"] = variant.policy_code
+                metrics["shadow_only"] = variant.shadow_only
+                metrics["expert_policy_label"] = {
+                    "EXPERT_BR": "Brent: тренд, объём и ретест",
+                    "EXPERT_NG": "Газ: строгий тренд, объём и ATR",
+                    "EXPERT_FX": "Валюты: трендовый ретест после издержек",
+                    "EXPERT_GOLD": "Золото: M15, объём и подтверждение",
+                    "EXPERT_EQUITY_MR": "Акции: ретест границы диапазона",
+                    "EXPERT_EQUITY_BO": "Акции: подтверждённый трендовый пробой",
+                }.get(variant.policy_code)
                 candidate_results.append((variant, metrics, evaluation_rows))
                 all_ids = [int(item[0]["id"]) for item in trades]
                 if all_ids:
@@ -360,6 +388,7 @@ def main() -> int:
             state = cur.fetchone()
             ready = [item for item in candidate_results
                      if paper_runtime_supported(group, item[0].entry_mode)
+                     and not item[0].shadow_only
                      and item[1].get("status") == "READY_FOR_PAPER_CONFIRMATION"]
             ready.sort(key=lambda item: (
                 float(item[1].get("shadow_oos_r") or -999),

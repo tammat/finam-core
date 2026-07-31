@@ -439,7 +439,7 @@ def _commodity_factors() -> tuple[list[dict], list[dict]]:
     return factors, relations
 
 
-def _signal_funnel() -> tuple[list[dict], list[dict], bool]:
+def _signal_funnel() -> tuple[list[dict], list[dict], bool, dict]:
     with psycopg2.connect(DB) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT signal_funnel_snapshot_id FROM analytics.signal_funnel_snapshot_v1 ORDER BY created_at DESC LIMIT 1")
@@ -461,7 +461,78 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool]:
                     FROM analytics.signal_funnel_reason_v1 WHERE signal_funnel_reason_snapshot_id=%s
                     GROUP BY reason_group ORDER BY sum(rows_total) DESC""", (reason_latest["signal_funnel_reason_snapshot_id"],))
                 reasons = [dict(row) for row in cur.fetchall()]
-    return stages, reasons, comparable
+            cur.execute("""
+                WITH today_signals AS (
+                    SELECT *,
+                           CASE strategy
+                             WHEN 'BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
+                             WHEN 'NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
+                             WHEN 'CNY_REGIME_FUTURES' THEN 'CNY'
+                             WHEN 'USD_REGIME_FUTURES' THEN 'USD'
+                             WHEN 'GOLD_TREND_BREAKOUT' THEN 'GOLD'
+                             ELSE split_part(symbol, '@', 1)
+                           END AS symbol_group,
+                           date_bin(interval '30 minutes', coalesce(ts, created_at),
+                                    timestamptz '2000-01-01 00:00:00+00') AS signal_window
+                    FROM public.signals
+                    WHERE coalesce(ts, created_at) >= date_trunc('day', now())
+                ),
+                independent AS (
+                    SELECT DISTINCT ON (strategy, symbol_group, upper(side), signal_window)
+                           id, signal_id, status, rejection_reason
+                    FROM today_signals
+                    ORDER BY strategy, symbol_group, upper(side), signal_window,
+                             coalesce(ts, created_at), id
+                )
+                SELECT
+                    (SELECT count(*) FROM today_signals) AS raw_signals,
+                    (SELECT count(*) FROM independent) AS independent_signals,
+                    (SELECT count(*) FROM independent WHERE status='RISK_REJECTED') AS rejected,
+                    (SELECT count(*) FROM independent WHERE status IN ('FILLED','CLOSED')) AS paper,
+                    (SELECT count(DISTINCT signal_id) FROM public.closed_trades
+                       WHERE trade_source='paper'
+                         AND coalesce(exit_ts, closed_at, created_at) >= date_trunc('day', now())) AS closed,
+                    (SELECT count(DISTINCT p.source_signal_id)
+                       FROM analytics.entry_exit_signal_shadow_pair_v2 p
+                       JOIN public.signals source ON source.id=p.source_signal_id
+                       WHERE coalesce(source.ts, source.created_at) >= date_trunc('day', now())) AS shadow,
+                    (SELECT count(DISTINCT source_trade_id)
+                       FROM analytics.v5_oos_observation_audit_v1
+                       WHERE decision_code='INCLUDED'
+                         AND entry_ts >= date_trunc('day', now())) AS oos,
+                    (SELECT max(coalesce(ts, created_at)) FROM today_signals) AS last_signal_at
+            """)
+            daily = dict(cur.fetchone() or {})
+            cur.execute("""
+                WITH today_signals AS (
+                    SELECT *,
+                           CASE strategy
+                             WHEN 'BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
+                             WHEN 'NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
+                             WHEN 'CNY_REGIME_FUTURES' THEN 'CNY'
+                             WHEN 'USD_REGIME_FUTURES' THEN 'USD'
+                             WHEN 'GOLD_TREND_BREAKOUT' THEN 'GOLD'
+                             ELSE split_part(symbol, '@', 1)
+                           END AS symbol_group,
+                           date_bin(interval '30 minutes', coalesce(ts, created_at),
+                                    timestamptz '2000-01-01 00:00:00+00') AS signal_window
+                    FROM public.signals
+                    WHERE coalesce(ts, created_at) >= date_trunc('day', now())
+                ),
+                independent AS (
+                    SELECT DISTINCT ON (strategy, symbol_group, upper(side), signal_window)
+                           rejection_reason, status
+                    FROM today_signals
+                    ORDER BY strategy, symbol_group, upper(side), signal_window,
+                             coalesce(ts, created_at), id
+                )
+                SELECT coalesce(rejection_reason, 'Без указанной причины') AS reason, count(*) AS rows_total
+                FROM independent
+                WHERE status='RISK_REJECTED'
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+            """)
+            daily["reasons"] = [dict(row) for row in cur.fetchall()]
+    return stages, reasons, comparable, daily
 
 
 def _strategy_generator() -> tuple[list[dict], dict]:
@@ -887,7 +958,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
     relationship_rows, relationship_summary = _relationship_factory()
     quality_rows, quality_summary = _data_quality_gate()
     commodity_factors, commodity_relations = _commodity_factors()
-    funnel_stages, funnel_reasons, funnel_comparable = _signal_funnel()
+    funnel_stages, funnel_reasons, funnel_comparable, daily_funnel = _signal_funnel()
     strategy_families, strategy_generator_summary = _strategy_generator()
     strategy_result_rows, strategy_result_summary = _strategy_hypothesis_results()
     hypothesis_lineage = _hypothesis_lineage_summary()
@@ -1079,6 +1150,28 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <td>{html.escape(i18n.text(_funnel_i18n_key(row['reason_group'], 'action')))}</td></tr>"""
         for row in funnel_reasons
     )
+    daily_funnel_stages = (
+        ("Сырые события", daily_funnel.get("raw_signals", 0)),
+        ("Независимые сигналы", daily_funnel.get("independent_signals", 0)),
+        ("Shadow-наблюдения", daily_funnel.get("shadow", 0)),
+        ("Допущены в Paper", daily_funnel.get("paper", 0)),
+        ("Закрыты сегодня", daily_funnel.get("closed", 0)),
+        ("V5 OOS-наблюдения", daily_funnel.get("oos", 0)),
+    )
+    daily_funnel_cards = "".join(
+        f"<article><span>{html.escape(label)}</span><b>{int(value or 0)}</b></article>"
+        for label, value in daily_funnel_stages
+    )
+    daily_reason_rows = "".join(
+        f"<tr><td>{html.escape(str(row['reason']))}</td><td>{int(row['rows_total'])}</td></tr>"
+        for row in daily_funnel.get("reasons", [])
+    ) or "<tr><td>Сегодня независимых отклонённых сигналов нет</td><td>0</td></tr>"
+    last_signal_at = daily_funnel.get("last_signal_at")
+    daily_funnel_note = (
+        f"Последний сигнал сегодня: {last_signal_at:%H:%M:%S}"
+        if last_signal_at else
+        "Сегодня сигналов ещё нет: обработчик ожидает торговую сессию"
+    )
     live_boundary_blocked = bool(
         len(funnel_stages) > 1
         and funnel_stages[1]["stage_code"] == "ORDERS"
@@ -1231,8 +1324,10 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <div class="mc-oos-kpis mc-commodity-kpis">{commodity_cards}</div>
           <details class="mc-table-spoiler"><summary>Показать сырьевые P2-связи <span>{len(commodity_relations)} строк</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Связь</th><th>Цель</th><th>OOS</th><th>PF</th><th>Ожидание, bps</th><th>p скорр.</th><th>Доверие</th><th>Вердикт</th></tr></thead><tbody>{commodity_relation_rows}</tbody></table></div></details></section>
         <section id="signal-funnel" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar"><div><p class="mc-edge-eyebrow">SIGNAL FUNNEL</p><h2>Воронка сигналов</h2>
-          <p>{'Связанная когорта до границы Research → Execution; LIVE-заявки учитываются только после допуска' if funnel_comparable else 'Источники невозможно связать в единую когорту'}</p></div><span class="mc-oos-badge {'fail' if live_boundary_blocked or not funnel_comparable else 'pass'}">{'LIVE ЗАБЛОКИРОВАН' if live_boundary_blocked else ('СОПОСТАВИМО' if funnel_comparable else 'НЕТ СВЯЗНОСТИ')}</span></div>
-          <div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div>
+          <p>{html.escape(daily_funnel_note)} · дневные значения не смешиваются с историей</p></div><span class="mc-oos-badge {'fail' if live_boundary_blocked or not funnel_comparable else 'pass'}">{'LIVE ЗАБЛОКИРОВАН' if live_boundary_blocked else ('СОПОСТАВИМО' if funnel_comparable else 'НЕТ СВЯЗНОСТИ')}</span></div>
+          <h3>Сегодня</h3><div class="mc-oos-kpis mc-funnel-kpis">{daily_funnel_cards}</div>
+          <details class="mc-table-spoiler" open><summary>Почему независимые сигналы не дошли до Paper <span>{int(daily_funnel.get('rejected', 0) or 0)}</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Причина</th><th>Сигналов</th></tr></thead><tbody>{daily_reason_rows}</tbody></table></div></details>
+          <details class="mc-table-spoiler"><summary>Историческая техническая воронка <span>{len(funnel_stages)} стадий</span></summary><div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div></details>
           <details class="mc-table-spoiler"><summary>Диагностические события и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Варианты причин</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div><p>Диагностические события собраны из журналов системы и не считаются потерями между этапами воронки.</p></details></section>
         <section id="strategy-generator" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar mc-edge-toolbar"><div><p class="mc-edge-eyebrow">HYPOTHESIS PARAMETER SPACE V2</p><h2>Генератор стратегий</h2>
           <p>{strategy_generator_summary.get('families', 0)} семейств · {strategy_generator_summary.get('candidates', 0)} комбинаций · лимит {strategy_generator_summary.get('trial_limit', 5000)} испытаний</p></div>
