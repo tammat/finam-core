@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from finam_core.analytics.research_pipeline_run_log import ResearchPipelineRunLog
+from finam_core.analytics.research_symbol_checkpoint import ResearchSymbolCheckpoint
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -101,6 +102,10 @@ def run_symbol(symbol: str, trade_source: str, limit: int, *, run_log: ResearchP
             "--migrate", "--save",
             "--symbol", symbol,
             "--limit", str(limit),
+        ],
+        [
+            py, "src/scripts/backfill_trade_governance_context_v1.py",
+            "--symbol", symbol,
         ],
         [
             py, "src/scripts/build_trade_context_snapshots.py",
@@ -231,8 +236,23 @@ def main() -> int:
 
     failed = 0
     ok = 0
+    skipped = 0
+    changed = 0
+    checkpoint = ResearchSymbolCheckpoint()
+    checkpoint.migrate()
 
     for symbol in symbols:
+        watermark = checkpoint.watermark(symbol, args.trade_source)
+        if checkpoint.is_current(symbol, args.trade_source, watermark):
+            skipped += 1
+            ok += 1
+            print(
+                "RESEARCH_PIPELINE_SYMBOL_SKIPPED "
+                f"symbol={symbol} reason=NO_NEW_CLOSED_TRADES "
+                f"maximum_trade_id={watermark.maximum_trade_id} count={watermark.trade_count}",
+                flush=True,
+            )
+            continue
         rc = run_symbol(
             symbol,
             args.trade_source,
@@ -249,6 +269,8 @@ def main() -> int:
             )
         else:
             ok += 1
+            changed += 1
+            checkpoint.advance(symbol, args.trade_source, watermark, run_id)
 
     if args.sync_universe:
         rc = run_step(
@@ -318,7 +340,7 @@ def main() -> int:
         [sys.executable, "src/scripts/runtime/apply_active_contract_lifecycle_filter.py"],
     ]
 
-    for step in post_steps:
+    for step in post_steps if changed > 0 else []:
         step_name = step[1].split("/")[-1] if len(step) > 1 else "unknown"
         rc = run_step(
             step,
@@ -341,7 +363,8 @@ def main() -> int:
 
     print(
         "RESEARCH_PIPELINE_SUMMARY "
-        f"run_id={run_id} symbols={len(symbols)} ok={ok} failed={failed}",
+        f"run_id={run_id} symbols={len(symbols)} ok={ok} skipped={skipped} "
+        f"changed={changed} failed={failed}",
         flush=True,
     )
 

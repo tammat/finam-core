@@ -47,6 +47,20 @@ class TradeRiskContextRepository:
 
         CREATE INDEX IF NOT EXISTS idx_trade_risk_context_quality
         ON trade_risk_context(context_quality);
+
+        CREATE TABLE IF NOT EXISTS analytics.trade_context_quarantine_v1 (
+            closed_trade_id BIGINT NOT NULL,
+            context_type TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            strategy TEXT NOT NULL DEFAULT '',
+            timeframe TEXT NOT NULL DEFAULT '',
+            reason_code TEXT NOT NULL,
+            details JSONB NOT NULL DEFAULT '{}'::jsonb,
+            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            resolved_at TIMESTAMPTZ,
+            PRIMARY KEY (closed_trade_id, context_type)
+        );
         """
 
         with psycopg.connect(self.dsn) as conn:
@@ -89,23 +103,10 @@ class TradeRiskContextRepository:
                     COALESCE(g.exit_policy, '') AS reason
                 FROM portfolio_governance_events g
                 WHERE g.symbol = s.symbol
-                  AND (
-                        (g.strategy = s.strategy AND g.timeframe = s.timeframe)
-                     OR (g.strategy = s.strategy)
-                     OR (COALESCE(g.strategy, '') <> '')
-                  )
-                ORDER BY
-                    CASE
-                        WHEN g.strategy = s.strategy AND g.timeframe = s.timeframe THEN 0
-                        WHEN g.strategy = s.strategy THEN 1
-                        ELSE 2
-                    END,
-                    CASE
-                        WHEN g.created_at <= s.ctx_ts THEN 0
-                        ELSE 1
-                    END,
-                    ABS(EXTRACT(EPOCH FROM (g.created_at - s.ctx_ts))),
-                    g.created_at DESC
+                  AND g.strategy = s.strategy
+                  AND g.timeframe = s.timeframe
+                  AND g.created_at <= s.ctx_ts
+                ORDER BY g.created_at DESC
                 LIMIT 1
             ) g ON TRUE
         )
@@ -160,6 +161,34 @@ class TradeRiskContextRepository:
         with psycopg.connect(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (symbol, limit))
+                cur.execute(
+                    """
+                    INSERT INTO analytics.trade_context_quarantine_v1 (
+                        closed_trade_id, context_type, symbol, strategy, timeframe,
+                        reason_code, details, last_seen_at, resolved_at
+                    )
+                    SELECT closed_trade_id, 'heat_status', symbol, strategy, timeframe,
+                           'NO_EXACT_PRE_TRADE_GOVERNANCE_EVENT',
+                           jsonb_build_object('trade_source', trade_source), now(), NULL
+                    FROM trade_risk_context
+                    WHERE symbol=%s AND context_quality='PARTIAL'
+                    ON CONFLICT (closed_trade_id, context_type) DO UPDATE SET
+                        reason_code=EXCLUDED.reason_code, details=EXCLUDED.details,
+                        last_seen_at=now(), resolved_at=NULL
+                    """,
+                    (symbol,),
+                )
+                cur.execute(
+                    """
+                    UPDATE analytics.trade_context_quarantine_v1 q
+                    SET resolved_at=now(), last_seen_at=now()
+                    FROM trade_risk_context r
+                    WHERE q.closed_trade_id=r.closed_trade_id
+                      AND q.context_type='heat_status'
+                      AND r.symbol=%s AND r.context_quality='FULL'
+                    """,
+                    (symbol,),
+                )
                 saved = cur.rowcount
 
                 cur.execute(
