@@ -639,6 +639,18 @@ def _attention_section(snapshot):
 
 def _optimizer_section(snapshot):
     cards = []
+    check_labels = {
+        "parameter_plateau": "устойчивость соседних параметров",
+        "positive_expectancy": "положительное матожидание",
+        "profit_factor": "profit factor",
+        "drawdown": "допустимая просадка",
+        "enough_pairs": "достаточно независимых наблюдений",
+        "beats_current": "лучше текущего Paper",
+    }
+    reason_labels = {
+        "requires paired trades>=60": "нужно не менее 60 независимых пар",
+        "requires purged OOS trades>=15": "нужно не менее 15 очищенных OOS-наблюдений",
+    }
     workflow_labels = {
         "SHADOW_ACCUMULATION": "Shadow: накопление статистики",
         "EXPENSIVE_GATES_PENDING": "дорогие проверки ещё не пройдены",
@@ -653,6 +665,20 @@ def _optimizer_section(snapshot):
         "REJECTED": "кандидат отклонён",
     }
     for index, item in enumerate(snapshot.get("entry_exit_workflows") or (), start=1):
+        checks = dict((item.get("evidence") or {}).get("checks") or {})
+        failed_checks = [check_labels.get(code, code) for code, passed in checks.items() if not passed]
+        evidence = item.get("evidence") or {}
+        if item.get("workflow_stage") == "EXPENSIVE_GATES_FAILED":
+            plateau = evidence.get("parameter_plateau") or {}
+            control = evidence.get("negative_control") or {}
+            if plateau and not plateau.get("passed"):
+                failed_checks.append("нет устойчивого плато соседних параметров")
+            if control and not control.get("passed"):
+                failed_checks.append("не превосходит сопоставимый placebo-вход")
+            if evidence.get("reason"):
+                reason = str(evidence.get("reason"))
+                failed_checks.append(reason_labels.get(reason, reason))
+        failure_text = (" · Не пройдено: " + ", ".join(failed_checks)) if failed_checks else ""
         cards.append(RenderNodeV2(
             RenderNodeTypeV2.CARD, f"home.compact.optimizer.workflow.{index}",
             children=(
@@ -661,7 +687,7 @@ def _optimizer_section(snapshot):
                       level="CARD"),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.workflow.{index}.stage",
                       workflow_labels.get(str(item.get("workflow_stage")),
-                                          str(item.get("workflow_stage")))),
+                                          str(item.get("workflow_stage"))) + failure_text),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.workflow.{index}.gates",
                       f"Статистика: {item.get('statistical_verdict')} · "
                       f"дорогие проверки: {'PASS' if item.get('expensive_gates_pass') else ('FAIL' if item.get('workflow_stage') == 'EXPENSIVE_GATES_FAILED' else 'ожидание')} · "

@@ -11,3 +11,5 @@ def test_temporary_broker_outage_defers_without_false_reconciliation():
     assert "grpc.StatusCode.DEADLINE_EXCEEDED" in source
     assert "ORDER_ACK_RECONCILIATION_DEFERRED" in source
     assert "return 0" in source
+    assert "market_weekend" in source
+    assert "broker_backoff_active" in source

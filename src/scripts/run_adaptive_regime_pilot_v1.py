@@ -75,6 +75,28 @@ def paper_decision(values: list[Decimal], loss_scale: Decimal) -> tuple[str, str
     return "PILOT_ACTIVE", "PILOT_COLLECTING_SEQUENTIAL_EVIDENCE"
 
 
+def ensure_paper_baseline(cur, strategy: str, symbol_group: str, side: str) -> int:
+    """Persist the exact runtime fallback before the first adaptive pilot."""
+    cur.execute("""SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
+        WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+          AND execution_mode='paper' AND candidate_code='CURRENT_PAPER_BASELINE'
+        ORDER BY profile_id DESC LIMIT 1""", (strategy, symbol_group, side))
+    existing = cur.fetchone()
+    if existing:
+        return int(existing["profile_id"])
+    equity = strategy in {"MEAN_REVERSION_EQUITY", "VOLATILITY_BREAKOUT_EQUITY"}
+    stop_atr, take_atr = ((Decimal("1.2"), Decimal("1.3")) if equity
+                          else (Decimal("1.5"), Decimal("2.4")))
+    cur.execute("""INSERT INTO analytics.entry_exit_runtime_profile_v1(
+        strategy_code,symbol_group,side_code,candidate_code,execution_mode,status,
+        entry_mode,stop_atr,take_atr,trail_after_r,trail_atr,source_metrics,activated_by)
+      VALUES(%s,%s,%s,'CURRENT_PAPER_BASELINE','paper','SUPERSEDED','IMMEDIATE',
+        %s,%s,NULL,NULL,%s,'AUTO_BASELINE_SNAPSHOT_V1') RETURNING profile_id""",
+      (strategy, symbol_group, side, stop_atr, take_atr,
+       psycopg2.extras.Json({"immutable_baseline": True, "runtime_fallback_snapshot": True})))
+    return int(cur.fetchone()["profile_id"])
+
+
 def main() -> int:
     assessed = activated = rolled_back = confirmed = 0
     with psycopg2.connect(DB) as connection:
@@ -90,6 +112,20 @@ def main() -> int:
               USING(source_signal_id,candidate_code)
             WHERE p.shadow_entered AND p.shadow_net_r IS NOT NULL
               AND p.label_end_ts>=clock_timestamp()-(%s*interval '1 day')
+              AND EXISTS (
+                SELECT 1 FROM analytics.entry_exit_promotion_workflow_v1 w
+                WHERE w.strategy_code=p.strategy_code
+                  AND w.side_code=p.side_code
+                  AND w.candidate_code=p.candidate_code
+                  AND w.symbol_group=CASE
+                    WHEN p.strategy_code='BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
+                    WHEN p.strategy_code='NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
+                    WHEN p.strategy_code='CNY_REGIME_FUTURES' THEN 'CNY'
+                    WHEN p.strategy_code='USD_REGIME_FUTURES' THEN 'USD'
+                    WHEN p.strategy_code='GOLD_TREND_BREAKOUT' THEN 'GOLD'
+                    ELSE split_part(p.symbol_code,'@',1) END
+                  AND w.workflow_stage<>'REJECTED'
+              )
             ORDER BY p.label_end_ts,p.source_signal_id,p.candidate_code""", (LOOKBACK_DAYS,))
         groups = defaultdict(list)
         for row in cur.fetchall():
@@ -192,6 +228,8 @@ def main() -> int:
                     status, reason = "SHADOW_COLLECTING", "RUNTIME_PROFILE_OWNER_GRANT_REQUIRED"
                 else:
                     if not active_profile:
+                        baseline_profile_id = ensure_paper_baseline(
+                            cur, strategy, symbol_group, side)
                         selected = rows[-1]
                         cur.execute("""INSERT INTO analytics.entry_exit_runtime_profile_v1(
                             strategy_code,symbol_group,side_code,candidate_code,execution_mode,
@@ -202,6 +240,7 @@ def main() -> int:
                            selected["stop_atr"], selected["take_atr"],
                            psycopg2.extras.Json({
                                "pilot_id": str(pilot_id), "regime": regime,
+                               "baseline_profile_id": baseline_profile_id,
                                "shadow_expectancy_r": str(metric["expectancy"]),
                                "placebo_expectancy_r": str(placebo_metric["expectancy"]),
                            })))
@@ -233,6 +272,14 @@ def main() -> int:
                           AND candidate_code=%s AND status='ACTIVE'
                           AND activated_by='ADAPTIVE_REGIME_PILOT_V2'""",
                         (strategy, symbol_group, side, code))
+                    cur.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
+                        SET status='ACTIVE',activated_at=clock_timestamp(),deactivated_at=NULL,
+                            activated_by='AUTO_PILOT_ROLLBACK_V1'
+                        WHERE profile_id=(SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
+                          WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                            AND candidate_code='CURRENT_PAPER_BASELINE'
+                          ORDER BY profile_id DESC LIMIT 1)""",
+                        (strategy, symbol_group, side))
             paper_metric = performance(paper_values)
             evidence = {
                 "lookback_days": LOOKBACK_DAYS, "regime": regime,

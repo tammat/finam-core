@@ -6,7 +6,10 @@ CLI: сверка order_acks из PostgreSQL с текущими заявкам�
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import grpc
 from dotenv import load_dotenv
@@ -22,6 +25,29 @@ from finam_core.reconciliation.broker_order_snapshot_store import BrokerOrderSna
 
 # Русский комментарий: используем тот же env-файл, что и systemd service.
 load_dotenv(os.getenv("FINAM_ENV_FILE", "/opt/finam-core/deploy/env/.env"), override=False)
+BACKOFF_FILE = Path(os.getenv("ORDER_ACK_BACKOFF_FILE", "/tmp/finam-order-ack-reconcile.backoff"))
+
+
+def _defer_reason() -> str | None:
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    if now.weekday() >= 5:
+        return "market_weekend"
+    try:
+        if float(BACKOFF_FILE.read_text(encoding="ascii")) > time.time():
+            return "broker_backoff_active"
+    except (FileNotFoundError, ValueError, OSError):
+        pass
+    return None
+
+
+def _set_backoff() -> None:
+    seconds = max(60, int(os.getenv("ORDER_ACK_UNAVAILABLE_BACKOFF_SECONDS", "300")))
+    try:
+        descriptor = os.open(BACKOFF_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w", encoding="ascii") as target:
+            target.write(str(time.time() + seconds))
+    except OSError:
+        pass
 
 
 def _dec_to_float(value) -> float:
@@ -102,6 +128,11 @@ def _is_ack_missing_issue(issue) -> bool:
 
 
 def main() -> int:
+    deferred = _defer_reason()
+    if deferred:
+        print("ORDER_ACK_RECONCILIATION_DEFERRED")
+        print(f"reason={deferred}")
+        return 0
     limit = int(os.getenv("ORDER_ACK_RECONCILE_LIMIT", "100"))
     acks = OrderAckRepository().list_recent(limit=limit)
 
@@ -114,6 +145,7 @@ def main() -> int:
         # run and let the timer retry instead of creating a systemd failure
         # storm or, worse, treating an empty response as missing orders.
         if exc.code() in {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}:
+            _set_backoff()
             print("ORDER_ACK_RECONCILIATION_DEFERRED")
             print(f"broker_status={exc.code().name} reason=broker_snapshot_unavailable")
             return 0

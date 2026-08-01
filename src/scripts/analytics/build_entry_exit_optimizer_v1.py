@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import hashlib
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from statistics import median
@@ -296,7 +297,30 @@ def main() -> int:
                             if split else {int(trades[0][0]["id"])})
             oos_ids = ({int(bundle[0]["id"]) for bundle in split.test} if split else set())
             candidate_results = []
-            variants = default_variants(strategy) + expert_shadow_variants(strategy)
+            all_variants = default_variants(strategy) + expert_shadow_variants(strategy)
+            # Evaluate one frozen challenger, not the whole grid every cycle.
+            # Keep an in-flight candidate stable; after an explicit expensive
+            # failure rotate deterministically to another pre-registered arm.
+            cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
+                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                  AND workflow_stage IN ('SHADOW_ACCUMULATION','V5_OOS_COLLECTING','V5_OOS_PASS',
+                    'PAPER_MINIMAL_ACTIVE','PAPER_MONITOR','PAPER_CONTINUE')
+                ORDER BY first_entered_at LIMIT 1""", (strategy,group,side))
+            frozen_pool_row = cur.fetchone()
+            by_variant_code = {variant.code: variant for variant in all_variants}
+            frozen_code = str(frozen_pool_row["candidate_code"]) if frozen_pool_row else ""
+            if frozen_code in by_variant_code:
+                variants = (by_variant_code[frozen_code],)
+            else:
+                cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
+                    WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                      AND workflow_stage='EXPENSIVE_GATES_FAILED'""", (strategy,group,side))
+                failed_codes = {str(row["candidate_code"]) for row in cur.fetchall()}
+                available = [variant for variant in all_variants if variant.code not in failed_codes]
+                if not available:
+                    available = list(all_variants)
+                digest = hashlib.sha256(f"{strategy}|{group}|{side}".encode()).digest()
+                variants = (available[int.from_bytes(digest[:4], "big") % len(available)],)
             for variant in variants:
                 rows = []
                 for trade,atr,bars,economics,horizon_complete,entry_context in trades:
