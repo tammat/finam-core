@@ -29,6 +29,7 @@ class TradeExitPolicyRepository:
             exit_policy TEXT NOT NULL DEFAULT '',
             exit_reason TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT 'portfolio_governance_events',
+            governance_event_id BIGINT,
 
             context_quality TEXT NOT NULL DEFAULT 'PARTIAL',
             missing_fields TEXT NOT NULL DEFAULT '',
@@ -45,6 +46,8 @@ class TradeExitPolicyRepository:
 
         CREATE INDEX IF NOT EXISTS idx_trade_exit_policy_context_quality
         ON trade_exit_policy_context(context_quality);
+        ALTER TABLE trade_exit_policy_context
+            ADD COLUMN IF NOT EXISTS governance_event_id BIGINT;
 
         CREATE TABLE IF NOT EXISTS analytics.trade_context_quarantine_v1 (
             closed_trade_id BIGINT NOT NULL,
@@ -86,10 +89,12 @@ class TradeExitPolicyRepository:
         resolved AS (
             SELECT
                 s.*,
-                COALESCE(NULLIF(g.exit_policy, ''), 'generic_strategy_exit') AS exit_policy
+                COALESCE(NULLIF(g.exit_policy, ''), 'generic_strategy_exit') AS exit_policy,
+                g.governance_event_id
             FROM source_trades s
             LEFT JOIN LATERAL (
                 SELECT
+                    id AS governance_event_id,
                     exit_policy
                 FROM portfolio_governance_events g
                 WHERE g.symbol = s.symbol
@@ -110,6 +115,7 @@ class TradeExitPolicyRepository:
             exit_policy,
             exit_reason,
             source,
+            governance_event_id,
             context_quality,
             missing_fields,
             updated_at
@@ -126,6 +132,7 @@ class TradeExitPolicyRepository:
                 WHEN exit_policy = 'generic_strategy_exit' THEN 'derived_default'
                 ELSE 'portfolio_governance_events'
             END AS source,
+            governance_event_id,
             CASE
                 WHEN exit_policy = 'generic_strategy_exit' THEN 'PARTIAL'
                 ELSE 'FULL'
@@ -141,6 +148,7 @@ class TradeExitPolicyRepository:
             exit_policy = EXCLUDED.exit_policy,
             exit_reason = EXCLUDED.exit_reason,
             source = EXCLUDED.source,
+            governance_event_id = EXCLUDED.governance_event_id,
             context_quality = EXCLUDED.context_quality,
             missing_fields = EXCLUDED.missing_fields,
             updated_at = now()

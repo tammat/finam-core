@@ -44,7 +44,7 @@ class PortfolioGovernanceRepository:
                 cur.execute(sql)
             conn.commit()
 
-    def save(self, *, timeframe: str, decision: PortfolioGovernanceDecision) -> None:
+    def save(self, *, timeframe: str, decision: PortfolioGovernanceDecision) -> int:
         sql = """
         INSERT INTO portfolio_governance_events (
             symbol,
@@ -57,6 +57,7 @@ class PortfolioGovernanceRepository:
             governance_mode
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """
 
         with psycopg.connect(self.database_url) as conn:
@@ -74,4 +75,6 @@ class PortfolioGovernanceRepository:
                         decision.governance_mode,
                     ),
                 )
+                event_id = int(cur.fetchone()[0])
             conn.commit()
+        return event_id

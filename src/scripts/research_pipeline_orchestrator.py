@@ -286,7 +286,8 @@ def main() -> int:
         if rc != 0:
             failed += 1
 
-    post_steps = [
+    # Market/runtime state must refresh even when no trade-dependent work changed.
+    market_post_steps = [
         [sys.executable, "src/scripts/research/build_intermarket_regime_snapshot.py"],
         [sys.executable, "src/scripts/runtime/sync_runtime_strategy_scores_from_selection.py"],
         [sys.executable, "src/scripts/runtime/apply_intermarket_selection_modifier.py"],
@@ -311,36 +312,19 @@ def main() -> int:
         ],
 
 
-        [
-            sys.executable,
-            "src/scripts/analytics/build_trade_context_envelopes.py",
-            "--date",
-            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
-            "--migrate",
-            "--save",
-        ],
-        [
-            sys.executable,
-            "src/scripts/analytics/build_regime_aware_edge_v1.py",
-            "--date",
-            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
-            "--migrate",
-            "--save",
-        ],
-
-
-        [
-            sys.executable,
-            "src/scripts/analytics/build_edge_validation_table.py",
-            "--date",
-            datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(),
-            "--migrate",
-            "--save",
-        ],
         [sys.executable, "src/scripts/runtime/apply_active_contract_lifecycle_filter.py"],
     ]
 
-    for step in post_steps if changed > 0 else []:
+    trade_post_steps = [
+        [sys.executable, "src/scripts/analytics/build_trade_context_envelopes.py", "--date",
+         datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(), "--migrate", "--save"],
+        [sys.executable, "src/scripts/analytics/build_regime_aware_edge_v1.py", "--date",
+         datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(), "--migrate", "--save"],
+        [sys.executable, "src/scripts/analytics/build_edge_validation_table.py", "--date",
+         datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat(), "--migrate", "--save"],
+    ]
+
+    for step in market_post_steps + (trade_post_steps if changed > 0 else []):
         step_name = step[1].split("/")[-1] if len(step) > 1 else "unknown"
         rc = run_step(
             step,

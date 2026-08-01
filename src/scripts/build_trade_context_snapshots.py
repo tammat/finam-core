@@ -65,7 +65,7 @@ def _load_source_rows(database_url: str, symbol: str, limit: int) -> list[dict[s
                             coalesce(t.closed_trade_id::text, t.id::text) as trade_id,
                             t.closed_trade_id as db_trade_id,
                             t.symbol,
-                            coalesce(c.root_symbol, c.symbol, t.symbol) as continuous_symbol,
+                            coalesce(c.symbol, t.symbol) as continuous_symbol,
                             coalesce(t.strategy, '') as strategy,
                             coalesce(t.timeframe, '') as timeframe,
                             coalesce(t.side, '') as side,
@@ -77,10 +77,17 @@ def _load_source_rows(database_url: str, symbol: str, limit: int) -> list[dict[s
                             to_jsonb(t.*) || jsonb_build_object(
                               'closed_trade_entry_price',c.entry_price,
                               'closed_trade_exit_price',c.exit_price,
-                              'closed_trade_net_pnl',c.net_pnl
-                            ) as attribution
+                              'closed_trade_net_pnl',c.pnl
+                            ) as attribution,
+                            to_jsonb(r.*) as risk_context,
+                            to_jsonb(e.*) as exit_policy_context,
+                            coalesce(t.attribution_quality,'PARTIAL') as attribution_quality,
+                            coalesce(r.context_quality,'PARTIAL') as risk_context_quality,
+                            coalesce(e.context_quality,'PARTIAL') as exit_policy_context_quality
                         from trade_attribution_v2 t
-                        left join closed_trades c on c.id=t.closed_trade_id
+                        left join closed_trade_chains_v2 c on c.id=t.closed_trade_id
+                        left join trade_risk_context r on r.closed_trade_id=t.closed_trade_id
+                        left join trade_exit_policy_context e on e.closed_trade_id=t.closed_trade_id
                         where t.symbol = %s
                         order by coalesce(c.entry_ts, c.created_at, t.created_at, now()) desc
                         limit %s
@@ -150,23 +157,24 @@ def _load_latest_context(database_url: str, table_name: str, symbol: str) -> dic
 def build_snapshots(database_url: str, symbol: str, limit: int) -> list[TradeContextSnapshot]:
     source_rows = _load_source_rows(database_url, symbol, limit)
 
-    risk_context = _load_latest_context(database_url, "trade_risk_context", symbol)
-    exit_policy_context = _load_latest_context(database_url, "trade_exit_policy_context", symbol)
-    feature_context = _load_latest_context(database_url, "feature_snapshots", symbol)
-
     items: list[TradeContextSnapshot] = []
 
     for row in source_rows:
+        risk_context = _json_or_empty(row.get("risk_context"))
+        exit_policy_context = _json_or_empty(row.get("exit_policy_context"))
+        attribution_full = str(row.get("attribution_quality") or "").upper() == "FULL"
+        risk_full = str(row.get("risk_context_quality") or "").upper() == "FULL"
+        exit_full = str(row.get("exit_policy_context_quality") or "").upper() == "FULL"
         snapshot = {
             "attribution": _json_or_empty(row.get("attribution")),
             "risk_context": risk_context,
             "exit_policy_context": exit_policy_context,
-            "feature_context": feature_context,
+            "feature_context": {},
             "context_quality": {
-                "has_attribution": bool(row.get("attribution")),
-                "has_risk_context": bool(risk_context),
-                "has_exit_policy_context": bool(exit_policy_context),
-                "has_feature_context": bool(feature_context),
+                "attribution_full": attribution_full,
+                "risk_context_full": risk_full,
+                "exit_policy_context_full": exit_full,
+                "feature_context_full": False,
             },
         }
 

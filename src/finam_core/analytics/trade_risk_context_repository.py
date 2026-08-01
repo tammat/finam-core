@@ -31,6 +31,7 @@ class TradeRiskContextRepository:
             allow_new_entries BOOLEAN,
             governance_mode TEXT NOT NULL DEFAULT 'unknown',
             governance_reason TEXT NOT NULL DEFAULT '',
+            governance_event_id BIGINT,
 
             context_quality TEXT NOT NULL DEFAULT 'PARTIAL',
             missing_fields TEXT NOT NULL DEFAULT '',
@@ -47,6 +48,8 @@ class TradeRiskContextRepository:
 
         CREATE INDEX IF NOT EXISTS idx_trade_risk_context_quality
         ON trade_risk_context(context_quality);
+        ALTER TABLE trade_risk_context
+            ADD COLUMN IF NOT EXISTS governance_event_id BIGINT;
 
         CREATE TABLE IF NOT EXISTS analytics.trade_context_quarantine_v1 (
             closed_trade_id BIGINT NOT NULL,
@@ -93,9 +96,11 @@ class TradeRiskContextRepository:
                 g.allow_new_entries,
                 COALESCE(g.mode, 'unknown') AS governance_mode,
                 COALESCE(g.reason, '') AS governance_reason
+                ,g.governance_event_id
             FROM source_trades s
             LEFT JOIN LATERAL (
                 SELECT
+                    g.id AS governance_event_id,
                     g.portfolio_heat_status AS heat_status,
                     g.portfolio_risk_multiplier AS risk_multiplier,
                     g.allow_new_entries,
@@ -121,6 +126,7 @@ class TradeRiskContextRepository:
             allow_new_entries,
             governance_mode,
             governance_reason,
+            governance_event_id,
             context_quality,
             missing_fields,
             updated_at
@@ -136,6 +142,7 @@ class TradeRiskContextRepository:
             allow_new_entries,
             governance_mode,
             governance_reason,
+            governance_event_id,
             CASE
                 WHEN heat_status = 'unknown' THEN 'PARTIAL'
                 ELSE 'FULL'
@@ -153,6 +160,7 @@ class TradeRiskContextRepository:
             allow_new_entries = EXCLUDED.allow_new_entries,
             governance_mode = EXCLUDED.governance_mode,
             governance_reason = EXCLUDED.governance_reason,
+            governance_event_id = EXCLUDED.governance_event_id,
             context_quality = EXCLUDED.context_quality,
             missing_fields = EXCLUDED.missing_fields,
             updated_at = now()

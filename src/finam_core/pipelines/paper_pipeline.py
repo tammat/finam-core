@@ -474,6 +474,57 @@ def _save_trade_context_snapshot_for_paper_trade(
             return
 
         payload = dict(trade_payload or {})
+        governance_lineage = None
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(database_url, row_factory=dict_row) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, created_at, portfolio_heat_status,
+                               portfolio_risk_multiplier, exit_policy, governance_mode
+                        FROM portfolio_governance_events
+                        WHERE symbol=%s AND strategy=%s AND timeframe=%s
+                          AND created_at <= COALESCE(%s::timestamptz, now())
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT 1
+                        """,
+                        (payload.get("symbol"), payload.get("strategy"),
+                         payload.get("timeframe"), payload.get("ts")),
+                    )
+                    event = cur.fetchone()
+                    governance_lineage = dict(event) if event else None
+                    if governance_lineage and governance_lineage.get("created_at") is not None:
+                        governance_lineage["created_at"] = governance_lineage["created_at"].isoformat()
+            if governance_lineage is None and all(
+                str(payload.get(key) or "") for key in ("symbol", "strategy", "timeframe")
+            ):
+                decision = PortfolioGovernanceAdvisor(database_url).build(
+                    symbol=str(payload.get("symbol") or ""),
+                    strategy=str(payload.get("strategy") or ""),
+                    timeframe=str(payload.get("timeframe") or ""),
+                )
+                event_id = PortfolioGovernanceRepository(database_url).save(
+                    timeframe=str(payload.get("timeframe") or ""),
+                    decision=decision,
+                )
+                governance_lineage = {
+                    "id": event_id,
+                    "created_at": "captured_at_trade_write",
+                    "portfolio_heat_status": decision.portfolio_heat_status,
+                    "portfolio_risk_multiplier": decision.portfolio_risk_multiplier,
+                    "exit_policy": decision.exit_policy,
+                    "governance_mode": decision.governance_mode,
+                }
+        except Exception as exc:
+            print(
+                "TRADE_GOVERNANCE_LINEAGE_CAPTURE_FAILED "
+                f"trade_id={trade_id} error={type(exc).__name__}:{exc}",
+                flush=True,
+            )
+
         snapshot = {
             "market": {
                 "regime_direction": payload.get("regime_direction"),
@@ -499,6 +550,7 @@ def _save_trade_context_snapshot_for_paper_trade(
                     if isinstance(payload.get("trade_context_snapshot"), dict)
                     else None
                 ),
+                "governance_event": governance_lineage,
             },
             "raw_payload": payload,
         }

@@ -30,6 +30,7 @@ def test_superseded_pilots_are_archived_not_destroyed():
 def test_trade_context_uses_current_attribution_schema():
     source = (ROOT / "src/scripts/build_trade_context_snapshots.py").read_text()
     assert "t.closed_trade_id" in source
-    assert "left join closed_trades c on c.id=t.closed_trade_id" in source
+    # trade_attribution_v2.closed_trade_id references closed_trade_chains_v2.id.
+    assert "left join closed_trade_chains_v2 c on c.id=t.closed_trade_id" in source
     assert "c.entry_price as price" in source
     assert "coalesce(trade_id::text" not in source
