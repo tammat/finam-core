@@ -27,3 +27,18 @@ def test_control_panel_renders_instrument_funnel() -> None:
     assert "research.scout.funnel.title" in renderer
     assert "scout_specification_pass" in renderer
     assert "specification_pass,liquidity_pass,information_ranked,coarse_queued" in resolver
+    assert '("volatility",s.scout_information_ranked)' in renderer
+
+
+def test_v3_scout_selects_tradable_volatility_and_caps_top_ten() -> None:
+    source=Path("src/scripts/run_autonomous_instrument_scout_v1.py").read_text()
+    migration=Path("sql/analytics/253_tradable_volatility_scout_v3.sql").read_text()
+    for feature in ("atr_pct","atr_percentile","rv20","rv60","volatility_acceleration",
+                    "volume_zscore","directional_efficiency","volatility_persistence",
+                    "zero_volume_share","spread_atr_ratio","tradable_volatility_score"):
+        assert feature in source
+        assert feature in migration
+    assert '"max_selected":10' in migration
+    assert 'len(selected)>=int(policy["max_selected"])' in source
+    assert '"promotion_ceiling":"SHADOW"' in source
+    assert "VOLATILITY" in source and "VOLATILITY" in migration

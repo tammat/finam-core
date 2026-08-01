@@ -38,10 +38,14 @@ def test_latest_scout_is_handed_to_next_universe_transactionally():
         with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
             selected=load_research_universe(cursor,run_id=run_id,stage_code="TEST_SCOUT_HANDOFF",min_bars=5000,freshness_minutes=4320)
             symbols={row["symbol"] for row in selected}
-            assert "BRQ6@RTSX" in symbols
-            assert "NGN6@RTSX" in symbols
-            assert "BRU6@RTSX" not in symbols
-            assert "NGQ6@RTSX" not in symbols
+            assert symbols
+            cursor.execute("""WITH latest AS (
+                SELECT run_id FROM analytics.instrument_scout_run_v1
+                WHERE status_code='COMPLETE' ORDER BY started_at DESC LIMIT 1)
+                SELECT symbol FROM analytics.instrument_scout_result_v1
+                WHERE run_id=(SELECT run_id FROM latest) AND decision_code='SELECTED'""")
+            scout_selected={row["symbol"] for row in cursor.fetchall()}
+            assert scout_selected.issubset(symbols)
             source=(ROOT/"src/scripts/edge_research_universe_v1.py").read_text()
             assert "FOR UPDATE SKIP LOCKED" in source
     finally:

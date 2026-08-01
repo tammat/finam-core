@@ -11,7 +11,7 @@ def test_scout_is_registered_in_db_scheduler():
     assert '"INSTRUMENT_SCOUT_V1": "src/scripts/run_autonomous_instrument_scout_v1.py"' in source
 
 
-def test_scout_run_is_complete_and_selects_ready_energy_contracts():
+def test_scout_run_is_complete_and_does_not_force_quiet_energy_contracts():
     with psycopg2.connect("postgresql:///finam_core") as connection:
         with connection.cursor() as cursor:
             cursor.execute("""SELECT run_id,status_code,discovered,selected
@@ -19,25 +19,17 @@ def test_scout_run_is_complete_and_selects_ready_energy_contracts():
             run_id,status,discovered,selected=cursor.fetchone()
             assert status == "COMPLETE"
             assert discovered >= 500
-            assert selected > 0
-            cursor.execute("""SELECT category_code,array_agg(symbol ORDER BY symbol)
+            assert selected <= 10
+            cursor.execute("""SELECT symbol,tradable_volatility_score,candidate_stage_code
                 FROM analytics.instrument_scout_result_v1
                 WHERE run_id=%s AND decision_code='SELECTED'
-                  AND data_ready AND spec_ready AND liquidity_ready
-                  AND category_code IN ('OIL','GAS')
-                GROUP BY category_code""",(run_id,))
-            energy=dict(cursor.fetchall())
-            assert "BRQ6@RTSX" in energy["OIL"]
-            assert "NGN6@RTSX" in energy["GAS"]
-            assert "BRU6@RTSX" not in energy["OIL"]
-            assert "NGQ6@RTSX" not in energy["GAS"]
-            cursor.execute("""SELECT symbol,decision_code,reason_codes->>0
-                FROM analytics.instrument_scout_result_v1 WHERE run_id=%s
-                  AND symbol IN ('BRU6@RTSX','NGQ6@RTSX') ORDER BY symbol""",(run_id,))
-            assert cursor.fetchall() == [
-                ("BRU6@RTSX","RESERVE","NEXT_FUTURES_CONTRACT"),
-                ("NGQ6@RTSX","RESERVE","NEXT_FUTURES_CONTRACT"),
-            ]
+                  AND data_ready AND spec_ready AND liquidity_ready""",(run_id,))
+            for symbol,score,stage in cursor.fetchall():
+                assert score >= 45, symbol
+                assert stage == "SHADOW_READY"
+            cursor.execute("""SELECT count(*) FROM analytics.instrument_scout_queue_v1
+                WHERE run_id=%s AND coalesce(evidence->>'promotion_ceiling','')<>'SHADOW'""",(run_id,))
+            assert cursor.fetchone()[0] == 0
 
 
 def test_scout_is_db_audited_and_bounded():

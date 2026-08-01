@@ -235,9 +235,12 @@ def _scout_table(items):
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.scout.header.{code}",key=f"research.scout.column.{code}") for code in columns))
     reasons={"CATEGORY_QUOTA_SELECTED":"Квота категории","CATEGORY_QUOTA_EXCEEDED":"Резерв категории",
              "NEXT_FUTURES_CONTRACT":"Следующий контракт","INSUFFICIENT_OR_STALE_BARS":"Нужна история",
-             "SPECIFICATION_NOT_READY":"Нет спецификации"}
+             "SPECIFICATION_NOT_READY":"Нет спецификации",
+             "VOLATILITY_OBSERVATION_ONLY":"Пока только наблюдение: волатильность или исполнимость ниже допуска",
+             "LIQUIDITY_NOT_READY":"Недостаточная ликвидность"}
     actions={"RESEARCH_NEXT":"Исследовать","KEEP_RESERVE":"Оставить в резерве",
-             "WAIT_ROLL":"Ждать роллирования","COLLECT_DATA":"Собирать данные","VERIFY_SPEC":"Проверить контракт"}
+             "WAIT_ROLL":"Ждать роллирования","COLLECT_DATA":"Собирать данные","VERIFY_SPEC":"Проверить контракт",
+             "KEEP_OBSERVING":"Продолжать наблюдение","COLLECT_LIQUIDITY":"Накопить ликвидность"}
     rows=[]
     for index,item in enumerate(items,start=1):
         status="OK" if item.decision_code=="SELECTED" else "WARNING" if item.decision_code in ("BACKFILL","RESERVE") else "BLOCKED"
@@ -263,7 +266,7 @@ def _scout_table(items):
 
 def _instrument_funnel(s):
     stages=(("discovered",s.scout_discovered),("data_spec",s.scout_specification_pass),
-            ("liquidity",s.scout_liquidity_pass),("information",s.scout_information_ranked),
+            ("liquidity",s.scout_liquidity_pass),("volatility",s.scout_information_ranked),
             ("quota",s.scout_selected),("coarse",s.scout_coarse_queued))
     return RenderNodeV2(RenderNodeTypeV2.GRID,"research.scout.funnel",children=tuple(
         RenderNodeV2(RenderNodeTypeV2.CARD,f"research.scout.funnel.{code}",
