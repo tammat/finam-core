@@ -7,6 +7,8 @@ Type=oneshot
 User=alex
 WorkingDirectory=/opt/finam-core
 Environment=PYTHONPATH=src
+Environment=ENTRY_EXIT_AUTO_PROMOTION_ENABLED=1
+Environment=ENTRY_EXIT_STAT_BOOTSTRAP_SAMPLES=1000
 EnvironmentFile=/opt/finam-core/.env
 ExecStart=/opt/finam-core/venv/bin/python src/scripts/analytics/build_entry_exit_optimizer_v1.py
 NoNewPrivileges=true

@@ -294,6 +294,24 @@ def test_paper_challenger_requires_fresh_forward_sample():
     assert result["pairs"] == 29
 
 
+def test_candidate_statistical_pass_is_candidate_specific_and_paired():
+    from finam_core.analytics.entry_exit_optimizer import candidate_statistical_gate
+
+    rows = [{"actual_r": -0.2, "shadow_r": 0.3}] * 20
+    result = candidate_statistical_gate(rows, samples=300)
+    assert result["verdict"] == "PASS"
+    assert result["paired_expectancy_gain_r"] == 0.5
+    assert result["probability_positive"] >= 0.95
+
+
+def test_candidate_statistical_gate_fails_closed_on_small_sample():
+    from finam_core.analytics.entry_exit_optimizer import candidate_statistical_gate
+
+    result = candidate_statistical_gate([{"actual_r": 0.0, "shadow_r": 1.0}] * 9)
+    assert result["verdict"] == "ACCUMULATE"
+    assert result["reason"] == "PAIRED_SAMPLE_BELOW_10"
+
+
 def test_paper_challenger_can_become_champion_ready():
     rows = [{"actual_r": -0.1, "shadow_r": 0.3,
              "regime": "range" if index < 15 else "trend"}

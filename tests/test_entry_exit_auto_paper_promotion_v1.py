@@ -17,10 +17,22 @@ def test_challenger_promotes_only_to_paper_automatically():
     assert "REAL_TRADING_ENABLED" not in source
 
 
-def test_automatic_promotion_is_fail_closed_by_default():
+def test_automatic_promotion_is_paper_only_and_has_kill_switch():
     source = BUILDER.read_text(encoding="utf-8")
-    assert 'ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "0"' in source
+    assert 'ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "1"' in source
     assert "PAPER_PROMOTION_BLOCKED_METHODOLOGY_GATE" in source
+
+
+def test_statistical_pass_precedes_expensive_v5_and_minimal_paper():
+    source = BUILDER.read_text(encoding="utf-8")
+    assert "candidate_statistical_gate" in source
+    assert 'workflow_stage = "EXPENSIVE_GATES_PENDING"' in source
+    assert 'workflow_stage = "V5_OOS_COLLECTING"' in source
+    assert 'workflow_stage = "V5_OOS_PASS"' in source
+    assert '"PAPER_CHALLENGER": "PAPER_MINIMAL_ACTIVE"' in source
+    assert '"CHAMPION_ACTIVE": "PAPER_CONTINUE"' in source
+    assert '"ROLLED_BACK": "ROLLED_BACK"' in source
+    assert '"real_trading_allowed": False' in source
 
 
 def test_shadow_builder_requires_costs_and_contract_geometry():

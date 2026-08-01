@@ -391,6 +391,59 @@ def adaptive_shadow_gate(rows: list[dict]) -> dict:
     }
 
 
+def candidate_statistical_gate(rows: list[dict], *, samples: int = 1000,
+                               seed: int = 731) -> dict:
+    """Cheap candidate-specific PASS on paired net-R deltas.
+
+    This is deliberately only the admission gate to the expensive validation
+    chain.  It cannot activate Paper on its own.
+    """
+    completed = [row for row in rows
+                 if row.get("shadow_r") is not None and row.get("actual_r") is not None]
+    deltas = [float(row["shadow_r"]) - float(row["actual_r"]) for row in completed]
+    trades = len(deltas)
+    if trades < 10:
+        return {"verdict": "ACCUMULATE", "reason": "PAIRED_SAMPLE_BELOW_10",
+                "pairs": trades, "probability_positive": 0.0,
+                "mde_required_pairs": None, "top_gain_share": 1.0}
+    block = max(1, min(trades, int(round(math.sqrt(trades)))))
+    starts = list(range(max(1, trades - block + 1)))
+    rng = random.Random(seed)
+    bootstrap_means: list[float] = []
+    for _ in range(max(200, min(5000, int(samples)))):
+        sample: list[float] = []
+        while len(sample) < trades:
+            start = rng.choice(starts)
+            sample.extend(deltas[start:start + block])
+        bootstrap_means.append(mean(sample[:trades]))
+    probability_positive = sum(value > 0 for value in bootstrap_means) / len(bootstrap_means)
+    effect = mean(deltas)
+    variance = sum((value - effect) ** 2 for value in deltas) / max(1, trades - 1)
+    sigma = math.sqrt(max(0.0, variance))
+    mde_required = (None if effect <= 0 else trades if sigma == 0 else
+                    min(10000, max(trades, math.ceil(((1.96 + .84) * sigma / effect) ** 2))))
+    gains = sorted((value for value in deltas if value > 0), reverse=True)
+    top_gain_share = gains[0] / sum(gains) if gains and sum(gains) > 0 else 1.0
+    if effect <= 0:
+        verdict, reason = "FAIL", "PAIRED_EXPECTANCY_NOT_POSITIVE"
+    elif probability_positive < .95:
+        verdict, reason = "ACCUMULATE", "BOOTSTRAP_PROBABILITY_BELOW_95"
+    elif top_gain_share > .35:
+        verdict, reason = "ACCUMULATE", "GAIN_CONCENTRATION_ABOVE_35"
+    elif mde_required is None or trades < mde_required:
+        verdict, reason = "ACCUMULATE", "MDE_SAMPLE_NOT_REACHED"
+    else:
+        verdict, reason = "PASS", "CANDIDATE_STATISTICAL_PASS"
+    return {
+        "verdict": verdict, "reason": reason, "pairs": trades,
+        "paired_expectancy_gain_r": effect,
+        "probability_positive": probability_positive,
+        "bootstrap_block_length": block, "mde_required_pairs": mde_required,
+        "mde_remaining_pairs": max(0, mde_required - trades) if mde_required else None,
+        "top_gain_share": top_gain_share,
+    }
+
+
 def evaluate_walk_forward(rows: list[dict], *, min_pairs: int | None = None,
                           min_oos: int | None = None,
                           oos_rows: list[dict] | None = None) -> dict:

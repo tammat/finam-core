@@ -12,6 +12,7 @@ from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.entry_exit_optimizer import (
     Bar, EntryContext, Variant, default_variants, expert_shadow_variants,
+    candidate_statistical_gate,
     evaluate_active_paper_champion, evaluate_paper_challenger,
     evaluate_walk_forward, parameter_plateau_check, simulate_variant,
 )
@@ -163,6 +164,7 @@ def main() -> int:
           LEFT JOIN LATERAL (
             SELECT ct.id,ct.commission,ct.qty FROM closed_trades ct
             WHERE ct.signal_id=s.signal_id AND ct.trade_source='paper'
+              AND ct.payload->'pnl_units'->>'version'='PNL_UNITS_V2_RUB'
             ORDER BY coalesce(ct.entry_ts,ct.opened_at,ct.created_at) LIMIT 1
           ) c ON true
           WHERE coalesce(s.payload->'context'->>'cohort',s.payload->>'portfolio_scope','')
@@ -334,6 +336,41 @@ def main() -> int:
                 evaluation_rows = [row for row in rows if row["source_id"] in eligible_ids]
                 explicit_oos = [row for row in rows if row["source_id"] in oos_ids]
                 metrics = evaluate_walk_forward(evaluation_rows, oos_rows=explicit_oos)
+                statistical_gate = candidate_statistical_gate(
+                    evaluation_rows,
+                    samples=int(os.getenv("ENTRY_EXIT_STAT_BOOTSTRAP_SAMPLES", "1000")),
+                    seed=731 + len(candidate_results),
+                )
+                metrics["statistical_gate"] = statistical_gate
+                expensive_checks = dict(metrics.get("checks") or {})
+                oos_checks = {
+                    key: expensive_checks.pop(key) for key in
+                    ("oos_positive", "oos_better") if key in expensive_checks
+                }
+                expensive_pass = bool(expensive_checks) and all(expensive_checks.values())
+                oos_pass = bool(oos_checks) and all(oos_checks.values())
+                if statistical_gate["verdict"] != "PASS":
+                    workflow_stage = "SHADOW_ACCUMULATION"
+                elif not expensive_pass:
+                    workflow_stage = "EXPENSIVE_GATES_PENDING"
+                elif int(metrics.get("oos_pairs") or 0) < int(
+                        metrics.get("adaptive_gate", {}).get("min_oos") or 15):
+                    workflow_stage = "V5_OOS_COLLECTING"
+                elif not oos_pass:
+                    workflow_stage = "V5_OOS_FAILED"
+                else:
+                    workflow_stage = "V5_OOS_PASS"
+                metrics["promotion_workflow"] = {
+                    "stage": workflow_stage,
+                    "statistical_pass": statistical_gate["verdict"] == "PASS",
+                    "expensive_gates_pass": expensive_pass,
+                    "v5_oos_pass": oos_pass,
+                    "paper_risk_fraction": 0.25,
+                    "real_trading_allowed": False,
+                }
+                if (metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION"
+                        and workflow_stage != "V5_OOS_PASS"):
+                    metrics["status"] = "KEEP_SHADOW"
                 metrics["purged_split"] = {
                     "enabled": True,
                     "boundary": split.boundary.isoformat() if split else None,
@@ -394,6 +431,32 @@ def main() -> int:
                                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
                                  AND candidate_code=%s""",
                             (metrics["status"],json.dumps(metrics),strategy,group,side,variant.code))
+                workflow = metrics.get("promotion_workflow") or {}
+                cur.execute("""INSERT INTO analytics.entry_exit_promotion_workflow_v1(
+                    strategy_code,symbol_group,side_code,candidate_code,workflow_stage,
+                    statistical_verdict,expensive_gates_pass,v5_oos_pass,paper_risk_fraction,
+                    evidence,first_entered_at,last_transition_at)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,clock_timestamp(),clock_timestamp())
+                    ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
+                      workflow_stage=excluded.workflow_stage,
+                      statistical_verdict=excluded.statistical_verdict,
+                      expensive_gates_pass=excluded.expensive_gates_pass,
+                      v5_oos_pass=excluded.v5_oos_pass,
+                      paper_risk_fraction=excluded.paper_risk_fraction,
+                      evidence=excluded.evidence,
+                      first_entered_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
+                        IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
+                        ELSE analytics.entry_exit_promotion_workflow_v1.first_entered_at END,
+                      last_transition_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
+                        IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
+                        ELSE analytics.entry_exit_promotion_workflow_v1.last_transition_at END,
+                      updated_at=clock_timestamp()""",
+                    (strategy,group,side,variant.code,
+                     workflow.get("stage", "SHADOW_ACCUMULATION"),
+                     metrics.get("statistical_gate", {}).get("verdict", "ACCUMULATE"),
+                     bool(workflow.get("expensive_gates_pass")),
+                     bool(workflow.get("v5_oos_pass")),
+                     float(workflow.get("paper_risk_fraction") or 0.25),json.dumps(metrics)))
                 family_rows[(research_family(strategy),side,variant.code)].extend(evaluation_rows)
 
             cur.execute("""SELECT c.*,p.candidate_code AS active_candidate_code,p.profile_id AS active_profile_id,
@@ -529,7 +592,10 @@ def main() -> int:
             # Paper is an isolated learning contour: once every historical and
             # fresh forward guard has passed, promote the challenger without an
             # operator click. REAL is not represented by this table or job.
-            auto_promotion_enabled = os.getenv("ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "0") == "1"
+            # Automatic Paper-only continuation is safe by default now that a
+            # candidate cannot reach this point without statistical, expensive
+            # and purged V5 OOS gates.  Setting the variable to 0 is the kill switch.
+            auto_promotion_enabled = os.getenv("ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "1") == "1"
             if stage == "READY_FOR_CHAMPION_CONFIRMATION" and not auto_promotion_enabled:
                 stage = "PAPER_PROMOTION_BLOCKED_METHODOLOGY_GATE"
                 paper_metrics = dict(paper_metrics)
@@ -592,6 +658,31 @@ def main() -> int:
                existing_code,stage,stage,selected_at,json.dumps(shadow_metrics),
                json.dumps(paper_metrics),stage != "SHADOW_ACCUMULATION",json.dumps(champion_metrics),
                degraded_cycles,rollback_reason,last_transition_at,last_transition_at))
+            workflow_stage_by_challenger = {
+                "PAPER_CHALLENGER": "PAPER_MINIMAL_ACTIVE",
+                "KEEP_PAPER_CHALLENGER": "PAPER_MONITOR",
+                "READY_FOR_CHAMPION_CONFIRMATION": "PAPER_CONTINUE",
+                "CHAMPION_ACTIVE": "PAPER_CONTINUE",
+                "ROLLED_BACK": "ROLLED_BACK",
+                "REJECTED": "REJECTED",
+            }
+            promoted_workflow_stage = workflow_stage_by_challenger.get(stage)
+            if promoted_workflow_stage and existing_code:
+                cur.execute("""UPDATE analytics.entry_exit_promotion_workflow_v1
+                    SET workflow_stage=%s,
+                        evidence=evidence || %s::jsonb,
+                        last_transition_at=CASE WHEN workflow_stage IS DISTINCT FROM %s
+                          THEN clock_timestamp() ELSE last_transition_at END,
+                        updated_at=clock_timestamp()
+                    WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                      AND candidate_code=%s""",
+                    (promoted_workflow_stage,json.dumps({
+                        "paper_stage": stage,
+                        "paper_risk_fraction": 0.25,
+                        "rollback_after_degraded_daily_cycles": 2,
+                        "hard_drawdown_floor_r": 3.0,
+                        "real_trading_allowed": False,
+                    }),promoted_workflow_stage,strategy,group,side,existing_code))
             print("ENTRY_EXIT_CHALLENGER",strategy,group,side,existing_code,stage,
                   json.dumps(paper_metrics,sort_keys=True))
         conn.commit()
