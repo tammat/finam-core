@@ -76,7 +76,7 @@ def paper_decision(values: list[Decimal], loss_scale: Decimal) -> tuple[str, str
 
 
 def ensure_paper_baseline(cur, strategy: str, symbol_group: str, side: str) -> int:
-    """Persist the exact runtime fallback before the first adaptive pilot."""
+    """Audit that the exact baseline is the strategy's native no-override path."""
     cur.execute("""SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
         WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
           AND execution_mode='paper' AND candidate_code='CURRENT_PAPER_BASELINE'
@@ -93,7 +93,9 @@ def ensure_paper_baseline(cur, strategy: str, symbol_group: str, side: str) -> i
       VALUES(%s,%s,%s,'CURRENT_PAPER_BASELINE','paper','SUPERSEDED','IMMEDIATE',
         %s,%s,NULL,NULL,%s,'AUTO_BASELINE_SNAPSHOT_V1') RETURNING profile_id""",
       (strategy, symbol_group, side, stop_atr, take_atr,
-       psycopg2.extras.Json({"immutable_baseline": True, "runtime_fallback_snapshot": True})))
+       psycopg2.extras.Json({"immutable_baseline": True, "runtime_fallback_snapshot": True,
+                             "activation_forbidden": True,
+                             "restore_policy": "REMOVE_OVERRIDE_USE_NATIVE_STRATEGY"})))
     return int(cur.fetchone()["profile_id"])
 
 
@@ -272,14 +274,9 @@ def main() -> int:
                           AND candidate_code=%s AND status='ACTIVE'
                           AND activated_by='ADAPTIVE_REGIME_PILOT_V2'""",
                         (strategy, symbol_group, side, code))
-                    cur.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
-                        SET status='ACTIVE',activated_at=clock_timestamp(),deactivated_at=NULL,
-                            activated_by='AUTO_PILOT_ROLLBACK_V1'
-                        WHERE profile_id=(SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
-                          WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
-                            AND candidate_code='CURRENT_PAPER_BASELINE'
-                          ORDER BY profile_id DESC LIMIT 1)""",
-                        (strategy, symbol_group, side))
+                    # No ACTIVE override is the exact native Paper baseline.
+                    # The baseline row is audit-only and must never overwrite
+                    # asset-specific strategy geometry.
             paper_metric = performance(paper_values)
             evidence = {
                 "lookback_days": LOOKBACK_DAYS, "regime": regime,

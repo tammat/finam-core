@@ -24,6 +24,7 @@ def test_pilot_snapshots_and_restores_baseline():
     source = (ROOT / "src/scripts/run_adaptive_regime_pilot_v1.py").read_text(encoding="utf-8")
     assert "ensure_paper_baseline" in source
     assert "CURRENT_PAPER_BASELINE" in source
-    assert "AUTO_PILOT_ROLLBACK_V1" in source
+    assert "REMOVE_OVERRIDE_USE_NATIVE_STRATEGY" in source
+    assert "No ACTIVE override is the exact native Paper baseline" in source
     assert "entry_exit_promotion_workflow_v1 w" in source
     assert "w.workflow_stage<>'REJECTED'" in source

@@ -731,6 +731,7 @@ def main() -> int:
                             WHERE profile_id=(SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
                               WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
                                 AND execution_mode='paper' AND status='SUPERSEDED'
+                                AND candidate_code<>'CURRENT_PAPER_BASELINE'
                               ORDER BY deactivated_at DESC NULLS LAST LIMIT 1)
                             RETURNING profile_id,candidate_code""", (strategy,group,side))
                         restored = cur.fetchone()
