@@ -65,6 +65,7 @@ EXECUTORS = {
     "MARKET_REGIME_CONTEXT_V2": "src/scripts/build_market_regime_context_v2.py",
     "MONDAY_READINESS_V1": "src/scripts/analytics/build_monday_readiness_v1.py",
     "ADAPTIVE_PENDING_ENTRY_V1": "src/scripts/run_adaptive_pending_entry_worker_v1.py",
+    "LIGHTWEIGHT_STATISTICAL_EVIDENCE_V1": "src/scripts/analytics/build_lightweight_statistical_evidence_v1.py",
 }
 
 # These jobs scan history, rebuild bars, or evaluate many candidate paths.  On
@@ -83,6 +84,7 @@ HEAVY_EXECUTORS = {
     "SESSION_EXECUTION_EDGE_V2",
     "M15_REBUILD_FROM_M5_V1",
     "V5_PURGED_OOS_WORKER_V1",
+    "LIGHTWEIGHT_STATISTICAL_EVIDENCE_V1",
 }
 
 
@@ -154,6 +156,11 @@ EXECUTOR_ENV = {
         "SESSION_EDGE_MIN_BARS": "6000",
         "MICROSTRUCTURE_MIN_COVERAGE": "0.80",
         "MICROSTRUCTURE_MAX_QUOTE_DISTANCE_SECONDS": "5",
+    },
+    "LIGHTWEIGHT_STATISTICAL_EVIDENCE_V1": {
+        "STAT_BOOTSTRAP_SAMPLES": "1000",
+        "STAT_MAX_GROUPS": "100",
+        "STAT_MAX_TRADES_PER_GROUP": "500",
     },
 }
 

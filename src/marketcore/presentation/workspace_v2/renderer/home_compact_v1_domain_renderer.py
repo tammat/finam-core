@@ -303,6 +303,42 @@ def _workflow_section(snapshot):
     ))
 
 
+def _lightweight_statistics_section(snapshot):
+    stats=snapshot.get("lightweight_statistics") or {}
+    groups=int(stats.get("groups_total") or 0)
+    hold_seconds=int(stats.get("median_hold_seconds") or 0)
+    hold_text=_holding_text(hold_seconds) if hold_seconds else "нет данных"
+    if not stats:
+        rows=(_row("statistics.empty","Статистический слой",
+                   "первый ночной расчёт ещё не завершён",status="WARNING"),)
+    else:
+        rows=(
+            _row("statistics.bootstrap","Block bootstrap",
+                 f"положительная вероятность ≥80%: {int(stats.get('bootstrap_positive') or 0)} из {groups}",
+                 status="OK" if int(stats.get("bootstrap_positive") or 0) else "WARNING"),
+            _row("statistics.mde","Необходимая выборка",
+                 f"достигли MDE: {int(stats.get('mde_reached') or 0)} · "
+                 f"медианно осталось сделок: {int(stats.get('median_mde_remaining') or 0)}"),
+            _row("statistics.concentration","Концентрация прибыли",
+                 f"устойчивы без одной сделки/дня: {int(stats.get('concentration_pass') or 0)} из {groups}"),
+            _row("statistics.survival","Удержание и TIME_EXIT",
+                 f"медианное удержание: {hold_text} · survival хранится по горизонтам 15–480 минут"),
+            _row("statistics.cusum","Деградация CUSUM",
+                 f"предупреждений: {int(stats.get('degradation_alerts') or 0)}",
+                 status="WARNING" if int(stats.get("degradation_alerts") or 0) else "OK"),
+            _row("statistics.next","Дорогие проверки",
+                 f"готовы к CPCV/PBO/DSR: {int(stats.get('ready_for_expensive_gates') or 0)}",
+                 status="OK" if int(stats.get("ready_for_expensive_gates") or 0) else "WARNING"),
+        )
+    return RenderNodeV2(RenderNodeTypeV2.SECTION,"home.compact.statistics",children=(
+        _leaf(RenderNodeTypeV2.TITLE,"home.compact.statistics.title",
+              "Статистическая доказательность",level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT,"home.compact.statistics.help",
+              "Лёгкие проверки выполняются первыми; тяжёлые CPCV/PBO получают только финалисты."),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST,"home.compact.statistics.metrics",children=rows),
+    ))
+
+
 def _holding_text(seconds, active=False):
     if seconds is None:
         return "идёт" if active else "—"
@@ -906,6 +942,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
               "Поиск преимущества · без реальных сделок"),
         _now_section(snapshot),
         _workflow_section(snapshot),
+        _lightweight_statistics_section(snapshot),
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),

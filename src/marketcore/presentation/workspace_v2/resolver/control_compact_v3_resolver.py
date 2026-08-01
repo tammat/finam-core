@@ -308,6 +308,24 @@ class ControlCompactV3Resolver:
                     WHERE evaluated_at >= clock_timestamp()-interval '1 hour'
                 """)
                 research_resource_gate = dict(cursor.fetchone() or {})
+                cursor.execute("""WITH latest AS (
+                    SELECT run_id,status_code,groups_total,ready_for_expensive_gates,
+                           degradation_alerts,finished_at
+                    FROM analytics.lightweight_statistical_run_v1
+                    WHERE status_code='COMPLETE' ORDER BY started_at DESC LIMIT 1)
+                  SELECT l.*,
+                    count(*) FILTER(WHERE e.probability_positive>=.80)::int bootstrap_positive,
+                    count(*) FILTER(WHERE e.mde_remaining_trades=0)::int mde_reached,
+                    count(*) FILTER(WHERE e.top_trade_profit_share<=.35
+                                      AND e.top_day_profit_share<=.50)::int concentration_pass,
+                    percentile_cont(.5) WITHIN GROUP(ORDER BY e.mde_remaining_trades)
+                      FILTER(WHERE e.mde_remaining_trades IS NOT NULL) median_mde_remaining,
+                    percentile_cont(.5) WITHIN GROUP(ORDER BY e.median_hold_seconds)
+                      AS median_hold_seconds
+                  FROM latest l LEFT JOIN analytics.lightweight_statistical_evidence_v1 e USING(run_id)
+                  GROUP BY l.run_id,l.status_code,l.groups_total,l.ready_for_expensive_gates,
+                           l.degradation_alerts,l.finished_at""")
+                lightweight_statistics = dict(cursor.fetchone() or {})
 
                 cursor.execute("""
                     SELECT level_code,count(*)::int AS groups,
@@ -818,6 +836,7 @@ class ControlCompactV3Resolver:
             "market_shock_gate": market_shock_gate,
             "monday_readiness": monday_readiness,
             "research_resource_gate": research_resource_gate,
+            "lightweight_statistics": lightweight_statistics,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,

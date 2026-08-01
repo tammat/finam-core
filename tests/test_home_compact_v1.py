@@ -13,7 +13,7 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     nodes = list(walk(document.root))
     sections = [node.node_id for node in nodes if node.node_type is RenderNodeTypeV2.SECTION]
     assert sections == [
-        "home.compact.now", "home.compact.workflow", "home.compact.progress",
+        "home.compact.now", "home.compact.workflow", "home.compact.statistics", "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
         "home.compact.shadow",
         "home.compact.oos", "home.compact.optimizer", "home.compact.attention",
@@ -38,6 +38,21 @@ def test_home_explains_autonomous_edge_workflow_in_russian() -> None:
                    "Следующий шаг", "Реальная торговля"):
         assert phrase in text
     assert "EXCHANGE_CALENDAR_CLOSED" not in text
+
+
+def test_home_exposes_lightweight_statistical_gates() -> None:
+    source = open(
+        "src/marketcore/presentation/workspace_v2/renderer/home_compact_v1_domain_renderer.py",
+        encoding="utf-8",
+    ).read()
+    resolver = open(
+        "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py",
+        encoding="utf-8",
+    ).read()
+    for phrase in ("Статистическая доказательность", "Block bootstrap", "Необходимая выборка",
+                   "Удержание и TIME_EXIT", "Деградация CUSUM", "CPCV/PBO/DSR"):
+        assert phrase in source
+    assert "lightweight_statistical_evidence_v1" in resolver
 
 
 def test_home_uses_plain_russian_and_no_operator_table() -> None:
