@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
+import grpc
 from dotenv import load_dotenv
 
 from finam_core.adapters.grpc.orders_client import FinamOrdersClient
@@ -105,7 +106,18 @@ def main() -> int:
     acks = OrderAckRepository().list_recent(limit=limit)
 
     client = FinamOrdersClient()
-    broker_orders = [_broker_order_to_state(o) for o in client.get_orders()]
+    try:
+        broker_orders = [_broker_order_to_state(o) for o in client.get_orders()]
+    except grpc.RpcError as exc:
+        # Temporary broker/network outages are not reconciliation failures:
+        # there is no trustworthy broker snapshot to compare with.  Defer the
+        # run and let the timer retry instead of creating a systemd failure
+        # storm or, worse, treating an empty response as missing orders.
+        if exc.code() in {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}:
+            print("ORDER_ACK_RECONCILIATION_DEFERRED")
+            print(f"broker_status={exc.code().name} reason=broker_snapshot_unavailable")
+            return 0
+        raise
     broker_snapshots_saved = BrokerOrderSnapshotStore().save_many(broker_orders)
 
     service = BrokerOrderReconciliationService(broker_orders)

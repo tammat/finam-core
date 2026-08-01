@@ -642,6 +642,7 @@ def _optimizer_section(snapshot):
     workflow_labels = {
         "SHADOW_ACCUMULATION": "Shadow: накопление статистики",
         "EXPENSIVE_GATES_PENDING": "дорогие проверки ещё не пройдены",
+        "EXPENSIVE_GATES_FAILED": "дорогие проверки не пройдены — остаётся Shadow",
         "V5_OOS_COLLECTING": "V5 OOS: собираются только будущие наблюдения",
         "V5_OOS_FAILED": "V5 OOS не пройден — остаётся Shadow",
         "V5_OOS_PASS": "V5 OOS пройден — готов минимальный Paper",
@@ -663,7 +664,7 @@ def _optimizer_section(snapshot):
                                           str(item.get("workflow_stage")))),
                 _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.workflow.{index}.gates",
                       f"Статистика: {item.get('statistical_verdict')} · "
-                      f"дорогие проверки: {'PASS' if item.get('expensive_gates_pass') else 'ожидание'} · "
+                      f"дорогие проверки: {'PASS' if item.get('expensive_gates_pass') else ('FAIL' if item.get('workflow_stage') == 'EXPENSIVE_GATES_FAILED' else 'ожидание')} · "
                       f"V5 OOS: {'PASS' if item.get('v5_oos_pass') else 'ожидание'} · "
                       f"Paper-риск: {float(item.get('paper_risk_fraction') or 0)*100:.0f}%"),
             ),

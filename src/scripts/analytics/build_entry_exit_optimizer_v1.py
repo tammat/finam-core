@@ -419,7 +419,7 @@ def main() -> int:
                 if statistical_gate["verdict"] != "PASS":
                     workflow_stage = "SHADOW_ACCUMULATION"
                 elif not expensive_pass:
-                    workflow_stage = "EXPENSIVE_GATES_PENDING"
+                    workflow_stage = "EXPENSIVE_GATES_FAILED"
                 else:
                     workflow_stage = "V5_OOS_COLLECTING"
                 metrics["promotion_workflow"] = {
@@ -508,6 +508,19 @@ def main() -> int:
             freeze_candidate_code = (str(frozen_existing["candidate_code"])
                                      if frozen_existing else
                                      freeze_eligible[0][0].code if freeze_eligible else None)
+            # Keep one active research challenger per strategy/instrument/side.
+            # All variants remain in the recommendation table for audit, but
+            # only this candidate is allowed to consume the expensive/OOS
+            # funnel.  This limits multiplicity and prevents UI candidate spam.
+            if freeze_candidate_code:
+                shadow_funnel_code = freeze_candidate_code
+            else:
+                observed = max(candidate_results, key=lambda item: (
+                    int(item[1].get("pairs") or 0),
+                    float(item[1].get("shadow_expectancy_r") or -999),
+                    -float(item[1].get("shadow_drawdown_r") or 999),
+                ))
+                shadow_funnel_code = observed[0].code
             for variant, metrics, evaluation_rows in candidate_results:
                 workflow = metrics.get("promotion_workflow") or {}
                 checks = dict(metrics.get("checks") or {})
@@ -519,6 +532,7 @@ def main() -> int:
                 oos_run_id = None
                 actual_oos_status = None
                 selected_for_frozen_oos = variant.code == freeze_candidate_code
+                selected_for_shadow_funnel = variant.code == shadow_funnel_code
                 if selected_for_frozen_oos:
                     cur.execute("""SELECT admission_id,oos_run_id FROM
                         analytics.entry_exit_promotion_workflow_v1
@@ -548,12 +562,12 @@ def main() -> int:
                     workflow_stage = "V5_OOS_FAILED"
                 elif admission_id:
                     workflow_stage = "V5_OOS_COLLECTING"
+                elif not selected_for_shadow_funnel:
+                    workflow_stage = "REJECTED"
                 elif not statistical_pass:
                     workflow_stage = "SHADOW_ACCUMULATION"
                 elif not expensive_pass:
-                    workflow_stage = "EXPENSIVE_GATES_PENDING"
-                elif not selected_for_frozen_oos:
-                    workflow_stage = "EXPENSIVE_GATES_PENDING"
+                    workflow_stage = "EXPENSIVE_GATES_FAILED"
                 else:
                     workflow_stage = "V5_OOS_COLLECTING"
                 workflow.update({
@@ -563,8 +577,11 @@ def main() -> int:
                     "v5_oos_status":actual_oos_status or "NOT_STARTED",
                     "admission_id":admission_id,"oos_run_id":oos_run_id,
                     "selected_for_frozen_oos":selected_for_frozen_oos,
-                    "selection_reason":("BEST_EXPENSIVE_GATE_CANDIDATE"
-                                        if selected_for_frozen_oos else "WAITING_BEHIND_BEST_CANDIDATE"),
+                    "selected_for_shadow_funnel":selected_for_shadow_funnel,
+                    "selection_reason":(
+                        "BEST_EXPENSIVE_GATE_CANDIDATE" if selected_for_frozen_oos
+                        else "ACTIVE_SHADOW_CHALLENGER" if selected_for_shadow_funnel
+                        else "NOT_SELECTED_FOR_SHADOW_FUNNEL"),
                     "preliminary_purged_checks":preliminary_oos,
                 })
                 metrics["promotion_workflow"] = workflow

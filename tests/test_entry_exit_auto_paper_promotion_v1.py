@@ -29,7 +29,7 @@ def test_statistical_pass_precedes_expensive_v5_and_minimal_paper():
     source = BUILDER.read_text(encoding="utf-8")
     pilot = PILOT.read_text(encoding="utf-8")
     assert "candidate_statistical_gate" in source
-    assert 'workflow_stage = "EXPENSIVE_GATES_PENDING"' in source
+    assert 'workflow_stage = "EXPENSIVE_GATES_FAILED"' in source
     assert 'workflow_stage = "V5_OOS_COLLECTING"' in source
     assert 'workflow_stage = "V5_OOS_PASS"' in source
     assert '"PILOT_ACTIVE": ("PAPER_MONITOR"' in pilot
@@ -37,6 +37,13 @@ def test_statistical_pass_precedes_expensive_v5_and_minimal_paper():
     assert '"CHAMPION_ACTIVE": "PAPER_CONTINUE"' in source
     assert '"ROLLED_BACK": "ROLLED_BACK"' in source
     assert '"real_trading_allowed": False' in source
+
+
+def test_shadow_funnel_keeps_only_one_active_challenger_per_group():
+    source = BUILDER.read_text(encoding="utf-8")
+    assert "shadow_funnel_code" in source
+    assert 'workflow_stage = "REJECTED"' in source
+    assert "NOT_SELECTED_FOR_SHADOW_FUNNEL" in source
 
 
 def test_shadow_builder_requires_costs_and_contract_geometry():

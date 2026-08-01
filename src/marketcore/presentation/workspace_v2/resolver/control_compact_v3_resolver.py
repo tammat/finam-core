@@ -556,10 +556,12 @@ class ControlCompactV3Resolver:
                            workflow_stage,statistical_verdict,expensive_gates_pass,v5_oos_pass,
                            paper_risk_fraction,admission_id,oos_run_id,evidence,updated_at
                     FROM analytics.entry_exit_promotion_workflow_v1
+                    WHERE workflow_stage <> 'REJECTED'
                     ORDER BY CASE workflow_stage
                       WHEN 'PAPER_MONITOR' THEN 0 WHEN 'PAPER_MINIMAL_ACTIVE' THEN 1
                       WHEN 'V5_OOS_PASS' THEN 2 WHEN 'V5_OOS_COLLECTING' THEN 3
-                      WHEN 'EXPENSIVE_GATES_PENDING' THEN 4 ELSE 5 END,
+                      WHEN 'EXPENSIVE_GATES_PENDING' THEN 4
+                      WHEN 'EXPENSIVE_GATES_FAILED' THEN 5 ELSE 6 END,
                       updated_at DESC LIMIT 12""")
                 entry_exit_workflows = [dict(row) for row in cursor.fetchall()]
 
