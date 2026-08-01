@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+import os
 from dataclasses import dataclass
 
 from finam_core.research.research_runtime_state_repository import (
@@ -55,6 +56,19 @@ class ResearchRuntimeSupervisor:
 
     def run_cycle(self) -> int:
         symbols_arg = ",".join(self.config.symbols)
+
+        load_1m = os.getloadavg()[0]
+        load_limit = max(1.0, float(os.getenv("RESEARCH_RUNTIME_MAX_LOAD_1M", "3.0")))
+        if load_1m >= load_limit:
+            reason = f"RESOURCE_GATE_LOAD_HIGH:{load_1m:.2f}>={load_limit:.2f}"
+            self.repository.upsert_state(
+                supervisor_name=self.config.supervisor_name,
+                status="DEFERRED",
+                active_symbols=symbols_arg,
+                last_error=reason,
+            )
+            print(f"RESEARCH_RUNTIME_SUPERVISOR_DEFERRED reason={reason}", flush=True)
+            return 0
 
         cycle_id = self.repository.start_cycle(
             supervisor_name=self.config.supervisor_name,

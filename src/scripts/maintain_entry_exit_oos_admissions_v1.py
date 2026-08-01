@@ -33,8 +33,24 @@ def main() -> int:
                     (%s * interval '1 day')""",
                 (max(7, int(os.getenv("ENTRY_EXIT_OOS_WAITING_TTL_DAYS", "14"))),))
             expired = cursor.rowcount
+            cursor.execute("""WITH archived AS (
+                DELETE FROM analytics.adaptive_regime_paper_pilot_v1 p
+                WHERE p.status_code='SUPERSEDED'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM analytics.entry_exit_promotion_workflow_v1 w
+                    WHERE w.strategy_code=p.strategy_code
+                      AND w.side_code=p.side_code
+                      AND w.candidate_code=p.candidate_code
+                      AND w.workflow_stage<>'REJECTED'
+                  )
+                RETURNING p.*
+              ) INSERT INTO analytics.adaptive_regime_paper_pilot_archive_v1
+                SELECT archived.*,clock_timestamp() FROM archived
+                ON CONFLICT(pilot_id) DO NOTHING""")
+            pilots_archived = cursor.rowcount
     print(f"admissions_deduplicated={deduplicated}")
     print(f"admissions_expired={expired}")
+    print(f"superseded_pilots_archived={pilots_archived}")
     return 0
 
 

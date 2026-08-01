@@ -56,6 +56,20 @@ def main() -> int:
         now()
     FROM runtime_strategy_selection
     WHERE mode IN ('PAPER_ENABLED', 'RADAR_ONLY', 'RESEARCH_ONLY')
+      AND EXISTS (
+        SELECT 1 FROM analytics.runtime_strategy_policy_v2 p
+        WHERE p.symbol=runtime_strategy_selection.symbol
+          AND p.timeframe IN(runtime_strategy_selection.timeframe,'ANY')
+          AND p.enabled
+      )
+      AND (
+        runtime_strategy_selection.symbol LIKE '%@MISX'
+        OR EXISTS (
+          SELECT 1 FROM futures_contract_universe f
+          WHERE f.contract_symbol=runtime_strategy_selection.symbol
+            AND f.is_active AND f.expiration_date>=current_date
+        )
+      )
     ORDER BY
         symbol,
         CASE
