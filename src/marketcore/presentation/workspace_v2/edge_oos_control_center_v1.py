@@ -578,6 +578,23 @@ def _signal_funnel() -> tuple[list[dict], list[dict], bool, dict]:
                 ORDER BY rows_total DESC LIMIT 10
             """)
             daily["reasons"] = [dict(row) for row in cur.fetchall()]
+            cur.execute("""SELECT r.branch_code,r.logical_symbol,r.side_code,r.state_code,
+                       coalesce(f.source_opportunities,0) source_opportunities,
+                       coalesce(f.entry_eligible,0) entry_eligible,
+                       coalesce(f.shadow_entered,0) shadow_entered,
+                       coalesce(f.independent_closed,0) independent_closed,
+                       f.dominant_block_reason,
+                       coalesce(g.decision_code,'ACCUMULATING') decision_code,
+                       coalesce(g.reason_code,'PROSPECTIVE_SAMPLE_BELOW_8') reason_code,
+                       g.expectancy_r,g.profit_factor
+                FROM analytics.v5_post_fix_branch_registry_v1 r
+                LEFT JOIN LATERAL (
+                  SELECT * FROM analytics.prospective_shadow_funnel_v1 x
+                  WHERE x.branch_code=r.branch_code ORDER BY evaluated_at DESC LIMIT 1
+                ) f ON true
+                LEFT JOIN analytics.prospective_shadow_gate_latest_v1 g USING(branch_code)
+                ORDER BY r.branch_code""")
+            daily["prospective"] = [dict(row) for row in cur.fetchall()]
     return stages, reasons, comparable, daily
 
 
@@ -1214,6 +1231,16 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         f"<tr><td>{html.escape(str(row['stage']))}</td><td>{html.escape(str(row['reason']))}</td><td>{int(row['rows_total'])}</td></tr>"
         for row in daily_funnel.get("reasons", [])
     ) or "<tr><td>—</td><td>Сегодня отклонённых кандидатов нет</td><td>0</td></tr>"
+    prospective_rows = "".join(
+        f"""<tr><td><strong>{html.escape(row['logical_symbol'])}</strong> · {html.escape(row['side_code'])}</td>
+        <td>{int(row['source_opportunities'])}</td><td>{int(row['entry_eligible'])}</td>
+        <td>{int(row['shadow_entered'])}</td><td>{int(row['independent_closed'])}/8</td>
+        <td>{'—' if row['expectancy_r'] is None else f'{float(row["expectancy_r"]):+.2f}R'}</td>
+        <td>{'—' if row['profit_factor'] is None else f'{float(row["profit_factor"]):.2f}'}</td>
+        <td>{html.escape(str(row['dominant_block_reason'] or '—'))}</td>
+        <td><span class="mc-oos-badge {'pass' if row['decision_code'] == 'READY_FOR_V5' else ('fail' if row['decision_code'] == 'EARLY_REJECT' else '')}">{html.escape(row['decision_code'])}</span><br><small>{html.escape(row['reason_code'])}</small></td></tr>"""
+        for row in daily_funnel.get("prospective", [])
+    ) or "<tr><td colspan='9'>Prospective Shadow-ветки не зарегистрированы</td></tr>"
     last_signal_at = daily_funnel.get("last_signal_at")
     daily_funnel_note = (
         f"Последний сигнал сегодня: {last_signal_at:%H:%M:%S}"
@@ -1374,6 +1401,9 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
         <section id="signal-funnel" class="mc-oos-panel mc-edge-research-panel"><div class="mc-oos-toolbar"><div><p class="mc-edge-eyebrow">SIGNAL FUNNEL</p><h2>Воронка сигналов</h2>
           <p>{html.escape(daily_funnel_note)} · дневные значения не смешиваются с историей</p></div><span class="mc-oos-badge {'fail' if live_boundary_blocked or not funnel_comparable else 'pass'}">{'LIVE ЗАБЛОКИРОВАН' if live_boundary_blocked else ('СОПОСТАВИМО' if funnel_comparable else 'НЕТ СВЯЗНОСТИ')}</span></div>
           <h3>Сегодня</h3><div class="mc-oos-kpis mc-funnel-kpis">{daily_funnel_cards}</div>
+          <details class="mc-table-spoiler" open><summary>Prospective Shadow → V5 <span>{len(daily_funnel.get('prospective', []))} ветки</span></summary>
+          <div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Ветка</th><th>Возможности</th><th>Допустимы</th><th>Shadow</th><th>Независимые</th><th>Exp</th><th>PF</th><th>Главный блок</th><th>Gate</th></tr></thead><tbody>{prospective_rows}</tbody></table></div>
+          <p>Первые 8–15 наблюдений проверяют достижимость и экономику. Только PASS создаёт новую временную границу; следующие 20+ наблюдений используются в V5 OOS.</p></details>
           <details class="mc-table-spoiler" open><summary>Почему кандидаты не дошли до Paper <span>{int(daily_funnel.get('pre_signal_blocked', 0) or 0) + int(daily_funnel.get('rejected', 0) or 0)}</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Этап</th><th>Причина</th><th>Сигналов</th></tr></thead><tbody>{daily_reason_rows}</tbody></table></div></details>
           <details class="mc-table-spoiler"><summary>Историческая техническая воронка <span>{len(funnel_stages)} стадий</span></summary><div class="mc-oos-kpis mc-funnel-kpis">{funnel_cards}</div></details>
           <details class="mc-table-spoiler"><summary>Диагностические события и варианты решения <span>{len(funnel_reasons)} групп</span></summary><div class="mc-oos-table-wrap"><table class="mc-oos-table"><thead><tr><th>Группа</th><th>События</th><th>Варианты причин</th><th>Рекомендуемое действие</th></tr></thead><tbody>{funnel_reason_rows}</tbody></table></div><p>Диагностические события собраны из журналов системы и не считаются потерями между этапами воронки.</p></details></section>
