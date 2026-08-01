@@ -86,14 +86,13 @@ def _finish(cur, run: dict, admission: dict) -> None:
         WHERE run_id=%s AND decision_code='INCLUDED' GROUP BY event_cluster_id
       ) SELECT (SELECT count(*) FROM analytics.v5_oos_observation_audit_v1
                 WHERE run_id=%s AND decision_code='INCLUDED') raw_included,
-        count(*) included,excluded_counts.excluded,
+        count(*) included,
+        (SELECT count(*) FROM analytics.v5_oos_observation_audit_v1
+         WHERE run_id=%s AND decision_code<>'INCLUDED') excluded,
         coalesce(sum(net_pnl),0) net_pnl,avg(net_pnl) expectancy,
         sum(net_pnl) FILTER(WHERE net_pnl>0) gross_profit,
         abs(sum(net_pnl) FILTER(WHERE net_pnl<0)) gross_loss
-      FROM independent_events CROSS JOIN LATERAL (
-        SELECT count(*) FILTER(WHERE decision_code<>'INCLUDED') excluded
-        FROM analytics.v5_oos_observation_audit_v1 WHERE run_id=%s) excluded_counts
-      GROUP BY excluded_counts.excluded""", (run["run_id"],run["run_id"],run["run_id"]))
+      FROM independent_events""", (run["run_id"],run["run_id"],run["run_id"]))
     metric = dict(cur.fetchone())
     included = int(metric["included"] or 0)
     gross_loss = Decimal(str(metric["gross_loss"] or 0))
@@ -144,7 +143,8 @@ def main() -> int:
                         AND candidate_code=%s AND shadow_net_r IS NOT NULL
                         AND label_end_ts >= %s - (%s * interval '1 second')
                       ORDER BY label_end_ts,source_signal_id""",
-                      (request["symbol"],request["paper_strategy_code"],request["side_code"],
+                      (request.get("observation_symbol", request["symbol"]),
+                       request["paper_strategy_code"],request["side_code"],
                        request["frozen_profile"]["candidate_code"],run["purge_before_ts"],
                        run["embargo_seconds"]))
                 else:
