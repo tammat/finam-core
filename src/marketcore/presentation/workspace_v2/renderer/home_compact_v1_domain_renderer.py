@@ -639,6 +639,35 @@ def _attention_section(snapshot):
 
 def _optimizer_section(snapshot):
     cards = []
+    workflow_labels = {
+        "SHADOW_ACCUMULATION": "Shadow: накопление статистики",
+        "EXPENSIVE_GATES_PENDING": "дорогие проверки ещё не пройдены",
+        "V5_OOS_COLLECTING": "V5 OOS: собираются только будущие наблюдения",
+        "V5_OOS_FAILED": "V5 OOS не пройден — остаётся Shadow",
+        "V5_OOS_PASS": "V5 OOS пройден — готов минимальный Paper",
+        "PAPER_MINIMAL_ACTIVE": "минимальный Paper активен",
+        "PAPER_MONITOR": "Paper: наблюдение динамики",
+        "PAPER_CONTINUE": "Paper подтверждён, наблюдение продолжается",
+        "ROLLED_BACK": "Paper автоматически откачен",
+        "REJECTED": "кандидат отклонён",
+    }
+    for index, item in enumerate(snapshot.get("entry_exit_workflows") or (), start=1):
+        cards.append(RenderNodeV2(
+            RenderNodeTypeV2.CARD, f"home.compact.optimizer.workflow.{index}",
+            children=(
+                _leaf(RenderNodeTypeV2.TITLE, f"home.compact.optimizer.workflow.{index}.title",
+                      f"{item.get('symbol_group')} · {item.get('side_code')} · {item.get('candidate_code')}",
+                      level="CARD"),
+                _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.workflow.{index}.stage",
+                      workflow_labels.get(str(item.get("workflow_stage")),
+                                          str(item.get("workflow_stage")))),
+                _leaf(RenderNodeTypeV2.TEXT, f"home.compact.optimizer.workflow.{index}.gates",
+                      f"Статистика: {item.get('statistical_verdict')} · "
+                      f"дорогие проверки: {'PASS' if item.get('expensive_gates_pass') else 'ожидание'} · "
+                      f"V5 OOS: {'PASS' if item.get('v5_oos_pass') else 'ожидание'} · "
+                      f"Paper-риск: {float(item.get('paper_risk_fraction') or 0)*100:.0f}%"),
+            ),
+        ))
     entry_labels = {"IMMEDIATE": "сразу после сигнала", "CONFIRM_1": "после подтверждения следующей свечой", "RETEST_3": "после ретеста в течение трёх свечей", "ADAPTIVE": "адаптивно: вход, подтверждение, ретест или пропуск по состоянию рынка"}
     instrument_labels = {"BR": "Нефть Brent", "NG": "Природный газ", "CNY": "Юань / рубль",
                          "GAZP": "Газпром", "LKOH": "Лукойл", "NVTK": "Новатэк",

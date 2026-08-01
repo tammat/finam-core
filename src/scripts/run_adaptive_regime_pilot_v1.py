@@ -134,8 +134,39 @@ def main() -> int:
                 representatives.values(),
                 key=lambda row: (dec(row["stop_atr"]), dec(row["take_atr"]), row["candidate_code"]),
             )
-            selected = ordered_profiles[len(ordered_profiles) // 2]
+            cur.execute("""SELECT DISTINCT a.oos_request->'frozen_profile'->>'candidate_code' code
+                FROM analytics.trade_outcome_oos_admission_v1 a
+                JOIN analytics.v5_oos_run_v1 r USING(admission_id)
+                WHERE a.symbol=%s AND a.oos_request->>'paper_strategy_code'=%s
+                  AND upper(a.oos_request->>'side_code')=%s
+                  AND a.oos_request->>'observation_source'='ENTRY_EXIT_SHADOW_V2'
+                  AND a.status_code='OOS_PASS' AND r.status_code='OOS_PASS'""",
+                (symbol,strategy,side))
+            passed_codes = {str(row["code"]) for row in cur.fetchall()}
+            selected = next((row for row in ordered_profiles
+                             if str(row["candidate_code"]) in passed_codes),
+                            ordered_profiles[len(ordered_profiles) // 2])
             code = selected["candidate_code"]
+            symbol_group = (
+                "BR" if strategy == "BR_CONSERVATIVE_BREAKOUT" else
+                "NG" if strategy == "NG_CONSERVATIVE_BREAKOUT_M1" else
+                "CNY" if strategy == "CNY_REGIME_FUTURES" else
+                "USD" if strategy == "USD_REGIME_FUTURES" else
+                "GOLD" if strategy == "GOLD_TREND_BREAKOUT" else
+                symbol.split("@", 1)[0]
+            )
+            cur.execute("""SELECT EXISTS(
+                SELECT 1 FROM analytics.trade_outcome_oos_admission_v1 a
+                JOIN analytics.v5_oos_run_v1 r USING(admission_id)
+                WHERE a.symbol=%s AND a.oos_request->>'paper_strategy_code'=%s
+                  AND upper(a.oos_request->>'side_code')=%s
+                  AND a.oos_request->'frozen_profile'->>'candidate_code'=%s
+                  AND a.oos_request->>'observation_source'='ENTRY_EXIT_SHADOW_V2'
+                  AND a.status_code='OOS_PASS' AND r.status_code='OOS_PASS'
+            ) passed""", (symbol,strategy,side,code))
+            strict_v5_pass = bool(cur.fetchone()["passed"])
+            if status == "PILOT_ACTIVE" and not strict_v5_pass:
+                status, reason = "SHADOW_COLLECTING", "WAITING_STRICT_FROZEN_V5_OOS_PASS"
             identity = f"{symbol}|{side}|{strategy}|{family}|{regime}"
             pilot_id = uuid.uuid5(NAMESPACE, identity)
             cur.execute("""SELECT * FROM analytics.adaptive_regime_paper_pilot_v1
@@ -145,12 +176,6 @@ def main() -> int:
             if existing and existing["status_code"] in {"PILOT_ACTIVE", "PAPER_CONFIRMED", "ROLLED_BACK"}:
                 status = existing["status_code"]
             if status == "PILOT_ACTIVE" and activated_at is None:
-                symbol_group = (
-                    "BR" if strategy == "BR_CONSERVATIVE_BREAKOUT" else
-                    "NG" if strategy == "NG_CONSERVATIVE_BREAKOUT_M1" else
-                    "CNY" if strategy == "CNY_REGIME_FUTURES" else
-                    symbol.split("@", 1)[0]
-                )
                 cur.execute("""SELECT has_table_privilege(
                     current_user,'analytics.entry_exit_runtime_profile_v1','INSERT,UPDATE'
                 ) allowed""")
@@ -268,6 +293,27 @@ def main() -> int:
                paper_metric["profit_factor"], paper_metric["expectancy"],
                reason if status == "ROLLED_BACK" else None, activated_at,
                psycopg2.extras.Json(evidence), SOURCE_VERSION))
+            workflow_stage = {
+                "PILOT_ACTIVE": ("PAPER_MONITOR" if paper_metric["observations"]
+                                 else "PAPER_MINIMAL_ACTIVE"),
+                "PAPER_CONFIRMED": "PAPER_CONTINUE",
+                "ROLLED_BACK": "ROLLED_BACK",
+            }.get(status)
+            if workflow_stage:
+                cur.execute("""UPDATE analytics.entry_exit_promotion_workflow_v1
+                    SET workflow_stage=%s,
+                        evidence=evidence || %s::jsonb,
+                        last_transition_at=CASE WHEN workflow_stage IS DISTINCT FROM %s
+                          THEN clock_timestamp() ELSE last_transition_at END,
+                        updated_at=clock_timestamp()
+                    WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                      AND candidate_code=%s AND v5_oos_pass""",
+                    (workflow_stage,psycopg2.extras.Json({
+                        "adaptive_pilot_id":str(pilot_id),"paper_status":status,
+                        "paper_observations":paper_metric["observations"],
+                        "minimal_execution_guard":"MAX_ONE_OPEN_MIN_QTY_V1",
+                        "real_trading_allowed":False,
+                    }),workflow_stage,strategy,symbol_group,side,code))
             assessed += 1
     print(f"candidates_assessed={assessed}")
     print(f"pilots_activated={activated}")

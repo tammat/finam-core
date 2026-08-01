@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "src/scripts/analytics/build_entry_exit_optimizer_v1.py"
 RENDERER = ROOT / "src/marketcore/presentation/workspace_v2/renderer/home_compact_v1_domain_renderer.py"
+PILOT = ROOT / "src/scripts/run_adaptive_regime_pilot_v1.py"
 
 
 def test_challenger_promotes_only_to_paper_automatically():
@@ -17,19 +18,22 @@ def test_challenger_promotes_only_to_paper_automatically():
     assert "REAL_TRADING_ENABLED" not in source
 
 
-def test_automatic_promotion_is_paper_only_and_has_kill_switch():
+def test_direct_full_size_promotion_is_fail_closed_by_default():
     source = BUILDER.read_text(encoding="utf-8")
-    assert 'ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "1"' in source
-    assert "PAPER_PROMOTION_BLOCKED_METHODOLOGY_GATE" in source
+    assert 'ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "0"' in source
+    assert 'stage = "KEEP_PAPER_CHALLENGER"' in source
+    assert "promotion_block_reason" in source
 
 
 def test_statistical_pass_precedes_expensive_v5_and_minimal_paper():
     source = BUILDER.read_text(encoding="utf-8")
+    pilot = PILOT.read_text(encoding="utf-8")
     assert "candidate_statistical_gate" in source
     assert 'workflow_stage = "EXPENSIVE_GATES_PENDING"' in source
     assert 'workflow_stage = "V5_OOS_COLLECTING"' in source
     assert 'workflow_stage = "V5_OOS_PASS"' in source
-    assert '"PAPER_CHALLENGER": "PAPER_MINIMAL_ACTIVE"' in source
+    assert '"PILOT_ACTIVE": ("PAPER_MONITOR"' in pilot
+    assert 'else "PAPER_MINIMAL_ACTIVE")' in pilot
     assert '"CHAMPION_ACTIVE": "PAPER_CONTINUE"' in source
     assert '"ROLLED_BACK": "ROLLED_BACK"' in source
     assert '"real_trading_allowed": False' in source

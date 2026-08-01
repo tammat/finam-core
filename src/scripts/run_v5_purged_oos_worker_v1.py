@@ -25,6 +25,7 @@ def _context(trade: dict) -> dict[str, str]:
         # The cohort key must be known at entry. actual_exit_reason is an outcome,
         # retained only in the audit payload and never used for admission/matching.
         "exit": str(context.get("planned_exit_rule") or context.get("exit_rule") or "UNKNOWN"),
+        "candidate": str(context.get("candidate_code") or ""),
     }
 
 
@@ -36,6 +37,7 @@ def _matches(request: dict, trade: dict) -> bool:
         "session": str(request.get("session_code") or "UNKNOWN"),
         "regime": str(request.get("regime_code") or "UNKNOWN"),
         "exit": str(request.get("holding_code") or "UNKNOWN"),
+        "candidate": str((request.get("frozen_profile") or {}).get("candidate_code") or ""),
     }
     return all(expected[key] in {"", "None", "*"} or actual[key] == expected[key] for key in expected)
 
@@ -129,15 +131,32 @@ def main() -> int:
             for admission in admissions:
                 run = _ensure_run(cur, admission)
                 request = admission["oos_request"]
-                cur.execute("""SELECT id,signal_id,symbol,side,strategy,entry_regime,entry_ts,exit_ts,
-                    net_pnl,payload FROM public.closed_trades
-                  WHERE symbol=%s
-                    AND coalesce(trade_source,'')='paper'
-                    AND coalesce(portfolio_scope,'') LIKE 'FRESH_V5%%'
-                    AND coalesce(payload->'context'->>'cohort','')=portfolio_scope
-                    AND exit_ts >= %s - (%s * interval '1 second')
-                  ORDER BY exit_ts,id""",
-                  (request["symbol"],run["purge_before_ts"],run["embargo_seconds"]))
+                if request.get("observation_source") == "ENTRY_EXIT_SHADOW_V2":
+                    cur.execute("""SELECT source_signal_id AS id,signal_id,symbol_code AS symbol,
+                        side_code AS side,strategy_code AS strategy,
+                        coalesce(entry_context->>'regime','UNKNOWN') AS entry_regime,
+                        label_start_ts AS entry_ts,label_end_ts AS exit_ts,
+                        shadow_net_r AS net_pnl,
+                        jsonb_build_object('context',entry_context || jsonb_build_object(
+                          'candidate_code',candidate_code,'planned_exit_rule','*')) AS payload
+                      FROM analytics.entry_exit_signal_shadow_pair_v2
+                      WHERE symbol_code=%s AND strategy_code=%s AND side_code=%s
+                        AND candidate_code=%s AND shadow_net_r IS NOT NULL
+                        AND label_end_ts >= %s - (%s * interval '1 second')
+                      ORDER BY label_end_ts,source_signal_id""",
+                      (request["symbol"],request["paper_strategy_code"],request["side_code"],
+                       request["frozen_profile"]["candidate_code"],run["purge_before_ts"],
+                       run["embargo_seconds"]))
+                else:
+                    cur.execute("""SELECT id,signal_id,symbol,side,strategy,entry_regime,entry_ts,exit_ts,
+                        net_pnl,payload FROM public.closed_trades
+                      WHERE symbol=%s
+                        AND coalesce(trade_source,'')='paper'
+                        AND coalesce(portfolio_scope,'') LIKE 'FRESH_V5%%'
+                        AND coalesce(payload->'context'->>'cohort','')=portfolio_scope
+                        AND exit_ts >= %s - (%s * interval '1 second')
+                      ORDER BY exit_ts,id""",
+                      (request["symbol"],run["purge_before_ts"],run["embargo_seconds"]))
                 for trade in cur.fetchall():
                     _audit_trade(cur,run,admission,dict(trade))
                 _finish(cur,run,admission)

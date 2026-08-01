@@ -5568,7 +5568,7 @@ class PaperTradingPipeline:
                 if strategy_code in {
                     "MEAN_REVERSION_EQUITY", "VOLATILITY_BREAKOUT_EQUITY",
                     "BR_CONSERVATIVE_BREAKOUT", "NG_CONSERVATIVE_BREAKOUT_M1",
-                    "CNY_REGIME_FUTURES",
+                    "CNY_REGIME_FUTURES", "USD_REGIME_FUTURES", "GOLD_TREND_BREAKOUT",
                 }:
                     if strategy_code == "BR_CONSERVATIVE_BREAKOUT":
                         symbol_group = "BR"
@@ -5576,6 +5576,10 @@ class PaperTradingPipeline:
                         symbol_group = "NG"
                     elif strategy_code == "CNY_REGIME_FUTURES":
                         symbol_group = "CNY"
+                    elif strategy_code == "USD_REGIME_FUTURES":
+                        symbol_group = "USD"
+                    elif strategy_code == "GOLD_TREND_BREAKOUT":
+                        symbol_group = "GOLD"
                     else:
                         symbol_group = symbol_code.split("@", 1)[0]
                     cache = getattr(self, "_entry_exit_profile_cache_v1", {})
@@ -5600,11 +5604,7 @@ class PaperTradingPipeline:
                         self._entry_exit_profile_cache_ts_v1 = time.time()
                     approved = cache.get((strategy_code,symbol_group,side_code))
                     if approved:
-                        if symbol_code.upper().endswith("@RTSX"):
-                            # Until one shared risk object drives sizing, exits
-                            # and Shadow, do not let a generic profile overwrite
-                            # a contract-aware futures risk decision.
-                            raise RuntimeError("FUTURES_PROFILE_REQUIRES_UNIFIED_RISK_RUNTIME")
+                        futures_contract_risk_preserved = symbol_code.upper().endswith("@RTSX")
                         features = intent.setdefault("features", {})
                         atr_value = float(features.get("atr") or st.get("atr") or getattr(regime,"atr",0.0) or 0.0)
                         entry_value = float(intent.get("price") or st.get("last") or 0.0)
@@ -5679,19 +5679,21 @@ class PaperTradingPipeline:
                                         pending_conn.commit()
                                         return
                                 pending_conn.commit()
-                        direction = 1.0 if side_code == "LONG" else -1.0
-                        stop_price = entry_value - direction * atr_value * approved["stop_atr"]
-                        take_price = entry_value + direction * atr_value * approved["take_atr"]
-                        intent["stop_loss"] = round(stop_price,8)
-                        intent["take_profit"] = round(take_price,8)
+                        if not futures_contract_risk_preserved:
+                            direction = 1.0 if side_code == "LONG" else -1.0
+                            stop_price = entry_value - direction * atr_value * approved["stop_atr"]
+                            take_price = entry_value + direction * atr_value * approved["take_atr"]
+                            intent["stop_loss"] = round(stop_price,8)
+                            intent["take_profit"] = round(take_price,8)
                         features.update({
-                            "stop": intent["stop_loss"], "take": intent["take_profit"],
+                            "stop": intent.get("stop_loss"), "take": intent.get("take_profit"),
                             "entry_exit_profile_id": approved["profile_id"],
                             "entry_exit_candidate_code": approved["candidate_code"],
                             "entry_exit_profile_source": "AUTO_CHAMPION_CHALLENGER_PAPER",
                             "adaptive_entry_effective_mode": effective_entry_mode,
                             "adaptive_entry_route_reason": entry_route_reason,
                             "trail_after_r": approved["trail_after_r"], "trail_atr": approved["trail_atr"],
+                            "futures_contract_risk_preserved": futures_contract_risk_preserved,
                         })
                         print(f"PIPE_ENTRY_EXIT_PROFILE_APPLIED strategy={strategy_code} symbol={symbol_code} "
                               f"side={side_code} profile_id={approved['profile_id']} paper_only=1", flush=True)
@@ -5882,12 +5884,16 @@ class PaperTradingPipeline:
                                   OR EXISTS (
                                     SELECT 1
                                     FROM analytics.trade_outcome_oos_admission_v1 a
-                                    WHERE a.status_code IN ('QUEUED','RUNNING')
+                                    JOIN analytics.v5_oos_run_v1 vr USING(admission_id)
+                                    WHERE a.status_code='OOS_PASS'
+                                      AND vr.status_code='OOS_PASS'
                                       AND a.symbol=%s
                                       AND upper(a.oos_request->>'side_code')=
                                           CASE WHEN upper(%s)='BUY' THEN 'LONG' ELSE 'SHORT' END
                                       AND a.oos_request->>'paper_strategy_code'=%s
-                                      AND a.oos_request->>'family_policy'='INSTRUMENT_SIDE_V1'
+                                      AND (a.oos_request->>'family_policy'='INSTRUMENT_SIDE_V1'
+                                           OR a.oos_request->>'family_policy'='EXACT_CANDIDATE_V1')
+                                      AND a.oos_request->>'observation_source'='ENTRY_EXIT_SHADOW_V2'
                                       AND a.oos_request->'frozen_profile'->>'candidate_code'=%s
                                       AND clock_timestamp() >=
                                           (a.oos_request->'temporal_isolation'

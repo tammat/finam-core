@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from statistics import median
 
 import psycopg2
@@ -110,6 +111,73 @@ def research_family(strategy: str) -> str:
     if strategy == "GOLD_TREND_BREAKOUT":
         return "METALS"
     return "OTHER"
+
+
+def ensure_frozen_entry_exit_oos(cursor, *, strategy: str, symbol: str, side: str,
+                                 variant: Variant, rows: list[dict],
+                                 timeframe: str) -> str | None:
+    """Pre-register one immutable future-only V5 run for an exact candidate."""
+    completed = [row for row in rows if row.get("shadow_r") is not None]
+    if not completed:
+        return None
+    cursor.execute("""SELECT a.admission_id
+        FROM analytics.trade_outcome_oos_admission_v1 a
+        WHERE a.oos_request->>'observation_source'='ENTRY_EXIT_SHADOW_V2'
+          AND a.symbol=%s AND a.oos_request->>'paper_strategy_code'=%s
+          AND upper(a.oos_request->>'side_code')=%s
+          AND a.oos_request->'frozen_profile'->>'candidate_code'=%s
+          AND a.status_code IN ('QUEUED','RUNNING','OOS_PASS','OOS_FAIL')
+        ORDER BY a.created_at DESC LIMIT 1""", (symbol,strategy,side,variant.code))
+    existing = cursor.fetchone()
+    if existing:
+        return str(existing["admission_id"])
+    cursor.execute("""SELECT run_id FROM analytics.trade_outcome_pattern_run_v1
+        ORDER BY source_max_closed_at DESC NULLS LAST,created_at DESC LIMIT 1""")
+    source_run = cursor.fetchone()
+    if not source_run:
+        return None
+    purge_before = max(row["label_end_ts"] for row in completed)
+    embargo_seconds = max(60, int(max(
+        (row["label_end_ts"] - row["label_start_ts"]).total_seconds()
+        for row in completed)))
+    confirmation_after = purge_before + timedelta(seconds=embargo_seconds)
+    hypothesis_key = f"ENTRY_EXIT_V5:{symbol}:{strategy}:{side}:{variant.code}"
+    cursor.execute("""INSERT INTO analytics.trade_outcome_hypothesis_v1(
+        hypothesis_id,hypothesis_key,source_run_id,hypothesis_type,strategy_code,
+        side_code,session_code,holding_code,trades,context_complete_trades,
+        profit_factor,expectancy,priority_score,lifecycle_state,recommendation_code,
+        evidence,regime_code,symbol)
+      VALUES(gen_random_uuid(),%s,%s,'FILTER_OOS_CANDIDATE',%s,%s,'*','*',%s,%s,
+        NULL,0,1000,'READY_FOR_OOS','FREEZE_ENTRY_EXIT_FOR_FUTURE_OOS',%s::jsonb,'*',%s)
+      ON CONFLICT(hypothesis_key) DO UPDATE SET updated_at=analytics.trade_outcome_hypothesis_v1.updated_at
+      RETURNING hypothesis_id""",
+      (hypothesis_key,source_run["run_id"],strategy,side,len(completed),len(completed),
+       json.dumps({"candidate_code":variant.code,"immutable_after_freeze":True}),symbol))
+    hypothesis_id = cursor.fetchone()["hypothesis_id"]
+    admission_id = str(uuid.uuid4())
+    request = {
+        "source":"ENTRY_EXIT_AUTOMATIC_CHAIN_V1",
+        "observation_source":"ENTRY_EXIT_SHADOW_V2",
+        "family_policy":"EXACT_CANDIDATE_V1",
+        "paper_strategy_code":strategy,"strategy_code":strategy,
+        "timeframe":timeframe,"side_code":side,"symbol":symbol,
+        "session_code":"*","holding_code":"*","regime_code":"*",
+        "promotion_allowed":False,
+        "frozen_profile":{"candidate_code":variant.code,"entry_mode":variant.entry_mode,
+            "stop_atr":variant.stop_atr,"take_atr":variant.take_atr,
+            "trail_after_r":variant.trail_after_r,"trail_atr":variant.trail_atr},
+        "temporal_isolation":{"policy":"PURGED_EMBARGO_V5_V1","future_data_only":True,
+            "purge_before_ts":purge_before.isoformat(),"embargo_seconds":embargo_seconds,
+            "confirmation_after_ts":confirmation_after.isoformat()},
+    }
+    cursor.execute("""INSERT INTO analytics.trade_outcome_oos_admission_v1(
+        admission_id,hypothesis_id,symbol,fresh_closed_trades,context_complete_trades,
+        microstructure_coverage_ratio,required_microstructure_coverage,status_code,
+        reason_code,oos_request,net_expectancy,net_profit_factor,execution_cost,cost_admission_status)
+      VALUES(%s,%s,%s,%s,%s,1,0,'QUEUED','ENTRY_EXIT_V5_FROZEN',%s::jsonb,0,NULL,0,
+             'ENTRY_EXIT_SHADOW_OOS_QUEUED')""",
+      (admission_id,hypothesis_id,symbol,len(completed),len(completed),json.dumps(request)))
+    return admission_id
 
 
 def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
@@ -348,28 +416,22 @@ def main() -> int:
                     ("oos_positive", "oos_better") if key in expensive_checks
                 }
                 expensive_pass = bool(expensive_checks) and all(expensive_checks.values())
-                oos_pass = bool(oos_checks) and all(oos_checks.values())
                 if statistical_gate["verdict"] != "PASS":
                     workflow_stage = "SHADOW_ACCUMULATION"
                 elif not expensive_pass:
                     workflow_stage = "EXPENSIVE_GATES_PENDING"
-                elif int(metrics.get("oos_pairs") or 0) < int(
-                        metrics.get("adaptive_gate", {}).get("min_oos") or 15):
-                    workflow_stage = "V5_OOS_COLLECTING"
-                elif not oos_pass:
-                    workflow_stage = "V5_OOS_FAILED"
                 else:
-                    workflow_stage = "V5_OOS_PASS"
+                    workflow_stage = "V5_OOS_COLLECTING"
                 metrics["promotion_workflow"] = {
                     "stage": workflow_stage,
                     "statistical_pass": statistical_gate["verdict"] == "PASS",
                     "expensive_gates_pass": expensive_pass,
-                    "v5_oos_pass": oos_pass,
+                    "v5_oos_pass": False,
+                    "preliminary_purged_checks": oos_checks,
                     "paper_risk_fraction": 0.25,
                     "real_trading_allowed": False,
                 }
-                if (metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION"
-                        and workflow_stage != "V5_OOS_PASS"):
+                if metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION":
                     metrics["status"] = "KEEP_SHADOW"
                 metrics["purged_split"] = {
                     "enabled": True,
@@ -424,19 +486,101 @@ def main() -> int:
                 metrics["parameter_plateau"] = plateau
                 if "checks" in metrics:
                     metrics["checks"]["parameter_plateau"] = plateau["passed"]
-                    if metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION" and not plateau["passed"]:
-                        metrics["status"] = "KEEP_SHADOW"
+            freeze_eligible = []
+            for item in candidate_results:
+                checks = dict(item[1].get("checks") or {})
+                for key in ("oos_positive", "oos_better"):
+                    checks.pop(key, None)
+                if (item[1].get("statistical_gate", {}).get("verdict") == "PASS"
+                        and checks and all(checks.values()) and not item[0].shadow_only):
+                    freeze_eligible.append(item)
+            freeze_eligible.sort(key=lambda item: (
+                float(item[1].get("shadow_oos_r") or -999),
+                float(item[1].get("shadow_expectancy_r") or -999),
+                -float(item[1].get("shadow_drawdown_r") or 999)), reverse=True)
+            cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
+                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                  AND admission_id IS NOT NULL
+                  AND workflow_stage IN ('V5_OOS_COLLECTING','V5_OOS_PASS','PAPER_MINIMAL_ACTIVE',
+                                         'PAPER_MONITOR','PAPER_CONTINUE')
+                ORDER BY first_entered_at LIMIT 1""", (strategy,group,side))
+            frozen_existing = cur.fetchone()
+            freeze_candidate_code = (str(frozen_existing["candidate_code"])
+                                     if frozen_existing else
+                                     freeze_eligible[0][0].code if freeze_eligible else None)
+            for variant, metrics, evaluation_rows in candidate_results:
+                workflow = metrics.get("promotion_workflow") or {}
+                checks = dict(metrics.get("checks") or {})
+                preliminary_oos = {key: checks.pop(key) for key in
+                                   ("oos_positive", "oos_better") if key in checks}
+                expensive_pass = bool(checks) and all(checks.values())
+                statistical_pass = metrics.get("statistical_gate", {}).get("verdict") == "PASS"
+                admission_id = None
+                oos_run_id = None
+                actual_oos_status = None
+                selected_for_frozen_oos = variant.code == freeze_candidate_code
+                if selected_for_frozen_oos:
+                    cur.execute("""SELECT admission_id,oos_run_id FROM
+                        analytics.entry_exit_promotion_workflow_v1
+                        WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                          AND candidate_code=%s""", (strategy,group,side,variant.code))
+                    existing_workflow = cur.fetchone()
+                    if existing_workflow and existing_workflow["admission_id"]:
+                        admission_id = str(existing_workflow["admission_id"])
+                        oos_run_id = (str(existing_workflow["oos_run_id"])
+                                      if existing_workflow["oos_run_id"] else None)
+                if (not admission_id and statistical_pass and expensive_pass
+                        and selected_for_frozen_oos):
+                    admission_id = ensure_frozen_entry_exit_oos(
+                        cur,strategy=strategy,symbol=str(trades[0][0]["symbol"]),side=side,
+                        variant=variant,rows=evaluation_rows,timeframe=SUPPORTED[strategy])
+                if admission_id:
+                    cur.execute("""SELECT r.run_id,r.status_code
+                        FROM analytics.v5_oos_run_v1 r WHERE r.admission_id=%s""",
+                        (admission_id,))
+                    actual_run = cur.fetchone()
+                    if actual_run:
+                        oos_run_id = str(actual_run["run_id"])
+                        actual_oos_status = str(actual_run["status_code"])
+                if admission_id and actual_oos_status == "OOS_PASS":
+                    workflow_stage = "V5_OOS_PASS"
+                elif admission_id and actual_oos_status == "OOS_FAIL":
+                    workflow_stage = "V5_OOS_FAILED"
+                elif admission_id:
+                    workflow_stage = "V5_OOS_COLLECTING"
+                elif not statistical_pass:
+                    workflow_stage = "SHADOW_ACCUMULATION"
+                elif not expensive_pass:
+                    workflow_stage = "EXPENSIVE_GATES_PENDING"
+                elif not selected_for_frozen_oos:
+                    workflow_stage = "EXPENSIVE_GATES_PENDING"
+                else:
+                    workflow_stage = "V5_OOS_COLLECTING"
+                workflow.update({
+                    "stage":workflow_stage,"statistical_pass":statistical_pass,
+                    "expensive_gates_pass":expensive_pass,
+                    "v5_oos_pass":actual_oos_status == "OOS_PASS",
+                    "v5_oos_status":actual_oos_status or "NOT_STARTED",
+                    "admission_id":admission_id,"oos_run_id":oos_run_id,
+                    "selected_for_frozen_oos":selected_for_frozen_oos,
+                    "selection_reason":("BEST_EXPENSIVE_GATE_CANDIDATE"
+                                        if selected_for_frozen_oos else "WAITING_BEHIND_BEST_CANDIDATE"),
+                    "preliminary_purged_checks":preliminary_oos,
+                })
+                metrics["promotion_workflow"] = workflow
+                metrics["status"] = ("READY_FOR_PAPER_CONFIRMATION"
+                                     if workflow_stage == "V5_OOS_PASS" else "KEEP_SHADOW")
                 cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
                                SET recommendation_status=%s,metrics=%s::jsonb,generated_at=clock_timestamp()
                                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
                                  AND candidate_code=%s""",
                             (metrics["status"],json.dumps(metrics),strategy,group,side,variant.code))
-                workflow = metrics.get("promotion_workflow") or {}
                 cur.execute("""INSERT INTO analytics.entry_exit_promotion_workflow_v1(
                     strategy_code,symbol_group,side_code,candidate_code,workflow_stage,
                     statistical_verdict,expensive_gates_pass,v5_oos_pass,paper_risk_fraction,
-                    evidence,first_entered_at,last_transition_at)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,clock_timestamp(),clock_timestamp())
+                    evidence,admission_id,oos_run_id,first_entered_at,last_transition_at)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,
+                           clock_timestamp(),clock_timestamp())
                     ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
                       workflow_stage=excluded.workflow_stage,
                       statistical_verdict=excluded.statistical_verdict,
@@ -444,6 +588,10 @@ def main() -> int:
                       v5_oos_pass=excluded.v5_oos_pass,
                       paper_risk_fraction=excluded.paper_risk_fraction,
                       evidence=excluded.evidence,
+                      admission_id=coalesce(excluded.admission_id,
+                        analytics.entry_exit_promotion_workflow_v1.admission_id),
+                      oos_run_id=coalesce(excluded.oos_run_id,
+                        analytics.entry_exit_promotion_workflow_v1.oos_run_id),
                       first_entered_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
                         IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
                         ELSE analytics.entry_exit_promotion_workflow_v1.first_entered_at END,
@@ -456,7 +604,8 @@ def main() -> int:
                      metrics.get("statistical_gate", {}).get("verdict", "ACCUMULATE"),
                      bool(workflow.get("expensive_gates_pass")),
                      bool(workflow.get("v5_oos_pass")),
-                     float(workflow.get("paper_risk_fraction") or 0.25),json.dumps(metrics)))
+                     float(workflow.get("paper_risk_fraction") or 0.25),json.dumps(metrics),
+                     admission_id,oos_run_id))
                 family_rows[(research_family(strategy),side,variant.code)].extend(evaluation_rows)
 
             cur.execute("""SELECT c.*,p.candidate_code AS active_candidate_code,p.profile_id AS active_profile_id,
@@ -495,8 +644,24 @@ def main() -> int:
                 paper_metrics = state["paper_metrics"] or {}
                 stage = "CHAMPION_ACTIVE"
                 if selected and active_activated_at:
-                    champion_rows = [row for row, trade_bundle in zip(selected[2], trades)
-                                     if trade_bundle[0]["exit_ts"] >= active_activated_at]
+                    cur.execute("""SELECT coalesce(
+                          nullif(payload->>'net_pnl_r','')::numeric,
+                          nullif(payload->'context'->>'net_pnl_r','')::numeric
+                        ) AS actual_r
+                      FROM public.closed_trades
+                      WHERE trade_source='paper' AND strategy=%s
+                        AND upper(side)=%s AND entry_ts>=%s
+                        AND coalesce(
+                          payload->'features'->>'entry_exit_candidate_code',
+                          payload->'context'->>'entry_exit_candidate_code','')=%s
+                        AND coalesce(
+                          nullif(payload->'features'->>'entry_exit_profile_id','')::bigint,
+                          nullif(payload->'context'->>'entry_exit_profile_id','')::bigint
+                        )=%s
+                      ORDER BY exit_ts,id""",
+                      (strategy,side,active_activated_at,active_code,active_profile_id))
+                    champion_rows = [dict(row) for row in cur.fetchall()
+                                     if row["actual_r"] is not None]
                     validated_dd = max(
                         float(paper_metrics.get("challenger_drawdown_r") or 0),
                         float(shadow_metrics.get("shadow_drawdown_r") or 0), 0.01)
@@ -541,7 +706,17 @@ def main() -> int:
                             fresh_rows = [row for row, trade_bundle in zip(item[2], trades)
                                           if trade_bundle[0]["exit_ts"] >= active_activated_at]
                             metrics = evaluate_walk_forward(fresh_rows)
-                            if metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION":
+                            fresh_stat = candidate_statistical_gate(fresh_rows)
+                            cur.execute("""SELECT workflow_stage FROM
+                                analytics.entry_exit_promotion_workflow_v1
+                                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                                  AND candidate_code=%s""",
+                                (strategy,group,side,item[0].code))
+                            frozen_gate = cur.fetchone()
+                            if (metrics.get("status") == "READY_FOR_PAPER_CONFIRMATION"
+                                    and fresh_stat.get("verdict") == "PASS"
+                                    and frozen_gate
+                                    and frozen_gate["workflow_stage"] == "V5_OOS_PASS"):
                                 fresh_ready.append((item, metrics))
                         fresh_ready.sort(key=lambda pair: (
                             float(pair[1].get("shadow_oos_r") or -999),
@@ -592,12 +767,12 @@ def main() -> int:
             # Paper is an isolated learning contour: once every historical and
             # fresh forward guard has passed, promote the challenger without an
             # operator click. REAL is not represented by this table or job.
-            # Automatic Paper-only continuation is safe by default now that a
-            # candidate cannot reach this point without statistical, expensive
-            # and purged V5 OOS gates.  Setting the variable to 0 is the kill switch.
-            auto_promotion_enabled = os.getenv("ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "1") == "1"
+            # Direct full-size promotion is disabled by default.  Automatic
+            # continuation happens through the separately guarded minimal
+            # adaptive Paper pilot after a strict frozen V5 OOS PASS.
+            auto_promotion_enabled = os.getenv("ENTRY_EXIT_AUTO_PROMOTION_ENABLED", "0") == "1"
             if stage == "READY_FOR_CHAMPION_CONFIRMATION" and not auto_promotion_enabled:
-                stage = "PAPER_PROMOTION_BLOCKED_METHODOLOGY_GATE"
+                stage = "KEEP_PAPER_CHALLENGER"
                 paper_metrics = dict(paper_metrics)
                 paper_metrics["promotion_blocked"] = True
                 paper_metrics["promotion_block_reason"] = "ENTRY_EXIT_AUTO_PROMOTION_ENABLED=0"
@@ -659,8 +834,6 @@ def main() -> int:
                json.dumps(paper_metrics),stage != "SHADOW_ACCUMULATION",json.dumps(champion_metrics),
                degraded_cycles,rollback_reason,last_transition_at,last_transition_at))
             workflow_stage_by_challenger = {
-                "PAPER_CHALLENGER": "PAPER_MINIMAL_ACTIVE",
-                "KEEP_PAPER_CHALLENGER": "PAPER_MONITOR",
                 "READY_FOR_CHAMPION_CONFIRMATION": "PAPER_CONTINUE",
                 "CHAMPION_ACTIVE": "PAPER_CONTINUE",
                 "ROLLED_BACK": "ROLLED_BACK",

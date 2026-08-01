@@ -426,8 +426,10 @@ def candidate_statistical_gate(rows: list[dict], *, samples: int = 1000,
     top_gain_share = gains[0] / sum(gains) if gains and sum(gains) > 0 else 1.0
     if effect <= 0:
         verdict, reason = "FAIL", "PAIRED_EXPECTANCY_NOT_POSITIVE"
-    elif probability_positive < .95:
-        verdict, reason = "ACCUMULATE", "BOOTSTRAP_PROBABILITY_BELOW_95"
+    # Twelve bounded variants are compared inside a state.  Use the same
+    # family-wise admission level as the expensive paired-delta guard.
+    elif probability_positive < .996:
+        verdict, reason = "ACCUMULATE", "BOOTSTRAP_FAMILYWISE_PROBABILITY_BELOW_99_6"
     elif top_gain_share > .35:
         verdict, reason = "ACCUMULATE", "GAIN_CONCENTRATION_ABOVE_35"
     elif mde_required is None or trades < mde_required:

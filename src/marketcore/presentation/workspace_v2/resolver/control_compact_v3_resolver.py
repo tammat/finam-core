@@ -552,6 +552,17 @@ class ControlCompactV3Resolver:
                 """)
                 recent_trade_events = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""SELECT strategy_code,symbol_group,side_code,candidate_code,
+                           workflow_stage,statistical_verdict,expensive_gates_pass,v5_oos_pass,
+                           paper_risk_fraction,admission_id,oos_run_id,evidence,updated_at
+                    FROM analytics.entry_exit_promotion_workflow_v1
+                    ORDER BY CASE workflow_stage
+                      WHEN 'PAPER_MONITOR' THEN 0 WHEN 'PAPER_MINIMAL_ACTIVE' THEN 1
+                      WHEN 'V5_OOS_PASS' THEN 2 WHEN 'V5_OOS_COLLECTING' THEN 3
+                      WHEN 'EXPENSIVE_GATES_PENDING' THEN 4 ELSE 5 END,
+                      updated_at DESC LIMIT 12""")
+                entry_exit_workflows = [dict(row) for row in cursor.fetchall()]
+
                 cursor.execute("""
                     SELECT DISTINCT ON (r.strategy_code,r.symbol_group,r.side_code)
                            r.strategy_code,r.symbol_group,r.side_code,r.candidate_code,
@@ -845,6 +856,7 @@ class ControlCompactV3Resolver:
             "cny_spot_controls": cny_spot_controls,
             "universe_summary": universe_summary,
             "recent_trade_events": recent_trade_events,
+            "entry_exit_workflows": entry_exit_workflows,
             "entry_exit_recommendations": entry_exit_recommendations,
             "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
