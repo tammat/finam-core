@@ -58,6 +58,8 @@ def test_scheduler_limits_cpu_by_market_window() -> None:
     assert "def research_cpu_limit" in source
     assert '"OMP_NUM_THREADS": str(cpu_limit)' in source
     assert '"0" if cpu_limit == 1 else "0,1"' in source
+    assert "def resource_gate" in source
+    assert "HEAVY_EXECUTORS" in source
 
 
 def test_microstructure_label_separates_quote_match_from_verified_cohort() -> None:

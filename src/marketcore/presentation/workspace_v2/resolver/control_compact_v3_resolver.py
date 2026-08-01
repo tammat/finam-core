@@ -295,6 +295,19 @@ class ControlCompactV3Resolver:
                     ORDER BY evaluated_at DESC LIMIT 1
                 """)
                 monday_readiness = dict(cursor.fetchone() or {})
+                cursor.execute("""
+                    SELECT count(*) FILTER (WHERE decision_code='DEFER')::int AS deferred_hour,
+                           max(evaluated_at) AS evaluated_at,
+                           (array_agg(job_code ORDER BY evaluated_at DESC)
+                              FILTER (WHERE decision_code='DEFER'))[1] AS last_deferred_job,
+                           max(load_1m) FILTER (
+                              WHERE evaluated_at >= clock_timestamp()-interval '10 minutes'
+                           ) AS recent_peak_load,
+                           max(load_limit) AS load_limit
+                    FROM analytics.research_resource_gate_audit_v1
+                    WHERE evaluated_at >= clock_timestamp()-interval '1 hour'
+                """)
+                research_resource_gate = dict(cursor.fetchone() or {})
 
                 cursor.execute("""
                     SELECT level_code,count(*)::int AS groups,
@@ -804,6 +817,7 @@ class ControlCompactV3Resolver:
             "market_event_risk": market_event_risk,
             "market_shock_gate": market_shock_gate,
             "monday_readiness": monday_readiness,
+            "research_resource_gate": research_resource_gate,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,

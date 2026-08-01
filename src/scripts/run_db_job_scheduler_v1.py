@@ -16,6 +16,7 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path("/opt/finam-core")
 PYTHON = ROOT / "venv/bin/python"
 LOCK_ID = 941903128
+DEFAULT_HEAVY_LOAD_LIMIT = 3.0
 EXECUTORS = {
     "RESEARCH_PROCESS_MONITOR_V1": "src/scripts/monitor_research_processes_v1.py",
     "INSTRUMENT_SCOUT_V1": "src/scripts/run_autonomous_instrument_scout_v1.py",
@@ -65,6 +66,60 @@ EXECUTORS = {
     "MONDAY_READINESS_V1": "src/scripts/analytics/build_monday_readiness_v1.py",
     "ADAPTIVE_PENDING_ENTRY_V1": "src/scripts/run_adaptive_pending_entry_worker_v1.py",
 }
+
+# These jobs scan history, rebuild bars, or evaluate many candidate paths.  On
+# the four-core production host they may run only when enough CPU headroom is
+# available.  The scheduler itself is serialized by LOCK_ID, therefore this
+# also guarantees at most one scheduler-owned heavy job at a time.
+HEAVY_EXECUTORS = {
+    "INSTRUMENT_SCOUT_V1",
+    "SWING_EDGE_SEARCH_CYCLE_V1",
+    "SWING_CLOSED_BAR_SEARCH_V1",
+    "SWING_BARS_REFRESH_V1",
+    "SWING_AUTONOMOUS_LIFECYCLE_V1",
+    "EDGE_SEARCH_COMMAND_QUEUE_V1",
+    "HISTORICAL_EDGE_AUDIT_ENQUEUE_V1",
+    "CHECKPOINTED_WALKFORWARD_V4",
+    "SESSION_EXECUTION_EDGE_V2",
+    "M15_REBUILD_FROM_M5_V1",
+    "V5_PURGED_OOS_WORKER_V1",
+}
+
+
+def load_average_1m() -> float:
+    try:
+        return float(os.getloadavg()[0])
+    except (AttributeError, OSError):
+        return 0.0
+
+
+def heavy_load_limit() -> float:
+    try:
+        return max(1.0, float(os.getenv("RESEARCH_HEAVY_LOAD_LIMIT", DEFAULT_HEAVY_LOAD_LIMIT)))
+    except ValueError:
+        return DEFAULT_HEAVY_LOAD_LIMIT
+
+
+def resource_gate(executor_code: str) -> tuple[bool, float, float, str]:
+    """Fail closed only for batch research; online Paper/readiness stays live."""
+    load_1m = load_average_1m()
+    limit = heavy_load_limit()
+    if executor_code not in HEAVY_EXECUTORS:
+        return True, load_1m, limit, "ONLINE_OR_LIGHT_JOB"
+    if load_1m >= limit:
+        return False, load_1m, limit, "HOST_LOAD_ABOVE_LIMIT"
+    return True, load_1m, limit, "HEAVY_JOB_HEADROOM_AVAILABLE"
+
+
+def audit_resource_gate(cursor, *, job_code: str, executor_code: str,
+                        allowed: bool, load_1m: float, limit: float,
+                        reason: str) -> None:
+    cursor.execute("""INSERT INTO analytics.research_resource_gate_audit_v1(
+        job_code,executor_code,decision_code,reason_code,load_1m,load_limit)
+        VALUES(%s,%s,%s,%s,%s,%s)""", (
+            job_code, executor_code, "ALLOW" if allowed else "DEFER",
+            reason, load_1m, limit,
+        ))
 
 
 def research_cpu_limit(now: datetime) -> int:
@@ -174,6 +229,21 @@ def main() -> int:
                 now = datetime.now(ZoneInfo("UTC"))
                 if not due(job, now, last_started):
                     continue
+                executor_code = job["executor_code"]
+                allowed, load_1m, load_limit, gate_reason = resource_gate(executor_code)
+                audit_resource_gate(
+                    cursor, job_code=job["job_code"], executor_code=executor_code,
+                    allowed=allowed, load_1m=load_1m, limit=load_limit,
+                    reason=gate_reason,
+                )
+                connection.commit()
+                if not allowed:
+                    print(
+                        f"DB_JOB_DEFERRED job_code={job['job_code']} "
+                        f"load_1m={load_1m:.2f} limit={load_limit:.2f} "
+                        f"reason={gate_reason}"
+                    )
+                    continue
                 scheduler_run_id = uuid.uuid4()
                 cursor.execute("""INSERT INTO analytics.system_job_run_v1(
                     scheduler_run_id,job_code,executor_code,status_code)
@@ -183,7 +253,6 @@ def main() -> int:
                 env.update({"PYTHONPATH":str(ROOT/"src"),"DATABASE_URL":DB,
                             "RUNTIME_ALLOW_TRADING":"0","EXECUTION_ENABLED":"0","REAL_TRADING_ENABLED":"0",
                             "PYTHONDONTWRITEBYTECODE":"1"})
-                executor_code = job["executor_code"]
                 env.update(EXECUTOR_ENV.get(executor_code, {}))
                 cpu_limit = research_cpu_limit(now)
                 env.update({

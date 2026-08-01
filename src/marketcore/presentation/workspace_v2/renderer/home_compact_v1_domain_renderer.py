@@ -117,6 +117,7 @@ def _now_section(snapshot):
         }.get(str(shock.get("reason_code")), "решение защитного фильтра")
         risk_label += f" · {shock_reason}"
     readiness = snapshot.get("monday_readiness") or {}
+    resources = snapshot.get("research_resource_gate") or {}
     readiness_label = {
         "CALENDAR_CLOSED": "биржа закрыта по календарю",
         "SHADOW_ONLY": "только Shadow",
@@ -153,6 +154,14 @@ def _now_section(snapshot):
              status="OK" if readiness.get("verdict_code") in {"PAPER_READY", "CALENDAR_CLOSED"} else "WARNING",
              source="analytics.monday_readiness_snapshot_v1",
              source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
+        _row("research-resources", "Ресурсы исследований",
+             (f"тяжёлые расчёты отложены: {int(resources.get('deferred_hour') or 0)} за час · "
+              f"последний: {resources.get('last_deferred_job') or 'нет'}"
+              if int(resources.get("deferred_hour") or 0) else
+              "нагрузка допустима · тяжёлые расчёты выполняются по очереди"),
+             status="WARNING" if int(resources.get("deferred_hour") or 0) else "OK",
+             source="analytics.research_resource_gate_audit_v1",
+             source_as_of=resources.get("evaluated_at") or snapshot.get("generated_at")),
         _row("safety", "Реальные сделки", "Выключены"),
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(

@@ -45,7 +45,8 @@ def test_home_uses_plain_russian_and_no_operator_table() -> None:
     nodes = list(walk(document.root))
     values = [str(node.content.value) for node in nodes if node.content and node.content.value]
     text = " ".join(values)
-    for phrase in ("Сейчас", "Прогресс", "Нужно внимание", "Реальные сделки", "Выключены"):
+    for phrase in ("Сейчас", "Прогресс", "Нужно внимание", "Ресурсы исследований",
+                   "Реальные сделки", "Выключены"):
         assert phrase in text
     assert "home.operator.actions.table" not in {node.node_id for node in nodes}
     assert "exact" not in text
