@@ -101,7 +101,18 @@ class ResearchRuntimeSupervisor:
         )
 
         try:
-            result = subprocess.run(cmd)
+            environment = dict(os.environ)
+            # Research must not recruit PostgreSQL parallel workers away from
+            # Paper/ingestion.  A per-statement timeout also prevents one stale
+            # analytical query from occupying the host for an entire cycle.
+            environment["PGOPTIONS"] = os.getenv(
+                "RESEARCH_RUNTIME_PGOPTIONS",
+                "-c max_parallel_workers_per_gather=0 -c statement_timeout=120000",
+            )
+            result = subprocess.run(
+                ["nice", "-n", os.getenv("RESEARCH_RUNTIME_NICE", "10"), *cmd],
+                env=environment,
+            )
             rc = int(result.returncode)
             status = "OK" if rc == 0 else "FAILED"
             error_message = "" if rc == 0 else "orchestrator_failed"

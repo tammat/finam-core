@@ -62,22 +62,27 @@ def _load_source_rows(database_url: str, symbol: str, limit: int) -> list[dict[s
                     cur.execute(
                         """
                         select
-                            coalesce(trade_id::text, id::text) as trade_id,
-                            id as db_trade_id,
-                            symbol,
-                            coalesce(continuous_symbol, symbol) as continuous_symbol,
-                            coalesce(strategy, '') as strategy,
-                            coalesce(timeframe, '') as timeframe,
-                            coalesce(side, '') as side,
-                            qty,
-                            price,
-                            coalesce(reason, '') as reason,
-                            coalesce(trade_source, 'paper') as source,
-                            coalesce(ts, created_at, now()) as ts,
-                            to_jsonb(t.*) as attribution
+                            coalesce(t.closed_trade_id::text, t.id::text) as trade_id,
+                            t.closed_trade_id as db_trade_id,
+                            t.symbol,
+                            coalesce(c.root_symbol, c.symbol, t.symbol) as continuous_symbol,
+                            coalesce(t.strategy, '') as strategy,
+                            coalesce(t.timeframe, '') as timeframe,
+                            coalesce(t.side, '') as side,
+                            c.qty,
+                            c.entry_price as price,
+                            coalesce(t.reason, '') as reason,
+                            coalesce(t.trade_source, 'paper') as source,
+                            coalesce(c.entry_ts, c.created_at, t.created_at, now()) as ts,
+                            to_jsonb(t.*) || jsonb_build_object(
+                              'closed_trade_entry_price',c.entry_price,
+                              'closed_trade_exit_price',c.exit_price,
+                              'closed_trade_net_pnl',c.net_pnl
+                            ) as attribution
                         from trade_attribution_v2 t
-                        where symbol = %s
-                        order by coalesce(ts, created_at, now()) desc
+                        left join closed_trades c on c.id=t.closed_trade_id
+                        where t.symbol = %s
+                        order by coalesce(c.entry_ts, c.created_at, t.created_at, now()) desc
                         limit %s
                         """,
                         (symbol, limit),
