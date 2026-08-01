@@ -7,6 +7,6 @@ ALTER TABLE analytics.entry_exit_promotion_workflow_v1
 CREATE UNIQUE INDEX IF NOT EXISTS entry_exit_workflow_admission_v1_uidx
  ON analytics.entry_exit_promotion_workflow_v1(admission_id) WHERE admission_id IS NOT NULL;
 
-GRANT SELECT,INSERT,UPDATE ON analytics.entry_exit_promotion_workflow_v1 TO alex;
+GRANT SELECT,INSERT,UPDATE ON analytics.entry_exit_promotion_workflow_v1 TO alex, finam;
 
 COMMIT;
