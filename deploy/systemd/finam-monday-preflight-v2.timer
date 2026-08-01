@@ -1,0 +1,12 @@
+[Unit]
+Description=Run MarketCore preflight around the weekday market open
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 06:45:00 Europe/Moscow
+OnCalendar=Mon..Fri *-*-* 06:56:00 Europe/Moscow
+OnCalendar=Mon..Fri *-*-* 07:06:00 Europe/Moscow
+Persistent=true
+Unit=finam-monday-preflight-v2.service
+
+[Install]
+WantedBy=timers.target
