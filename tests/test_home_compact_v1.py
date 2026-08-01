@@ -13,7 +13,7 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     nodes = list(walk(document.root))
     sections = [node.node_id for node in nodes if node.node_type is RenderNodeTypeV2.SECTION]
     assert sections == [
-        "home.compact.now", "home.compact.progress",
+        "home.compact.now", "home.compact.workflow", "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
         "home.compact.shadow",
         "home.compact.oos", "home.compact.optimizer", "home.compact.attention",
@@ -21,6 +21,23 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     actions = [node for node in nodes if node.node_type is RenderNodeTypeV2.ACTION]
     assert len(actions) == 1
     assert actions[0].action.command_code == "RESEARCH.REQUEST_REFRESH"
+
+
+def test_home_explains_autonomous_edge_workflow_in_russian() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    workflow = next(
+        node for node in walk(document.root)
+        if node.node_id == "home.compact.workflow"
+    )
+    text = " ".join(
+        str(node.content.value)
+        for node in walk(workflow)
+        if node.content and node.content.value
+    )
+    for phrase in ("Путь к доказанному edge", "1. Paper", "2. Shadow", "3. V5 OOS",
+                   "Следующий шаг", "Реальная торговля"):
+        assert phrase in text
+    assert "EXCHANGE_CALENDAR_CLOSED" not in text
 
 
 def test_home_uses_plain_russian_and_no_operator_table() -> None:
@@ -119,8 +136,14 @@ def test_home_explains_data_quality_in_one_short_line() -> None:
         for node in walk(document.root)
         if node.content and node.content.value
     ]
-    quality = next(value for value in values if value.startswith("свежие "))
-    assert "задержка" in quality and "вне сессии" in quality
+    quality = next(
+        value for value in values
+        if value.startswith("свежие ") or value.startswith("биржа закрыта по календарю")
+    )
+    if quality.startswith("свежие "):
+        assert "задержка" in quality and "вне сессии" in quality
+    else:
+        assert "следующая сессия" in quality
 
 
 def test_home_has_understandable_v5_oos_evidence_panel() -> None:

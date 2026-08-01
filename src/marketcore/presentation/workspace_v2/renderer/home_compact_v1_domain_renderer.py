@@ -108,7 +108,14 @@ def _now_section(snapshot):
     if event.get("title_ru"):
         risk_label = f"{event.get('title_ru')} · {risk_label}"
     if shock.get("reason_code"):
-        risk_label += f" · последнее решение: {shock.get('reason_code')}"
+        shock_reason = {
+            "MARKET_EVENT_SHOCK": "новые входы переведены в Shadow",
+            "MARKET_EVENT_ELEVATED": "новые входы переведены в Shadow",
+            "RECOVERY_POLICY_NOT_VALIDATED": "восстановление ещё не доказано",
+            "MARKET_CONTEXT_STALE": "рыночный контекст устарел",
+            "WAIT_COMPLETED_M15": "ожидается завершённая M15",
+        }.get(str(shock.get("reason_code")), "решение защитного фильтра")
+        risk_label += f" · {shock_reason}"
     readiness = snapshot.get("monday_readiness") or {}
     readiness_label = {
         "CALENDAR_CLOSED": "биржа закрыта по календарю",
@@ -119,7 +126,17 @@ def _now_section(snapshot):
         "PAPER_READY": "базовый Paper-допуск готов",
     }.get(str(readiness.get("verdict_code") or ""), "ещё не рассчитана")
     if readiness.get("reason_code"):
-        readiness_label += f" · {readiness.get('reason_code')}"
+        readiness_reason = {
+            "EXCHANGE_CALENDAR_CLOSED": "следующая проверка перед открытием",
+            "MARKET_EVENT_SHOCK": "новые входы только Shadow",
+            "MARKET_EVENT_ELEVATED": "новые входы только Shadow",
+            "RECOVERY_POLICY_NOT_VALIDATED": "восстановление не подтверждено replay",
+            "WAIT_COMPLETED_M15": "ожидается первая завершённая M15",
+            "MARKET_CONTEXT_STALE": "ожидаются свежие MX и RVI",
+            "ACTIVE_POSITIONS_PRESENT": "контролируются открытые позиции",
+            "OOS_NOT_READY": "копится независимая выборка",
+        }.get(str(readiness.get("reason_code")), "требуется автоматическая повторная проверка")
+        readiness_label += f" · {readiness_reason}"
     metrics = RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.now.metrics", children=(
         _row("mode", "Система", "Собирает примеры автоматически"),
         _row("data", "Данные", quality_text,
@@ -215,6 +232,66 @@ def _progress_section(snapshot):
     return RenderNodeV2(
         RenderNodeTypeV2.SECTION, "home.compact.progress", children=(title, metric_list)
     )
+
+
+def _workflow_section(snapshot):
+    """Explain the autonomous Paper -> Shadow -> OOS workflow on one screen."""
+    evidence = snapshot.get("v5_oos_evidence") or {}
+    readiness = snapshot.get("monday_readiness") or {}
+    shadow_rows = list(snapshot.get("shadow_dynamics") or ())
+    waiting = int(evidence.get("waiting_admissions") or 0)
+    collecting = int(evidence.get("collecting_runs") or 0)
+    passed = int(evidence.get("passed_runs") or 0)
+    verdict = str(readiness.get("verdict_code") or "")
+    reason = str(readiness.get("reason_code") or "")
+
+    reason_ru = {
+        "EXCHANGE_CALENDAR_CLOSED": "биржа закрыта по календарю",
+        "MARKET_EVENT_SHOCK": "действует событийный шок",
+        "MARKET_EVENT_ELEVATED": "событийный риск повышен",
+        "RECOVERY_POLICY_NOT_VALIDATED": "правила восстановления ещё не доказаны",
+        "WAIT_COMPLETED_M15": "ожидается завершённая свеча M15",
+        "MARKET_CONTEXT_STALE": "индекс или RVI ещё не обновились",
+        "ACTIVE_POSITIONS_PRESENT": "есть открытые Paper-позиции",
+        "OOS_NOT_READY": "не накоплена независимая OOS-выборка",
+    }.get(reason, reason.lower().replace("_", " ") if reason else "ограничений нет")
+
+    if verdict == "CALENDAR_CLOSED":
+        next_step = "В понедельник система сама проверит календарь, MX/RVI и первую завершённую M15"
+    elif verdict in {"SHADOW_ONLY", "BLOCK", "RECOVERY_CHECK"}:
+        next_step = f"Paper-входы не расширять: {reason_ru}; продолжать Shadow"
+    elif verdict == "WAIT":
+        next_step = f"Подождать автоматически: {reason_ru}"
+    elif verdict == "PAPER_READY":
+        next_step = "Собирать Paper минимальным размером; REAL остаётся выключен"
+    else:
+        next_step = "Дождаться ближайшего автоматического расчёта готовности"
+
+    rows = (
+        _row("workflow.paper", "1. Paper",
+             f"текущая политика собирает виртуальные исполнения по реальному рынку; "
+             f"закрытых сделок в доказательной выборке: {int(evidence.get('paper_trades') or 0)}"),
+        _row("workflow.shadow", "2. Shadow",
+             f"параллельно проверяются альтернативы без заявок брокеру; "
+             f"вариантов с результатами на экране: {len(shadow_rows)}",
+             status="OK" if shadow_rows else "WARNING"),
+        _row("workflow.oos", "3. V5 OOS",
+             f"ожидают свежую выборку: {waiting} · проходят независимую проверку: {collecting} · "
+             f"подтверждено: {passed}", status="OK" if passed else "WARNING"),
+        _row("workflow.next", "Следующий шаг", next_step,
+             status="OK" if verdict == "PAPER_READY" else "WARNING",
+             source="analytics.monday_readiness_snapshot_v1",
+             source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
+        _row("workflow.real", "Реальная торговля", "выключена до OOS PASS и отдельного допуска"),
+    )
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.workflow", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.workflow.title",
+              "Путь к доказанному edge", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.workflow.help",
+              "Система продвигает кандидата автоматически только после проверки на новых данных."),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST,
+                     "home.compact.workflow.metrics", children=rows),
+    ))
 
 
 def _holding_text(seconds, active=False):
@@ -819,6 +896,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
         _leaf(RenderNodeTypeV2.SUBTITLE, "home.compact.subtitle",
               "Поиск преимущества · без реальных сделок"),
         _now_section(snapshot),
+        _workflow_section(snapshot),
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),
