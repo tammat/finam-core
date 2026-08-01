@@ -24,6 +24,7 @@ def decide_market_shock_gate_v1(
     maximum_gap_atr: float = 1.5,
     maximum_spread_atr: float = 0.10,
     minimum_relative_volume: float = 0.70,
+    recovery_policy_validated: bool = False,
 ) -> MarketShockGateDecisionV1:
     """Convert external uncertainty into entry admission, never a trade signal."""
     if str(intent_type or "ENTRY").upper() == "EXIT":
@@ -35,6 +36,10 @@ def decide_market_shock_gate_v1(
         return MarketShockGateDecisionV1(False, level, "SHADOW_ONLY", f"ACTIVE_EVENT_{level}")
     if level != "RECOVERY":
         return MarketShockGateDecisionV1(False, "UNKNOWN", "BLOCK", "UNKNOWN_EVENT_RISK_LEVEL")
+    if not recovery_policy_validated:
+        return MarketShockGateDecisionV1(
+            False, "RECOVERY", "SHADOW_ONLY", "RECOVERY_POLICY_NOT_VALIDATED"
+        )
     checks = (
         (completed_m15_bars >= max(1, int(required_recovery_bars)), "RECOVERY_M15_INSUFFICIENT"),
         (market_context_fresh, "RECOVERY_MARKET_CONTEXT_STALE"),

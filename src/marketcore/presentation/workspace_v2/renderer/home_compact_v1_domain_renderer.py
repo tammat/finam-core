@@ -109,6 +109,17 @@ def _now_section(snapshot):
         risk_label = f"{event.get('title_ru')} · {risk_label}"
     if shock.get("reason_code"):
         risk_label += f" · последнее решение: {shock.get('reason_code')}"
+    readiness = snapshot.get("monday_readiness") or {}
+    readiness_label = {
+        "CALENDAR_CLOSED": "биржа закрыта по календарю",
+        "SHADOW_ONLY": "только Shadow",
+        "WAIT": "ожидание прогрева M15",
+        "BLOCK": "входы заблокированы",
+        "RECOVERY_CHECK": "проверка восстановления по каждому инструменту",
+        "PAPER_READY": "базовый Paper-допуск готов",
+    }.get(str(readiness.get("verdict_code") or ""), "ещё не рассчитана")
+    if readiness.get("reason_code"):
+        readiness_label += f" · {readiness.get('reason_code')}"
     metrics = RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.now.metrics", children=(
         _row("mode", "Система", "Собирает примеры автоматически"),
         _row("data", "Данные", quality_text,
@@ -121,6 +132,10 @@ def _now_section(snapshot):
              status="WARNING" if risk_level in {"SHOCK", "ELEVATED", "RECOVERY"} else "OK",
              source="analytics.market_event_risk_v1",
              source_as_of=event.get("updated_at") or snapshot.get("generated_at")),
+        _row("monday-readiness", "Готовность сессии", readiness_label,
+             status="OK" if readiness.get("verdict_code") in {"PAPER_READY", "CALENDAR_CLOSED"} else "WARNING",
+             source="analytics.monday_readiness_snapshot_v1",
+             source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
         _row("safety", "Реальные сделки", "Выключены"),
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(

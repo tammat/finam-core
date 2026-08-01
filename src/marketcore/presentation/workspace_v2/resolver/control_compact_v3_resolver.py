@@ -287,6 +287,14 @@ class ControlCompactV3Resolver:
                     ORDER BY evaluated_at DESC LIMIT 1
                 """)
                 market_shock_gate = dict(cursor.fetchone() or {})
+                cursor.execute("""
+                    SELECT evaluated_at,session_phase,event_code,risk_level,mx_last_ts,
+                           rvi_last_ts,mx_fresh,rvi_fresh,completed_mx_m15,
+                           active_positions,oos_runs,verdict_code,reason_code,details
+                    FROM analytics.monday_readiness_snapshot_v1
+                    ORDER BY evaluated_at DESC LIMIT 1
+                """)
+                monday_readiness = dict(cursor.fetchone() or {})
 
                 cursor.execute("""
                     SELECT level_code,count(*)::int AS groups,
@@ -795,6 +803,7 @@ class ControlCompactV3Resolver:
             "session_status": session_status,
             "market_event_risk": market_event_risk,
             "market_shock_gate": market_shock_gate,
+            "monday_readiness": monday_readiness,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
             "hierarchy_nearest": hierarchy_nearest,

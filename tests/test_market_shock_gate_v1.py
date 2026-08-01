@@ -7,7 +7,7 @@ def decide(level: str, **overrides):
     values = dict(
         intent_type="ENTRY", risk_level=level, completed_m15_bars=4,
         gap_atr=0.8, spread_atr=0.04, relative_volume=1.0,
-        market_context_fresh=True,
+        market_context_fresh=True, recovery_policy_validated=True,
     )
     values.update(overrides)
     return decide_market_shock_gate_v1(**values)
@@ -26,6 +26,7 @@ def test_recovery_requires_bars_context_gap_spread_and_volume() -> None:
     assert decide("RECOVERY", gap_atr=1.6).reason == "RECOVERY_GAP_TOO_LARGE_OR_UNKNOWN"
     assert decide("RECOVERY", spread_atr=0.11).reason == "RECOVERY_SPREAD_TOO_WIDE_OR_UNKNOWN"
     assert decide("RECOVERY", relative_volume=0.69).reason == "RECOVERY_VOLUME_TOO_LOW_OR_UNKNOWN"
+    assert decide("RECOVERY", recovery_policy_validated=False).reason == "RECOVERY_POLICY_NOT_VALIDATED"
 
 
 def test_runtime_and_ui_integrate_gate_without_changing_paper_profile() -> None:

@@ -9112,6 +9112,9 @@ class PaperTradingPipeline:
                 maximum_gap_atr=float(os.getenv("SHOCK_GATE_MAX_GAP_ATR", "1.5")),
                 maximum_spread_atr=float(os.getenv("SHOCK_GATE_MAX_SPREAD_ATR", "0.10")),
                 minimum_relative_volume=float(os.getenv("SHOCK_GATE_MIN_RELATIVE_VOLUME", "0.70")),
+                recovery_policy_validated=(
+                    os.getenv("SHOCK_GATE_RECOVERY_POLICY_VALIDATED", "0") == "1"
+                ),
             )
             if event:
                 with self.pg_logger._connect() as connection:
