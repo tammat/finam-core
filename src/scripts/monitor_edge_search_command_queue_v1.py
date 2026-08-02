@@ -23,6 +23,10 @@ def main() -> int:
             cursor.execute("""SELECT q.* FROM marketcore_action.command_request_v2 q
                 LEFT JOIN marketcore_action.edge_search_retry_v1 r ON r.source_request_id=q.request_id
                 WHERE q.request_kind='EDGE_SEARCH_RUN' AND q.status='FAILED' AND r.source_request_id IS NULL
+                  AND NOT EXISTS(
+                    SELECT 1 FROM marketcore_action.edge_search_retry_v1 parent_retry
+                    WHERE parent_retry.retry_request_id=q.request_id
+                  )
                   AND q.failure_code LIKE 'WORKER_COMMAND_FAILED:%'
                   AND NOT EXISTS(SELECT 1 FROM marketcore_action.command_request_v2
                                  WHERE request_kind='EDGE_SEARCH_RUN' AND status IN ('PENDING','RUNNING'))

@@ -13,4 +13,5 @@ def test_retry_is_once_and_technical_only():
     sql=read("sql/marketcore_action/007_edge_search_cancel_retry_v1.sql")
     assert "edge_search_retry_v1" in sql
     assert "WORKER_COMMAND_FAILED:%" in monitor
+    assert "parent_retry.retry_request_id=q.request_id" in monitor
     assert "technical_retry_created" in monitor
