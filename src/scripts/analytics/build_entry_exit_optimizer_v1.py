@@ -253,6 +253,23 @@ def main() -> int:
                 '{negative_control,control_code}','\"LEGACY_INVALID_NEXT_BAR_V1\"'::jsonb,true)
           WHERE metrics ? 'negative_control'
             AND coalesce(metrics #>> '{negative_control,control_code}','')=''""")
+        # A legacy control must not keep a second candidate alive in the
+        # prospective funnel.  Protected V5/Paper stages remain immutable.
+        cur.execute("""UPDATE analytics.entry_exit_promotion_workflow_v1 w
+          SET workflow_stage='REJECTED',
+              statistical_verdict='FAIL',
+              evidence=jsonb_set(jsonb_set(w.evidence,
+                '{promotion_workflow,selected_for_shadow_funnel}','false'::jsonb,true),
+                '{promotion_workflow,selection_reason}',
+                '\"LEGACY_PLACEBO_CONTROL_QUARANTINED\"'::jsonb,true),
+              last_transition_at=clock_timestamp()
+          WHERE w.workflow_stage IN ('SHADOW_ACCUMULATION','EXPENSIVE_GATES_FAILED')
+            AND EXISTS (
+              SELECT 1 FROM analytics.entry_exit_recommendation_v1 r
+              WHERE r.strategy_code=w.strategy_code AND r.symbol_group=w.symbol_group
+                AND r.side_code=w.side_code AND r.candidate_code=w.candidate_code
+                AND r.metrics #>> '{negative_control,control_code}'='LEGACY_INVALID_NEXT_BAR_V1'
+            )""")
         cur.execute("""
           SELECT s.id,coalesce(nullif(s.signal_id,''),'signal-row:'||s.id::text) signal_id,
                  c.id AS trade_id,s.symbol,s.strategy,
