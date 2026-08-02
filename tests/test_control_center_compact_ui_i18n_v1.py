@@ -53,3 +53,5 @@ def test_active_compact_control_explains_missing_edge() -> None:
     assert '"edge_diagnostics": edge_diagnostics' in resolver
     assert "Почему сигнал не создаёт edge" in renderer
     assert "Проверить условие входа; выходы пока не оптимизировать" in renderer
+    assert "Gross → costs → Net" in renderer
+    assert "COSTS_CONSUME_EDGE" in resolver

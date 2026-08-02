@@ -644,6 +644,9 @@ class ControlCompactV3Resolver:
                              nullif(r.metrics #>> '{negative_control,candidate_expectancy_r}','')::numeric AS candidate_exp,
                              nullif(r.metrics #>> '{negative_control,placebo_expectancy_r}','')::numeric AS placebo_exp,
                              nullif(r.metrics #>> '{negative_control,delta_lower_bound_r}','')::numeric AS delta_lower,
+                             nullif(r.metrics #>> '{economics_decomposition,gross_expectancy_r}','')::numeric AS gross_exp,
+                             nullif(r.metrics #>> '{economics_decomposition,roundtrip_cost_r}','')::numeric AS cost_r,
+                             r.metrics #>> '{futility_gate,verdict}' AS futility_verdict,
                              row_number() OVER (
                                PARTITION BY r.symbol_group,r.side_code
                                ORDER BY (r.pairs>=10) DESC,
@@ -655,13 +658,16 @@ class ControlCompactV3Resolver:
                       WHERE r.metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
                     )
                     SELECT r.strategy_code,r.symbol_group,r.side_code,r.candidate_code,r.pairs,
-                           r.candidate_exp,r.placebo_exp,r.delta_lower,
+                           r.candidate_exp,r.placebo_exp,r.delta_lower,r.gross_exp,r.cost_r,r.futility_verdict,
                            coalesce(d.mean_entry_slippage_r,0) AS mean_entry_slippage_r,
                            coalesce(d.mean_mfe_r,0) AS mean_mfe_r,
                            coalesce(d.mean_mae_r,0) AS mean_mae_r,
                            coalesce(d.mean_exit_efficiency,0) AS mean_exit_efficiency,
                            CASE
                              WHEN r.pairs<10 THEN 'INSUFFICIENT_SAMPLE'
+                             WHEN r.gross_exp IS NULL OR r.cost_r IS NULL THEN 'ECONOMICS_RECALC_PENDING'
+                             WHEN r.gross_exp<=0 THEN 'NO_GROSS_EDGE'
+                             WHEN r.gross_exp>0 AND r.candidate_exp<=0 THEN 'COSTS_CONSUME_EDGE'
                              WHEN r.candidate_exp<=0 THEN 'NEGATIVE_AFTER_COSTS'
                              WHEN r.delta_lower<=0 THEN 'NOT_BETTER_THAN_PLACEBO'
                              WHEN coalesce(d.mean_entry_slippage_r,0)>=0.50 THEN 'ENTRY_DELAY_LOSS'

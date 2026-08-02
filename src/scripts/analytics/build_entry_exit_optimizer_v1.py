@@ -15,7 +15,7 @@ from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.entry_exit_optimizer import (
     Bar, EntryContext, Variant, default_variants, expert_shadow_variants,
-    candidate_statistical_gate,
+    candidate_futility_gate, candidate_statistical_gate,
     evaluate_active_paper_champion, evaluate_paper_challenger,
     evaluate_walk_forward, parameter_plateau_check, simulate_variant,
 )
@@ -403,6 +403,7 @@ def main() -> int:
                                                tick_size=economics["tick_size"],
                                                stop_slippage_ticks=float(os.getenv(
                                                    "SHADOW_STOP_SLIPPAGE_TICKS", "1")))
+                    roundtrip_cost_r = economics["roundtrip_cost_price"] / risk
                     placebo_offsets = placebo_entry_offsets(
                         bars_count=len(bars), source_id=int(trade["id"]),
                         candidate_code=variant.code,
@@ -423,6 +424,9 @@ def main() -> int:
                                  len(placebo_results) if placebo_results else None)
                     rows.append({"actual_r":actual_r,
                                  "shadow_r":outcome.net_r if horizon_complete else None,
+                                 "gross_shadow_r":(outcome.net_r + roundtrip_cost_r
+                                                   if horizon_complete and outcome.net_r is not None else None),
+                                 "roundtrip_cost_r":roundtrip_cost_r,
                                  "placebo_r":placebo_r if horizon_complete else None,
                                  "placebo_control_code":"TIME_SHIFTED_ENTRY_V2",
                                  "placebo_control_valid":bool(placebo_results),
@@ -470,6 +474,9 @@ def main() -> int:
                                    "relative_volume":entry_context.relative_volume,
                                    "regime":entry_context.regime,
                                    "cost_to_atr":entry_context.cost_to_atr,
+                                   "roundtrip_cost_r":roundtrip_cost_r,
+                                   "gross_shadow_r":(outcome.net_r + roundtrip_cost_r
+                                                     if outcome.net_r is not None else None),
                                    "strategy":entry_context.strategy,
                                    "higher_timeframe_aligned":
                                        entry_context.higher_timeframe_aligned}),
@@ -496,6 +503,24 @@ def main() -> int:
                     seed=731 + len(candidate_results),
                 )
                 metrics["statistical_gate"] = statistical_gate
+                futility_gate = candidate_futility_gate(evaluation_rows)
+                metrics["futility_gate"] = futility_gate
+                completed_cost_rows = [row for row in evaluation_rows
+                                       if row.get("shadow_r") is not None]
+                metrics["economics_decomposition"] = {
+                    "gross_expectancy_r": (sum(float(row["gross_shadow_r"])
+                                               for row in completed_cost_rows) /
+                                             len(completed_cost_rows)
+                                             if completed_cost_rows else None),
+                    "roundtrip_cost_r": (sum(float(row["roundtrip_cost_r"])
+                                             for row in completed_cost_rows) /
+                                           len(completed_cost_rows)
+                                           if completed_cost_rows else None),
+                    "net_expectancy_r": (sum(float(row["shadow_r"])
+                                             for row in completed_cost_rows) /
+                                           len(completed_cost_rows)
+                                           if completed_cost_rows else None),
+                }
                 expensive_checks = dict(metrics.get("checks") or {})
                 oos_checks = {
                     key: expensive_checks.pop(key) for key in
@@ -578,6 +603,7 @@ def main() -> int:
                 for key in ("oos_positive", "oos_better"):
                     checks.pop(key, None)
                 if (item[1].get("statistical_gate", {}).get("verdict") == "PASS"
+                        and item[1].get("futility_gate", {}).get("verdict") != "REJECT"
                         and checks and all(checks.values()) and not item[0].shadow_only):
                     freeze_eligible.append(item)
             freeze_eligible.sort(key=lambda item: (
@@ -601,12 +627,14 @@ def main() -> int:
             if freeze_candidate_code:
                 shadow_funnel_code = freeze_candidate_code
             else:
-                observed = max(candidate_results, key=lambda item: (
+                viable_candidates = [item for item in candidate_results
+                                     if item[1].get("futility_gate", {}).get("verdict") != "REJECT"]
+                observed = max(viable_candidates or candidate_results, key=lambda item: (
                     int(item[1].get("pairs") or 0),
                     float(item[1].get("shadow_expectancy_r") or -999),
                     -float(item[1].get("shadow_drawdown_r") or 999),
                 ))
-                shadow_funnel_code = observed[0].code
+                shadow_funnel_code = observed[0].code if viable_candidates else None
             for variant, metrics, evaluation_rows in candidate_results:
                 workflow = metrics.get("promotion_workflow") or {}
                 checks = dict(metrics.get("checks") or {})
@@ -617,6 +645,7 @@ def main() -> int:
                 admission_id = None
                 oos_run_id = None
                 actual_oos_status = None
+                futility_rejected = metrics.get("futility_gate", {}).get("verdict") == "REJECT"
                 selected_for_frozen_oos = variant.code == freeze_candidate_code
                 selected_for_shadow_funnel = variant.code == shadow_funnel_code
                 if selected_for_frozen_oos:
@@ -648,6 +677,8 @@ def main() -> int:
                     workflow_stage = "V5_OOS_FAILED"
                 elif admission_id:
                     workflow_stage = "V5_OOS_COLLECTING"
+                elif futility_rejected:
+                    workflow_stage = "REJECTED"
                 elif not selected_for_shadow_funnel:
                     workflow_stage = "REJECTED"
                 elif not statistical_pass:
@@ -666,6 +697,7 @@ def main() -> int:
                     "selected_for_shadow_funnel":selected_for_shadow_funnel,
                     "selection_reason":(
                         "BEST_EXPENSIVE_GATE_CANDIDATE" if selected_for_frozen_oos
+                        else "FUTILITY_GATE_REJECTED" if futility_rejected
                         else "ACTIVE_SHADOW_CHALLENGER" if selected_for_shadow_funnel
                         else "NOT_SELECTED_FOR_SHADOW_FUNNEL"),
                     "preliminary_purged_checks":preliminary_oos,

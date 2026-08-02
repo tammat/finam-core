@@ -680,6 +680,9 @@ def _edge_diagnostic_section(snapshot):
     items = snapshot.get("edge_diagnostics") or ()
     diagnoses = {
         "INSUFFICIENT_SAMPLE": ("Мало независимых данных", "Продолжать Shadow без смены параметров"),
+        "ECONOMICS_RECALC_PENDING": ("Ожидается пересчёт Gross и издержек", "Не принимать решение до нового наблюдения"),
+        "NO_GROSS_EDGE": ("Нет преимущества даже до издержек", "Отклонить условие входа"),
+        "COSTS_CONSUME_EDGE": ("Валовый edge съедают издержки", "Усилить opportunity-to-cost и исполнение"),
         "NEGATIVE_AFTER_COSTS": ("Отрицательно после издержек", "Проверить условие входа; выходы пока не оптимизировать"),
         "NOT_BETTER_THAN_PLACEBO": ("Не лучше случайно сдвинутого входа", "Отклонить момент входа или продолжить наблюдение"),
         "ENTRY_DELAY_LOSS": ("Подтверждение ухудшает цену", "Сравнить адаптивный вход с немедленным"),
@@ -687,7 +690,7 @@ def _edge_diagnostic_section(snapshot):
         "EXIT_GIVES_BACK_MFE": ("Выход отдаёт доступную прибыль", "Исследовать защиту прибыли только в Shadow"),
         "ACCUMULATE_PROSPECTIVE_EVIDENCE": ("Предварительно жизнеспособно", "Продолжать будущую проверку"),
     }
-    columns = ("Инструмент", "Направление", "Пары", "Кандидат / placebo", "MFE / MAE", "Почему нет edge", "Следующее действие")
+    columns = ("Инструмент", "Направление", "Пары", "Gross → costs → Net", "Placebo", "MFE / MAE", "Почему нет edge", "Следующее действие")
     header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.edge_diagnostic.header", children=tuple(
         _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.edge_diagnostic.header.{i}", label)
         for i,label in enumerate(columns, start=1)))
@@ -696,6 +699,8 @@ def _edge_diagnostic_section(snapshot):
         diagnosis,action = diagnoses.get(str(item.get("diagnosis_code")), ("Требуется диагностика", "Продолжить Shadow"))
         candidate = item.get("candidate_exp")
         placebo = item.get("placebo_exp")
+        economics = (f"{float(item['gross_exp']):+.2f}R → -{float(item['cost_r']):.2f}R → {float(candidate or 0):+.2f}R"
+                     if item.get("gross_exp") is not None and item.get("cost_r") is not None else "— → — → —")
         status = "OK" if item.get("diagnosis_code") == "ACCUMULATE_PROSPECTIVE_EVIDENCE" else (
             "WARNING" if item.get("diagnosis_code") == "INSUFFICIENT_SAMPLE" else "BLOCKED")
         rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, f"control.v3.edge_diagnostic.row.{index}",
@@ -703,8 +708,10 @@ def _edge_diagnostic_section(snapshot):
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.symbol", item.get("symbol_group")),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.side", item.get("side_code")),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.pairs", int(item.get("pairs") or 0)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.economics",
+                      economics),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.control",
-                      f"{float(candidate or 0):+.2f}R / {float(placebo or 0):+.2f}R"),
+                      f"{float(placebo or 0):+.2f}R"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.path",
                       f"{float(item.get('mean_mfe_r') or 0):.2f}R / {float(item.get('mean_mae_r') or 0):.2f}R"),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.diagnosis", diagnosis),

@@ -46,6 +46,8 @@ def test_shadow_funnel_keeps_only_one_active_challenger_per_group():
     assert "NOT_SELECTED_FOR_SHADOW_FUNNEL" in source
     assert "LEGACY_PLACEBO_CONTROL_QUARANTINED" in source
     assert "statistical_verdict='FAIL'" in source
+    assert "candidate_futility_gate" in source
+    assert "FUTILITY_GATE_REJECTED" in source
 
 
 def test_shadow_builder_requires_costs_and_contract_geometry():

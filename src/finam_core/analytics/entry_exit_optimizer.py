@@ -334,6 +334,42 @@ def negative_control_check(rows: list[dict], *, confidence: float = 0.95) -> dic
     }
 
 
+def candidate_futility_gate(rows: list[dict], *, confidence: float = 0.95,
+                            min_pairs: int = 20, min_active_days: int = 3) -> dict:
+    """Reject only when prospective evidence rules out positive net edge.
+
+    The upper bootstrap bounds make this an asymmetric early-stop gate: weak
+    evidence keeps accumulating, while confidently non-positive net expectancy
+    or advantage over placebo is removed from the active Shadow funnel.
+    """
+    paired = [row for row in rows if row.get("shadow_r") is not None]
+    active_days = len({str(row.get("trade_date")) for row in paired
+                       if row.get("trade_date")})
+    controlled = [row for row in paired if row.get("placebo_r") is not None
+                  and row.get("placebo_control_valid", True)]
+    if len(paired) < min_pairs or active_days < min_active_days or len(controlled) < min_pairs:
+        return {"verdict": "ACCUMULATE", "reason": "FUTILITY_SAMPLE_NOT_REACHED",
+                "pairs": len(paired), "active_days": active_days,
+                "min_pairs": min_pairs, "min_active_days": min_active_days,
+                "net_upper_bound_r": None, "delta_upper_bound_r": None}
+    net = [float(row["shadow_r"]) for row in paired]
+    delta = [float(row["shadow_r"]) - float(row["placebo_r"])
+             for row in controlled]
+    upper_net = -bootstrap_lower_mean([-value for value in net], confidence=confidence)
+    upper_delta = -bootstrap_lower_mean([-value for value in delta], confidence=confidence)
+    reject_net = upper_net <= 0
+    reject_delta = upper_delta <= 0
+    return {
+        "verdict": "REJECT" if reject_net or reject_delta else "ACCUMULATE",
+        "reason": ("NET_EDGE_CONFIDENTLY_NON_POSITIVE" if reject_net
+                   else "PLACEBO_ADVANTAGE_CONFIDENTLY_NON_POSITIVE" if reject_delta
+                   else "FUTILITY_NOT_PROVEN"),
+        "pairs": len(paired), "active_days": active_days,
+        "min_pairs": min_pairs, "min_active_days": min_active_days,
+        "net_upper_bound_r": upper_net, "delta_upper_bound_r": upper_delta,
+    }
+
+
 def parameter_plateau_check(candidate_code: str, metrics_by_code: dict[str, dict], *,
                             tolerance_r: float = 0.20) -> dict:
     """Reject isolated optima; require support from adjacent risk geometry."""

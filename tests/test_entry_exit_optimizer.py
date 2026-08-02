@@ -1,6 +1,6 @@
 from finam_core.analytics.entry_exit_optimizer import (
     Bar, EntryContext, Variant, adaptive_entry_decision, adaptive_entry_mode, adaptive_shadow_gate, default_variants, evaluate_active_paper_champion,
-    evaluate_paper_challenger, evaluate_walk_forward, negative_control_check,
+    candidate_futility_gate, evaluate_paper_challenger, evaluate_walk_forward, negative_control_check,
     parameter_plateau_check, simulate_variant,
 )
 from scripts.analytics.build_entry_exit_optimizer_v1 import placebo_entry_offsets
@@ -170,6 +170,23 @@ def test_time_shift_placebo_excludes_candidate_entry_and_is_reproducible():
     assert first == second
     assert len(first) == 20
     assert 1 not in first
+
+
+def test_futility_gate_rejects_only_with_multiday_confident_loss():
+    rows = []
+    for day in ("2026-07-29", "2026-07-30", "2026-07-31"):
+        rows.extend({"trade_date": day, "shadow_r": -0.8, "placebo_r": -0.1,
+                     "placebo_control_valid": True} for _ in range(8))
+    result = candidate_futility_gate(rows, min_pairs=20, min_active_days=3)
+    assert result["verdict"] == "REJECT"
+    assert result["net_upper_bound_r"] <= 0
+
+
+def test_futility_gate_keeps_short_or_single_day_sample_accumulating():
+    rows = [{"trade_date": "2026-07-31", "shadow_r": -1.0, "placebo_r": 0.0,
+             "placebo_control_valid": True}] * 30
+    result = candidate_futility_gate(rows, min_pairs=20, min_active_days=3)
+    assert result["verdict"] == "ACCUMULATE"
 
 
 def test_parameter_plateau_rejects_isolated_peak():
