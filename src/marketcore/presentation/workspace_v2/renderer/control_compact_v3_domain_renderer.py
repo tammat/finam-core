@@ -63,6 +63,12 @@ def _signal_funnel_section(snapshot):
         "OTHER": "Прочее",
     }
     stage_rows = []
+    stage_targets = {
+        "EVALUATIONS": "container.research", "SIGNALS": "container.research",
+        "SHADOW": "container.intraday", "ORDERS": "container.intraday",
+        "ACKS": "container.intraday", "FILLS": "container.intraday",
+        "TRADES": "container.capital",
+    }
     for index, row in enumerate(stages, start=1):
         code = str(row.get("stage_code") or "UNKNOWN")
         rate = row.get("pass_rate_pct")
@@ -71,7 +77,12 @@ def _signal_funnel_section(snapshot):
             RenderNodeTypeV2.TABLE_ROW, f"control.v3.signal_funnel.stage.{index}",
             state=RenderNodeStateV2(status_code=(
                 "WARNING" if code in {"SHADOW", "ORDERS"} else "OK"
-            )), children=(
+            )), action=RenderActionV2(
+                f"control.v3.signal_funnel.stage.{index}.open",
+                ActionKindV2.NAVIGATE,
+                target_id=stage_targets.get(code, "container.research"),
+                enabled=True,
+            ), children=(
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.signal_funnel.stage.{index}.name",
                       stage_labels.get(code, str(row.get("stage_name") or code))),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.signal_funnel.stage.{index}.count",
@@ -103,7 +114,7 @@ def _signal_funnel_section(snapshot):
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.signal_funnel.title",
               "Воронка независимых сигналов", level="SECTION"),
         _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.signal_funnel.subtitle",
-              "Одна возможность = инструмент + направление + стратегия + таймфрейм + закрытый бар"),
+              "Нажмите этап для подробностей · одна возможность = инструмент + направление + стратегия + таймфрейм + закрытый бар"),
         RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.signal_funnel.stage.table", children=(
             RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.signal_funnel.stage.head", children=(stage_header,)),
             RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.signal_funnel.stage.body", children=tuple(stage_rows)),
@@ -635,14 +646,12 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "control.v3.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.title", "MarketCore", level="PAGE"),
         _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.subtitle",
-              "Поиск устойчивого преимущества · без реальных сделок"),
+              "Краткая статистика · нажмите показатель для подробностей · без реальных сделок"),
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
         _compact_state_section(snapshot, raw_process_status),
         _signal_funnel_section(snapshot),
         _market_regime_section(snapshot),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
-        _multi_asset_section(snapshot.get("asset_branches") or (),
-                             snapshot.get("cny_spot_controls") or ()),
         _open_positions_section(snapshot.get("open_position_diagnostics") or ()),
         _compact_control_section(snapshot),
     ))
