@@ -27,3 +27,16 @@ def test_compact_view_labels_are_not_hardcoded_in_platform_driver() -> None:
     ).read_text(encoding="utf-8")
     for literal in ("Главное", "Только блоки", "Все детали", "Управление подробностями"):
         assert literal not in source
+
+
+def test_active_compact_control_exposes_swing_pipeline_status() -> None:
+    resolver = Path(
+        "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py"
+    ).read_text(encoding="utf-8")
+    renderer = Path(
+        "src/marketcore/presentation/workspace_v2/renderer/control_compact_v3_domain_renderer.py"
+    ).read_text(encoding="utf-8")
+    assert "swing_future_data_readiness_v1" in resolver
+    assert '"swing_summary": swing_summary' in resolver
+    for label in ("Swing · путь к Paper", "Готовы к OOS", "Зависли", "Устаревшие данные"):
+        assert label in renderer

@@ -778,6 +778,52 @@ class ControlCompactV3Resolver:
                     LIMIT 12
                 """)
                 shadow_dynamics = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""
+                    WITH latest_plan AS (
+                      SELECT plan_id FROM analytics.swing_next_research_plan_v1
+                      ORDER BY created_at DESC LIMIT 1
+                    ), items AS (
+                      SELECT i.*,d.readiness_status,d.remaining_bars,d.observed_at
+                      FROM analytics.swing_next_research_plan_item_v1 i
+                      LEFT JOIN LATERAL (
+                        SELECT readiness_status,remaining_bars,observed_at
+                        FROM analytics.swing_future_data_readiness_v1 x
+                        WHERE x.plan_item_id=i.plan_item_id
+                        ORDER BY observed_at DESC LIMIT 1
+                      ) d ON true
+                      WHERE i.plan_id=(SELECT plan_id FROM latest_plan)
+                    )
+                    SELECT count(*)::int AS candidates,
+                           count(*) FILTER (WHERE readiness_status='READY' AND evaluated_at IS NULL)::int AS ready,
+                           count(*) FILTER (WHERE readiness_status='WAITING')::int AS waiting,
+                           count(*) FILTER (WHERE readiness_status='STALE')::int AS stale,
+                           count(*) FILTER (WHERE readiness_status='READY' AND evaluated_at IS NULL
+                             AND observed_at<clock_timestamp()-interval '90 minutes')::int AS stuck,
+                           count(*) FILTER (WHERE status_code='EVALUATED_PASS')::int AS oos_pass,
+                           count(*) FILTER (WHERE status_code='EVALUATED_FAIL')::int AS oos_fail,
+                           (SELECT max(finished_at) FROM analytics.system_job_run_v1
+                             WHERE job_code LIKE 'SWING_%%') AS last_run_at,
+                           (SELECT count(*)::int FROM analytics.swing_paper_trade_v1) AS paper_trades
+                    FROM items
+                """)
+                swing_summary = dict(cursor.fetchone() or {})
+                cursor.execute("""
+                    SELECT i.priority,i.symbol,i.strategy_family,i.timeframe,i.status_code,
+                           i.minimum_future_bars,i.evaluated_at,
+                           coalesce(d.accumulated_bars,0)::int AS accumulated_bars,
+                           coalesce(d.remaining_bars,i.minimum_future_bars)::int AS remaining_bars,
+                           d.readiness_status,d.reason_code
+                    FROM analytics.swing_next_research_plan_item_v1 i
+                    LEFT JOIN LATERAL (
+                      SELECT accumulated_bars,remaining_bars,readiness_status,reason_code
+                      FROM analytics.swing_future_data_readiness_v1 x
+                      WHERE x.plan_item_id=i.plan_item_id ORDER BY observed_at DESC LIMIT 1
+                    ) d ON true
+                    WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1
+                      ORDER BY created_at DESC LIMIT 1)
+                    ORDER BY i.priority,i.symbol LIMIT 20
+                """)
+                swing_items = [dict(row) for row in cursor.fetchall()]
 
         for row in links:
             count = int(row["accumulated"] or 0)
@@ -870,4 +916,6 @@ class ControlCompactV3Resolver:
             "raw_shadow_dynamics": raw_shadow_dynamics,
             "signal_funnel_stages": signal_funnel_stages,
             "signal_funnel_reasons": signal_funnel_reasons,
+            "swing_summary": swing_summary,
+            "swing_items": swing_items,
         }

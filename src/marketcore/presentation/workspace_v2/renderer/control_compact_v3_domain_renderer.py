@@ -622,6 +622,60 @@ def _market_regime_section(snapshot):
     ))
 
 
+def _swing_section(snapshot):
+    summary = snapshot.get("swing_summary") or {}
+    items = snapshot.get("swing_items") or ()
+    last_run = summary.get("last_run_at")
+    last_run_text = last_run.strftime("%d.%m %H:%M") if last_run else "нет запусков"
+    cards = RenderNodeV2(RenderNodeTypeV2.GRID, "control.v3.swing.cards", children=(
+        _card("swing_candidates", "Swing-кандидаты", int(summary.get("candidates") or 0),
+              f"Последний цикл: {last_run_text}", "OK"),
+        _card("swing_ready", "Готовы к OOS", int(summary.get("ready") or 0),
+              "Ещё не обработаны", "OK" if summary.get("ready") else "WARNING"),
+        _card("swing_waiting", "Ждут данные", int(summary.get("waiting") or 0),
+              "Накапливают будущие свечи", "WARNING"),
+        _card("swing_stuck", "Зависли", int(summary.get("stuck") or 0),
+              "Готовы более 90 минут", "BLOCKED" if summary.get("stuck") else "OK"),
+        _card("swing_stale", "Устаревшие данные", int(summary.get("stale") or 0),
+              "Требуют восстановления источника", "BLOCKED" if summary.get("stale") else "OK"),
+        _card("swing_oos", "Итог OOS", f"PASS {int(summary.get('oos_pass') or 0)} · FAIL {int(summary.get('oos_fail') or 0)}",
+              f"Paper-сделки: {int(summary.get('paper_trades') or 0)}", "OK" if summary.get("oos_pass") else "WARNING"),
+    ))
+    columns = ("№", "Инструмент", "Алгоритм", "ТФ", "Данные", "Состояние")
+    header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.swing.header", children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.swing.header.{i}", label)
+        for i,label in enumerate(columns, start=1)))
+    rows = []
+    for index,item in enumerate(items, start=1):
+        status = str(item.get("status_code") or "")
+        readiness = str(item.get("readiness_status") or "")
+        if status == "EVALUATED_PASS": state,status_code = "OOS PASS", "OK"
+        elif status == "EVALUATED_FAIL": state,status_code = "OOS FAIL", "BLOCKED"
+        elif readiness == "READY": state,status_code = "Готов к OOS-проверке", "OK"
+        elif readiness == "STALE": state,status_code = "Источник данных устарел", "BLOCKED"
+        else:
+            state,status_code = f"Ждёт ещё {int(item.get('remaining_bars') or 0)} свечей", "WARNING"
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, f"control.v3.swing.row.{index}",
+            state=RenderNodeStateV2(status_code=status_code), children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.swing.row.{index}.priority", item.get("priority")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.swing.row.{index}.symbol", item.get("symbol")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.swing.row.{index}.strategy", str(item.get("strategy_family") or "—").replace("_", " ")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.swing.row.{index}.timeframe", item.get("timeframe")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.swing.row.{index}.bars", f"{int(item.get('accumulated_bars') or 0)} / {int(item.get('minimum_future_bars') or 0)}"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.swing.row.{index}.status", state),
+            )))
+    table = RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.swing.table", children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.swing.head", children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.swing.body", children=tuple(rows)),
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.swing", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.swing.title", "Swing · путь к Paper", level="SECTION"),
+        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.swing.subtitle",
+              "Данные → OOS → Shadow → Paper; реальные сделки отключены"),
+        cards,table,
+    ))
+
+
 def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", document_id="operator.control.v3"):
     process = snapshot["process"]
     raw_process_status = str(process.get("status_code") or "").upper()
@@ -651,6 +705,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         _compact_state_section(snapshot, raw_process_status),
         _signal_funnel_section(snapshot),
         _market_regime_section(snapshot),
+        _swing_section(snapshot),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
         _open_positions_section(snapshot.get("open_position_diagnostics") or ()),
         _compact_control_section(snapshot),
