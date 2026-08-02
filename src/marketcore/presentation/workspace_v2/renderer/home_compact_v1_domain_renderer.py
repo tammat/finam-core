@@ -999,20 +999,78 @@ def _oos_evidence_section(snapshot):
     ))
 
 
+def _focus_candidates_section(snapshot):
+    """One operator-facing view; detailed research remains in the control centre."""
+    desired = (
+        ("SBER", "Сбербанк", "V5"),
+        ("BRQ6", "Нефть Brent", "V5"),
+        ("GLDRUBF", "Золото", "V5"),
+        ("CNYRUBF", "Юань", "V5"),
+    )
+    runs = list(snapshot.get("v5_oos_runs") or ())
+    shadow = list(snapshot.get("shadow_dynamics") or ())
+
+    def ticker(row):
+        return str(row.get("symbol") or row.get("symbol_code") or "").split("@", 1)[0]
+
+    rows = []
+    for index, (symbol, label, stage) in enumerate(desired, start=1):
+        # The gold logical symbol can be observed through the dated GDU contract.
+        aliases = {symbol, "GDU6"} if symbol == "GLDRUBF" else {symbol}
+        run = next((item for item in runs if ticker(item) in aliases), None)
+        included = int((run or {}).get("observations_included") or 0)
+        minimum = int((run or {}).get("minimum_observations") or 20)
+        status = str((run or {}).get("status_code") or "COLLECTING")
+        expectancy = (run or {}).get("expectancy")
+        expectancy_text = (
+            f"{_signed_metric(expectancy)}R" if expectancy is not None else "нет данных"
+        )
+        verdict = {
+            "OOS_PASS": "PASS — готов к parity",
+            "OOS_FAIL": "FAIL — остановлен",
+            "ERROR": "ошибка проверки",
+        }.get(status, "накапливает новые наблюдения")
+        value = (
+            f"{stage} · {included}/{minimum} · Exp {expectancy_text} · "
+            f"PF {_pf_text({'profit_factor': (run or {}).get('profit_factor'), 'profit_factor_observable': (run or {}).get('profit_factor') is not None})} · {verdict}"
+        )
+        rows.append(_row(
+            f"focus.{index}", label, value,
+            status="OK" if status == "OOS_PASS" else "BLOCKED" if status in {"OOS_FAIL", "ERROR"} else "WARNING",
+            source="analytics.v5_oos_run_v1" if run else None,
+            source_as_of=(run or {}).get("updated_at"),
+        ))
+
+    gas = next((item for item in shadow if ticker(item) in {"NGQ6", "NGN6", "NG"}), None)
+    pairs = int((gas or {}).get("pairs") or 0)
+    gas_exp = (gas or {}).get("candidate_expectancy_r")
+    gas_exp_text = f"{_signed_metric(gas_exp)}R" if gas_exp is not None else "нет данных"
+    gas_verdict = "есть данные для отбора" if pairs else "ожидает сопоставимые Shadow-сигналы"
+    rows.append(_row(
+        "focus.5", "Природный газ",
+        f"резерв Shadow · {pairs} пар · Exp {gas_exp_text} · {gas_verdict}",
+        status="OK" if gas_exp is not None and float(gas_exp) > 0 else "WARNING",
+    ))
+    rows.append(_leaf(
+        RenderNodeTypeV2.TEXT, "home.compact.focus.help",
+        "Приоритет: Сбербанк → Brent → золото → юань. Газ остаётся резервом Shadow и не подменяет замороженную V5-когорту.",
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.focus", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.focus.title", "Кандидаты edge", level="SECTION"),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.focus.metrics", children=tuple(rows)),
+    ))
+
+
 def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "home.compact.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.title", "MarketCore", level="PAGE"),
         _leaf(RenderNodeTypeV2.SUBTITLE, "home.compact.subtitle",
               "Поиск преимущества · без реальных сделок"),
         _now_section(snapshot),
-        _workflow_section(snapshot),
-        _lightweight_statistics_section(snapshot),
+        _focus_candidates_section(snapshot),
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),
-        _shadow_dynamics_section(snapshot),
-        _oos_evidence_section(snapshot),
-        _optimizer_section(snapshot),
         _attention_section(snapshot),
     ))
     document = RenderDocumentV2(

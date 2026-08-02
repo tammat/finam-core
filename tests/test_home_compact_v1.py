@@ -13,10 +13,9 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     nodes = list(walk(document.root))
     sections = [node.node_id for node in nodes if node.node_type is RenderNodeTypeV2.SECTION]
     assert sections == [
-        "home.compact.now", "home.compact.workflow", "home.compact.statistics", "home.compact.progress",
+        "home.compact.now", "home.compact.focus", "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
-        "home.compact.shadow",
-        "home.compact.oos", "home.compact.optimizer", "home.compact.attention",
+        "home.compact.attention",
     ]
     actions = [node for node in nodes if node.node_type is RenderNodeTypeV2.ACTION]
     assert len(actions) == 1
@@ -27,15 +26,15 @@ def test_home_explains_autonomous_edge_workflow_in_russian() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     workflow = next(
         node for node in walk(document.root)
-        if node.node_id == "home.compact.workflow"
+        if node.node_id == "home.compact.focus"
     )
     text = " ".join(
         str(node.content.value)
         for node in walk(workflow)
         if node.content and node.content.value
     )
-    for phrase in ("Путь к доказанному edge", "1. Paper", "2. Shadow", "3. V5 OOS",
-                   "Следующий шаг", "Реальная торговля"):
+    for phrase in ("Кандидаты edge", "Сбербанк", "Нефть Brent", "Золото", "Юань",
+                   "Природный газ", "резерв Shadow"):
         assert phrase in text
     assert "EXCHANGE_CALENDAR_CLOSED" not in text
 
@@ -88,10 +87,10 @@ def test_home_uses_plain_russian_and_no_operator_table() -> None:
 def test_home_progress_is_bounded() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     nodes = list(walk(document.root))
-    progress = next(node for node in nodes if node.node_id == "home.compact.progress")
+    progress = next(node for node in nodes if node.node_id == "home.compact.focus")
     metric_list = next(child for child in progress.children if child.node_type is RenderNodeTypeV2.METRIC_LIST)
     metric_rows = [child for child in metric_list.children if child.node_type is RenderNodeTypeV2.METRIC_ROW]
-    assert 4 <= len(metric_rows) <= 10
+    assert len(metric_rows) == 5
 
 
 def test_home_explains_compact_universe_coverage() -> None:
