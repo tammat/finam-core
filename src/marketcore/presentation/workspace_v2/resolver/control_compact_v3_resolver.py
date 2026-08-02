@@ -700,6 +700,45 @@ class ControlCompactV3Resolver:
                 edge_diagnostics = [dict(row) for row in cursor.fetchall()]
 
                 cursor.execute("""
+                    WITH recommendations AS (
+                      SELECT count(*) FILTER (WHERE
+                               metrics #>> '{economics_decomposition,gross_expectancy_r}' IS NULL
+                            OR metrics #>> '{economics_decomposition,roundtrip_cost_r}' IS NULL
+                             ) AS economics_missing,
+                             count(*) FILTER (WHERE
+                               metrics #>> '{futility_gate,verdict}'='REJECT_FUTILE'
+                             ) AS futility_rejects,
+                             max(generated_at) AS last_optimizer_at
+                      FROM analytics.entry_exit_recommendation_v1
+                      WHERE metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
+                    ), duplicate_groups AS (
+                      SELECT count(*) AS total FROM (
+                        SELECT strategy_code,symbol_group,side_code,count(*)
+                        FROM analytics.entry_exit_promotion_workflow_v1
+                        WHERE workflow_stage NOT IN ('REJECTED','ROLLED_BACK','SUPERSEDED')
+                        GROUP BY 1,2,3 HAVING count(*)>1
+                      ) duplicated
+                    ), workflows AS (
+                      SELECT count(*) FILTER (WHERE workflow_stage NOT IN
+                               ('REJECTED','ROLLED_BACK','SUPERSEDED')) AS active_candidates,
+                             count(DISTINCT CASE
+                               WHEN symbol_group='BR' THEN 'BR'
+                               WHEN symbol_group='GOLD' THEN 'GOLD'
+                               WHEN symbol_group='CNY' THEN 'CNY'
+                               WHEN symbol_group='SBER' THEN 'SBER' END)
+                               FILTER (WHERE workflow_stage NOT IN
+                                 ('REJECTED','ROLLED_BACK','SUPERSEDED')) AS v5_research_branches,
+                             count(*) FILTER (WHERE workflow_stage LIKE 'V5_OOS%%') AS oos_candidates
+                      FROM analytics.entry_exit_promotion_workflow_v1
+                    )
+                    SELECT r.economics_missing,r.futility_rejects,r.last_optimizer_at,
+                           d.total AS duplicate_active_groups,w.active_candidates,
+                           w.v5_research_branches,w.oos_candidates
+                    FROM recommendations r CROSS JOIN duplicate_groups d CROSS JOIN workflows w
+                """)
+                edge_pipeline_health = dict(cursor.fetchone() or {})
+
+                cursor.execute("""
                     SELECT symbol,side_code,strategy_code,regime_code,
                            CASE entry_mode
                              WHEN 'ADAPTIVE' THEN 'ADAPTIVE_OR_SKIP'
@@ -969,6 +1008,7 @@ class ControlCompactV3Resolver:
             "entry_exit_workflows": entry_exit_workflows,
             "entry_exit_recommendations": entry_exit_recommendations,
             "edge_diagnostics": edge_diagnostics,
+            "edge_pipeline_health": edge_pipeline_health,
             "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,

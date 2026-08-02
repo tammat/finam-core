@@ -124,6 +124,45 @@ def main() -> int:
         if stale_lifecycle:
             failures.append(f"ORPHAN_LIFECYCLE:{stale_lifecycle}")
 
+        cur.execute("""
+            SELECT count(*) AS total
+            FROM analytics.entry_exit_recommendation_v1
+            WHERE metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
+              AND (metrics #>> '{economics_decomposition,gross_expectancy_r}' IS NULL
+                OR metrics #>> '{economics_decomposition,roundtrip_cost_r}' IS NULL)
+        """)
+        economics_missing = int(cur.fetchone()["total"])
+        if economics_missing:
+            attention.append(f"EDGE_ECONOMICS_BACKFILL_PENDING:{economics_missing}")
+
+        cur.execute("""
+            SELECT count(*) AS total FROM (
+              SELECT strategy_code,symbol_group,side_code,count(*)
+              FROM analytics.entry_exit_promotion_workflow_v1
+              WHERE workflow_stage NOT IN ('REJECTED','ROLLED_BACK','SUPERSEDED')
+              GROUP BY 1,2,3 HAVING count(*)>1
+            ) duplicated
+        """)
+        duplicate_active = int(cur.fetchone()["total"])
+        if duplicate_active:
+            failures.append(f"DUPLICATE_ACTIVE_SHADOW_CANDIDATE:{duplicate_active}")
+
+        cur.execute("""
+            SELECT count(DISTINCT CASE
+              WHEN symbol_group='BR' THEN 'BRQ6@RTSX'
+              WHEN symbol_group='GOLD' THEN 'GDU6@RTSX'
+              WHEN symbol_group='CNY' THEN 'CNYRUBF@RTSX'
+              WHEN symbol_group='SBER' THEN 'SBER@MISX' END) AS total
+            FROM analytics.entry_exit_promotion_workflow_v1
+            WHERE symbol_group IN ('BR','GOLD','CNY','SBER')
+              AND workflow_stage NOT IN ('REJECTED','ROLLED_BACK','SUPERSEDED')
+        """)
+        v5_research_branches = int(cur.fetchone()["total"])
+        if v5_research_branches < len(EXPECTED_V5_OBSERVATIONS):
+            attention.append(
+                f"V5_RESEARCH_BRANCH_INCOMPLETE:{v5_research_branches}/{len(EXPECTED_V5_OBSERVATIONS)}"
+            )
+
         status = "BLOCK" if failures else ("ATTENTION" if attention else "READY")
         reasons = failures + attention
         cur.execute(
@@ -143,6 +182,9 @@ def main() -> int:
     print(f"reasons={','.join(reasons) or 'OK'}")
     print(f"load_1m={load_1m:.2f} root_free_pct={free_pct:.1f}")
     print(f"required_timeframes={','.join(required_timeframes(now)) or 'PRE_OPEN'}")
+    print(f"edge_economics_missing={economics_missing}")
+    print(f"duplicate_active_shadow_candidates={duplicate_active}")
+    print(f"v5_research_branches={v5_research_branches}/{len(EXPECTED_V5_OBSERVATIONS)}")
     print("real_trading_enabled=0")
     print("VERDICT=MONDAY_PREFLIGHT_V2_OK")
     return 1 if failures else 0

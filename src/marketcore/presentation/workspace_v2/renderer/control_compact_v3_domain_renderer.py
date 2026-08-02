@@ -678,6 +678,7 @@ def _swing_section(snapshot):
 
 def _edge_diagnostic_section(snapshot):
     items = snapshot.get("edge_diagnostics") or ()
+    health = snapshot.get("edge_pipeline_health") or {}
     diagnoses = {
         "INSUFFICIENT_SAMPLE": ("Мало независимых данных", "Продолжать Shadow без смены параметров"),
         "ECONOMICS_RECALC_PENDING": ("Ожидается пересчёт Gross и издержек", "Не принимать решение до нового наблюдения"),
@@ -721,10 +722,30 @@ def _edge_diagnostic_section(snapshot):
         RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.edge_diagnostic.head", children=(header,)),
         RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.edge_diagnostic.body", children=tuple(rows)),
     ))
+    economics_missing = int(health.get("economics_missing") or 0)
+    duplicate_groups = int(health.get("duplicate_active_groups") or 0)
+    active_candidates = int(health.get("active_candidates") or 0)
+    v5_branches = int(health.get("v5_research_branches") or 0)
+    oos_candidates = int(health.get("oos_candidates") or 0)
+    pipeline = RenderNodeV2(RenderNodeTypeV2.GRID, "control.v3.edge_pipeline", children=(
+        _card("edge_economics", "Экономика Gross / Costs / Net",
+              "Готово" if economics_missing == 0 else f"Ожидают пересчёта: {economics_missing}",
+              "Решения запрещены, пока экономика не рассчитана",
+              "OK" if economics_missing == 0 else "WARNING"),
+        _card("edge_candidate", "Shadow-кандидаты", active_candidates,
+              "Дубликатов нет" if duplicate_groups == 0 else f"Дубликатов: {duplicate_groups}",
+              "OK" if duplicate_groups == 0 else "BLOCKED"),
+        _card("edge_oos", "Защищённые V5-ветки", f"{v5_branches} / 4",
+              f"В OOS сейчас: {oos_candidates}", "OK" if v5_branches == 4 else "WARNING"),
+        _card("edge_futility", "Отсев бесперспективных",
+              int(health.get("futility_rejects") or 0),
+              "Только после достаточной будущей выборки", "OK"),
+    ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.edge_diagnostic", children=(
         _leaf(RenderNodeTypeV2.TITLE, "control.v3.edge_diagnostic.title", "Почему сигнал не создаёт edge", level="SECTION"),
         _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.edge_diagnostic.subtitle",
               "Сопоставимые Shadow-пары после издержек против time-shifted placebo"),
+        pipeline,
         table,
     ))
 

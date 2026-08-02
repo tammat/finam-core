@@ -51,7 +51,10 @@ def test_active_compact_control_explains_missing_edge() -> None:
     ).read_text(encoding="utf-8")
     assert "TIME_SHIFTED_ENTRY_V2" in resolver
     assert '"edge_diagnostics": edge_diagnostics' in resolver
+    assert '"edge_pipeline_health": edge_pipeline_health' in resolver
     assert "Почему сигнал не создаёт edge" in renderer
+    assert "Экономика Gross / Costs / Net" in renderer
+    assert "Защищённые V5-ветки" in renderer
     assert "Проверить условие входа; выходы пока не оптимизировать" in renderer
     assert "Gross → costs → Net" in renderer
     assert "COSTS_CONSUME_EDGE" in resolver

@@ -27,6 +27,9 @@ def test_preflight_is_timeframe_aware() -> None:
     assert "ORPHAN_LIFECYCLE" in source
     assert "ACTIVE_CONTRACT_MISSING" in source
     assert "V5_OBSERVATION_SOURCE_MISSING" in source
+    assert "EDGE_ECONOMICS_BACKFILL_PENDING" in source
+    assert "DUPLICATE_ACTIVE_SHADOW_CANDIDATE" in source
+    assert "V5_RESEARCH_BRANCH_INCOMPLETE" in source
     for symbol in ("BRQ6@RTSX", "SBER@MISX", "GDU6@RTSX", "CNYRUBF@RTSX"):
         assert symbol in source
 

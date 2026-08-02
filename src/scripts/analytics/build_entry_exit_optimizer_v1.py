@@ -270,6 +270,43 @@ def main() -> int:
                 AND r.side_code=w.side_code AND r.candidate_code=w.candidate_code
                 AND r.metrics #>> '{negative_control,control_code}'='LEGACY_INVALID_NEXT_BAR_V1'
             )""")
+        # Diagnostic-only backfill for recommendations frozen before the
+        # explicit Gross/Costs/Net contract.  Existing net outcomes are not
+        # changed; cost R is reconstructed from the stored pre-entry context.
+        cur.execute("""WITH economics AS (
+          SELECT p.strategy_code,
+                 CASE
+                   WHEN p.strategy_code='BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
+                   WHEN p.strategy_code='NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
+                   WHEN p.strategy_code='CNY_REGIME_FUTURES' THEN 'CNY'
+                   WHEN p.strategy_code='USD_REGIME_FUTURES' THEN 'USD'
+                   WHEN p.strategy_code='GOLD_TREND_BREAKOUT' THEN 'GOLD'
+                   ELSE split_part(p.symbol_code,'@',1)
+                 END AS symbol_group,
+                 p.side_code,p.candidate_code,
+                 avg(p.shadow_net_r + (p.entry_context->>'cost_to_atr')::numeric /
+                     nullif(p.stop_atr,0)) AS gross_expectancy_r,
+                 avg((p.entry_context->>'cost_to_atr')::numeric /
+                     nullif(p.stop_atr,0)) AS roundtrip_cost_r,
+                 avg(p.shadow_net_r) AS net_expectancy_r
+          FROM analytics.entry_exit_signal_shadow_pair_v2 p
+          WHERE p.shadow_net_r IS NOT NULL AND p.entry_context ? 'cost_to_atr'
+            AND p.stop_atr>0
+          GROUP BY 1,2,3,4
+        )
+        UPDATE analytics.entry_exit_recommendation_v1 r
+          SET metrics=jsonb_set(r.metrics,'{economics_decomposition}',
+                jsonb_build_object(
+                  'gross_expectancy_r',e.gross_expectancy_r,
+                  'roundtrip_cost_r',e.roundtrip_cost_r,
+                  'net_expectancy_r',e.net_expectancy_r,
+                  'source','DIAGNOSTIC_BACKFILL_FROM_STORED_COST_TO_ATR_V1'),true)
+        FROM economics e
+        WHERE r.strategy_code=e.strategy_code AND r.symbol_group=e.symbol_group
+          AND r.side_code=e.side_code AND r.candidate_code=e.candidate_code
+          AND r.metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
+          AND (r.metrics #>> '{economics_decomposition,gross_expectancy_r}' IS NULL
+            OR r.metrics #>> '{economics_decomposition,roundtrip_cost_r}' IS NULL)""")
         cur.execute("""
           SELECT s.id,coalesce(nullif(s.signal_id,''),'signal-row:'||s.id::text) signal_id,
                  c.id AS trade_id,s.symbol,s.strategy,
