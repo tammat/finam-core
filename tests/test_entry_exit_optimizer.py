@@ -3,6 +3,7 @@ from finam_core.analytics.entry_exit_optimizer import (
     evaluate_paper_challenger, evaluate_walk_forward, negative_control_check,
     parameter_plateau_check, simulate_variant,
 )
+from scripts.analytics.build_entry_exit_optimizer_v1 import placebo_entry_offsets
 
 
 def test_same_bar_stop_take_is_conservative():
@@ -149,6 +150,26 @@ def test_negative_control_fails_closed_when_missing():
     result = negative_control_check([{"shadow_r": 0.4, "placebo_r": None}])
     assert not result["passed"]
     assert result["reason"] == "NO_PAIRED_PLACEBO_CONTROL"
+
+
+def test_negative_control_rejects_explicitly_invalid_collision():
+    result = negative_control_check([{
+        "shadow_r": 0.4, "placebo_r": 0.4, "placebo_control_valid": False,
+    }])
+    assert not result["passed"]
+    assert result["pairs"] == 0
+
+
+def test_time_shift_placebo_excludes_candidate_entry_and_is_reproducible():
+    first = placebo_entry_offsets(
+        bars_count=30, source_id=7, candidate_code="CONFIRM_1_S1.5_R1.6",
+        candidate_delay_bars=1, samples=20)
+    second = placebo_entry_offsets(
+        bars_count=30, source_id=7, candidate_code="CONFIRM_1_S1.5_R1.6",
+        candidate_delay_bars=1, samples=20)
+    assert first == second
+    assert len(first) == 20
+    assert 1 not in first
 
 
 def test_parameter_plateau_rejects_isolated_peak():

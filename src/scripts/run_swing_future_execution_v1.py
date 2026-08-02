@@ -46,7 +46,17 @@ def main():
     with c.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as q:
       q.execute("SELECT pg_try_advisory_lock(741903146) locked")
       if not q.fetchone()["locked"]: print("VERDICT=SWING_FUTURE_EXECUTION_ALREADY_RUNNING"); return 0
-      q.execute("SELECT * FROM analytics.swing_next_research_plan_v1 WHERE status_code IN ('WAITING_FUTURE_DATA','ACTIVE') ORDER BY created_at LIMIT 1")
+      q.execute("""SELECT p.* FROM analytics.swing_next_research_plan_v1 p
+        WHERE p.status_code IN ('WAITING_FUTURE_DATA','ACTIVE')
+        ORDER BY EXISTS (
+          SELECT 1 FROM analytics.swing_next_research_plan_item_v1 i
+          JOIN LATERAL (SELECT readiness_status
+            FROM analytics.swing_future_data_readiness_v1 d
+            WHERE d.plan_item_id=i.plan_item_id ORDER BY observed_at DESC LIMIT 1) r ON true
+          WHERE i.plan_id=p.plan_id AND i.evaluated_at IS NULL
+            AND r.readiness_status='READY'
+        ) DESC, p.created_at
+        LIMIT 1""")
       plan=q.fetchone()
       if not plan: print("VERDICT=SWING_FUTURE_EXECUTION_IDLE"); return 0
       q.execute("UPDATE analytics.swing_next_research_plan_v1 SET heartbeat_at=clock_timestamp(),attempt_count=attempt_count+1,last_error_code=NULL WHERE plan_id=%s",(plan["plan_id"],))

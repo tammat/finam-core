@@ -49,6 +49,7 @@ def test_swing_future_executor_has_full_methodology_and_recovery() -> None:
     assert "heartbeat_at" in migration and "STALE_HEARTBEAT_RECOVERED" in monitor
     assert "SWING_FUTURE_EXECUTION_V1" in (ROOT/"src/scripts/run_db_job_scheduler_v1.py").read_text()
     assert 'str(rid),str(i["plan_item_id"])' in executor
+    assert "readiness_status='READY'" in executor
 
 
 def test_swing_branch_schema_is_installed_in_postgres() -> None:
@@ -191,10 +192,13 @@ def test_swing_paper_contract_is_installed_and_official_costs_are_ready() -> Non
 def test_active_control_center_v2_exposes_swing_lifecycle() -> None:
     resolver = (ROOT / "src/marketcore/presentation/workspace_v2/resolver/control_center_v2_resolver.py").read_text()
     renderer = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_center_v2_domain_renderer.py").read_text()
+    tree_renderer = (ROOT / "src/marketcore/presentation/workspace_v2/renderer/control_center_v2_renderer.py").read_text()
     migration = (ROOT / "sql/analytics/112_swing_canonical_paper_engine_v1.sql").read_text()
     assert "swing_summary" in resolver and "swing_paper_trade_v1" in resolver
     assert '"swing_lifecycle"' in renderer and "_swing_rows" in renderer
     assert "research.control.section.swing_lifecycle.title" in migration
+    assert "future_ready" in resolver and "evaluation_stuck" in resolver
+    assert "Готовы к проверке" in tree_renderer and "Зависли после готовности" in tree_renderer
 
 
 def test_swing_monitor_adapts_uuids_and_failures_are_rolled_up() -> None:

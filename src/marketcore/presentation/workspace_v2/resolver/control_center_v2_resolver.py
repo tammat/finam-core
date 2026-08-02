@@ -93,13 +93,29 @@ class ControlCenterV2Resolver:
             SELECT count(*) AS candidates,
                    count(*) FILTER (WHERE l.stage_code='PAPER' AND l.status_code='READY') AS paper_ready,
                    count(*) FILTER (WHERE p.status_code='OPEN') AS open_positions,
-                   count(*) FILTER (WHERE i.status_code='WAITING_FUTURE_DATA') AS waiting_data
+                   count(*) FILTER (WHERE d.readiness_status='WAITING') AS waiting_data,
+                   count(*) FILTER (WHERE d.readiness_status='READY' AND i.evaluated_at IS NULL) AS future_ready,
+                   count(*) FILTER (WHERE d.readiness_status='STALE') AS future_stale,
+                   count(*) FILTER (WHERE d.readiness_status='READY' AND i.evaluated_at IS NULL
+                     AND d.observed_at < clock_timestamp()-interval '90 minutes') AS evaluation_stuck
             FROM analytics.swing_next_research_plan_item_v1 i
             LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
             LEFT JOIN analytics.swing_paper_position_v1 p ON p.process_id=l.process_id
+            LEFT JOIN LATERAL (
+                SELECT readiness_status,observed_at
+                FROM analytics.swing_future_data_readiness_v1 x
+                WHERE x.plan_item_id=i.plan_item_id
+                ORDER BY observed_at DESC LIMIT 1
+            ) d ON true
             WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
         """)
         summary = dict(cur.fetchone() or {})
+        cur.execute("""
+            SELECT max(finished_at) AS last_swing_run_at
+            FROM analytics.system_job_run_v1
+            WHERE job_code LIKE 'SWING_%'
+        """)
+        summary.update(dict(cur.fetchone() or {}))
         cur.execute("""
             SELECT count(*) AS trades,coalesce(sum(net_pnl),0) AS net_pnl,
                    coalesce(sum(net_after_tax),0) AS net_after_tax
@@ -113,7 +129,9 @@ class ControlCenterV2Resolver:
                    coalesce(p.status_code,'—') AS position_status,
                    coalesce(p.unrealized_pnl,0) AS unrealized_pnl,
                    coalesce(t.trades,0) AS paper_trades,coalesce(t.net_pnl,0) AS paper_net_pnl,
-                   coalesce(r.decision_code,'—') AS risk_decision
+                   coalesce(r.decision_code,'—') AS risk_decision,
+                   d.readiness_status,d.remaining_bars,d.reason_code AS readiness_reason,
+                   d.observed_at AS readiness_observed_at
             FROM analytics.swing_next_research_plan_item_v1 i
             LEFT JOIN analytics.swing_candidate_lifecycle_v1 l USING(plan_item_id)
             LEFT JOIN analytics.swing_paper_position_v1 p ON p.process_id=l.process_id
@@ -121,10 +139,14 @@ class ControlCenterV2Resolver:
               FROM analytics.swing_paper_trade_v1 x WHERE x.process_id=l.process_id) t ON true
             LEFT JOIN LATERAL (SELECT decision_code FROM analytics.swing_paper_risk_decision_v1 x
               WHERE x.process_id=l.process_id ORDER BY created_at DESC LIMIT 1) r ON true
+            LEFT JOIN LATERAL (SELECT readiness_status,remaining_bars,reason_code,observed_at
+              FROM analytics.swing_future_data_readiness_v1 x
+              WHERE x.plan_item_id=i.plan_item_id ORDER BY observed_at DESC LIMIT 1) d ON true
             LEFT JOIN analytics.swing_market_bars_v1 b ON b.symbol=i.symbol AND b.timeframe=i.timeframe
               AND b.ts>i.confirmation_after_ts
             WHERE i.plan_id=(SELECT plan_id FROM analytics.swing_next_research_plan_v1 ORDER BY created_at DESC LIMIT 1)
-            GROUP BY i.plan_item_id,l.stage_code,l.status_code,p.status_code,p.unrealized_pnl,t.trades,t.net_pnl,r.decision_code
+            GROUP BY i.plan_item_id,l.stage_code,l.status_code,p.status_code,p.unrealized_pnl,t.trades,t.net_pnl,r.decision_code,
+                     d.readiness_status,d.remaining_bars,d.reason_code,d.observed_at
             ORDER BY i.priority,i.symbol LIMIT 50
         """)
         summary["items"] = [dict(row) for row in cur.fetchall()]

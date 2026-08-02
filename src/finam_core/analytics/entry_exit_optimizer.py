@@ -305,14 +305,15 @@ def regime_sample_check(rows: list[dict], *, minimum: int) -> tuple[bool, dict[s
 
 
 def negative_control_check(rows: list[dict], *, confidence: float = 0.95) -> dict:
-    """Require the candidate to beat a causal, unconditional next-bar entry.
+    """Require the candidate to beat a causal, time-shifted entry control.
 
     The control is evaluated on the same signal, horizon, stop, target and
     costs.  Only its entry timing ignores the strategy condition.  Missing
     controls fail closed once this gate is used for promotion.
     """
     paired = [row for row in rows
-              if row.get("shadow_r") is not None and row.get("placebo_r") is not None]
+              if row.get("shadow_r") is not None and row.get("placebo_r") is not None
+              and row.get("placebo_control_valid", True)]
     if not paired:
         return {
             "passed": False, "pairs": 0, "reason": "NO_PAIRED_PLACEBO_CONTROL",
@@ -326,9 +327,10 @@ def negative_control_check(rows: list[dict], *, confidence: float = 0.95) -> dic
     passed = mean(candidate) >= mean(placebo) + 0.05 and lower > 0
     return {
         "passed": passed, "pairs": len(paired),
-        "reason": "BEATS_UNCONDITIONAL_NEXT_BAR" if passed else "DOES_NOT_BEAT_PLACEBO",
+        "reason": "BEATS_TIME_SHIFTED_PLACEBO" if passed else "DOES_NOT_BEAT_PLACEBO",
         "candidate_expectancy_r": mean(candidate), "placebo_expectancy_r": mean(placebo),
         "delta_expectancy_r": mean(delta), "delta_lower_bound_r": lower,
+        "control_code": "TIME_SHIFTED_ENTRY_V2",
     }
 
 

@@ -486,6 +486,8 @@ def render_control_center_v2(
     )
 
     swing = vm.swing_summary
+    last_swing_run = swing.get("last_swing_run_at")
+    last_swing_run_text = last_swing_run.strftime("%d.%m %H:%M") if last_swing_run else "нет запусков"
     swing_section = RenderNode(
         RenderNodeType.SECTION,
         props={"class": "mc-v2-section", "id": "swing-lifecycle", "data-section": "RESEARCH"},
@@ -501,9 +503,12 @@ def render_control_center_v2(
                     ))
                     for label,value,status in (
                         ("Кандидаты", int(swing.get("candidates") or 0), "OK"),
-                        ("Ждут данных", int(swing.get("waiting_data") or 0), "WARNING"),
+                        ("Последний цикл", last_swing_run_text, "OK"),
+                        ("Готовы к проверке", int(swing.get("future_ready") or 0), "OK" if int(swing.get("future_ready") or 0) else "WARNING"),
+                        ("Ждут данные", int(swing.get("waiting_data") or 0), "WARNING"),
+                        ("Зависли после готовности", int(swing.get("evaluation_stuck") or 0), "BLOCKED" if int(swing.get("evaluation_stuck") or 0) else "OK"),
+                        ("Устаревшие данные", int(swing.get("future_stale") or 0), "BLOCKED" if int(swing.get("future_stale") or 0) else "OK"),
                         ("Paper READY", int(swing.get("paper_ready") or 0), "OK" if int(swing.get("paper_ready") or 0) else "WARNING"),
-                        ("Позиции", int(swing.get("open_positions") or 0), "WARNING"),
                         ("Сделки", int(swing.get("trades") or 0), "OK"),
                         ("PnL после налога", f'{float(swing.get("net_after_tax") or 0):.2f} ₽', "OK" if float(swing.get("net_after_tax") or 0)>=0 else "BLOCKED"),
                     )
@@ -522,7 +527,10 @@ def render_control_center_v2(
                     "strategy": str(row.get("strategy_family") or "—").replace("_", " "),
                     "timeframe": row.get("timeframe"), "stage": row.get("stage_code"),
                     "data": f'{int(row.get("future_bars") or 0)}/{int(row.get("minimum_future_bars") or 0)}',
-                    "status": i18n.text(
+                    "status": "Готов к OOS-проверке" if row.get("readiness_status") == "READY" and row.get("status_code") == "WAITING_FUTURE_DATA"
+                    else "Источник данных устарел" if row.get("readiness_status") == "STALE"
+                    else f'Ждёт ещё {int(row.get("remaining_bars") or 0)} свечей' if row.get("readiness_status") == "WAITING"
+                    else i18n.text(
                         "status.waiting" if row.get("status_code") in {"WAITING_FUTURE_DATA", "PENDING", "WAITING"}
                         else "status.done" if row.get("status_code") in {"COMPLETE", "COMPLETED", "PASS", "EVALUATED_PASS"}
                         else "status.active" if row.get("status_code") in {"ACTIVE", "READY"}

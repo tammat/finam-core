@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import uuid
 import hashlib
 from collections import Counter, defaultdict
@@ -44,6 +45,17 @@ SHADOW_HORIZON_BARS = {
 }
 
 GENERIC_PAPER_RUNTIME_GROUPS = {"GAZP", "LKOH", "NVTK", "SBER", "SBERP", "VTBR"}
+
+
+def placebo_entry_offsets(*, bars_count: int, source_id: int, candidate_code: str,
+                          candidate_delay_bars: int, samples: int = 20) -> list[int]:
+    """Build reproducible time-shift controls distinct from candidate entry."""
+    offsets = [offset for offset in range(1, bars_count - 1)
+               if offset != max(1, int(candidate_delay_bars or 0))]
+    seed = int.from_bytes(hashlib.sha256(
+        f"{source_id}:{candidate_code}:PLACEBO_TIME_SHIFT_V2".encode()).digest()[:8], "big")
+    random.Random(seed).shuffle(offsets)
+    return sorted(offsets[:max(1, samples)])
 
 
 def paper_runtime_supported(group: str, entry_mode: str) -> bool:
@@ -231,6 +243,16 @@ def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
 def main() -> int:
     with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("select pg_advisory_xact_lock(hashtext('entry_exit_optimizer_v1'))")
+        # Preserve legacy evidence for audit, but fail it closed: the former
+        # NEXT_BAR control collides mechanically with CONFIRM_1 candidates.
+        cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
+          SET recommendation_status='KEEP_SHADOW',
+              metrics=jsonb_set(jsonb_set(jsonb_set(
+                metrics,'{negative_control,passed}','false'::jsonb,true),
+                '{negative_control,reason}','\"INVALID_LEGACY_PLACEBO_NEXT_BAR\"'::jsonb,true),
+                '{negative_control,control_code}','\"LEGACY_INVALID_NEXT_BAR_V1\"'::jsonb,true)
+          WHERE metrics ? 'negative_control'
+            AND coalesce(metrics #>> '{negative_control,control_code}','')=''""")
         cur.execute("""
           SELECT s.id,coalesce(nullif(s.signal_id,''),'signal-row:'||s.id::text) signal_id,
                  c.id AS trade_id,s.symbol,s.strategy,
@@ -364,19 +386,30 @@ def main() -> int:
                                                tick_size=economics["tick_size"],
                                                stop_slippage_ticks=float(os.getenv(
                                                    "SHADOW_STOP_SLIPPAGE_TICKS", "1")))
-                    placebo = (simulate_variant(
-                        signal_price=float(bars[0].close), side=side, atr=atr, bars=bars[1:],
+                    placebo_offsets = placebo_entry_offsets(
+                        bars_count=len(bars), source_id=int(trade["id"]),
+                        candidate_code=variant.code,
+                        candidate_delay_bars=int(outcome.entry_delay_bars or 0),
+                        samples=int(os.getenv("SHADOW_PLACEBO_TIME_SHIFTS", "20")))
+                    placebo_results = [simulate_variant(
+                        signal_price=float(bars[offset - 1].close), side=side, atr=atr,
+                        bars=bars[offset:],
                         variant=Variant(
-                            "PLACEBO_NEXT_BAR", "IMMEDIATE", variant.stop_atr, variant.take_atr,
-                            variant.trail_after_r, variant.trail_atr),
+                            "PLACEBO_TIME_SHIFT_V2", "IMMEDIATE", variant.stop_atr,
+                            variant.take_atr, variant.trail_after_r, variant.trail_atr),
                         entry_context=entry_context,
                         roundtrip_cost_price=economics["roundtrip_cost_price"],
                         tick_size=economics["tick_size"],
                         stop_slippage_ticks=float(os.getenv("SHADOW_STOP_SLIPPAGE_TICKS", "1")),
-                    ) if len(bars) > 1 else None)
+                    ) for offset in placebo_offsets]
+                    placebo_r = (sum(result.net_r for result in placebo_results) /
+                                 len(placebo_results) if placebo_results else None)
                     rows.append({"actual_r":actual_r,
                                  "shadow_r":outcome.net_r if horizon_complete else None,
-                                 "placebo_r":placebo.net_r if horizon_complete and placebo else None,
+                                 "placebo_r":placebo_r if horizon_complete else None,
+                                 "placebo_control_code":"TIME_SHIFTED_ENTRY_V2",
+                                 "placebo_control_valid":bool(placebo_results),
+                                 "placebo_repetitions":len(placebo_results),
                                  "shadow_observed_r": outcome.net_r,
                                  "horizon_complete": horizon_complete,
                                  "trade_date":trade["entry_ts"].date().isoformat(),
@@ -413,7 +446,7 @@ def main() -> int:
                        strategy,trade["symbol"],side,variant.code,variant.entry_mode,
                        variant.stop_atr,variant.take_atr,
                        actual_r,outcome.entered,outcome.net_r if horizon_complete else None,
-                       placebo.net_r if horizon_complete and placebo else None,
+                       placebo_r if horizon_complete else None,
                        outcome.reason if horizon_complete else "PARTIAL_INDEPENDENT_HORIZON",
                        outcome.entry_decision,outcome.entry_decision_reason,
                        json.dumps({"atr_percentile":entry_context.atr_percentile,

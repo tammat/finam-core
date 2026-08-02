@@ -739,6 +739,7 @@ class ControlCompactV3Resolver:
                              coalesce((r.metrics #>> '{parameter_plateau,passed}')::boolean,false)
                                AS plateau_passed
                       FROM analytics.entry_exit_recommendation_v1 r
+                      WHERE r.metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
                     ), ranked AS (
                       SELECT evidence.*,
                              row_number() OVER (
