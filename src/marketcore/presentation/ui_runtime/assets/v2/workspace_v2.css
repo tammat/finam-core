@@ -566,6 +566,22 @@ td.mc-progress-cell span { color: var(--mc-text-primary); text-shadow: 0 1px 1px
     background: color-mix(in srgb, var(--mc-danger) 14%, transparent);
     font-weight: 700;
 }
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.trades."][data-mc-status="PROFIT"] > [data-mc-node="table_cell"],
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.shadow.row."][data-mc-status="PROFIT"] > [data-mc-node="table_cell"] {
+    background: color-mix(in srgb, var(--mc-ok) 10%, var(--mc-surface));
+}
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.trades."][data-mc-status="LOSS"] > [data-mc-node="table_cell"],
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.shadow.row."][data-mc-status="LOSS"] > [data-mc-node="table_cell"] {
+    background: color-mix(in srgb, var(--mc-danger) 10%, var(--mc-surface));
+}
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.trades."][data-mc-status="PROFIT"] > [data-mc-node="table_cell"]:first-child,
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.shadow.row."][data-mc-status="PROFIT"] > [data-mc-node="table_cell"]:first-child {
+    box-shadow: inset 4px 0 var(--mc-ok);
+}
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.trades."][data-mc-status="LOSS"] > [data-mc-node="table_cell"]:first-child,
+[data-mc-node="table_row"][data-mc-node-id^="home.compact.shadow.row."][data-mc-status="LOSS"] > [data-mc-node="table_cell"]:first-child {
+    box-shadow: inset 4px 0 var(--mc-danger);
+}
 [data-mc-node="section"][data-mc-node-id^="home.compact.trades."] > [data-mc-node="title"] {
     display: flex; align-items: center; justify-content: space-between; cursor: pointer;
 }

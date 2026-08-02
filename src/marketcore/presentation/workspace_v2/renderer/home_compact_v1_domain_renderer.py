@@ -435,7 +435,9 @@ def _recent_trades_section(snapshot, timezone_code, *, futures):
         )
         rows.append(RenderNodeV2(
             RenderNodeTypeV2.TABLE_ROW, f"home.compact.trades.{code}.row.{index}",
-            state=RenderNodeStateV2(status_code="ACTIVE") if status == "Активна" else None,
+            state=RenderNodeStateV2(
+                status_code=pnl_status or ("ACTIVE" if status == "Активна" else "NEUTRAL")
+            ),
             children=(
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.symbol", _instrument_name(item)),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.trades.{code}.row.{index}.direction", direction),
@@ -522,6 +524,12 @@ def _shadow_dynamics_section(snapshot):
             pairs >= 10 and bool(item.get("placebo_passed"))
             and lower is not None and float(lower) > 0
         )
+        expectancy = item.get("candidate_expectancy_r")
+        pnl_status = (
+            "PROFIT" if expectancy is not None and float(expectancy) > 0 else
+            "LOSS" if expectancy is not None and float(expectancy) < 0 else
+            "NEUTRAL"
+        )
         verdict = (
             "Предварительно лучше placebo" if passed else
             "Мало данных" if pairs < 10 else
@@ -529,7 +537,7 @@ def _shadow_dynamics_section(snapshot):
         )
         rows.append(RenderNodeV2(
             RenderNodeTypeV2.TABLE_ROW, f"home.compact.shadow.row.{index}",
-            state=RenderNodeStateV2(status_code="OK" if passed else "WARNING"),
+            state=RenderNodeStateV2(status_code=pnl_status),
             children=(
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.symbol", _instrument_name(item)),
                 _leaf(RenderNodeTypeV2.TABLE_CELL, f"home.compact.shadow.row.{index}.side", str(item.get("side_code") or "—")),

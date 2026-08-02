@@ -55,6 +55,24 @@ def test_home_exposes_lightweight_statistical_gates() -> None:
     assert "lightweight_statistical_evidence_v1" in resolver
 
 
+def test_shadow_and_paper_rows_have_profit_loss_tones() -> None:
+    renderer = open(
+        "src/marketcore/presentation/workspace_v2/renderer/"
+        "home_compact_v1_domain_renderer.py",
+        encoding="utf-8",
+    ).read()
+    css = open(
+        "src/marketcore/presentation/ui_runtime/assets/v2/workspace_v2.css",
+        encoding="utf-8",
+    ).read()
+    assert 'status_code=pnl_status or ("ACTIVE"' in renderer
+    assert 'expectancy = item.get("candidate_expectancy_r")' in renderer
+    assert 'home.compact.trades.' in css
+    assert 'home.compact.shadow.row.' in css
+    assert '[data-mc-status="PROFIT"]' in css
+    assert '[data-mc-status="LOSS"]' in css
+
+
 def test_home_uses_plain_russian_and_no_operator_table() -> None:
     document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
     nodes = list(walk(document.root))
