@@ -268,6 +268,12 @@ class ControlCompactV3Resolver:
                     "next_open": session_manager.next_entry_session(
                         symbol="BRQ6@RTSX", now=now_msk
                     ),
+                    "next_equity_open": session_manager.next_entry_session(
+                        symbol="SBER@MISX", now=now_msk
+                    ),
+                    "next_futures_open": session_manager.next_entry_session(
+                        symbol="BRQ6@RTSX", now=now_msk
+                    ),
                 }
                 cursor.execute("""
                     SELECT event_code,title_ru,category_code,risk_level,symbol_patterns,

@@ -68,6 +68,18 @@ def _pf_text(row):
     return f"{float(row.get('profit_factor') or 0):.2f}".replace(".", ",")
 
 
+def _next_sessions_text(session):
+    zone = ZoneInfo("Europe/Moscow")
+    equity = session.get("next_equity_open")
+    futures = session.get("next_futures_open") or session.get("next_open")
+    if equity and futures:
+        equity_text = equity.astimezone(zone).strftime("%d.%m %H:%M")
+        futures_text = futures.astimezone(zone).strftime("%d.%m %H:%M")
+        return f"акции {equity_text} · фьючерсы {futures_text} МСК"
+    fallback = futures or equity
+    return fallback.astimezone(zone).strftime("%d.%m %H:%M МСК") if fallback else "уточняется"
+
+
 def _now_section(snapshot):
     freshness = snapshot.get("freshness") or ()
     worst = max(freshness, key=lambda row: int(row.get("age_sec") or 0), default={})
@@ -79,9 +91,7 @@ def _now_section(snapshot):
     session = snapshot.get("session_status") or {}
     calendar_closed = session.get("reason") == "exchange_calendar_closed"
     if calendar_closed:
-        next_open = session.get("next_open")
-        next_text = next_open.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m %H:%M") if next_open else "уточняется"
-        quality_text = f"биржа закрыта по календарю · следующая сессия {next_text} МСК"
+        quality_text = f"биржа закрыта по календарю · {_next_sessions_text(session)}"
     else:
         quality_text = f"свежие {ready} · задержка {attention} · вне сессии {outside}"
     promotion = snapshot.get("promotion_summary") or {}
@@ -155,11 +165,11 @@ def _now_section(snapshot):
              source="analytics.monday_readiness_snapshot_v1",
              source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
         _row("research-resources", "Ресурсы исследований",
-             (f"тяжёлые расчёты отложены: {int(resources.get('deferred_hour') or 0)} за час · "
-              f"последний: {resources.get('last_deferred_job') or 'нет'}"
+             (f"ресурсный контроль перенёс {int(resources.get('deferred_hour') or 0)} запусков · "
+              f"очередь продолжает работу · последний: {resources.get('last_deferred_job') or 'нет'}"
               if int(resources.get("deferred_hour") or 0) else
               "нагрузка допустима · тяжёлые расчёты выполняются по очереди"),
-             status="WARNING" if int(resources.get("deferred_hour") or 0) else "OK",
+             status="OK",
              source="analytics.research_resource_gate_audit_v1",
              source_as_of=resources.get("evaluated_at") or snapshot.get("generated_at")),
         _row("safety", "Реальные сделки", "Выключены"),
@@ -172,17 +182,17 @@ def _now_section(snapshot):
 
 def _progress_section(snapshot):
     children = [
-        _leaf(RenderNodeTypeV2.TITLE, "home.compact.progress.title", "Прогресс", level="SECTION")
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.progress.title",
+              "Исторический Paper · не текущая V5", level="SECTION")
     ]
     rows = list(snapshot.get("hierarchy_top_exact") or ())[:5]
     universe = snapshot.get("universe_summary") or {}
     children.append(_row(
         "universe",
-        "Охват",
-        f"активно {int(universe.get('active_instruments') or 0)} · "
-        f"сделки есть у {int(universe.get('instruments_with_closed_v5') or 0)} · "
-        f"V5 сегодня {int(universe.get('closed_v5_today') or 0)} · "
-        f"на экране топ-{len(rows)}",
+        "Архив",
+        f"старый контур: активно {int(universe.get('active_instruments') or 0)} · "
+        f"история есть у {int(universe.get('instruments_with_closed_v5') or 0)} · "
+        f"не входит в новые V5 0/20 · показано {len(rows)} групп",
         source="runtime_active_universe",
         source_as_of=snapshot.get("generated_at"),
     ))
@@ -201,36 +211,6 @@ def _progress_section(snapshot):
             status="OK" if count >= target else "WARNING",
             source="analytics.hierarchical_evidence_v1",
             source_as_of=row.get("updated_at"),
-        ))
-    assets = {}
-    for row in snapshot.get("asset_branches") or ():
-        asset = str(row.get("asset_code"))
-        assets.setdefault(asset, 0)
-        assets[asset] = max(assets[asset], int(row.get("closed_trades") or 0))
-    names = {"USD": "Доллар", "GOLD": "Золото", "CNY": "Юань"}
-    for index, asset in enumerate(("USD", "GOLD", "CNY"), start=1):
-        count = assets.get(asset, 0)
-        if count == 0:
-            progress_text = (
-                "0 из 20 · вне Top‑5: нет допустимых закрытых V5-сделок · "
-                "следующий шаг: устранить блокировки и продолжать Paper"
-            )
-        elif count < 20:
-            progress_text = (
-                f"{count} из 20 · вне Top‑5: выборка пока мала · "
-                "следующий шаг: продолжать Paper на новых сигналах"
-            )
-        elif count < 80:
-            progress_text = (
-                f"{count} из 80 · базовая выборка собрана · следующий шаг: накопление до OOS"
-            )
-        else:
-            progress_text = f"{count} из 80 · выборка готова к OOS-допуску"
-        children.append(_row(
-            f"asset.{index}", names[asset],
-            progress_text,
-            status="OK" if count >= 80 else "WARNING",
-            source="analytics.v5_asset_branch_policy_v1",
         ))
     if not rows:
         children.append(_row("progress.empty", "Примеры", "Пока нет завершённых" ,status="WARNING"))
@@ -610,9 +590,7 @@ def _attention_section(snapshot):
     data_stale = any(row.get("quality_code") in blocking_quality_codes for row in freshness)
     session = snapshot.get("session_status") or {}
     if session.get("reason") == "exchange_calendar_closed":
-        next_open = session.get("next_open")
-        next_text = next_open.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m %H:%M") if next_open else "уточняется"
-        message, status = f"Биржа закрыта по календарю. Следующая сессия: {next_text} МСК.", "OK"
+        message, status = f"Биржа закрыта по календарю. Следующие сессии: {_next_sessions_text(session)}.", "OK"
     elif process_failed:
         message, status = "Текущий поиск остановился. Откройте диагностику.", "BLOCKED"
     elif data_stale:

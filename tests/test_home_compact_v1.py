@@ -77,7 +77,7 @@ def test_home_uses_plain_russian_and_no_operator_table() -> None:
     nodes = list(walk(document.root))
     values = [str(node.content.value) for node in nodes if node.content and node.content.value]
     text = " ".join(values)
-    for phrase in ("Сейчас", "Прогресс", "Нужно внимание", "Ресурсы исследований",
+    for phrase in ("Сейчас", "Исторический Paper", "Нужно внимание", "Ресурсы исследований",
                    "Реальные сделки", "Выключены"):
         assert phrase in text
     assert "home.operator.actions.table" not in {node.node_id for node in nodes}
@@ -103,9 +103,9 @@ def test_home_explains_compact_universe_coverage() -> None:
         for node in walk(progress_node)
         if node.content and node.content.value
     ]
-    coverage = next(value for value in values if value.startswith("активно "))
-    assert "сделки есть у" in coverage
-    assert "на экране топ-" in coverage
+    coverage = next(value for value in values if value.startswith("старый контур: "))
+    assert "история есть у" in coverage
+    assert "не входит в новые V5" in coverage
 
 
 def test_home_uses_russian_instrument_names_with_ticker() -> None:
@@ -176,7 +176,21 @@ def test_home_explains_data_quality_in_one_short_line() -> None:
     if quality.startswith("свежие "):
         assert "задержка" in quality and "вне сессии" in quality
     else:
-        assert "следующая сессия" in quality
+        assert "акции" in quality and "фьючерсы" in quality
+
+
+def test_home_separates_equity_and_futures_open_times() -> None:
+    renderer = open(
+        "src/marketcore/presentation/workspace_v2/renderer/"
+        "home_compact_v1_domain_renderer.py", encoding="utf-8"
+    ).read()
+    resolver = open(
+        "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py",
+        encoding="utf-8",
+    ).read()
+    assert "next_equity_open" in renderer and "next_futures_open" in renderer
+    assert 'symbol="SBER@MISX"' in resolver
+    assert 'symbol="BRQ6@RTSX"' in resolver
 
 
 def test_home_has_understandable_v5_oos_evidence_panel() -> None:
