@@ -14,6 +14,12 @@ MSK = ZoneInfo("Europe/Moscow")
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SERVICES = ("finam-paper-pipeline.service", "finam-paper-safe.service")
 EXPECTED_CONTRACTS = ("BRQ6@RTSX", "NGQ6@RTSX")
+EXPECTED_V5_OBSERVATIONS = (
+    "BRQ6@RTSX",
+    "SBER@MISX",
+    "GDU6@RTSX",
+    "CNYRUBF@RTSX",
+)
 SOURCE = "MONDAY_PREFLIGHT_V2"
 
 
@@ -26,6 +32,14 @@ def _active(service: str) -> bool:
 def _service_contracts() -> str:
     result = subprocess.run(
         ["systemctl", "show", "finam-paper-pipeline.service", "-p", "Environment", "-p", "ExecStart"],
+        check=False, text=True, capture_output=True,
+    )
+    return result.stdout
+
+
+def _v5_bar_contracts() -> str:
+    result = subprocess.run(
+        ["systemctl", "show", "finam-v5-bars-fast.service", "-p", "ExecStart"],
         check=False, text=True, capture_output=True,
     )
     return result.stdout
@@ -57,6 +71,11 @@ def main() -> int:
     for contract in EXPECTED_CONTRACTS:
         if contract not in effective:
             failures.append(f"ACTIVE_CONTRACT_MISSING:{contract}")
+
+    v5_effective = _v5_bar_contracts()
+    for contract in EXPECTED_V5_OBSERVATIONS:
+        if contract not in v5_effective:
+            failures.append(f"V5_OBSERVATION_SOURCE_MISSING:{contract}")
 
     load_1m = float(os.getloadavg()[0])
     if load_1m >= 3.0:

@@ -26,6 +26,9 @@ def test_preflight_is_timeframe_aware() -> None:
     assert 'return ("M1", "M5", "M15")' in source
     assert "ORPHAN_LIFECYCLE" in source
     assert "ACTIVE_CONTRACT_MISSING" in source
+    assert "V5_OBSERVATION_SOURCE_MISSING" in source
+    for symbol in ("BRQ6@RTSX", "SBER@MISX", "GDU6@RTSX", "CNYRUBF@RTSX"):
+        assert symbol in source
 
 
 def test_timer_has_three_open_checkpoints() -> None:
