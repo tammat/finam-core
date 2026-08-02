@@ -205,13 +205,47 @@ def main() -> int:
             strict_v5_pass = bool(cur.fetchone()["passed"])
             if status == "PILOT_ACTIVE" and not strict_v5_pass:
                 status, reason = "SHADOW_COLLECTING", "WAITING_STRICT_FROZEN_V5_OOS_PASS"
+            if status == "PILOT_ACTIVE" and strict_v5_pass:
+                cur.execute("""SELECT verdict_code FROM analytics.execution_spec_parity_v1
+                    WHERE admission_id=(
+                      SELECT a.admission_id
+                      FROM analytics.trade_outcome_oos_admission_v1 a
+                      WHERE a.symbol=%s AND a.oos_request->>'paper_strategy_code'=%s
+                        AND upper(a.oos_request->>'side_code')=%s
+                        AND a.oos_request->'frozen_profile'->>'candidate_code'=%s
+                        AND a.status_code='OOS_PASS'
+                      ORDER BY a.updated_at DESC LIMIT 1)
+                    ORDER BY checked_at DESC LIMIT 1""", (symbol,strategy,side,code))
+                parity = cur.fetchone()
+                if not parity or parity["verdict_code"] != "MATCH":
+                    cur.execute("""SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
+                        WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                          AND candidate_code=%s AND execution_mode='paper'
+                          AND activated_by='PARITY_STAGED_V1'
+                        ORDER BY activated_at DESC LIMIT 1""",
+                        (strategy,symbol_group,side,code))
+                    if not cur.fetchone():
+                        cur.execute("""INSERT INTO analytics.entry_exit_runtime_profile_v1(
+                            strategy_code,symbol_group,side_code,candidate_code,execution_mode,
+                            status,entry_mode,stop_atr,take_atr,trail_after_r,trail_atr,
+                            source_metrics,activated_by)
+                          VALUES(%s,%s,%s,%s,'paper','SUPERSEDED',%s,%s,%s,%s,%s,%s,
+                                 'PARITY_STAGED_V1')""",
+                          (strategy,symbol_group,side,code,selected["entry_mode"],
+                           selected["stop_atr"],selected["take_atr"],
+                           selected["trail_after_r"],selected["trail_atr"],
+                           psycopg2.extras.Json({"execution_spec_parity":"PENDING"})))
+                    status, reason = "SHADOW_COLLECTING", "EXECUTION_SPEC_PARITY_NOT_MATCHED"
             identity = f"{symbol}|{side}|{strategy}|{family}|{regime}"
             pilot_id = uuid.uuid5(NAMESPACE, identity)
             cur.execute("""SELECT * FROM analytics.adaptive_regime_paper_pilot_v1
                 WHERE pilot_id=%s""", (str(pilot_id),))
             existing = cur.fetchone()
             activated_at = existing["activated_at"] if existing else None
-            if existing and existing["status_code"] in {"PILOT_ACTIVE", "PAPER_CONFIRMED", "ROLLED_BACK"}:
+            if (existing and
+                reason not in {"EXECUTION_SPEC_PARITY_NOT_MATCHED",
+                               "WAITING_STRICT_FROZEN_V5_OOS_PASS"} and
+                existing["status_code"] in {"PILOT_ACTIVE", "PAPER_CONFIRMED", "ROLLED_BACK"}):
                 status = existing["status_code"]
             if status == "PILOT_ACTIVE" and activated_at is None:
                 cur.execute("""SELECT has_table_privilege(
@@ -233,13 +267,29 @@ def main() -> int:
                         baseline_profile_id = ensure_paper_baseline(
                             cur, strategy, symbol_group, side)
                         selected = rows[-1]
-                        cur.execute("""INSERT INTO analytics.entry_exit_runtime_profile_v1(
+                        cur.execute("""SELECT profile_id FROM analytics.entry_exit_runtime_profile_v1
+                            WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                              AND candidate_code=%s AND activated_by='PARITY_STAGED_V1'
+                            ORDER BY activated_at DESC LIMIT 1""",
+                            (strategy,symbol_group,side,code))
+                        staged_profile = cur.fetchone()
+                        if staged_profile:
+                            cur.execute("""UPDATE analytics.entry_exit_runtime_profile_v1
+                                SET status='ACTIVE',source_metrics=source_metrics || %s::jsonb,
+                                    activated_by='ADAPTIVE_REGIME_PILOT_V2',
+                                    activated_at=clock_timestamp(),deactivated_at=NULL
+                                WHERE profile_id=%s""", (
+                                psycopg2.extras.Json({"execution_spec_parity":"MATCH"}),
+                                staged_profile["profile_id"],))
+                        else:
+                            cur.execute("""INSERT INTO analytics.entry_exit_runtime_profile_v1(
                             strategy_code,symbol_group,side_code,candidate_code,execution_mode,
                             status,entry_mode,stop_atr,take_atr,trail_after_r,trail_atr,
                             source_metrics,activated_by)
-                          VALUES(%s,%s,%s,%s,'paper','ACTIVE',%s,%s,%s,NULL,NULL,%s,'ADAPTIVE_REGIME_PILOT_V2')""",
+                          VALUES(%s,%s,%s,%s,'paper','ACTIVE',%s,%s,%s,%s,%s,%s,'ADAPTIVE_REGIME_PILOT_V2')""",
                           (strategy, symbol_group, side, code, selected["entry_mode"],
                            selected["stop_atr"], selected["take_atr"],
+                           selected["trail_after_r"], selected["trail_atr"],
                            psycopg2.extras.Json({
                                "pilot_id": str(pilot_id), "regime": regime,
                                "baseline_profile_id": baseline_profile_id,
