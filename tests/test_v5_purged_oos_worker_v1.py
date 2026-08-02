@@ -46,7 +46,7 @@ def test_all_audit_decisions_are_reachable() -> None:
     wrong={**base,"side":"SHORT","entry_ts":confirmation,"exit_ts":confirmation+timedelta(minutes=1)}
     assert classify_observation(run,request,wrong,reused=False)[0]=="EXCLUDED_CONTEXT"
     good={**base,"entry_ts":confirmation,"exit_ts":confirmation+timedelta(minutes=1)}
-    assert classify_observation(run,request,good,reused=True)[0]=="INCLUDED"
+    assert classify_observation(run,request,good,reused=True)[0]=="EXCLUDED_REUSED"
     assert classify_observation(run,request,good,reused=False)[0]=="INCLUDED"
 
 
@@ -83,7 +83,7 @@ def test_db_admission_to_audit_to_running_verdict_is_transactional() -> None:
             cur.execute("SELECT id,signal_id FROM analytics.closed_trades_fresh_v5_confirmed ORDER BY id LIMIT 1")
             source=cur.fetchone(); assert source is not None
             request=admission["oos_request"]
-            trade={"id":source["id"],"signal_id":source["signal_id"],"strategy":request["paper_strategy_code"],
+            trade={"source_trade_id":source["id"],"signal_id":source["signal_id"],"strategy":request["paper_strategy_code"],
                 "side":request["side_code"],"entry_regime":request.get("regime_code"),
                 "entry_ts":confirmation+timedelta(minutes=1),"exit_ts":confirmation+timedelta(minutes=2),
                 "net_pnl":1,"payload":{"context":{"entry_session_msk":request.get("session_code"),

@@ -87,16 +87,10 @@ def run(cur) -> int:
     cur.execute("""SELECT r.*,a.hypothesis_id,a.oos_request,a.status_code admission_status
       FROM analytics.v5_post_fix_branch_registry_v1 r
       JOIN analytics.trade_outcome_oos_admission_v1 a ON a.admission_id=r.admission_id
-      WHERE r.state_code='PROSPECTIVE_ACCUMULATING' ORDER BY r.branch_code""")
+      WHERE r.state_code IN ('V5_COLLECTING','OOS_PASS','OOS_FAIL') ORDER BY r.branch_code""")
     branches = [dict(row) for row in cur.fetchall()]
     for branch in branches:
-        # The initially registered admission is only a durable preregistration record.
-        cur.execute("""UPDATE analytics.trade_outcome_oos_admission_v1
-          SET status_code='CLOSED',reason_code='PROSPECTIVE_SHADOW_GATE_PENDING',updated_at=clock_timestamp()
-          WHERE admission_id=%s AND status_code IN ('QUEUED','RUNNING')""", (branch["admission_id"],))
-        cur.execute("""UPDATE analytics.v5_oos_run_v1 SET status_code='ERROR',
-          reason_code='SUPERSEDED_BY_PROSPECTIVE_SHADOW_GATE',updated_at=clock_timestamp()
-          WHERE admission_id=%s AND observations_included=0""", (branch["admission_id"],))
+        # Diagnostic only: this funnel must never stop, promote, or reset V5.
         cur.execute("""SELECT source_signal_id,label_start_ts,label_end_ts,shadow_net_r,
           shadow_entered,entry_decision,entry_decision_reason
           FROM analytics.entry_exit_signal_shadow_pair_v2
@@ -120,14 +114,6 @@ def run(cur) -> int:
            dominant,dominant_count))
         decision, reason = decide(value)
         new_admission = None
-        if decision == "READY_FOR_V5":
-            new_admission = _promote(cur, branch, unique[-1]["label_end_ts"], branch["oos_request"])
-            cur.execute("""UPDATE analytics.v5_post_fix_branch_registry_v1
-              SET state_code='READY_FOR_V5',admission_id=%s WHERE branch_code=%s""",
-              (str(new_admission),branch["branch_code"]))
-        elif decision == "EARLY_REJECT":
-            cur.execute("""UPDATE analytics.v5_post_fix_branch_registry_v1
-              SET state_code='EARLY_REJECT' WHERE branch_code=%s""", (branch["branch_code"],))
         payload = {key: (float(item) if isinstance(item, Decimal) else item) for key,item in value.items()}
         cur.execute("""INSERT INTO analytics.prospective_shadow_gate_decision_v1(
           branch_code,evaluated_at,decision_code,reason_code,independent_observations,trading_days,
@@ -148,7 +134,7 @@ def main() -> int:
                 return 0
             count = run(cur)
     print(f"branches_evaluated={count}")
-    print("paper_allowed=0 real_allowed=0")
+    print("gate_mode=DIAGNOSTIC_ONLY paper_allowed=0 real_allowed=0")
     print("VERDICT=PROSPECTIVE_SHADOW_GATE_V1_OK")
     return 0
 

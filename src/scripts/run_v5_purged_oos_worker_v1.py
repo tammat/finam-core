@@ -49,6 +49,8 @@ def classify_observation(run: dict, request: dict, trade: dict, *, reused: bool 
         return "EXCLUDED_EMBARGO_OR_OVERLAP", "ENTRY_BEFORE_CONFIRMATION_AFTER_TS"
     if not _matches(request, trade):
         return "EXCLUDED_CONTEXT", "TRADE_CONTEXT_DOES_NOT_MATCH_ADMISSION"
+    if reused:
+        return "EXCLUDED_REUSED", "SOURCE_OBSERVATION_ALREADY_USED_BY_ANOTHER_OOS_RUN"
     return "INCLUDED", "FUTURE_ONLY_PREREGISTERED_CONTEXT_MATCH"
 
 
@@ -67,15 +69,27 @@ def _ensure_run(cur, admission: dict) -> dict:
 
 def _audit_trade(cur, run: dict, admission: dict, trade: dict) -> None:
     request = admission["oos_request"]
-    decision,reason=classify_observation(run,request,trade)
+    source_kind = "SHADOW_SIGNAL" if trade.get("source_signal_id") is not None else "PAPER_TRADE"
+    source_trade_id = trade.get("source_trade_id")
+    source_signal_id = trade.get("source_signal_id")
+    cur.execute("""SELECT EXISTS(
+        SELECT 1 FROM analytics.v5_oos_observation_audit_v1
+        WHERE decision_code='INCLUDED' AND run_id<>%s AND source_kind=%s
+          AND ((%s='PAPER_TRADE' AND source_trade_id=%s)
+            OR (%s='SHADOW_SIGNAL' AND source_signal_id=%s))) reused""",
+      (run["run_id"],source_kind,source_kind,source_trade_id,source_kind,source_signal_id))
+    reused = bool(cur.fetchone()["reused"])
+    decision,reason=classify_observation(run,request,trade,reused=reused)
     cur.execute("""INSERT INTO analytics.v5_oos_observation_audit_v1(
-        run_id,admission_id,source_trade_id,signal_id,entry_ts,exit_ts,decision_code,
+        run_id,admission_id,source_kind,source_trade_id,source_signal_id,signal_id,
+        entry_ts,exit_ts,decision_code,
         reason_code,net_pnl,event_cluster_id,source_payload)
-      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,
+      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
         analytics.v5_oos_event_cluster_id_v2(%s,%s,%s),%s)
-      ON CONFLICT(run_id,source_trade_id) DO NOTHING""",
-      (run["run_id"],admission["admission_id"],trade["id"],trade["signal_id"],trade["entry_ts"],
-       trade["exit_ts"],decision,reason,trade["net_pnl"],trade.get("symbol") or request.get("symbol"),trade["entry_ts"],
+      ON CONFLICT DO NOTHING""",
+      (run["run_id"],admission["admission_id"],source_kind,source_trade_id,source_signal_id,
+       trade["signal_id"],trade["entry_ts"],trade["exit_ts"],decision,reason,trade["net_pnl"],
+       trade.get("symbol") or request.get("symbol"),trade["entry_ts"],
        trade["exit_ts"],psycopg2.extras.Json({"context":_context(trade)})))
 
 
@@ -131,7 +145,7 @@ def main() -> int:
                 run = _ensure_run(cur, admission)
                 request = admission["oos_request"]
                 if request.get("observation_source") == "ENTRY_EXIT_SHADOW_V2":
-                    cur.execute("""SELECT source_signal_id AS id,signal_id,symbol_code AS symbol,
+                    cur.execute("""SELECT source_signal_id,signal_id,symbol_code AS symbol,
                         side_code AS side,strategy_code AS strategy,
                         coalesce(entry_context->>'regime','UNKNOWN') AS entry_regime,
                         label_start_ts AS entry_ts,label_end_ts AS exit_ts,
@@ -148,7 +162,7 @@ def main() -> int:
                        request["frozen_profile"]["candidate_code"],run["purge_before_ts"],
                        run["embargo_seconds"]))
                 else:
-                    cur.execute("""SELECT id,signal_id,symbol,side,strategy,entry_regime,entry_ts,exit_ts,
+                    cur.execute("""SELECT id AS source_trade_id,signal_id,symbol,side,strategy,entry_regime,entry_ts,exit_ts,
                         net_pnl,payload FROM public.closed_trades
                       WHERE symbol=%s
                         AND coalesce(trade_source,'')='paper'

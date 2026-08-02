@@ -118,6 +118,18 @@ def ensure_frozen_entry_exit_oos(cursor, *, strategy: str, symbol: str, side: st
                                  variant: Variant, rows: list[dict],
                                  timeframe: str) -> str | None:
     """Pre-register one immutable future-only V5 run for an exact candidate."""
+    cursor.execute("""SELECT coalesce(bool_or(enabled),false) locked
+        FROM analytics.v5_program_lock_v1
+        WHERE lock_code='CURRENT_V5_FOUR_BRANCHES_ONLY'""")
+    if cursor.fetchone()["locked"]:
+        cursor.execute("""SELECT admission_id
+            FROM analytics.v5_post_fix_branch_registry_v1
+            WHERE observation_symbol=%s AND strategy_code=%s AND side_code=%s
+              AND candidate_code=%s LIMIT 1""", (symbol,strategy,side,variant.code))
+        allowed = cursor.fetchone()
+        if not allowed:
+            return None
+        return str(allowed["admission_id"])
     completed = [row for row in rows if row.get("shadow_r") is not None]
     if not completed:
         return None

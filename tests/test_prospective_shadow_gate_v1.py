@@ -38,8 +38,19 @@ def test_gate_runs_before_v5_worker_in_control_chain():
     assert source.index("run_prospective_shadow_gate_v1.py") < source.index("run_v5_purged_oos_worker_v1.py")
 
 
+def test_prospective_gate_is_diagnostic_only_and_cannot_reset_v5():
+    source = Path("src/scripts/run_prospective_shadow_gate_v1.py").read_text()
+    assert "gate_mode=DIAGNOSTIC_ONLY" in source
+    run_body = source[source.index("def run("):source.index("def main(")]
+    assert "UPDATE analytics.trade_outcome_oos_admission_v1" not in run_body
+    assert "UPDATE analytics.v5_oos_run_v1" not in run_body
+    assert "UPDATE analytics.v5_post_fix_branch_registry_v1" not in run_body
+
+
 def test_control_center_exposes_branch_funnel_and_gate():
     source = Path("src/marketcore/presentation/workspace_v2/edge_oos_control_center_v1.py").read_text()
-    assert "Prospective Shadow → V5" in source
+    assert "Диагностика Shadow и прямой V5" in source
     assert "prospective_shadow_gate_latest_v1" in source
     assert "independent_closed" in source
+    assert "v5_observations" in source
+    assert "Она не останавливает V5" in source
