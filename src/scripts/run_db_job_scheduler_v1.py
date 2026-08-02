@@ -31,6 +31,7 @@ EXECUTORS = {
     "SWING_SHADOW_OBSERVER_V1": "src/scripts/run_swing_forward_shadow_router_v1.py",
     "SWING_PAPER_ENGINE_V1": "src/scripts/run_swing_paper_engine_v1.py",
     "SWING_PARITY_REPLAY_V1": "src/scripts/run_swing_parity_replay_v1.py",
+    "MARKETCORE_RESEARCH_ENGINE_V1": "src/scripts/run_marketcore_research_engine_v1.py",
     "EDGE_SEARCH_AUTO_ENQUEUE_V1": "src/scripts/enqueue_scheduled_edge_search_v1.py",
     "EDGE_SEARCH_QUEUE_MONITOR_V1": "src/scripts/monitor_edge_search_command_queue_v1.py",
     "EDGE_SEARCH_COMMAND_QUEUE_V1": "src/scripts/run_edge_search_command_queue_v1.py",
