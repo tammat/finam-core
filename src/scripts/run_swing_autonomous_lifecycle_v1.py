@@ -50,7 +50,11 @@ def forward_result(q,item,result):
 def create_shadow(q,process,item,result,evidence):
   cohort=uuid.uuid5(NS,f"{process['process_id']}:SHADOW")
   candidate=uuid.uuid5(NS,f"{cohort}:{item['hypothesis_id']}")
-  criteria={**POLICY,"selection_rule":"FINAL_SWING_OOS_PASS_THEN_FORWARD_PASS","cohort_size":1,"automatic_promotion":True}
+  q.execute("SELECT policy FROM analytics.swing_paper_risk_policy_v1 WHERE active LIMIT 1")
+  risk_row=q.fetchone(); frozen_risk_policy=risk_row["policy"] if risk_row else None
+  criteria={**POLICY,"selection_rule":"FINAL_SWING_OOS_PASS_THEN_FORWARD_PASS","cohort_size":1,
+    "automatic_promotion":True,"frozen_risk_policy":frozen_risk_policy,
+    "frozen_execution_contract":evidence.get("execution_contract")}
   q.execute("""INSERT INTO analytics.swing_shadow_cohort_v1(
     swing_shadow_cohort_id,swing_shadow_candidate_id,factory_run_id,validation_run_id,hypothesis_id,
     strategy_family,symbol,timeframe,frozen_parameter_json,selection_pf,validation_pf,
@@ -125,6 +129,14 @@ def main():
           reasons=[key.upper() for key,value in gates.items() if not value]
           q.execute("UPDATE analytics.swing_candidate_lifecycle_v1 SET status_code='FAIL',progress_pct=100,gate_evidence=gate_evidence||%s,reason_codes=%s,updated_at=clock_timestamp() WHERE process_id=%s",(psycopg2.extras.Json(safe({"shadow":e})),psycopg2.extras.Json(reasons),process["process_id"]));
           q.execute("UPDATE analytics.swing_shadow_cohort_v1 SET cohort_status='FAILED' WHERE swing_shadow_cohort_id=%s",(process["shadow_cohort_id"],)); continue
+        q.execute("SELECT spec_verdict,observation_mismatch FROM analytics.swing_parity_v1 WHERE process_id=%s",
+          (process["process_id"],))
+        parity=q.fetchone()
+        if not parity or parity["spec_verdict"]!="MATCH" or int(parity["observation_mismatch"] or 0)>0:
+          q.execute("""UPDATE analytics.swing_candidate_lifecycle_v1
+            SET progress_pct=99,gate_evidence=gate_evidence||%s,heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()
+            WHERE process_id=%s""",(psycopg2.extras.Json({"parity":"NOT_MATCHED"}),process["process_id"]))
+          continue
         admission=uuid.uuid5(NS,f"{process['process_id']}:PAPER")
         q.execute("INSERT INTO analytics.swing_paper_admission_v1(admission_id,process_id,shadow_cohort_id,admission_evidence,paper_allowed) VALUES(%s,%s,%s,%s,true) ON CONFLICT DO NOTHING",(admission,process["process_id"],process["shadow_cohort_id"],psycopg2.extras.Json(safe(e))))
         q.execute("UPDATE analytics.swing_shadow_cohort_v1 SET paper_allowed=true,cohort_status='PASSED' WHERE swing_shadow_cohort_id=%s",(process["shadow_cohort_id"],))
