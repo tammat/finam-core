@@ -9,7 +9,18 @@ def test_chain_is_locked_and_ordered():
     assert "pg_try_advisory_lock" in source
     assert source.index("build_entry_exit_optimizer_v1.py") < source.index("maintain_entry_exit_oos_admissions_v1.py")
     assert source.index("maintain_entry_exit_oos_admissions_v1.py") < source.index("run_v5_purged_oos_worker_v1.py")
-    assert source.index("run_v5_purged_oos_worker_v1.py") < source.index("run_adaptive_regime_pilot_v1.py")
+    assert source.index("run_v5_purged_oos_worker_v1.py") < source.index("sync_direct_v5_promotion_workflow_v1.py")
+    assert source.index("sync_direct_v5_promotion_workflow_v1.py") < source.index("run_adaptive_regime_pilot_v1.py")
+
+
+def test_direct_v5_sync_is_honest_and_fail_closed():
+    source = (ROOT / "src/scripts/sync_direct_v5_promotion_workflow_v1.py").read_text(encoding="utf-8")
+    assert "historical_statistical_pass_claimed\": False" in source
+    assert "historical_expensive_gates_pass_claimed\": False" in source
+    assert "paper_requires_strict_frozen_v5_oos_pass\": True" in source
+    assert "statistical_verdict='ACCUMULATE'" in source
+    assert "expensive_gates_pass=false" in source
+    assert "real_allowed\": False" in source
 
 
 def test_optimizer_preselects_one_variant_before_simulation():

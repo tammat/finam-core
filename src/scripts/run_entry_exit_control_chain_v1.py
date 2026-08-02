@@ -15,6 +15,7 @@ STEPS = (
     "src/scripts/run_prospective_shadow_gate_v1.py",
     "src/scripts/maintain_entry_exit_oos_admissions_v1.py",
     "src/scripts/run_v5_purged_oos_worker_v1.py",
+    "src/scripts/sync_direct_v5_promotion_workflow_v1.py",
     "src/scripts/run_adaptive_regime_pilot_v1.py",
 )
 
