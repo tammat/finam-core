@@ -9136,7 +9136,8 @@ class PaperTradingPipeline:
 
         symbol = str(intent.get("symbol") or market_state.get("symbol") or "").upper()
         now_msk = datetime.now(ZoneInfo("Europe/Moscow"))
-        session_start = datetime.combine(now_msk.date(), time(6, 50), tzinfo=now_msk.tzinfo)
+        session_open = time(8, 50) if symbol.endswith("@RTSX") else time(6, 50)
+        session_start = datetime.combine(now_msk.date(), session_open, tzinfo=now_msk.tzinfo)
         event = None
         completed_m15 = 0
         gap_atr = spread_atr = relative_volume = None

@@ -7,10 +7,11 @@ import psycopg2
 import psycopg2.extras
 
 from scripts.build_market_regime_context_v1 import asset_influence, market_state, mx_state, variant_decision
+from finam_core.regime.regime_state_v1 import regime_probabilities_v1, resolve_regime_state_v1
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
-VERSION = "MARKET_REGIME_CONTEXT_V2"
+VERSION = "MARKET_REGIME_CONTEXT_V3"
 
 
 def _create_context(cursor) -> dict | None:
@@ -50,19 +51,46 @@ def _create_context(cursor) -> dict | None:
     if len(rvi_rows) > 1:
         delta = Decimal(str(rvi_rows[0]["rvi_value"]))-Decimal(str(rvi_rows[1]["rvi_value"]))
         rvi_direction = "RISING" if delta > 0 else "FALLING" if delta < 0 else "FLAT"
+    cursor.execute("""SELECT stable_family,pending_family,pending_count
+      FROM analytics.market_regime_context_v1 WHERE context_ts<%s
+      ORDER BY context_ts DESC LIMIT 1""", (effective_ts,))
+    previous = cursor.fetchone() or {}
+    probabilities = regime_probabilities_v1(
+        mx_trend=mx,
+        mx_strength=float(strength),
+        rvi_regime=str(rvi["regime_code"] if rvi_fresh else "NORMAL_VOL"),
+        rvi_percentile=float(rvi["rolling_percentile"]),
+    )
+    probability_state = resolve_regime_state_v1(
+        probabilities=probabilities,
+        previous_stable_family=previous.get("stable_family"),
+        previous_pending_family=previous.get("pending_family"),
+        previous_pending_count=int(previous.get("pending_count") or 0),
+    )
     cursor.execute("""INSERT INTO analytics.market_regime_context_v1(
       context_ts,mx_bar_ts,mx_trend,mx_strength,rvi_bar_ts,rvi_value,rvi_percentile,
-      rvi_regime,rvi_direction,market_regime,source_version,rvi_fresh)
-      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+      rvi_regime,rvi_direction,market_regime,source_version,rvi_fresh,
+      trend_probability,range_probability,shock_probability,candidate_family,
+      stable_family,pending_family,pending_count,regime_switched,probability_source_version)
+      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
       ON CONFLICT(context_ts) DO UPDATE SET mx_bar_ts=excluded.mx_bar_ts,mx_trend=excluded.mx_trend,
       mx_strength=excluded.mx_strength,rvi_bar_ts=excluded.rvi_bar_ts,rvi_value=excluded.rvi_value,
       rvi_percentile=excluded.rvi_percentile,rvi_regime=excluded.rvi_regime,
       rvi_direction=excluded.rvi_direction,market_regime=excluded.market_regime,
       source_version=excluded.source_version,rvi_fresh=excluded.rvi_fresh,
+      trend_probability=excluded.trend_probability,range_probability=excluded.range_probability,
+      shock_probability=excluded.shock_probability,candidate_family=excluded.candidate_family,
+      stable_family=excluded.stable_family,pending_family=excluded.pending_family,
+      pending_count=excluded.pending_count,regime_switched=excluded.regime_switched,
+      probability_source_version=excluded.probability_source_version,
       calculated_at=clock_timestamp() RETURNING *""",
       (effective_ts,mx_bar_ts,mx,strength,rvi["bar_ts"],rvi["rvi_value"],rvi["rolling_percentile"],
        rvi["regime_code"],rvi_direction,
-       market_state(mx,rvi["regime_code"] if rvi_fresh else "NORMAL_VOL"),VERSION,rvi_fresh))
+       market_state(mx,rvi["regime_code"] if rvi_fresh else "NORMAL_VOL"),VERSION,rvi_fresh,
+       probability_state.trend_probability,probability_state.range_probability,
+       probability_state.shock_probability,probability_state.candidate_family,
+       probability_state.stable_family,probability_state.pending_family,
+       probability_state.pending_count,probability_state.switched,"REGIME_STATE_V1"))
     return dict(cursor.fetchone())
 
 
@@ -71,7 +99,7 @@ def _materialize_variants(cursor) -> int:
       c.rvi_regime,c.rvi_direction,c.market_regime,c.rvi_fresh
       FROM signals s JOIN LATERAL (
         SELECT * FROM analytics.market_regime_context_v1 c
-        WHERE c.context_ts<=s.ts AND c.source_version='MARKET_REGIME_CONTEXT_V2'
+        WHERE c.context_ts<=s.ts AND c.source_version=%s
         ORDER BY c.context_ts DESC LIMIT 1) c ON true
       WHERE s.ts>=clock_timestamp()-interval '1 day'
         AND upper(s.status) IN('ACCEPTED','RISK_ACCEPTED','FILLED')
@@ -80,10 +108,14 @@ def _materialize_variants(cursor) -> int:
         AND coalesce(s.payload->>'intent_type','ENTRY')='ENTRY'
         AND NOT EXISTS(SELECT 1 FROM analytics.market_regime_shadow_variant_v1 v
                        WHERE v.parent_signal_id=coalesce(s.signal_id,'signal:'||s.id::text))
-      ORDER BY s.ts""")
+      ORDER BY s.ts""", (VERSION,))
     written = 0
     for signal in cursor.fetchall():
-        context = {key:signal[key] for key in ("mx_trend","mx_strength","rvi_value","rvi_regime","rvi_direction","market_regime","rvi_fresh")}
+        context = {key:signal[key] for key in (
+            "mx_trend","mx_strength","rvi_value","rvi_regime","rvi_direction",
+            "market_regime","rvi_fresh","trend_probability","range_probability",
+            "shock_probability","candidate_family","stable_family","pending_family",
+            "pending_count","regime_switched")}
         for variant in ("BASELINE","MX_FILTERED","MX_RVI_FILTERED"):
             decision,risk,reason = variant_decision(variant,dict(signal),context)
             state = "OPEN" if decision == "INCLUDE" else "SKIPPED"

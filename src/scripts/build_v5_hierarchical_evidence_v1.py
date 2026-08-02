@@ -152,6 +152,20 @@ def evidence_id(key: EvidenceKey) -> str:
     return "v5:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
+def initial_risk_cash(
+    *, entry_price: object, entry_stop_price: object, qty: object,
+    risk_value_per_price_unit: object,
+) -> Decimal:
+    """Return initial risk in the same cash units as net P&L."""
+    if entry_stop_price is None or risk_value_per_price_unit is None:
+        return Decimal("0")
+    return (
+        abs(Decimal(str(entry_price or 0)) - Decimal(str(entry_stop_price)))
+        * abs(Decimal(str(qty or 0)))
+        * Decimal(str(risk_value_per_price_unit))
+    )
+
+
 def main() -> int:
     groups: dict[EvidenceKey, EvidenceStats] = {}
     with psycopg2.connect(DB) as connection:
@@ -180,14 +194,26 @@ def main() -> int:
                            s.symbol=regexp_replace(c.symbol,'@.*$',''))
                          ORDER BY (s.symbol=c.symbol) DESC,s.valid_from DESC LIMIT 1),0) full_execution_cost,
                        c.entry_price,abs(c.qty) qty,
-                       nullif(payload->'context'->>'entry_stop_price','')::numeric entry_stop_price
+                       nullif(payload->'context'->>'entry_stop_price','')::numeric entry_stop_price,
+                       (SELECT CASE
+                           WHEN upper(c.symbol) LIKE '%@RTSX'
+                             THEN nullif(s.tick_value, 0) / nullif(s.tick_size, 0)
+                           ELSE nullif(s.lot_size, 0)
+                         END
+                        FROM analytics.market_contract_spec_v1 s
+                        WHERE s.is_active AND (s.symbol=c.symbol OR s.symbol=c.root_symbol OR
+                          s.symbol=regexp_replace(c.symbol,'@.*$',''))
+                        ORDER BY (s.symbol=c.symbol) DESC,s.valid_from DESC LIMIT 1
+                       ) risk_value_per_price_unit
                 FROM analytics.closed_trades_fresh_v5_training_v1 c
             """)
             for row in cursor.fetchall():
-                initial_risk = abs(
-                    Decimal(str(row["entry_price"] or 0))
-                    - Decimal(str(row["entry_stop_price"] or 0))
-                ) * Decimal(str(row["qty"] or 0))
+                initial_risk = initial_risk_cash(
+                    entry_price=row["entry_price"],
+                    entry_stop_price=row["entry_stop_price"],
+                    qty=row["qty"],
+                    risk_value_per_price_unit=row["risk_value_per_price_unit"],
+                )
                 realized_r = (
                     Decimal(str(row["net_pnl"])) / initial_risk
                     if row["entry_stop_price"] is not None and initial_risk > 0

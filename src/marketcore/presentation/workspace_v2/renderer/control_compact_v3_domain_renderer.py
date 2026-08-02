@@ -595,7 +595,12 @@ def _market_regime_section(snapshot):
               f"{context.get('rvi_value')} · {context.get('rvi_direction')}",
               "WARNING" if context.get("rvi_regime") == "HIGH_VOL" else "OK"),
         _card("combined_regime", "Общий режим", context.get("market_regime"),
-              "Только Shadow-рекомендации", "WARNING" if context.get("market_regime") in {"STRESS","RISK_OFF"} else "OK"),
+              f"Устойчивый: {context.get('stable_family') or '—'} · кандидат: {context.get('candidate_family') or '—'}",
+              "WARNING" if context.get("market_regime") in {"STRESS","RISK_OFF"} else "OK"),
+        _card("regime_probabilities", "Вероятности режимов",
+              f"Тренд {float(context.get('trend_probability') or 0)*100:.0f}%",
+              f"Диапазон {float(context.get('range_probability') or 0)*100:.0f}% · шок {float(context.get('shock_probability') or 0)*100:.0f}%",
+              "WARNING" if float(context.get("shock_probability") or 0) >= 0.50 else "OK"),
     ))
     columns = ("Инструмент", "Направление", "Вариант", "Решение", "Размер")
     header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.market_regime.header", children=tuple(

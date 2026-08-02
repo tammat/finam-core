@@ -56,7 +56,11 @@ class MarketEventCalendarRepository:
 
         return MarketEventContext(
             has_cbr_event_today=event_type == "CBR_RATE_DECISION",
-            has_inventory_event_today=event_type in {"EIA_INVENTORY", "API_INVENTORY"},
+            has_inventory_event_today=event_type in {
+                "EIA_INVENTORY",
+                "EIA_GAS_STORAGE",
+                "API_INVENTORY",
+            },
             minutes_to_event=int(minutes_to_event),
             event_name=str(event_name),
             event_type=event_type,
