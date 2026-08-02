@@ -66,6 +66,7 @@ EXECUTORS = {
     "MONDAY_READINESS_V1": "src/scripts/analytics/build_monday_readiness_v1.py",
     "ADAPTIVE_PENDING_ENTRY_V1": "src/scripts/run_adaptive_pending_entry_worker_v1.py",
     "EXECUTION_SPEC_PARITY_REPLAY_V1": "src/scripts/run_execution_spec_parity_replay_v1.py",
+    "OBSERVATION_PARITY_REPLAY_V1": "src/scripts/run_observation_parity_replay_v1.py",
     "LIGHTWEIGHT_STATISTICAL_EVIDENCE_V1": "src/scripts/analytics/build_lightweight_statistical_evidence_v1.py",
 }
 

@@ -315,6 +315,15 @@ def main() -> int:
                 paper_values = [dec(row["net_r"]) for row in cur.fetchall()
                                 if row["net_r"] is not None]
                 status, reason = paper_decision(paper_values, metric["loss_scale"])
+                cur.execute("""SELECT count(*) AS total
+                    FROM analytics.observation_parity_v1 op
+                    JOIN analytics.v5_post_fix_branch_registry_v1 r
+                      ON r.admission_id=op.admission_id
+                    WHERE r.observation_symbol=%s AND r.strategy_code=%s
+                      AND r.side_code=%s AND r.candidate_code=%s
+                      AND op.verdict_code='MISMATCH'""", (symbol,strategy,side,code))
+                if int(cur.fetchone()["total"] or 0) > 0:
+                    status, reason = "ROLLED_BACK", "OBSERVATION_PARITY_MISMATCH"
                 rolled_back += status == "ROLLED_BACK"
                 confirmed += status == "PAPER_CONFIRMED"
                 if status == "ROLLED_BACK":
