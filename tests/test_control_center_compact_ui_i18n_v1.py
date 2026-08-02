@@ -40,3 +40,16 @@ def test_active_compact_control_exposes_swing_pipeline_status() -> None:
     assert '"swing_summary": swing_summary' in resolver
     for label in ("Swing · путь к Paper", "Готовы к OOS", "Зависли", "Устаревшие данные"):
         assert label in renderer
+
+
+def test_active_compact_control_explains_missing_edge() -> None:
+    resolver = Path(
+        "src/marketcore/presentation/workspace_v2/resolver/control_compact_v3_resolver.py"
+    ).read_text(encoding="utf-8")
+    renderer = Path(
+        "src/marketcore/presentation/workspace_v2/renderer/control_compact_v3_domain_renderer.py"
+    ).read_text(encoding="utf-8")
+    assert "TIME_SHIFTED_ENTRY_V2" in resolver
+    assert '"edge_diagnostics": edge_diagnostics' in resolver
+    assert "Почему сигнал не создаёт edge" in renderer
+    assert "Проверить условие входа; выходы пока не оптимизировать" in renderer

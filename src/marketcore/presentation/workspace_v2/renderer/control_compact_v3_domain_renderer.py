@@ -676,6 +676,52 @@ def _swing_section(snapshot):
     ))
 
 
+def _edge_diagnostic_section(snapshot):
+    items = snapshot.get("edge_diagnostics") or ()
+    diagnoses = {
+        "INSUFFICIENT_SAMPLE": ("Мало независимых данных", "Продолжать Shadow без смены параметров"),
+        "NEGATIVE_AFTER_COSTS": ("Отрицательно после издержек", "Проверить условие входа; выходы пока не оптимизировать"),
+        "NOT_BETTER_THAN_PLACEBO": ("Не лучше случайно сдвинутого входа", "Отклонить момент входа или продолжить наблюдение"),
+        "ENTRY_DELAY_LOSS": ("Подтверждение ухудшает цену", "Сравнить адаптивный вход с немедленным"),
+        "ADVERSE_PATH_DOMINATES": ("Сначала чаще идёт против позиции", "Усилить фильтр направления и режима"),
+        "EXIT_GIVES_BACK_MFE": ("Выход отдаёт доступную прибыль", "Исследовать защиту прибыли только в Shadow"),
+        "ACCUMULATE_PROSPECTIVE_EVIDENCE": ("Предварительно жизнеспособно", "Продолжать будущую проверку"),
+    }
+    columns = ("Инструмент", "Направление", "Пары", "Кандидат / placebo", "MFE / MAE", "Почему нет edge", "Следующее действие")
+    header = RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, "control.v3.edge_diagnostic.header", children=tuple(
+        _leaf(RenderNodeTypeV2.TABLE_HEADER_CELL, f"control.v3.edge_diagnostic.header.{i}", label)
+        for i,label in enumerate(columns, start=1)))
+    rows = []
+    for index,item in enumerate(items, start=1):
+        diagnosis,action = diagnoses.get(str(item.get("diagnosis_code")), ("Требуется диагностика", "Продолжить Shadow"))
+        candidate = item.get("candidate_exp")
+        placebo = item.get("placebo_exp")
+        status = "OK" if item.get("diagnosis_code") == "ACCUMULATE_PROSPECTIVE_EVIDENCE" else (
+            "WARNING" if item.get("diagnosis_code") == "INSUFFICIENT_SAMPLE" else "BLOCKED")
+        rows.append(RenderNodeV2(RenderNodeTypeV2.TABLE_ROW, f"control.v3.edge_diagnostic.row.{index}",
+            state=RenderNodeStateV2(status_code=status), children=(
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.symbol", item.get("symbol_group")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.side", item.get("side_code")),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.pairs", int(item.get("pairs") or 0)),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.control",
+                      f"{float(candidate or 0):+.2f}R / {float(placebo or 0):+.2f}R"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.path",
+                      f"{float(item.get('mean_mfe_r') or 0):.2f}R / {float(item.get('mean_mae_r') or 0):.2f}R"),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.diagnosis", diagnosis),
+                _leaf(RenderNodeTypeV2.TABLE_CELL, f"control.v3.edge_diagnostic.row.{index}.action", action),
+            )))
+    table = RenderNodeV2(RenderNodeTypeV2.TABLE, "control.v3.edge_diagnostic.table", children=(
+        RenderNodeV2(RenderNodeTypeV2.TABLE_HEAD, "control.v3.edge_diagnostic.head", children=(header,)),
+        RenderNodeV2(RenderNodeTypeV2.TABLE_BODY, "control.v3.edge_diagnostic.body", children=tuple(rows)),
+    ))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.edge_diagnostic", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "control.v3.edge_diagnostic.title", "Почему сигнал не создаёт edge", level="SECTION"),
+        _leaf(RenderNodeTypeV2.SUBTITLE, "control.v3.edge_diagnostic.subtitle",
+              "Сопоставимые Shadow-пары после издержек против time-shifted placebo"),
+        table,
+    ))
+
+
 def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", document_id="operator.control.v3"):
     process = snapshot["process"]
     raw_process_status = str(process.get("status_code") or "").upper()
@@ -705,6 +751,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         _compact_state_section(snapshot, raw_process_status),
         _signal_funnel_section(snapshot),
         _market_regime_section(snapshot),
+        _edge_diagnostic_section(snapshot),
         _swing_section(snapshot),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
         _open_positions_section(snapshot.get("open_position_diagnostics") or ()),

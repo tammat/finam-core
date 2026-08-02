@@ -639,6 +639,61 @@ class ControlCompactV3Resolver:
                 entry_exit_recommendations = [dict(row) for row in cursor.fetchall()]
 
                 cursor.execute("""
+                    WITH current_control AS (
+                      SELECT r.*,
+                             nullif(r.metrics #>> '{negative_control,candidate_expectancy_r}','')::numeric AS candidate_exp,
+                             nullif(r.metrics #>> '{negative_control,placebo_expectancy_r}','')::numeric AS placebo_exp,
+                             nullif(r.metrics #>> '{negative_control,delta_lower_bound_r}','')::numeric AS delta_lower,
+                             row_number() OVER (
+                               PARTITION BY r.symbol_group,r.side_code
+                               ORDER BY (r.pairs>=10) DESC,
+                                        coalesce((r.metrics #>> '{negative_control,passed}')::boolean,false) DESC,
+                                        nullif(r.metrics #>> '{negative_control,delta_lower_bound_r}','')::numeric DESC NULLS LAST,
+                                        r.pairs DESC,r.generated_at DESC
+                             ) AS rank_no
+                      FROM analytics.entry_exit_recommendation_v1 r
+                      WHERE r.metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
+                    )
+                    SELECT r.strategy_code,r.symbol_group,r.side_code,r.candidate_code,r.pairs,
+                           r.candidate_exp,r.placebo_exp,r.delta_lower,
+                           coalesce(d.mean_entry_slippage_r,0) AS mean_entry_slippage_r,
+                           coalesce(d.mean_mfe_r,0) AS mean_mfe_r,
+                           coalesce(d.mean_mae_r,0) AS mean_mae_r,
+                           coalesce(d.mean_exit_efficiency,0) AS mean_exit_efficiency,
+                           CASE
+                             WHEN r.pairs<10 THEN 'INSUFFICIENT_SAMPLE'
+                             WHEN r.candidate_exp<=0 THEN 'NEGATIVE_AFTER_COSTS'
+                             WHEN r.delta_lower<=0 THEN 'NOT_BETTER_THAN_PLACEBO'
+                             WHEN coalesce(d.mean_entry_slippage_r,0)>=0.50 THEN 'ENTRY_DELAY_LOSS'
+                             WHEN coalesce(d.mean_mae_r,0)>coalesce(d.mean_mfe_r,0) THEN 'ADVERSE_PATH_DOMINATES'
+                             WHEN coalesce(d.mean_mfe_r,0)>=0.50 AND coalesce(d.mean_exit_efficiency,0)<0 THEN 'EXIT_GIVES_BACK_MFE'
+                             ELSE 'ACCUMULATE_PROSPECTIVE_EVIDENCE'
+                           END AS diagnosis_code
+                    FROM current_control r
+                    LEFT JOIN LATERAL (
+                      SELECT avg(x.entry_slippage_r) AS mean_entry_slippage_r,
+                             avg(x.mfe_r) AS mean_mfe_r,avg(x.mae_r) AS mean_mae_r,
+                             avg(x.exit_efficiency) AS mean_exit_efficiency
+                      FROM analytics.entry_exit_signal_shadow_pair_v2 p
+                      JOIN analytics.entry_exit_shadow_diagnostic_v1 x
+                        USING(source_signal_id,candidate_code)
+                      WHERE p.strategy_code=r.strategy_code AND p.side_code=r.side_code
+                        AND p.candidate_code=r.candidate_code
+                        AND r.symbol_group=CASE
+                          WHEN p.strategy_code='BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
+                          WHEN p.strategy_code='NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
+                          WHEN p.strategy_code='CNY_REGIME_FUTURES' THEN 'CNY'
+                          WHEN p.strategy_code='USD_REGIME_FUTURES' THEN 'USD'
+                          WHEN p.strategy_code='GOLD_TREND_BREAKOUT' THEN 'GOLD'
+                          ELSE split_part(p.symbol_code,'@',1) END
+                    ) d ON true
+                    WHERE r.rank_no=1
+                    ORDER BY (r.pairs>=10) DESC,r.delta_lower DESC NULLS LAST,r.pairs DESC
+                    LIMIT 12
+                """)
+                edge_diagnostics = [dict(row) for row in cursor.fetchall()]
+
+                cursor.execute("""
                     SELECT symbol,side_code,strategy_code,regime_code,
                            CASE entry_mode
                              WHEN 'ADAPTIVE' THEN 'ADAPTIVE_OR_SKIP'
@@ -907,6 +962,7 @@ class ControlCompactV3Resolver:
             "recent_trade_events": recent_trade_events,
             "entry_exit_workflows": entry_exit_workflows,
             "entry_exit_recommendations": entry_exit_recommendations,
+            "edge_diagnostics": edge_diagnostics,
             "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,
