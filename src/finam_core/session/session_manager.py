@@ -71,7 +71,7 @@ class SessionManager:
         current = now or datetime.now(ZoneInfo("Europe/Moscow"))
         for offset in range(0, 10):
             day = current.date() + timedelta(days=offset)
-            start_hour, start_minute = ((6, 50) if symbol and "@MISX" in symbol.upper() else (9, 0))
+            start_hour, start_minute = ((6, 50) if symbol and "@MISX" in symbol.upper() else (8, 50))
             candidate = datetime(day.year, day.month, day.day, start_hour, start_minute, tzinfo=current.tzinfo)
             probe = candidate.replace(hour=10, minute=0)
             if candidate <= current:
@@ -84,10 +84,10 @@ class SessionManager:
         now_min = self._minute_of_day(h, m)
 
         # Русский комментарий: срочный рынок MOEX.
-        # Утренняя торговая сессия: 09:00–10:00 МСК.
+        # Утренняя торговая сессия: 08:50–10:00 МСК.
         # Основная торговая сессия: 10:00–19:00 МСК.
         # Вечерняя торговая сессия: 19:00–23:50 МСК.
-        morning_start = 9 * 60
+        morning_start = 8 * 60 + 50
         main_start = 10 * 60
         evening_start = 19 * 60
         trading_end = 23 * 60 + 50

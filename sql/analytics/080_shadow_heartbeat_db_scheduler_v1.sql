@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS analytics.system_job_schedule_v1 (
 );
 INSERT INTO analytics.system_job_schedule_v1 VALUES(
  'FORWARD_PASS_SHADOW_OBSERVER','FORWARD_PASS_SHADOW_OBSERVER_V2',TRUE,'Europe/Moscow',
- '[0,1,2,3,4]'::jsonb,'09:00','23:59',5,240,10,'V1_DB_SCHEDULED',clock_timestamp()
+ '[0,1,2,3,4]'::jsonb,'06:40','23:59',5,240,10,'V1_DB_SCHEDULED',clock_timestamp()
 ) ON CONFLICT(job_code) DO UPDATE SET
  executor_code=EXCLUDED.executor_code,enabled=TRUE,timezone_code=EXCLUDED.timezone_code,
  weekdays=EXCLUDED.weekdays,window_start=EXCLUDED.window_start,window_end=EXCLUDED.window_end,

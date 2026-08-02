@@ -49,7 +49,7 @@ INSERT INTO analytics.system_job_schedule_v1(
     interval_minutes,timeout_seconds,priority,config_version,updated_at
 ) VALUES (
     'ADAPTIVE_REGIME_PILOT','ADAPTIVE_REGIME_PILOT_V1',TRUE,
-    'Europe/Moscow','[0,1,2,3,4]'::jsonb,'09:00','23:59',
+    'Europe/Moscow','[0,1,2,3,4]'::jsonb,'06:40','23:59',
     5,120,25,'V1_SEQUENTIAL_REGIME_PILOT',clock_timestamp()
 ) ON CONFLICT(job_code) DO UPDATE SET
     executor_code=EXCLUDED.executor_code,enabled=TRUE,

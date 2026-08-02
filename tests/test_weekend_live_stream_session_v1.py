@@ -46,7 +46,16 @@ def test_weekend_window_boundaries_and_calendar_exceptions() -> None:
     }
     assert manager.next_entry_session(
         symbol="BRQ6@RTSX", now=datetime(2026, 8, 1, 12, 0, tzinfo=MSK)
-    ) == datetime(2026, 8, 3, 9, 0, tzinfo=MSK)
+    ) == datetime(2026, 8, 3, 8, 50, tzinfo=MSK)
+
+
+def test_forts_weekday_starts_at_0850() -> None:
+    manager = SessionManager()
+    before = datetime(2026, 8, 3, 8, 49, tzinfo=MSK)
+    opened = datetime(2026, 8, 3, 8, 50, tzinfo=MSK)
+    assert manager.get_regime("BRQ6@RTSX", now=before)["allow_entries"] is False
+    assert manager.get_regime("BRQ6@RTSX", now=opened)["allow_entries"] is True
+    assert manager.next_entry_session(symbol="BRQ6@RTSX", now=before) == opened
 
 
 def test_pipeline_rejects_replay_and_stale_weekend_quotes() -> None:

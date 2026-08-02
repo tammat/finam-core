@@ -97,8 +97,8 @@ CREATE TABLE IF NOT EXISTS analytics.shadow_pipeline_alert_v1 (
 INSERT INTO analytics.system_job_schedule_v1
 (job_code,executor_code,enabled,timezone_code,weekdays,window_start,window_end,
  interval_minutes,timeout_seconds,priority,config_version,updated_at) VALUES
-('SHADOW_PIPELINE_MONITOR','SHADOW_PIPELINE_MONITOR_V1',TRUE,'Europe/Moscow','[0,1,2,3,4]'::jsonb,'09:00','23:59',2,60,5,'V1_DB_SCHEDULED',clock_timestamp()),
-('SHADOW_PASS_EVALUATOR','SHADOW_PASS_EVALUATOR_V1',TRUE,'Europe/Moscow','[0,1,2,3,4]'::jsonb,'09:00','23:59',5,120,20,'V1_DB_SCHEDULED',clock_timestamp())
+('SHADOW_PIPELINE_MONITOR','SHADOW_PIPELINE_MONITOR_V1',TRUE,'Europe/Moscow','[0,1,2,3,4]'::jsonb,'06:40','23:59',2,60,5,'V1_DB_SCHEDULED',clock_timestamp()),
+('SHADOW_PASS_EVALUATOR','SHADOW_PASS_EVALUATOR_V1',TRUE,'Europe/Moscow','[0,1,2,3,4]'::jsonb,'06:40','23:59',5,120,20,'V1_DB_SCHEDULED',clock_timestamp())
 ON CONFLICT(job_code) DO UPDATE SET executor_code=EXCLUDED.executor_code,enabled=TRUE,
  timezone_code=EXCLUDED.timezone_code,weekdays=EXCLUDED.weekdays,
  window_start=EXCLUDED.window_start,window_end=EXCLUDED.window_end,

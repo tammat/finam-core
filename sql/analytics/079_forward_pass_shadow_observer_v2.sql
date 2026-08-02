@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS analytics.forward_pass_shadow_policy_v1 (
 
 INSERT INTO analytics.forward_pass_shadow_policy_v1 VALUES (
  'FORWARD_PASS_SHADOW_V2',TRUE,'READY_FOR_PAPER_REVIEW',TRUE,TRUE,
- '{"timezone":"Europe/Moscow","market_days":[1,2,3,4,5],"hours":"09:00-23:59","interval_minutes":5,"max_parallel_workers":1}'::jsonb,
+ '{"timezone":"Europe/Moscow","market_days":[1,2,3,4,5],"hours":"06:40-23:59","interval_minutes":5,"max_parallel_workers":1}'::jsonb,
  'FORWARD_PASS_SHADOW_OBSERVER_V2',clock_timestamp()
 ) ON CONFLICT(policy_code) DO UPDATE SET
  enabled=TRUE,source_decision_code=EXCLUDED.source_decision_code,

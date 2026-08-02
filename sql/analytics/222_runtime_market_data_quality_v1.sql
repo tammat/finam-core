@@ -15,7 +15,7 @@ WITH active AS (
              WHEN extract(isodow FROM c.now_msk) BETWEEN 1 AND 5 AND a.symbol LIKE '%@MISX'
                THEN c.now_msk::time >= time '06:50' AND c.now_msk::time < time '23:50'
              WHEN extract(isodow FROM c.now_msk) BETWEEN 1 AND 5 AND a.symbol LIKE '%@RTSX'
-               THEN c.now_msk::time >= time '09:00' AND c.now_msk::time < time '23:50'
+               THEN c.now_msk::time >= time '08:50' AND c.now_msk::time < time '23:50'
              WHEN extract(isodow FROM c.now_msk) IN (6,7)
                THEN c.now_msk::time >= time '10:00' AND c.now_msk::time < time '19:00'
              ELSE false
