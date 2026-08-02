@@ -12,7 +12,7 @@ EnvironmentFile=/opt/finam-core/deploy/env/.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONPATH=/opt/finam-core/src
-ExecStart=/opt/finam-core/venv/bin/python src/scripts/ingestion/run_continuous_market_bars_ingestion.py --once --targets BRQ6@RTSX=M1,NGQ6@RTSX=M1,MXU6@RTSX=M1,VIU6@RTSX=M1,SBER@MISX=M1,GAZP@MISX=M1,LKOH@MISX=M1,NVTK@MISX=M5,VTBR@MISX=M5 --lookback-hours 2 --step-timeout-sec 15
+ExecStart=/opt/finam-core/venv/bin/python src/scripts/ingestion/run_continuous_market_bars_ingestion.py --once --targets BRQ6@RTSX=M1,SBER@MISX=M1,GDU6@RTSX=M1,CNYRUBF@RTSX=M1 --lookback-hours 2 --step-timeout-sec 15
 TimeoutStartSec=120
 Nice=5
 IOSchedulingClass=best-effort
