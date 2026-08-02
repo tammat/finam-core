@@ -15,7 +15,9 @@ from finam_core.runtime.portfolio_governance_repository import PortfolioGovernan
 from finam_core.runtime.runtime_governance_coordinator_v2 import RuntimeGovernanceCoordinatorV2
 from finam_core.analytics.incremental_exit_intelligence import IncrementalExitInput, build_incremental_exit_advice
 from finam_core.analytics.symbol_strategy_resolver import SymbolStrategyResolver
-from finam_core.analytics.entry_exit_optimizer import EntryContext, adaptive_entry_decision
+from finam_core.analytics.entry_exit_optimizer import (
+    EntryContext, adaptive_entry_decision, candidate_policy_code,
+)
 
 from finam_core.runtime.trend_gate_service import TrendGateService
 
@@ -5664,18 +5666,40 @@ class PaperTradingPipeline:
                             raise RuntimeError("APPROVED_PROFILE_ATR_OR_PRICE_MISSING")
                         effective_entry_mode = str(approved["entry_mode"])
                         entry_route_reason = "FIXED_ENTRY_MODE"
+                        policy_code = candidate_policy_code(approved["candidate_code"])
+                        signal_ts = (
+                            intent.get("event_ts") or intent.get("signal_ts") or intent.get("ts")
+                            or features.get("event_ts") or features.get("signal_ts")
+                        )
+                        if signal_ts is None:
+                            raise RuntimeError("APPROVED_PROFILE_SOURCE_EVENT_TS_MISSING")
+                        higher_timeframe_aligned = features.get("higher_timeframe_aligned")
+                        if policy_code.startswith("EXPERT_") and higher_timeframe_aligned is None:
+                            raise RuntimeError("APPROVED_PROFILE_M15_ALIGNMENT_MISSING")
+                        required_context = ("atr_percentile", "cost_to_atr")
+                        missing_context = [key for key in required_context if features.get(key) is None]
+                        if missing_context:
+                            raise RuntimeError(
+                                "APPROVED_PROFILE_CONTEXT_MISSING:" + ",".join(missing_context)
+                            )
+                        relative_volume = features.get("relative_volume")
+                        if relative_volume is None:
+                            relative_volume = features.get("volume_ratio")
+                        if relative_volume is None:
+                            raise RuntimeError("APPROVED_PROFILE_RELATIVE_VOLUME_MISSING")
                         context_payload = {
-                            "atr_percentile": float(features.get("atr_percentile") or 0.5),
-                            "relative_volume": float(features.get("relative_volume") or
-                                                     features.get("volume_ratio") or 1.0),
+                            "atr_percentile": float(features["atr_percentile"]),
+                            "relative_volume": float(relative_volume),
                             "regime": str(features.get("regime_trend") or
                                           features.get("regime") or getattr(regime,"trend","UNKNOWN")),
-                            "cost_to_atr": float(features.get("cost_to_atr") or 0.0),
+                            "cost_to_atr": float(features["cost_to_atr"]),
                             "strategy": strategy_code,
+                            "higher_timeframe_aligned": higher_timeframe_aligned,
                         }
                         if effective_entry_mode == "ADAPTIVE":
                             effective_entry_mode, entry_route_reason = adaptive_entry_decision(
-                                EntryContext(**context_payload), take_atr=float(approved["take_atr"]))
+                                EntryContext(**context_payload), take_atr=float(approved["take_atr"]),
+                                policy_code=policy_code)
                         if effective_entry_mode == "SKIP":
                             with self.pg_logger._connect() as pending_conn:
                                 with pending_conn.cursor() as pending_cursor:
@@ -5683,10 +5707,10 @@ class PaperTradingPipeline:
                                       (profile_id,candidate_code,strategy_code,symbol_group,symbol_code,side_code,
                                        entry_mode,signal_id,signal_ts,signal_price,atr,timeframe,entry_context,
                                        intent_payload,status,decision_reason)
-                                      VALUES(%s,%s,%s,%s,%s,%s,'SKIP',%s,clock_timestamp(),%s,%s,%s,%s::jsonb,
+                                      VALUES(%s,%s,%s,%s,%s,%s,'SKIP',%s,%s,%s,%s,%s,%s::jsonb,
                                              %s::jsonb,'SKIPPED',%s)""",
                                       (approved["profile_id"],approved["candidate_code"],strategy_code,symbol_group,
-                                       symbol_code,side_code,str(intent.get("signal_id") or f"adaptive-skip-{time.time_ns()}"),
+                                       symbol_code,side_code,str(intent.get("signal_id") or f"adaptive-skip-{time.time_ns()}"),signal_ts,
                                        entry_value,atr_value,"M1" if symbol_code.upper().endswith("@RTSX") else "M5",
                                        json.dumps(context_payload),json.dumps(intent,default=str),entry_route_reason))
                                 pending_conn.commit()
@@ -5721,11 +5745,11 @@ class PaperTradingPipeline:
                                           (profile_id,candidate_code,strategy_code,symbol_group,symbol_code,side_code,
                                            entry_mode,signal_id,signal_ts,signal_price,atr,timeframe,entry_context,
                                            intent_payload,status,decision_reason)
-                                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),%s,%s,%s,%s::jsonb,
+                                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,
                                                  %s::jsonb,'PENDING',%s)""",
                                           (approved["profile_id"],approved["candidate_code"],strategy_code,symbol_group,
                                            symbol_code,side_code,effective_entry_mode,
-                                           str(intent.get("signal_id") or f"adaptive-pending-{time.time_ns()}"),
+                                           str(intent.get("signal_id") or f"adaptive-pending-{time.time_ns()}"),signal_ts,
                                            entry_value,atr_value,timeframe,json.dumps(context_payload),
                                            json.dumps(intent,default=str),entry_route_reason))
                                         pending_conn.commit()
@@ -5741,6 +5765,8 @@ class PaperTradingPipeline:
                             "stop": intent.get("stop_loss"), "take": intent.get("take_profit"),
                             "entry_exit_profile_id": approved["profile_id"],
                             "entry_exit_candidate_code": approved["candidate_code"],
+                            "entry_exit_policy_code": policy_code,
+                            "source_event_ts": str(signal_ts),
                             "entry_exit_profile_source": "AUTO_CHAMPION_CHALLENGER_PAPER",
                             "adaptive_entry_effective_mode": effective_entry_mode,
                             "adaptive_entry_route_reason": entry_route_reason,

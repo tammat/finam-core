@@ -20,6 +20,12 @@ EXPECTED_V5_OBSERVATIONS = (
     "GDU6@RTSX",
     "CNYRUBF@RTSX",
 )
+EXPECTED_FROZEN_BRANCHES = (
+    "SBER_LONG_M5_POST_FIX_V1",
+    "BRQ6_SHORT_M5_POST_FIX_V1",
+    "GLDRUBF_LONG_M5_POST_FIX_V1",
+    "CNYRUBF_LONG_M5_POST_FIX_V1",
+)
 SOURCE = "MONDAY_PREFLIGHT_V2"
 
 
@@ -68,6 +74,11 @@ def main() -> int:
             failures.append(f"SERVICE_INACTIVE:{service}")
 
     effective = _service_contracts()
+    for required_setting in (
+        "EXECUTION_ENABLED=0", "REAL_TRADING_ENABLED=0", "EXECUTION_MODE=paper",
+    ):
+        if required_setting not in effective:
+            failures.append(f"UNSAFE_RUNTIME_SETTING:{required_setting}")
     for contract in EXPECTED_CONTRACTS:
         if contract not in effective:
             failures.append(f"ACTIVE_CONTRACT_MISSING:{contract}")
@@ -148,6 +159,33 @@ def main() -> int:
             failures.append(f"DUPLICATE_ACTIVE_SHADOW_CANDIDATE:{duplicate_active}")
 
         cur.execute("""
+            SELECT branch_code,state_code,paper_allowed,real_allowed,timeframe
+            FROM analytics.v5_post_fix_branch_registry_v1
+            WHERE branch_code=ANY(%s)
+        """, (list(EXPECTED_FROZEN_BRANCHES),))
+        frozen_rows = {row["branch_code"]: row for row in cur.fetchall()}
+        for branch_code in EXPECTED_FROZEN_BRANCHES:
+            row = frozen_rows.get(branch_code)
+            if row is None:
+                failures.append(f"FROZEN_BRANCH_MISSING:{branch_code}")
+                continue
+            if row["paper_allowed"] or row["real_allowed"]:
+                failures.append(f"FROZEN_BRANCH_EXECUTION_ALLOWED:{branch_code}")
+            if row["state_code"] not in {"V5_COLLECTING", "OOS_PASS", "OOS_FAIL"}:
+                failures.append(f"FROZEN_BRANCH_STATE_INVALID:{branch_code}:{row['state_code']}")
+            if row["timeframe"] != "M5":
+                failures.append(f"FROZEN_BRANCH_TIMEFRAME_INVALID:{branch_code}:{row['timeframe']}")
+
+        # The parity audit is unresolved.  Any ACTIVE override before a verified
+        # execution-spec hash exists is an unsafe promotion and blocks opening.
+        cur.execute("""SELECT count(*) AS total
+                       FROM analytics.entry_exit_runtime_profile_v1
+                       WHERE status='ACTIVE'""")
+        active_runtime_profiles = int(cur.fetchone()["total"])
+        if active_runtime_profiles:
+            failures.append(f"PARITY_UNVERIFIED_ACTIVE_PROFILE:{active_runtime_profiles}")
+
+        cur.execute("""
             SELECT count(DISTINCT CASE
               WHEN symbol_group='BR' THEN 'BRQ6@RTSX'
               WHEN symbol_group='GOLD' THEN 'GDU6@RTSX'
@@ -185,6 +223,8 @@ def main() -> int:
     print(f"edge_economics_missing={economics_missing}")
     print(f"duplicate_active_shadow_candidates={duplicate_active}")
     print(f"v5_research_branches={v5_research_branches}/{len(EXPECTED_V5_OBSERVATIONS)}")
+    print(f"frozen_branches={len(frozen_rows)}/{len(EXPECTED_FROZEN_BRANCHES)}")
+    print(f"active_runtime_profiles={active_runtime_profiles}")
     print("real_trading_enabled=0")
     print("VERDICT=MONDAY_PREFLIGHT_V2_OK")
     return 1 if failures else 0

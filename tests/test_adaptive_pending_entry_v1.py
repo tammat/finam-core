@@ -1,4 +1,6 @@
-from finam_core.analytics.entry_exit_optimizer import Bar
+import pytest
+
+from finam_core.analytics.entry_exit_optimizer import Bar, candidate_policy_code
 from finam_core.execution.adaptive_pending_entry_v1 import evaluate_pending_entry_v1
 
 
@@ -41,3 +43,23 @@ def test_pending_worker_reads_only_completed_bars():
     ).read()
     assert "ts>%s AND ts<=%s" in source
     assert "now-delta" in source
+
+
+def test_frozen_expert_candidate_resolves_exact_policy():
+    assert candidate_policy_code("EXPERT_BR_RETEST_VOLUME") == "EXPERT_BR"
+    assert candidate_policy_code("EXPERT_GOLD_CONFIRM_MTF") == "EXPERT_GOLD"
+    assert candidate_policy_code("EXPERT_FX_RETEST_COST") == "EXPERT_FX"
+    assert candidate_policy_code("EXPERT_EQUITY_RANGE_RETEST") == "EXPERT_EQUITY_MR"
+
+
+def test_unknown_expert_candidate_fails_closed():
+    with pytest.raises(ValueError):
+        candidate_policy_code("EXPERT_UNKNOWN")
+
+
+def test_pipeline_uses_source_event_time_and_no_feature_defaults():
+    source = open("src/finam_core/pipelines/paper_pipeline.py", encoding="utf-8").read()
+    assert "APPROVED_PROFILE_SOURCE_EVENT_TS_MISSING" in source
+    assert "APPROVED_PROFILE_M15_ALIGNMENT_MISSING" in source
+    assert 'policy_code=policy_code' in source
+    assert "clock_timestamp(),%s,%s,%s,%s::jsonb" not in source

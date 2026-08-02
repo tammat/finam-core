@@ -30,6 +30,9 @@ def test_preflight_is_timeframe_aware() -> None:
     assert "EDGE_ECONOMICS_BACKFILL_PENDING" in source
     assert "DUPLICATE_ACTIVE_SHADOW_CANDIDATE" in source
     assert "V5_RESEARCH_BRANCH_INCOMPLETE" in source
+    assert "UNSAFE_RUNTIME_SETTING" in source
+    assert "PARITY_UNVERIFIED_ACTIVE_PROFILE" in source
+    assert "FROZEN_BRANCH_EXECUTION_ALLOWED" in source
     for symbol in ("BRQ6@RTSX", "SBER@MISX", "GDU6@RTSX", "CNYRUBF@RTSX"):
         assert symbol in source
 

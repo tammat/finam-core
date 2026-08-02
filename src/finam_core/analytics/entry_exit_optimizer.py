@@ -54,6 +54,24 @@ class Outcome:
     exit_efficiency: float | None = None
 
 
+_EXPERT_POLICY_BY_CANDIDATE = {
+    "EXPERT_BR_RETEST_VOLUME": "EXPERT_BR",
+    "EXPERT_NG_CONFIRM_TREND": "EXPERT_NG",
+    "EXPERT_FX_RETEST_COST": "EXPERT_FX",
+    "EXPERT_GOLD_CONFIRM_MTF": "EXPERT_GOLD",
+    "EXPERT_EQUITY_RANGE_RETEST": "EXPERT_EQUITY_MR",
+    "EXPERT_EQUITY_BREAKOUT_CONFIRM": "EXPERT_EQUITY_BO",
+}
+
+
+def candidate_policy_code(candidate_code: str) -> str:
+    """Return the frozen adaptive policy; unknown expert candidates fail closed."""
+    code = str(candidate_code or "").upper()
+    if code.startswith("EXPERT_") and code not in _EXPERT_POLICY_BY_CANDIDATE:
+        raise ValueError(f"unknown expert candidate policy: {code}")
+    return _EXPERT_POLICY_BY_CANDIDATE.get(code, "GENERIC")
+
+
 def default_variants(strategy: str) -> tuple[Variant, ...]:
     """Small, auditable search space; deliberately not a curve-fitting grid."""
     mean_reversion = strategy.upper() == "MEAN_REVERSION_EQUITY"
