@@ -9654,7 +9654,7 @@ class PaperTradingPipeline:
                           (SELECT max(ts) FROM market_bars
                            WHERE symbol='IMOEX2' AND timeframe='M1') AS index_bar_ts,
                           (SELECT max(ts) FROM market_bars
-                           WHERE symbol LIKE 'VI%%@RTSX' AND timeframe='M1') AS rvi_bar_ts
+                           WHERE (symbol='RVI' OR symbol LIKE 'VI%%@RTSX') AND timeframe='M1') AS rvi_bar_ts
                     """)
                     row = cur.fetchone()
                     if row:
@@ -9835,7 +9835,12 @@ class PaperTradingPipeline:
                 return True
             repository.mark_rejected(
                 signal_id,
-                f"market_context:{market_context.mode}:{market_context.reason}",
+                (
+                    "regime_not_tradeable:"
+                    f"{str(getattr(regime, 'trend', None) or 'UNKNOWN')}:"
+                    f"{str(getattr(regime, 'volatility', None) or 'UNKNOWN')}:"
+                    f"market_context:{market_context.mode}:{market_context.reason}"
+                ),
             )
             print(
                 f"PIPE_PRE_SIGNAL_SHADOW_SAVED symbol={symbol} "

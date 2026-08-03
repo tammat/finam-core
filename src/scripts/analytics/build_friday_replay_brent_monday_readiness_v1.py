@@ -136,7 +136,7 @@ def build_report(cur: RealDictCursor, target: date) -> dict:
         SELECT
           (SELECT max(ts) FROM market_bars WHERE symbol='IMOEX2' AND timeframe='M15') mx_m15_last,
           (SELECT max(ts) FROM market_bars WHERE symbol='IMOEX2' AND timeframe='M1') mx_m1_last,
-          (SELECT max(ts) FROM market_bars WHERE symbol LIKE 'VI%%@RTSX' AND timeframe='M1') rvi_m1_last,
+          (SELECT max(ts) FROM market_bars WHERE (symbol='RVI' OR symbol LIKE 'VI%%@RTSX') AND timeframe='M1') rvi_m1_last,
           (SELECT count(*) FROM analytics.v5_oos_run_v1) v5_oos_runs
         """
     )

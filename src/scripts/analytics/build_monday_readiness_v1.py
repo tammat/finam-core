@@ -19,7 +19,7 @@ def main()->int:
   event=cur.fetchone() or {}; risk=str(event.get('risk_level') or 'NORMAL')
   cur.execute("""SELECT
    (SELECT max(ts) FROM market_bars WHERE symbol='IMOEX2' AND timeframe='M1') mx,
-   (SELECT max(ts) FROM market_bars WHERE symbol LIKE 'VI%%@RTSX' AND timeframe='M1') rvi,
+   (SELECT max(ts) FROM market_bars WHERE (symbol='RVI' OR symbol LIKE 'VI%%@RTSX') AND timeframe='M1') rvi,
    (SELECT count(*) FROM market_bars WHERE symbol='IMOEX2' AND timeframe='M15'
      AND (ts AT TIME ZONE 'Europe/Moscow')::date=(clock_timestamp() AT TIME ZONE 'Europe/Moscow')::date
      AND ts+interval '15 minutes'<=clock_timestamp()) mx_m15,
