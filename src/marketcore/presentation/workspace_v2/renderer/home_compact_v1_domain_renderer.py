@@ -1112,6 +1112,55 @@ def _focus_candidates_section(snapshot):
     ))
 
 
+def _reachable_challengers_section(snapshot):
+    labels = {
+        "SBER_LONG_REACHABLE_V1": "Сбербанк · LONG",
+        "BRQ6_SHORT_REACHABLE_V1": "Нефть Brent · SHORT",
+        "GLDRUBF_LONG_REACHABLE_V1": "Золото · LONG",
+        "CNYRUBF_LONG_REACHABLE_V1": "Юань · LONG",
+    }
+    verdicts = {
+        "ACCUMULATE": "накапливает новые Shadow-наблюдения",
+        "READY_FOR_EXPENSIVE_GATES": "достиг порога — нужны дорогие проверки",
+        "EARLY_REJECT": "предварительно отклонён",
+    }
+    rows = []
+    for index, item in enumerate(snapshot.get("reachable_challengers") or (), start=1):
+        code = str(item.get("challenger_code") or "")
+        completed = int(item.get("completed") or 0)
+        minimum = int(item.get("minimum_observations") or 20)
+        days = int(item.get("active_days") or 0)
+        minimum_days = int(item.get("minimum_active_days") or 3)
+        verdict = str(item.get("prospective_verdict") or "ACCUMULATE")
+        expectancy = item.get("expectancy_r")
+        delta = item.get("delta_r")
+        value = (
+            f"{item.get('candidate_code')} · сопоставлено {int(item.get('matched') or 0)} → "
+            f"вошло {int(item.get('entered') or 0)} → завершено {completed}/{minimum} · "
+            f"дни {days}/{minimum_days} · Exp {_signed_metric(expectancy, available=expectancy is not None)}R · "
+            f"против placebo {_signed_metric(delta, available=delta is not None)}R · "
+            f"{verdicts.get(verdict, verdict)}"
+        )
+        rows.append(_row(
+            f"reachable.{index}", labels.get(code, code), value,
+            status="OK" if verdict == "READY_FOR_EXPENSIVE_GATES" else
+                   "BLOCKED" if verdict == "EARLY_REJECT" else "WARNING",
+            source="analytics.reachable_shadow_challenger_status_v1",
+            source_as_of=item.get("latest_result_ts") or item.get("frozen_at"),
+        ))
+    if not rows:
+        rows.append(_row("reachable.empty", "Challengers", "ещё не зарегистрированы", status="WARNING"))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.reachable", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.reachable.title",
+              "Достижимые challengers · только prospective Shadow", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.reachable.help",
+              "Это параллельные гипотезы. История до фиксации не засчитывается; "
+              "замороженная V5-когорта, Paper и REAL не изменены."),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST,
+                     "home.compact.reachable.metrics", children=tuple(rows)),
+    ))
+
+
 def _signals_today_section(snapshot, timezone_code):
     rows = []
     summary = snapshot.get("signal_summary_today") or {}
@@ -1169,6 +1218,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
         _now_section(snapshot),
         _signals_today_section(snapshot, timezone_code),
         _focus_candidates_section(snapshot),
+        _reachable_challengers_section(snapshot),
         _shadow_dynamics_section(snapshot),
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),

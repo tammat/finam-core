@@ -795,6 +795,13 @@ class ControlCompactV3Resolver:
                               WHEN 'COLLECTING' THEN 1 ELSE 2 END,
                              r.updated_at DESC LIMIT 12""")
                 v5_oos_runs = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""SELECT *
+                    FROM analytics.reachable_shadow_challenger_status_v1
+                    ORDER BY CASE prospective_verdict
+                               WHEN 'READY_FOR_EXPENSIVE_GATES' THEN 0
+                               WHEN 'ACCUMULATE' THEN 1 ELSE 2 END,
+                             challenger_code""")
+                reachable_challengers = [dict(row) for row in cursor.fetchall()]
 
                 cursor.execute("""WITH normalized AS (
                     SELECT signal_id,symbol,strategy,side,status,rejection_reason,
@@ -1092,6 +1099,7 @@ class ControlCompactV3Resolver:
             "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,
+            "reachable_challengers": reachable_challengers,
             "recent_unique_signals": recent_unique_signals,
             "signal_summary_today": signal_summary_today,
             "market_regime_context": market_regime_context,

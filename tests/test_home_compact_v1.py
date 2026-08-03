@@ -13,7 +13,8 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     nodes = list(walk(document.root))
     sections = [node.node_id for node in nodes if node.node_type is RenderNodeTypeV2.SECTION]
     assert sections == [
-        "home.compact.now", "home.compact.signals", "home.compact.focus", "home.compact.shadow",
+        "home.compact.now", "home.compact.signals", "home.compact.focus", "home.compact.reachable",
+        "home.compact.shadow",
         "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
         "home.compact.attention",
@@ -81,6 +82,7 @@ def test_home_exposes_shadow_results_in_main_workflow() -> None:
     ).read()
     render_body = renderer.split("def render_home_compact_v1", 1)[1]
     assert "_shadow_dynamics_section(snapshot)" in render_body
+    assert "_reachable_challengers_section(snapshot)" in render_body
 
 
 def test_home_uses_plain_russian_and_no_operator_table() -> None:
