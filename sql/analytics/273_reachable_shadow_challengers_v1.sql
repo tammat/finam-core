@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS analytics.reachable_shadow_challenger_v1 (
     real_allowed boolean NOT NULL DEFAULT false CHECK (real_allowed = false),
     evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     UNIQUE(parent_branch_code,candidate_code)
 );
+
+ALTER TABLE analytics.reachable_shadow_challenger_v1
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT clock_timestamp();
 
 CREATE OR REPLACE VIEW analytics.reachable_shadow_challenger_status_v1 AS
 WITH observations AS (
