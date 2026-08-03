@@ -70,6 +70,7 @@ EXECUTORS = {
     "EXECUTION_SPEC_PARITY_REPLAY_V1": "src/scripts/run_execution_spec_parity_replay_v1.py",
     "OBSERVATION_PARITY_REPLAY_V1": "src/scripts/run_observation_parity_replay_v1.py",
     "LIGHTWEIGHT_STATISTICAL_EVIDENCE_V1": "src/scripts/analytics/build_lightweight_statistical_evidence_v1.py",
+    "MARKET_EVENT_REACTION_SHADOW_V1": "src/scripts/build_market_event_reaction_shadow_v1.py",
 }
 
 # These jobs scan history, rebuild bars, or evaluate many candidate paths.  On

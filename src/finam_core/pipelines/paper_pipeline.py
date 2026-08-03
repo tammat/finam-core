@@ -9139,6 +9139,7 @@ class PaperTradingPipeline:
         session_open = time(8, 50) if symbol.endswith("@RTSX") else time(6, 50)
         session_start = datetime.combine(now_msk.date(), session_open, tzinfo=now_msk.tzinfo)
         event = None
+        events = []
         completed_m15 = 0
         gap_atr = spread_atr = relative_volume = None
         try:
@@ -9154,9 +9155,10 @@ class PaperTradingPipeline:
                           WHERE pattern='*' OR %s LIKE replace(upper(pattern),'*','%%')
                         )
                       ORDER BY CASE risk_level WHEN 'SHOCK' THEN 1 WHEN 'ELEVATED' THEN 2
-                               WHEN 'RECOVERY' THEN 3 ELSE 4 END,updated_at DESC LIMIT 1
+                               WHEN 'RECOVERY' THEN 3 ELSE 4 END,updated_at DESC
                     """, (symbol,))
-                    event = cursor.fetchone()
+                    events = list(cursor.fetchall())
+                    event = events[0] if events else None
                     if event:
                         cursor.execute("""
                           SELECT ts,open::float8,high::float8,low::float8,close::float8,
@@ -9213,10 +9215,22 @@ class PaperTradingPipeline:
                         """, (intent.get("signal_id"),symbol,intent.get("side"),event[0],risk_level,
                               decision.state,decision.mode,decision.allowed,decision.reason,
                               completed_m15,gap_atr,spread_atr,relative_volume,context_fresh,
-                              '{"source":"paper_pipeline","paper_profile_changed":false}'))
+                              json.dumps({
+                                  "source": "paper_pipeline",
+                                  "paper_profile_changed": False,
+                                  "selected_event_code": event[0],
+                                  "active_events": [
+                                      {"event_code": row[0], "risk_level": row[1], "title_ru": row[2]}
+                                      for row in events
+                                  ],
+                              })))
             intent.setdefault("features", {})["market_shock_gate"] = {
                 "state": decision.state, "mode": decision.mode, "reason": decision.reason,
                 "event_code": event[0] if event else None,
+                "active_events": [
+                    {"event_code": row[0], "risk_level": row[1], "title_ru": row[2]}
+                    for row in events
+                ],
             }
             if not decision.allowed:
                 self._log_dedup(

@@ -282,9 +282,10 @@ class ControlCompactV3Resolver:
                     WHERE is_active AND starts_at<=clock_timestamp()
                       AND (expires_at IS NULL OR expires_at>clock_timestamp())
                     ORDER BY CASE risk_level WHEN 'SHOCK' THEN 1 WHEN 'ELEVATED' THEN 2
-                             WHEN 'RECOVERY' THEN 3 ELSE 4 END,updated_at DESC LIMIT 1
+                             WHEN 'RECOVERY' THEN 3 ELSE 4 END,updated_at DESC
                 """)
-                market_event_risk = dict(cursor.fetchone() or {})
+                market_event_risks = [dict(row) for row in cursor.fetchall()]
+                market_event_risk = market_event_risks[0] if market_event_risks else {}
                 cursor.execute("""
                     SELECT evaluated_at,symbol,state_code,mode_code,allowed,reason_code,
                            completed_m15_bars,gap_atr,spread_atr,relative_volume,
@@ -999,6 +1000,7 @@ class ControlCompactV3Resolver:
             "data_quality_summary": data_quality_summary,
             "session_status": session_status,
             "market_event_risk": market_event_risk,
+            "market_event_risks": market_event_risks,
             "market_shock_gate": market_shock_gate,
             "monday_readiness": monday_readiness,
             "research_resource_gate": research_resource_gate,

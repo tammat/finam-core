@@ -107,6 +107,7 @@ def _now_section(snapshot):
         )
         paper_status = "WARNING"
     event = snapshot.get("market_event_risk") or {}
+    events = snapshot.get("market_event_risks") or ([event] if event else [])
     shock = snapshot.get("market_shock_gate") or {}
     risk_level = str(event.get("risk_level") or "NORMAL").upper()
     risk_label = {
@@ -117,6 +118,11 @@ def _now_section(snapshot):
     }.get(risk_level, "Состояние риска уточняется")
     if event.get("title_ru"):
         risk_label = f"{event.get('title_ru')} · {risk_label}"
+    if len(events) > 1:
+        secondary = "; ".join(
+            f"{item.get('risk_level')}: {item.get('title_ru')}" for item in events[1:3]
+        )
+        risk_label += f" · дополнительно: {secondary}"
     if shock.get("reason_code"):
         shock_reason = {
             "MARKET_EVENT_SHOCK": "новые входы переведены в Shadow",
