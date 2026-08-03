@@ -1024,8 +1024,11 @@ def _oos_evidence_section(snapshot):
             f"oos.run.{index}",
             f"{run.get('symbol') or '—'} · {run.get('side_code') or '—'}",
             f"{status_labels.get(status, 'Ожидает данных')}: "
-            f"{int(run.get('observations_included') or 0)} из "
-            f"{int(run.get('minimum_observations') or 20)} будущих наблюдений · "
+            f"сопоставлено {int(run.get('matched_pairs') or 0)} → "
+            f"вошло {int(run.get('entered_pairs') or 0)} → "
+            f"завершено {int(run.get('completed_pairs') or 0)} → "
+            f"OOS {int(run.get('observations_included') or 0)}/"
+            f"{int(run.get('minimum_observations') or 20)} · "
             f"PF {fmt(run.get('profit_factor'))} · Exp {fmt(run.get('expectancy'))}",
             status="OK" if status == "OOS_PASS" else
                    "BLOCKED" if status == "OOS_FAIL" else "WARNING",
@@ -1076,7 +1079,10 @@ def _focus_candidates_section(snapshot):
             "ERROR": "ошибка проверки",
         }.get(status, "накапливает новые наблюдения")
         value = (
-            f"{stage} · {included}/{minimum} · Exp {expectancy_text} · "
+            f"{stage} · сопоставлено {int((run or {}).get('matched_pairs') or 0)} → "
+            f"вошло {int((run or {}).get('entered_pairs') or 0)} → "
+            f"завершено {int((run or {}).get('completed_pairs') or 0)} → "
+            f"OOS {included}/{minimum} · Exp {expectancy_text} · "
             f"PF {_pf_text({'profit_factor': (run or {}).get('profit_factor'), 'profit_factor_observable': (run or {}).get('profit_factor') is not None})} · {verdict}"
         )
         rows.append(_row(
@@ -1133,8 +1139,12 @@ def _signals_today_section(snapshot, timezone_code):
             verdict = "допущен в Paper" if status_code != "FILLED" else "исполнен Paper"
             tone = "OK"
         else:
-            verdict = reason_labels.get(reason, reason.replace("_", " ") or "отклонён защитным фильтром")
-            tone = "WARNING" if reason in reason_labels else "BLOCKED"
+            if reason.startswith("regime_not_tradeable:"):
+                verdict = "Shadow: текущий режим не допускает вход; рыночный контекст свежий"
+                tone = "WARNING"
+            else:
+                verdict = reason_labels.get(reason, reason.replace("_", " ") or "отклонён защитным фильтром")
+                tone = "WARNING" if reason in reason_labels else "BLOCKED"
         rows.append(_row(
             f"signals.{index}",
             f"{_instrument_name(item)} · {side_labels.get(str(item.get('side') or '').upper(), item.get('side') or '—')}",

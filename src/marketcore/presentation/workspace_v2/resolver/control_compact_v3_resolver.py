@@ -773,9 +773,24 @@ class ControlCompactV3Resolver:
                            r.observations_excluded,r.minimum_observations,r.expectancy,
                            r.profit_factor,r.confirmation_after_ts,r.updated_at,
                            a.symbol,a.oos_request->>'paper_strategy_code' AS strategy_code,
-                           a.oos_request->>'side_code' AS side_code
+                           a.oos_request->>'side_code' AS side_code,
+                           coalesce(funnel.matched_pairs,0)::int AS matched_pairs,
+                           coalesce(funnel.entered_pairs,0)::int AS entered_pairs,
+                           coalesce(funnel.completed_pairs,0)::int AS completed_pairs
                     FROM analytics.v5_oos_run_v1 r
                     JOIN analytics.trade_outcome_oos_admission_v1 a USING(admission_id)
+                    LEFT JOIN LATERAL (
+                      SELECT count(*) AS matched_pairs,
+                             count(*) FILTER (WHERE p.shadow_entered) AS entered_pairs,
+                             count(*) FILTER (WHERE p.shadow_net_r IS NOT NULL) AS completed_pairs
+                      FROM analytics.entry_exit_signal_shadow_pair_v2 p
+                      WHERE p.symbol_code=coalesce(
+                              nullif(a.oos_request->>'observation_symbol',''),a.symbol)
+                        AND p.strategy_code=a.oos_request->>'paper_strategy_code'
+                        AND p.side_code=a.oos_request->>'side_code'
+                        AND p.candidate_code=a.oos_request->'frozen_profile'->>'candidate_code'
+                        AND p.label_start_ts>=r.confirmation_after_ts
+                    ) funnel ON true
                     ORDER BY CASE r.status_code WHEN 'OOS_PASS' THEN 0
                               WHEN 'COLLECTING' THEN 1 ELSE 2 END,
                              r.updated_at DESC LIMIT 12""")
