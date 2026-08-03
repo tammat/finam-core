@@ -13,7 +13,8 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     nodes = list(walk(document.root))
     sections = [node.node_id for node in nodes if node.node_type is RenderNodeTypeV2.SECTION]
     assert sections == [
-        "home.compact.now", "home.compact.signals", "home.compact.focus", "home.compact.progress",
+        "home.compact.now", "home.compact.signals", "home.compact.focus", "home.compact.shadow",
+        "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
         "home.compact.attention",
     ]
@@ -70,6 +71,16 @@ def test_shadow_and_paper_rows_have_profit_loss_tones() -> None:
     assert 'home.compact.shadow.row.' in css
     assert '[data-mc-status="PROFIT"]' in css
     assert '[data-mc-status="LOSS"]' in css
+
+
+def test_home_exposes_shadow_results_in_main_workflow() -> None:
+    renderer = open(
+        "src/marketcore/presentation/workspace_v2/renderer/"
+        "home_compact_v1_domain_renderer.py",
+        encoding="utf-8",
+    ).read()
+    render_body = renderer.split("def render_home_compact_v1", 1)[1]
+    assert "_shadow_dynamics_section(snapshot)" in render_body
 
 
 def test_home_uses_plain_russian_and_no_operator_table() -> None:

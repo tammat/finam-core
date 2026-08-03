@@ -1169,6 +1169,7 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
         _now_section(snapshot),
         _signals_today_section(snapshot, timezone_code),
         _focus_candidates_section(snapshot),
+        _shadow_dynamics_section(snapshot),
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),
         _recent_trades_section(snapshot, timezone_code, futures=True),

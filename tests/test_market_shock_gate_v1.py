@@ -40,3 +40,10 @@ def test_runtime_and_ui_integrate_gate_without_changing_paper_profile() -> None:
     assert "Риск событий" in ui and "биржа закрыта по календарю" in ui
     assert "market_shock_gate_audit_v1" in sql
     assert "paper_profile_changed=0" in pipeline
+
+
+def test_readiness_does_not_turn_scoped_event_into_global_shadow_only() -> None:
+    source = Path("src/scripts/analytics/build_monday_readiness_v1.py").read_text()
+    assert "event_is_global='*' in patterns" in source
+    assert "risk in {'SHOCK','ELEVATED'} and event_is_global" in source
+    assert "runtime_per_symbol_gate_required" in source

@@ -13,10 +13,12 @@ MSK=ZoneInfo('Europe/Moscow')
 def main()->int:
  now=datetime.now(MSK); manager=SessionManager(); session=manager.get_regime('BRQ6@RTSX',market_data_live=False,now=now)
  with psycopg2.connect(os.environ['DATABASE_URL']) as conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
-  cur.execute("""SELECT event_code,risk_level,title_ru FROM analytics.market_event_risk_v1
+  cur.execute("""SELECT event_code,risk_level,title_ru,symbol_patterns FROM analytics.market_event_risk_v1
    WHERE is_active AND starts_at<=clock_timestamp() AND (expires_at IS NULL OR expires_at>clock_timestamp())
    ORDER BY CASE risk_level WHEN 'SHOCK' THEN 1 WHEN 'ELEVATED' THEN 2 WHEN 'RECOVERY' THEN 3 ELSE 4 END LIMIT 1""")
   event=cur.fetchone() or {}; risk=str(event.get('risk_level') or 'NORMAL')
+  patterns=list(event.get('symbol_patterns') or [])
+  event_is_global='*' in patterns
   cur.execute("""SELECT
    (SELECT max(ts) FROM market_bars WHERE symbol='IMOEX2' AND timeframe='M1') mx,
    (SELECT max(ts) FROM market_bars WHERE (symbol='RVI' OR symbol LIKE 'VI%%@RTSX') AND timeframe='M1') rvi,
@@ -29,12 +31,19 @@ def main()->int:
   mx_fresh=bool(x['mx'] and 0<=(datetime.now(timezone.utc)-x['mx']).total_seconds()<=600)
   rvi_fresh=bool(x['rvi'] and 0<=(datetime.now(timezone.utc)-x['rvi']).total_seconds()<=1800)
   if session.get('reason')=='exchange_calendar_closed': verdict,reason='CALENDAR_CLOSED','EXCHANGE_CALENDAR_CLOSED'
-  elif risk in {'SHOCK','ELEVATED'}: verdict,reason='SHADOW_ONLY',f'ACTIVE_EVENT_{risk}'
+  elif risk in {'SHOCK','ELEVATED'} and event_is_global:
+   verdict,reason='SHADOW_ONLY',f'ACTIVE_GLOBAL_EVENT_{risk}'
   elif int(x['mx_m15'] or 0)<2: verdict,reason='WAIT','MX_M15_WARMUP'
   elif not mx_fresh or not rvi_fresh: verdict,reason='BLOCK','MARKET_CONTEXT_NOT_FRESH'
   elif risk=='RECOVERY': verdict,reason='RECOVERY_CHECK','PER_SYMBOL_SHOCK_GATE_REQUIRED'
-  else: verdict,reason='PAPER_READY','BASE_CONTEXT_READY'
-  details={'event_title':event.get('title_ru'),'next_open':manager.next_entry_session(symbol='BRQ6@RTSX',now=now).isoformat()}
+  else:
+   verdict='PAPER_READY'
+   reason=(f'BASE_CONTEXT_READY_SCOPED_EVENT_{risk}'
+           if risk in {'SHOCK','ELEVATED'} else 'BASE_CONTEXT_READY')
+  details={'event_title':event.get('title_ru'),'event_symbol_patterns':patterns,
+           'event_scope':'GLOBAL' if event_is_global else 'PER_SYMBOL',
+           'runtime_per_symbol_gate_required':bool(event and not event_is_global),
+           'next_open':manager.next_entry_session(symbol='BRQ6@RTSX',now=now).isoformat()}
   cur.execute("""INSERT INTO analytics.monday_readiness_snapshot_v1(session_phase,event_code,risk_level,
    mx_last_ts,rvi_last_ts,mx_fresh,rvi_fresh,completed_mx_m15,active_positions,oos_runs,
    verdict_code,reason_code,details) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
