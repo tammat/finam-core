@@ -13,7 +13,7 @@ def test_home_sections_cover_status_trades_evidence_and_action() -> None:
     nodes = list(walk(document.root))
     sections = [node.node_id for node in nodes if node.node_type is RenderNodeTypeV2.SECTION]
     assert sections == [
-        "home.compact.now", "home.compact.focus", "home.compact.progress",
+        "home.compact.now", "home.compact.signals", "home.compact.focus", "home.compact.progress",
         "home.compact.trades.equities", "home.compact.trades.futures",
         "home.compact.attention",
     ]
@@ -198,6 +198,17 @@ def test_home_shows_market_state_and_regime_feed_freshness() -> None:
     state = next(value for value in values if "IMOEX2:" in value and "RVI:" in value)
     assert "тренд " in state and "диапазон " in state and "шок " in state
     assert any(arrow in state for arrow in ("⬆️ рост", "⬇️ снижение", "➡️ флэт"))
+
+
+def test_home_shows_unique_signals_and_paper_admission() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    values = [
+        str(node.content.value) for node in walk(document.root)
+        if node.content and node.content.value
+    ]
+    assert "Сигналы сегодня" in values
+    assert any("уникальных условий" in value and "допущено Paper" in value for value in values)
+    assert any("повторные циклы скрыты" in value for value in values)
 
 
 def test_home_separates_equity_and_futures_open_times() -> None:

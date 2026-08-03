@@ -1106,12 +1106,58 @@ def _focus_candidates_section(snapshot):
     ))
 
 
+def _signals_today_section(snapshot, timezone_code):
+    rows = []
+    summary = snapshot.get("signal_summary_today") or {}
+    total = int(summary.get("unique_total") or 0)
+    allowed = int(summary.get("allowed") or 0)
+    rejected = int(summary.get("shadow_or_rejected") or 0)
+    rows.append(_row(
+        "signals.summary", "Итого",
+        f"уникальных условий {total} · допущено Paper {allowed} · Shadow/заблокировано {rejected}",
+        status="OK" if allowed else "WARNING",
+    ))
+    side_labels = {"BUY": "LONG", "SELL": "SHORT", "LONG": "LONG", "SHORT": "SHORT"}
+    reason_labels = {
+        "paper_shadow_only_no_promoted_oos": "Shadow: ожидает OOS PASS",
+        "market_context:INDEX_ONLY:RVI_NOT_FRESH_PAPER_BLOCKED": "Shadow: RVI ещё не свежий",
+    }
+    zone = ZoneInfo(timezone_code)
+    for index, item in enumerate((snapshot.get("recent_unique_signals") or ())[:8], start=1):
+        observed_at = item.get("observed_at")
+        time_text = observed_at.astimezone(zone).strftime("%H:%M") if observed_at else "—"
+        status_code = str(item.get("status") or "UNKNOWN").upper()
+        reason = str(item.get("rejection_reason") or "")
+        is_allowed = status_code in {"NEW", "RISK_ACCEPTED", "FILLED", "OPEN", "EXECUTED"}
+        if is_allowed:
+            verdict = "допущен в Paper" if status_code != "FILLED" else "исполнен Paper"
+            tone = "OK"
+        else:
+            verdict = reason_labels.get(reason, reason.replace("_", " ") or "отклонён защитным фильтром")
+            tone = "WARNING" if reason in reason_labels else "BLOCKED"
+        rows.append(_row(
+            f"signals.{index}",
+            f"{_instrument_name(item)} · {side_labels.get(str(item.get('side') or '').upper(), item.get('side') or '—')}",
+            f"{time_text} · {verdict}", status=tone,
+            source="public.signals", source_as_of=observed_at,
+        ))
+    if total == 0:
+        rows.append(_row("signals.empty", "Сигналы", "сегодня уникальных условий пока нет", status="WARNING"))
+    return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.signals", children=(
+        _leaf(RenderNodeTypeV2.TITLE, "home.compact.signals.title", "Сигналы сегодня", level="SECTION"),
+        _leaf(RenderNodeTypeV2.TEXT, "home.compact.signals.help",
+              "Показаны уникальные условия завершённых свечей; повторные циклы скрыты."),
+        RenderNodeV2(RenderNodeTypeV2.METRIC_LIST, "home.compact.signals.metrics", children=tuple(rows)),
+    ))
+
+
 def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "home.compact.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.title", "MarketCore", level="PAGE"),
         _leaf(RenderNodeTypeV2.SUBTITLE, "home.compact.subtitle",
               "Поиск преимущества · без реальных сделок"),
         _now_section(snapshot),
+        _signals_today_section(snapshot, timezone_code),
         _focus_candidates_section(snapshot),
         _progress_section(snapshot),
         _recent_trades_section(snapshot, timezone_code, futures=False),

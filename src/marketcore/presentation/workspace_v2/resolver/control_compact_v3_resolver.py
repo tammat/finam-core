@@ -781,6 +781,63 @@ class ControlCompactV3Resolver:
                              r.updated_at DESC LIMIT 12""")
                 v5_oos_runs = [dict(row) for row in cursor.fetchall()]
 
+                cursor.execute("""WITH normalized AS (
+                    SELECT signal_id,symbol,strategy,side,status,rejection_reason,
+                           coalesce(ts,created_at) AS observed_at,
+                           upper(coalesce(nullif(timeframe,''),'M5')) AS timeframe,
+                           coalesce(
+                             nullif(payload->'features'->>'regime_bar_ts',''),
+                             nullif(payload->>'event_bar_ts',''),
+                             to_char(
+                               date_bin(interval '5 minutes',coalesce(ts,created_at),
+                                        timestamptz '2000-01-01 00:00:00+00'),
+                               'YYYY-MM-DD"T"HH24:MI:SSOF'
+                             )
+                           ) AS completed_bar_key
+                    FROM signals
+                    WHERE coalesce(ts,created_at) >=
+                          date_trunc('day',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+                          AT TIME ZONE 'Europe/Moscow'
+                ), ranked AS (
+                    SELECT *,row_number() OVER(
+                      PARTITION BY symbol,strategy,upper(side),timeframe,completed_bar_key
+                      ORDER BY observed_at DESC,signal_id DESC
+                    ) AS rn
+                    FROM normalized
+                )
+                SELECT signal_id,symbol,strategy,side,status,rejection_reason,
+                       observed_at,timeframe,completed_bar_key
+                FROM ranked WHERE rn=1
+                ORDER BY observed_at DESC LIMIT 12""")
+                recent_unique_signals = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""WITH normalized AS (
+                    SELECT symbol,strategy,upper(side) side,timeframe,status,
+                           coalesce(
+                             nullif(payload->'features'->>'regime_bar_ts',''),
+                             nullif(payload->>'event_bar_ts',''),
+                             to_char(date_bin(interval '5 minutes',coalesce(ts,created_at),
+                                              timestamptz '2000-01-01 00:00:00+00'),
+                                     'YYYY-MM-DD"T"HH24:MI:SSOF')
+                           ) completed_bar_key,
+                           row_number() OVER(
+                             PARTITION BY symbol,strategy,upper(side),timeframe,
+                               coalesce(nullif(payload->'features'->>'regime_bar_ts',''),
+                                 nullif(payload->>'event_bar_ts',''),
+                                 to_char(date_bin(interval '5 minutes',coalesce(ts,created_at),
+                                                  timestamptz '2000-01-01 00:00:00+00'),
+                                         'YYYY-MM-DD"T"HH24:MI:SSOF'))
+                             ORDER BY coalesce(ts,created_at) DESC
+                           ) rn
+                    FROM signals
+                    WHERE coalesce(ts,created_at) >=
+                          date_trunc('day',clock_timestamp() AT TIME ZONE 'Europe/Moscow')
+                          AT TIME ZONE 'Europe/Moscow'
+                ) SELECT count(*)::int unique_total,
+                    count(*) FILTER(WHERE status IN ('NEW','RISK_ACCEPTED','FILLED','OPEN','EXECUTED'))::int allowed,
+                    count(*) FILTER(WHERE status='RISK_REJECTED')::int shadow_or_rejected
+                  FROM normalized WHERE rn=1""")
+                signal_summary_today = dict(cursor.fetchone() or {})
+
                 cursor.execute("""SELECT * FROM analytics.market_regime_context_v1
                     ORDER BY context_ts DESC LIMIT 1""")
                 market_regime_context = dict(cursor.fetchone() or {})
@@ -1020,6 +1077,8 @@ class ControlCompactV3Resolver:
             "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,
+            "recent_unique_signals": recent_unique_signals,
+            "signal_summary_today": signal_summary_today,
             "market_regime_context": market_regime_context,
             "market_regime_shadow_variants": market_regime_shadow_variants,
             "shadow_dynamics": shadow_dynamics,
