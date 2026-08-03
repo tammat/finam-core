@@ -12,8 +12,51 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
+
+
+def completed_bar_signal_id_v1(intent: dict) -> str | None:
+    """Return one stable id per instrument/strategy/side/completed bar.
+
+    A quote loop may evaluate the same closed M1/M5 condition many times.  The
+    completed regime/event bar, rather than wall-clock evaluation time or the
+    moving quote, is the causal grain of an independent signal.
+    """
+    features = intent.get("features") if isinstance(intent.get("features"), dict) else {}
+    source = str(intent.get("source") or "")
+    bar_ts = (
+        intent.get("event_bar_ts")
+        or intent.get("signal_bar_ts")
+        or features.get("event_bar_ts")
+        or features.get("signal_bar_ts")
+        or features.get("regime_bar_ts")
+    )
+    if bar_ts is None and source == "equity_closed_bar":
+        bar_ts = intent.get("ts")
+    if bar_ts is None:
+        return None
+    if isinstance(bar_ts, datetime):
+        parsed_bar_ts = bar_ts
+    else:
+        try:
+            parsed_bar_ts = datetime.fromisoformat(str(bar_ts).replace("Z", "+00:00"))
+        except ValueError:
+            parsed_bar_ts = None
+    if parsed_bar_ts is not None:
+        if parsed_bar_ts.tzinfo is None:
+            parsed_bar_ts = parsed_bar_ts.replace(tzinfo=timezone.utc)
+        bar_ts = parsed_bar_ts.astimezone(timezone.utc).isoformat()
+    symbol = str(intent.get("symbol") or "").upper()
+    strategy = str(intent.get("strategy") or features.get("strategy") or "UNASSIGNED").upper()
+    side = str(intent.get("side") or "UNKNOWN").upper()
+    timeframe = str(intent.get("timeframe") or features.get("regime_timeframe") or "M5").upper()
+    if timeframe in {"", "LIVE"}:
+        timeframe = "M1" if symbol.startswith("NG") else "M5"
+    raw = "|".join((symbol, strategy, side, timeframe, str(bar_ts)))
+    return "bar-signal:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 class SignalRepository:
@@ -32,7 +75,8 @@ class SignalRepository:
             conn.close()
 
     def save_signal(self, intent: dict) -> str:
-        signal_id = str(intent.get("signal_id") or uuid.uuid4())
+        signal_id = str(completed_bar_signal_id_v1(intent) or intent.get("signal_id") or uuid.uuid4())
+        intent["signal_id"] = signal_id
         symbol = str(intent.get("symbol") or "")
         raw_timeframe = str(intent.get("timeframe") or "").upper()
         normalized_timeframe = (
@@ -112,6 +156,9 @@ class SignalRepository:
                     intent.get("symbol"),
                 ),
                 )
+                # Lightweight test/dummy cursors may not expose rowcount; real
+                # psycopg cursors do, and report 0 for ON CONFLICT DO NOTHING.
+                intent["_signal_persisted_new"] = int(getattr(cur, "rowcount", 1)) > 0
             conn.commit()
         finally:
             self._release_connection(conn, managed)

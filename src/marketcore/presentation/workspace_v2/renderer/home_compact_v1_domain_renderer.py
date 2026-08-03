@@ -128,8 +128,10 @@ def _market_state_text(snapshot):
             context_ts = context_ts.astimezone(ZoneInfo("Europe/Moscow"))
         as_of = f" · контекст {context_ts.strftime('%d.%m %H:%M')} МСК"
     text = f"{direction} · {family_ru} · {probabilities} · {'; '.join(feed_labels)}{as_of}"
-    ready = (freshness.get("IMOEX2") or {}).get("quality_code") == "READY"
-    status = direction_status if ready and context.get("rvi_fresh") else "WARNING"
+    # Direction owns the leading traffic light. Feed freshness remains explicit
+    # in the text and in the separate Data row, so an UP trend is not rendered
+    # as a yellow/flat market merely because RVI has not opened yet.
+    status = direction_status
     return text, status, context.get("calculated_at") or context.get("context_ts")
 
 

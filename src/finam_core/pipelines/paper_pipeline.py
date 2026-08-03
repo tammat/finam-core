@@ -5846,6 +5846,13 @@ class PaperTradingPipeline:
             if getattr(self, "signal_repository", None) is not None:
                 signal_id = self.signal_repository.save_signal(intent)
                 intent["signal_id"] = signal_id
+                if not bool(intent.pop("_signal_persisted_new", True)):
+                    self._log_dedup(
+                        f"PIPE_COMPLETED_BAR_SIGNAL_DUPLICATE:{signal_id}",
+                        f"PIPE_COMPLETED_BAR_SIGNAL_DUPLICATE signal_id={signal_id}",
+                        heartbeat_sec=300,
+                    )
+                    return
 
                 # Русский комментарий: runtime guard soft-block enrichment — только обогащение features, без блокировки исполнения.
                 try:
@@ -9729,9 +9736,7 @@ class PaperTradingPipeline:
     def _pre_signal_candidate_key_v1(self, raw_intent, symbol: str, regime) -> str:
         from datetime import datetime, timezone
 
-        from finam_core.analytics.market_context_admission_v1 import (
-            independent_candidate_key_v1,
-        )
+        from finam_core.analytics.signal_repository import completed_bar_signal_id_v1
 
         price = float(
             self._pre_signal_intent_value_v1(
@@ -9750,13 +9755,22 @@ class PaperTradingPipeline:
             )
         )
         side = str(self._pre_signal_intent_value_v1(raw_intent, "side", "UNKNOWN"))
+        bar_ts = getattr(regime, "bar_ts", None)
+        stable = completed_bar_signal_id_v1({
+            "strategy": strategy,
+            "symbol": symbol,
+            "side": side,
+            "timeframe": self._pre_signal_intent_value_v1(raw_intent, "timeframe", "M5"),
+            "features": {"regime_bar_ts": bar_ts},
+        })
+        if stable:
+            return stable
+        # Fail closed to the existing embargo key only when no completed bar is
+        # available; such a candidate cannot be counted as completed-bar V5 evidence.
+        from finam_core.analytics.market_context_admission_v1 import independent_candidate_key_v1
         return independent_candidate_key_v1(
-            strategy=strategy,
-            symbol=symbol,
-            side=side,
-            event_ts=datetime.now(timezone.utc),
-            price=price,
-            atr=atr,
+            strategy=strategy, symbol=symbol, side=side,
+            event_ts=datetime.now(timezone.utc), price=price, atr=atr,
             regime=str(getattr(regime, "type", None) or getattr(regime, "trend", "UNKNOWN")),
             futures=symbol.upper().endswith("@RTSX"),
         )
@@ -9813,6 +9827,12 @@ class PaperTradingPipeline:
                 "shadow_only": True,
             })
             signal_id = repository.save_signal(intent)
+            if not bool(intent.pop("_signal_persisted_new", True)):
+                print(
+                    f"PIPE_PRE_SIGNAL_SHADOW_DEDUP symbol={symbol} signal_id={signal_id}",
+                    flush=True,
+                )
+                return True
             repository.mark_rejected(
                 signal_id,
                 f"market_context:{market_context.mode}:{market_context.reason}",
@@ -12129,6 +12149,13 @@ class PaperTradingPipeline:
             repository = getattr(self, "signal_repository", None)
             if repository is not None:
                 signal_id = repository.save_signal(intent)
+                if not bool(intent.pop("_signal_persisted_new", True)):
+                    print(
+                        "PIPE_EQUITY_CLOSED_BAR_SIGNAL_DEDUP "
+                        f"symbol={symbol} timeframe={timeframe} signal_id={signal_id}",
+                        flush=True,
+                    )
+                    return
             else:
                 self.pg_logger.log_signal(
                     symbol=symbol,
