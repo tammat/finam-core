@@ -24,6 +24,17 @@
         "container.program": "/workspace-v2/program",
         "container.settings": "/workspace-v2/settings"
     });
+    const AUTO_REFRESH_TARGETS = new Set([
+        "container.home",
+        "container.capital",
+        "container.edge",
+        "container.research",
+        "container.intraday",
+        "container.portfolio",
+        "container.risk",
+        "container.program"
+    ]);
+    const AUTO_REFRESH_INTERVAL_MS = 10000;
 
     function initialTarget(pathname) {
         const path = String(pathname || "").toLowerCase();
@@ -275,15 +286,19 @@
         syncRoute(currentTargetId, true);
         updateBackButton();
         mountElement.setAttribute("data-runtime-status", "READY");
-        globalObject.setInterval(async () => {
+        const refreshVisiblePanel = async () => {
             if (refreshInFlight || globalObject.document.visibilityState !== "visible") return;
-            if (!currentTargetId || !["container.edge", "container.research"].includes(currentTargetId)) return;
+            if (!currentTargetId || !AUTO_REFRESH_TARGETS.has(currentTargetId)) return;
             if (globalObject.document.querySelector("[role='dialog']")) return;
             refreshInFlight = true;
             try { await render(currentEndpoint, {preserveState: true}); }
             catch (error) { globalObject.console.error("MARKETCORE_AUTO_REFRESH_FAILED", error); }
             finally { refreshInFlight = false; }
-        }, 5000);
+        };
+        globalObject.setInterval(refreshVisiblePanel, AUTO_REFRESH_INTERVAL_MS);
+        globalObject.document.addEventListener("visibilitychange", () => {
+            if (globalObject.document.visibilityState === "visible") refreshVisiblePanel();
+        });
     }
 
     const launch = () => start().catch((error) => {

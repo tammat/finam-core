@@ -35,4 +35,8 @@ def test_manual_reload_starts_at_top_without_losing_panel_controls() -> None:
 def test_refresh_timer_is_single_and_does_not_reset_research_twice() -> None:
     source = BOOTSTRAP.read_text(encoding="utf-8")
     assert "researchRefreshTimer" not in source
-    assert source.count("globalObject.setInterval(async () =>") == 1
+    assert source.count("globalObject.setInterval(refreshVisiblePanel") == 1
+    assert '"container.home"' in source
+    assert "AUTO_REFRESH_TARGETS.has(currentTargetId)" in source
+    assert "AUTO_REFRESH_INTERVAL_MS = 10000" in source
+    assert 'addEventListener("visibilitychange"' in source

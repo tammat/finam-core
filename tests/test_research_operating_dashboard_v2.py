@@ -57,9 +57,10 @@ def test_research_page_auto_refreshes_process_state() -> None:
     shell = Path(
         "src/marketcore/presentation/ui_runtime/assets/v2/workspace_shell_bootstrap_v2.js"
     ).read_text()
-    assert 'currentTargetId === "container.research"' in shell
-    assert "globalObject.setInterval" in shell
-    assert "10000" in shell
+    assert '"container.research"' in shell
+    assert "AUTO_REFRESH_TARGETS.has(currentTargetId)" in shell
+    assert "globalObject.setInterval(refreshVisiblePanel" in shell
+    assert "AUTO_REFRESH_INTERVAL_MS = 10000" in shell
 
 
 def test_status_is_first_column_and_uses_progress_bar() -> None:
