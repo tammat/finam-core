@@ -2,9 +2,9 @@
 Description=Run Finam Core multi-asset breakout history collector periodically
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=30s
+OnCalendar=*-*-* 00:40:00 Europe/Moscow
+RandomizedDelaySec=2min
+AccuracySec=1min
 Persistent=true
 Unit=finam-multi-asset-breakout-history.service
 

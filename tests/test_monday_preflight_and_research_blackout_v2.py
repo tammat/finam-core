@@ -16,7 +16,7 @@ SPEC.loader.exec_module(MODULE)
 def test_weekday_market_open_blackout() -> None:
     allowed, reason = MODULE.admission_decision(datetime(2026, 8, 3, 6, 50, tzinfo=MSK))
     assert not allowed
-    assert reason == "MARKET_OPEN_BLACKOUT_0640_0720_MSK"
+    assert reason == "PROTECTED_MARKET_OPEN_WINDOW"
 
 
 def test_preflight_is_timeframe_aware() -> None:
@@ -39,9 +39,9 @@ def test_preflight_is_timeframe_aware() -> None:
 
 def test_timer_has_three_open_checkpoints() -> None:
     timer = (ROOT / "deploy/systemd/finam-monday-preflight-v2.timer").read_text()
+    assert "06:20:00" in timer
+    assert "06:35:00" in timer
     assert "06:45:00" in timer
-    assert "06:56:00" in timer
-    assert "07:06:00" in timer
 
 
 def test_orphan_cleanup_is_quarantined_and_recoverable() -> None:

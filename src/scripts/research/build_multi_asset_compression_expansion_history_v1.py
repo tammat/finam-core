@@ -10,6 +10,8 @@ import sys
 import psycopg
 from psycopg.rows import dict_row
 
+from marketcore.research_window_guard_v1 import is_market_opening_guard
+
 
 WATCH_SCRIPT = "src/scripts/research/build_multi_asset_compression_expansion_watch_v1.py"
 
@@ -89,6 +91,9 @@ def migrate(cur) -> None:
 
 
 def main() -> int:
+    if is_market_opening_guard():
+        print("MULTI_ASSET_COMPRESSION_HISTORY_DEFERRED reason=PROTECTED_MARKET_OPEN_WINDOW")
+        return 0
     parser = argparse.ArgumentParser()
     parser.add_argument("--migrate", action="store_true")
     parser.add_argument("--save", action="store_true")

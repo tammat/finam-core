@@ -6,6 +6,8 @@ from pathlib import Path
 
 import psycopg2
 
+from marketcore.research_window_guard_v1 import require_off_market_research_window
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -57,6 +59,7 @@ def regime_targets() -> list[str]:
 
 
 def main() -> None:
+    require_off_market_research_window("EDGE_HYPOTHESIS_PIPELINE_V1")
     run("src/scripts/build_relationship_data_quality_gate_v1.py")
     targets = regime_targets()
     if targets:

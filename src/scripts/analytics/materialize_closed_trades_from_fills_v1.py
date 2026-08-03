@@ -84,6 +84,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--symbol-pattern", default=os.getenv("PAPER_MATERIALIZER_SYMBOL_PATTERN"))
     p.add_argument("--from-ts", default=os.getenv("PAPER_MATERIALIZER_FROM_TS"))
     p.add_argument("--to-ts", default=os.getenv("PAPER_MATERIALIZER_TO_TS"))
+    p.add_argument(
+        "--max-symbols",
+        type=int,
+        default=int(os.getenv("PAPER_MATERIALIZER_MAX_SYMBOLS", "4")),
+        help="Maximum automatically discovered symbols per checkpointed cycle",
+    )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--replace", action="store_true")
@@ -134,10 +140,11 @@ def load_symbols(conn, args: argparse.Namespace) -> list[str]:
                WHERE ct.symbol=s.symbol AND ct.source='paper_fill_materializer_v2'
                  AND ct.payload->'pnl_units'->>'version' IS DISTINCT FROM 'PNL_UNITS_V2_RUB'
            )
-        ORDER BY s.symbol
+        ORDER BY c.last_success_at NULLS FIRST,s.symbol
         """
     ).fetchall()
-    return [r["symbol"] for r in rows]
+    symbols = [r["symbol"] for r in rows]
+    return symbols[:max(1, args.max_symbols)]
 
 
 def save_checkpoint(conn, symbol: str) -> None:

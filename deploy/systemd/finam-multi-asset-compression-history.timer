@@ -2,8 +2,9 @@
 Description=Run Finam Core Multi Asset Compression Expansion History Snapshot every 5 minutes
 
 [Timer]
-OnBootSec=2min
-OnUnitInactiveSec=5min
+OnCalendar=*-*-* 01:10:00 Europe/Moscow
+RandomizedDelaySec=2min
+AccuracySec=1min
 Unit=finam-multi-asset-compression-history.service
 Persistent=true
 

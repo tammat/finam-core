@@ -49,10 +49,15 @@ echo "=== CRYPTO DAILY BACKFILL JOB V1 ==="
 date -Is
 
 "$PY_BIN" src/scripts/research/binance_crypto_backfill_v1.py \
-  --symbols BTCUSD,ETHUSD \
+  --symbols BTCUSD \
   --timeframes M1,M5 \
   --hours 30 \
   --apply
+
+# BTC remains a research-only context and is calculated directly from bars.
+# It never creates execution intents or Paper profiles.
+RUNTIME_ALLOW_TRADING=0 EXECUTION_ENABLED=0 REAL_TRADING_ENABLED=0 \
+  "$PY_BIN" src/scripts/research/build_btc_regime_shadow_v1.py
 
 "$PY_BIN" src/scripts/observability/build_crypto_research_dashboard_v1.py
 

@@ -4,6 +4,8 @@ import os
 import sys
 import subprocess
 
+from marketcore.research_window_guard_v1 import is_market_opening_guard
+
 
 def run(cmd: list[str]) -> None:
     print("RUNTIME_REBALANCE_RUN " + " ".join(cmd), flush=True)
@@ -15,7 +17,7 @@ def main() -> int:
     env = os.environ.copy()
     env["PYTHONPATH"] = env.get("PYTHONPATH", "src")
 
-    steps = [
+    research_steps = [
         [python_bin, "src/scripts/aggregate_continuous_smart_money.py"],
         [python_bin, "src/scripts/classify_institutional_flow_regime.py"],
         [python_bin, "src/scripts/select_cross_contract_liquidity.py"],
@@ -25,9 +27,16 @@ def main() -> int:
         [python_bin, "src/scripts/update_market_opportunity_scores_v2.py"],
         [python_bin, "src/scripts/update_dynamic_watchlist_from_opportunities.py"],
         [python_bin, "src/scripts/run_runtime_universe_allocator.py"],
+    ]
+    risk_steps = [
         [python_bin, "src/scripts/update_market_event_calendar.py"],
         [python_bin, "src/scripts/send_market_event_calendar_alerts_telegram.py"],
     ]
+
+    opening_guard = is_market_opening_guard()
+    steps = risk_steps if opening_guard else [*research_steps, *risk_steps]
+    if opening_guard:
+        print("RUNTIME_REBALANCE_RESEARCH_DEFERRED reason=PROTECTED_MARKET_OPEN_WINDOW")
 
     for cmd in steps:
         subprocess.run(cmd, env=env, check=True)

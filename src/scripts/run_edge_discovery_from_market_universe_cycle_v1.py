@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from marketcore.research_window_guard_v1 import is_market_opening_guard
+
 ROOT = Path(__file__).resolve().parents[2]
 
 STEPS = [
@@ -15,6 +17,13 @@ STEPS = [
 
 def main() -> None:
     print("=== EDGE_DISCOVERY_FROM_MARKET_UNIVERSE_CYCLE_V1 ===", flush=True)
+
+    if is_market_opening_guard():
+        print("EDGE_DISCOVERY_DEFERRED reason=PROTECTED_MARKET_OPEN_WINDOW")
+        print("runtime_changed=0")
+        print("execution_changed=0")
+        print("VERDICT=EDGE_DISCOVERY_FROM_MARKET_UNIVERSE_CYCLE_V1_DEFERRED")
+        return
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")

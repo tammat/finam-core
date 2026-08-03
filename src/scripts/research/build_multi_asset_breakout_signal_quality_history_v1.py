@@ -15,6 +15,8 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from marketcore.research_window_guard_v1 import is_market_opening_guard
+
 
 ROOT = Path("/opt/finam-core")
 V2_SCRIPT = "src/scripts/research/build_multi_asset_breakout_watch_v2.py"
@@ -330,6 +332,9 @@ def save_snapshot(conn: psycopg.Connection, output: str, rows: list[dict[str, An
 
 
 def main() -> int:
+    if is_market_opening_guard():
+        print("MULTI_ASSET_BREAKOUT_HISTORY_DEFERRED reason=PROTECTED_MARKET_OPEN_WINDOW")
+        return 0
     parser = argparse.ArgumentParser()
     parser.add_argument("--migrate", action="store_true")
     parser.add_argument("--save", action="store_true")

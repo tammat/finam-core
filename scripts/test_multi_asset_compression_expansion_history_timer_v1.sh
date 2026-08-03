@@ -10,7 +10,7 @@ systemctl cat finam-multi-asset-compression-history.service | grep -q "build_mul
 systemctl cat finam-multi-asset-compression-history.service | grep -q "EXECUTION_ENABLED=0"
 systemctl cat finam-multi-asset-compression-history.service | grep -q "REAL_TRADING_ENABLED=0"
 
-systemctl cat finam-multi-asset-compression-history.timer | grep -q "OnUnitInactiveSec=5min"
+systemctl cat finam-multi-asset-compression-history.timer | grep -q "OnCalendar=\*-\*-\* 01:10:00 Europe/Moscow"
 
 psql "$DATABASE_URL" -c "
 select

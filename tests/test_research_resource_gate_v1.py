@@ -1,5 +1,7 @@
 from importlib.util import module_from_spec, spec_from_file_location
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +20,10 @@ def test_heavy_research_is_deferred_when_four_core_host_is_busy(monkeypatch) -> 
     scheduler = load_scheduler()
     monkeypatch.setattr(scheduler, "load_average_1m", lambda: 3.2)
     monkeypatch.setenv("RESEARCH_HEAVY_LOAD_LIMIT", "3.0")
-    allowed, load_1m, limit, reason = scheduler.resource_gate("CHECKPOINTED_WALKFORWARD_V4")
+    outside_guard = datetime(2026, 8, 2, 6, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+    allowed, load_1m, limit, reason = scheduler.resource_gate(
+        "CHECKPOINTED_WALKFORWARD_V4", outside_guard,
+    )
     assert allowed is False
     assert (load_1m, limit, reason) == (3.2, 3.0, "HOST_LOAD_ABOVE_LIMIT")
 
@@ -27,6 +32,26 @@ def test_light_online_job_is_never_deferred_by_research_load(monkeypatch) -> Non
     scheduler = load_scheduler()
     monkeypatch.setattr(scheduler, "load_average_1m", lambda: 9.0)
     allowed, _, _, reason = scheduler.resource_gate("MONDAY_READINESS_V1")
+    assert allowed is True
+    assert reason == "ONLINE_OR_LIGHT_JOB"
+
+
+def test_heavy_job_is_deferred_during_market_opening_guard(monkeypatch) -> None:
+    scheduler = load_scheduler()
+    monkeypatch.setattr(scheduler, "load_average_1m", lambda: 0.1)
+    now = datetime(2026, 8, 3, 6, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+    allowed, _, _, reason = scheduler.resource_gate(
+        "CHECKPOINTED_WALKFORWARD_V4", now,
+    )
+    assert allowed is False
+    assert reason == "PROTECTED_MARKET_OPEN_WINDOW"
+
+
+def test_light_job_is_allowed_during_market_opening_guard(monkeypatch) -> None:
+    scheduler = load_scheduler()
+    monkeypatch.setattr(scheduler, "load_average_1m", lambda: 99.0)
+    now = datetime(2026, 8, 3, 6, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+    allowed, _, _, reason = scheduler.resource_gate("MONDAY_READINESS_V1", now)
     assert allowed is True
     assert reason == "ONLINE_OR_LIGHT_JOB"
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from finam_core.research.research_runtime_state_repository import (
     ResearchRuntimeStateRepository,
 )
+from marketcore.research_window_guard_v1 import is_market_opening_guard
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,17 @@ class ResearchRuntimeSupervisor:
 
     def run_cycle(self) -> int:
         symbols_arg = ",".join(self.config.symbols)
+
+        if is_market_opening_guard():
+            reason = "PROTECTED_MARKET_OPEN_WINDOW"
+            self.repository.upsert_state(
+                supervisor_name=self.config.supervisor_name,
+                status="DEFERRED",
+                active_symbols=symbols_arg,
+                last_error=reason,
+            )
+            print(f"RESEARCH_RUNTIME_SUPERVISOR_DEFERRED reason={reason}", flush=True)
+            return 0
 
         load_1m = os.getloadavg()[0]
         load_limit = max(1.0, float(os.getenv("RESEARCH_RUNTIME_MAX_LOAD_1M", "3.0")))

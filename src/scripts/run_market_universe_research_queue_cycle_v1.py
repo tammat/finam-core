@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from marketcore.research_window_guard_v1 import is_market_opening_guard
+
 ROOT = Path(__file__).resolve().parents[2]
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 
@@ -39,9 +41,8 @@ def admission_decision(now: datetime | None = None) -> tuple[bool, str]:
     local = (now or datetime.now(ZoneInfo("Europe/Moscow"))).astimezone(
         ZoneInfo("Europe/Moscow")
     )
-    minute = local.hour * 60 + local.minute
-    if local.weekday() < 5 and 6 * 60 + 40 <= minute < 7 * 60 + 20:
-        return False, "MARKET_OPEN_BLACKOUT_0640_0720_MSK"
+    if is_market_opening_guard(local):
+        return False, "PROTECTED_MARKET_OPEN_WINDOW"
     load_1m = os.getloadavg()[0]
     limit = max(1.0, float(os.getenv("MARKET_UNIVERSE_QUEUE_MAX_LOAD_1M", "3.0")))
     if load_1m >= limit:

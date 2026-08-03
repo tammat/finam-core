@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 
+from marketcore.research_window_guard_v1 import is_market_opening_guard
+
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 ROOT = Path("/opt/finam-core")
@@ -107,12 +109,16 @@ def heavy_load_limit() -> float:
         return DEFAULT_HEAVY_LOAD_LIMIT
 
 
-def resource_gate(executor_code: str) -> tuple[bool, float, float, str]:
+def resource_gate(
+    executor_code: str, now: datetime | None = None,
+) -> tuple[bool, float, float, str]:
     """Fail closed only for batch research; online Paper/readiness stays live."""
     load_1m = load_average_1m()
     limit = heavy_load_limit()
     if executor_code not in HEAVY_EXECUTORS:
         return True, load_1m, limit, "ONLINE_OR_LIGHT_JOB"
+    if is_market_opening_guard(now):
+        return False, load_1m, limit, "PROTECTED_MARKET_OPEN_WINDOW"
     if load_1m >= limit:
         return False, load_1m, limit, "HOST_LOAD_ABOVE_LIMIT"
     return True, load_1m, limit, "HEAVY_JOB_HEADROOM_AVAILABLE"
@@ -242,7 +248,7 @@ def main() -> int:
                 if not due(job, now, last_started):
                     continue
                 executor_code = job["executor_code"]
-                allowed, load_1m, load_limit, gate_reason = resource_gate(executor_code)
+                allowed, load_1m, load_limit, gate_reason = resource_gate(executor_code, now)
                 audit_resource_gate(
                     cursor, job_code=job["job_code"], executor_code=executor_code,
                     allowed=allowed, load_1m=load_1m, limit=load_limit,
