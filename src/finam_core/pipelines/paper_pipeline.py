@@ -179,6 +179,28 @@ LOG = logging.getLogger(__name__)
 PIPE_DEBUG = os.getenv("PIPE_DEBUG", "0") == "1"
 
 
+def entry_closed_bar_evaluation_due_v1(
+    cache: dict[str, int],
+    symbol: str,
+    *,
+    now_epoch: float,
+    timeframe_seconds: int = 300,
+) -> bool:
+    """Return true once per wall-clock bar for entry evaluation.
+
+    Position management is intentionally outside this helper.  Wall-clock time
+    is used instead of the quote timestamp so a future-dated vendor event cannot
+    suppress entry evaluation for hours.
+    """
+    interval = max(int(timeframe_seconds), 1)
+    completed_bar_bucket = int(float(now_epoch) // interval) - 1
+    key = str(symbol)
+    if cache.get(key) == completed_bar_bucket:
+        return False
+    cache[key] = completed_bar_bucket
+    return True
+
+
 def futures_overnight_entry_guard_v1(
     *, symbol: str, intent_type: str, now_msk: datetime,
     cutoff_hour: int = 22, cutoff_minute: int = 30,
@@ -4253,6 +4275,29 @@ class PaperTradingPipeline:
             # Existing positions must reach stop/take/trailing, but the session
             # or kill-switch gate still forbids every new entry.
             return
+
+        # Entry discovery is candle-driven.  Quotes still update storage and
+        # every quote still reaches the exit engine above, but the expensive
+        # regime/features/strategy path must run only once for each completed
+        # M5 bar.  This prevents thousands of repeated evaluations of the same
+        # market condition and keeps exits responsive on every tick.
+        if os.getenv("FORCE_ONCE_BUY", "0") != "1":
+            entry_bar_cache = getattr(self, "_entry_closed_bar_cache_v1", None)
+            if entry_bar_cache is None:
+                entry_bar_cache = {}
+                self._entry_closed_bar_cache_v1 = entry_bar_cache
+            if not entry_closed_bar_evaluation_due_v1(
+                entry_bar_cache,
+                str(sym),
+                now_epoch=time.time(),
+                timeframe_seconds=int(os.getenv("ENTRY_EVALUATION_BAR_SECONDS", "300")),
+            ):
+                self._log_dedup(
+                    f"PIPE_ENTRY_WAIT_NEXT_CLOSED_BAR:{sym}",
+                    f"PIPE_ENTRY_WAIT_NEXT_CLOSED_BAR symbol={sym} timeframe=M5 exits_per_tick=1",
+                    heartbeat_sec=300,
+                )
+                return
 
         # =========================================================
         # === FORCE TEST SIGNAL (E2E PIPELINE SMOKE)

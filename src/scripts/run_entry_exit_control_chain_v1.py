@@ -13,6 +13,7 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 STEPS = (
     "src/scripts/analytics/build_entry_exit_optimizer_v1.py",
     "src/scripts/run_reachable_shadow_challenger_gate_v1.py",
+    "src/scripts/check_reachable_shadow_morning_v1.py",
     "src/scripts/run_prospective_shadow_gate_v1.py",
     "src/scripts/maintain_entry_exit_oos_admissions_v1.py",
     "src/scripts/run_v5_purged_oos_worker_v1.py",

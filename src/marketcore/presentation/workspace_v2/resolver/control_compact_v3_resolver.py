@@ -802,6 +802,13 @@ class ControlCompactV3Resolver:
                                WHEN 'ACCUMULATE' THEN 1 ELSE 2 END,
                              challenger_code""")
                 reachable_challengers = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""SELECT status_code,reason_codes,challenger_count,
+                           fresh_symbol_count,matched_count,entered_count,completed_count,
+                           pre_freeze_excluded_count,paper_allowed_count,real_allowed_count,
+                           checked_at
+                    FROM analytics.reachable_shadow_morning_audit_v1
+                    ORDER BY checked_at DESC LIMIT 1""")
+                reachable_morning_audit = dict(cursor.fetchone() or {})
 
                 cursor.execute("""WITH normalized AS (
                     SELECT signal_id,symbol,strategy,side,status,rejection_reason,
@@ -1100,6 +1107,7 @@ class ControlCompactV3Resolver:
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,
             "reachable_challengers": reachable_challengers,
+            "reachable_morning_audit": reachable_morning_audit,
             "recent_unique_signals": recent_unique_signals,
             "signal_summary_today": signal_summary_today,
             "market_regime_context": market_regime_context,

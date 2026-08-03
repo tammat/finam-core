@@ -1125,6 +1125,21 @@ def _reachable_challengers_section(snapshot):
         "EARLY_REJECT": "предварительно отклонён",
     }
     rows = []
+    morning_audit = snapshot.get("reachable_morning_audit") or {}
+    if morning_audit:
+        audit_status = str(morning_audit.get("status_code") or "ATTENTION")
+        rows.append(_row(
+            "reachable.morning-audit", "Утренний аудит",
+            f"{audit_status} · свежие инструменты {int(morning_audit.get('fresh_symbol_count') or 0)}/"
+            f"{int(morning_audit.get('challenger_count') or 0)} · "
+            f"сопоставлено {int(morning_audit.get('matched_count') or 0)} → "
+            f"вошло {int(morning_audit.get('entered_count') or 0)} → "
+            f"завершено {int(morning_audit.get('completed_count') or 0)}",
+            status="OK" if audit_status == "READY" else
+                   "BLOCKED" if audit_status == "BLOCK" else "WARNING",
+            source="analytics.reachable_shadow_morning_audit_v1",
+            source_as_of=morning_audit.get("checked_at"),
+        ))
     for index, item in enumerate(snapshot.get("reachable_challengers") or (), start=1):
         code = str(item.get("challenger_code") or "")
         completed = int(item.get("completed") or 0)
