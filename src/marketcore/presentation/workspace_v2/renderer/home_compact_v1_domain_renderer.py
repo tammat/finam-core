@@ -19,6 +19,19 @@ def _leaf(kind, node_id, value=None, *, level=None, status=None):
 def _row(code, label, value, *, status="OK", source=None, source_as_of=None):
     if source_as_of is not None and source_as_of.tzinfo is not None:
         source_as_of = source_as_of.astimezone(timezone.utc)
+    traffic_light = {
+        "OK": "🟢",
+        "PROFIT": "🟢",
+        "ACTIVE": "🟢",
+        "WARNING": "🟡",
+        "WAIT": "🟡",
+        "PENDING": "🟡",
+        "BLOCKED": "🔴",
+        "ERROR": "🔴",
+        "LOSS": "🔴",
+        "FAILED": "🔴",
+    }.get(str(status or "").upper(), "🟡")
+    display_value = f"{traffic_light} {value}"
     return RenderNodeV2(
         RenderNodeTypeV2.METRIC_ROW,
         f"home.compact.{code}",
@@ -29,7 +42,7 @@ def _row(code, label, value, *, status="OK", source=None, source_as_of=None):
         ),
         children=(
             _leaf(RenderNodeTypeV2.METRIC_LABEL, f"home.compact.{code}.label", label),
-            _leaf(RenderNodeTypeV2.METRIC_VALUE, f"home.compact.{code}.value", value),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE, f"home.compact.{code}.value", display_value),
         ),
     )
 
@@ -78,6 +91,46 @@ def _next_sessions_text(session):
         return f"акции {equity_text} · фьючерсы {futures_text} МСК"
     fallback = futures or equity
     return fallback.astimezone(zone).strftime("%d.%m %H:%M МСК") if fallback else "уточняется"
+
+
+def _market_state_text(snapshot):
+    context = snapshot.get("market_regime_context") or {}
+    freshness = {str(row.get("symbol")): row for row in (snapshot.get("freshness") or ())}
+    family = str(context.get("stable_family") or context.get("candidate_family") or "UNKNOWN").upper()
+    family_ru = {"TREND": "тренд", "RANGE": "диапазон", "SHOCK": "шок"}.get(
+        family, "режим ещё не определён"
+    )
+    mx_trend = str(context.get("mx_trend") or "").upper()
+    if family == "TREND" and mx_trend == "UP":
+        direction, direction_status = "⬆️ рост", "OK"
+    elif family == "TREND" and mx_trend == "DOWN":
+        direction, direction_status = "⬇️ снижение", "ERROR"
+    else:
+        direction, direction_status = "➡️ флэт", "WARNING"
+    probabilities = (
+        f"тренд {float(context.get('trend_probability') or 0) * 100:.0f}% · "
+        f"диапазон {float(context.get('range_probability') or 0) * 100:.0f}% · "
+        f"шок {float(context.get('shock_probability') or 0) * 100:.0f}%"
+    )
+    feed_labels = []
+    for symbol, label in (("IMOEX2", "IMOEX2"), ("MXU6@RTSX", "MX"), ("RVI", "RVI")):
+        code = str((freshness.get(symbol) or {}).get("quality_code") or "NO_DATA")
+        code_ru = {
+            "READY": "свежий", "OUT_OF_SESSION": "вне сессии",
+            "NO_COMPLETED_BARS": "прогревается", "STALE": "устарел",
+            "GAP": "разрыв", "NO_DATA": "нет данных",
+        }.get(code, code.lower())
+        feed_labels.append(f"{label}: {code_ru}")
+    context_ts = context.get("context_ts")
+    as_of = ""
+    if context_ts:
+        if context_ts.tzinfo is not None:
+            context_ts = context_ts.astimezone(ZoneInfo("Europe/Moscow"))
+        as_of = f" · контекст {context_ts.strftime('%d.%m %H:%M')} МСК"
+    text = f"{direction} · {family_ru} · {probabilities} · {'; '.join(feed_labels)}{as_of}"
+    ready = (freshness.get("IMOEX2") or {}).get("quality_code") == "READY"
+    status = direction_status if ready and context.get("rvi_fresh") else "WARNING"
+    return text, status, context.get("calculated_at") or context.get("context_ts")
 
 
 def _now_section(snapshot):
@@ -134,6 +187,7 @@ def _now_section(snapshot):
         risk_label += f" · {shock_reason}"
     readiness = snapshot.get("monday_readiness") or {}
     resources = snapshot.get("research_resource_gate") or {}
+    market_state_text, market_state_status, market_state_as_of = _market_state_text(snapshot)
     readiness_label = {
         "CALENDAR_CLOSED": "биржа закрыта по календарю",
         "SHADOW_ONLY": "только Shadow",
@@ -159,6 +213,10 @@ def _now_section(snapshot):
         _row("data", "Данные", quality_text,
              status="OK" if data_ok else "WARNING",
              source="market_bars", source_as_of=worst.get("latest_bar")),
+        _row("market-state", "Состояние рынка", market_state_text,
+             status=market_state_status,
+             source="analytics.market_regime_context_v1",
+             source_as_of=market_state_as_of),
         _row("paper", "Paper", paper_text, status=paper_status,
              source="analytics.edge_oos_result_v1",
              source_as_of=snapshot.get("generated_at")),
@@ -178,7 +236,7 @@ def _now_section(snapshot):
              status="OK",
              source="analytics.research_resource_gate_audit_v1",
              source_as_of=resources.get("evaluated_at") or snapshot.get("generated_at")),
-        _row("safety", "Реальные сделки", "Выключены"),
+        _row("safety", "Реальные сделки", "Выключены", status="BLOCKED"),
     ))
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.now", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.now.title", "Сейчас", level="SECTION"),
@@ -277,7 +335,8 @@ def _workflow_section(snapshot):
              status="OK" if verdict == "PAPER_READY" else "WARNING",
              source="analytics.monday_readiness_snapshot_v1",
              source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
-        _row("workflow.real", "Реальная торговля", "выключена до OOS PASS и отдельного допуска"),
+        _row("workflow.real", "Реальная торговля", "выключена до OOS PASS и отдельного допуска",
+             status="BLOCKED"),
     )
     return RenderNodeV2(RenderNodeTypeV2.SECTION, "home.compact.workflow", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.workflow.title",

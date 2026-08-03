@@ -103,7 +103,7 @@ def test_home_explains_compact_universe_coverage() -> None:
         for node in walk(progress_node)
         if node.content and node.content.value
     ]
-    coverage = next(value for value in values if value.startswith("старый контур: "))
+    coverage = next(value for value in values if "старый контур: " in value)
     assert "история есть у" in coverage
     assert "не входит в новые V5" in coverage
 
@@ -171,12 +171,33 @@ def test_home_explains_data_quality_in_one_short_line() -> None:
     ]
     quality = next(
         value for value in values
-        if value.startswith("свежие ") or value.startswith("биржа закрыта по календарю")
+        if "свежие " in value or "биржа закрыта по календарю" in value
     )
-    if quality.startswith("свежие "):
+    if "свежие " in quality:
         assert "задержка" in quality and "вне сессии" in quality
     else:
         assert "акции" in quality and "фьючерсы" in quality
+
+
+def test_all_compact_metric_rows_have_a_traffic_light() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    rows = [node for node in walk(document.root) if node.node_type is RenderNodeTypeV2.METRIC_ROW]
+    assert rows
+    for row in rows:
+        value = next(child for child in row.children if child.node_type is RenderNodeTypeV2.METRIC_VALUE)
+        assert str(value.content.value).startswith(("🟢 ", "🟡 ", "🔴 "))
+
+
+def test_home_shows_market_state_and_regime_feed_freshness() -> None:
+    document = build_domain_document_v2("HOME", timezone_code="Europe/Moscow")
+    values = [
+        str(node.content.value) for node in walk(document.root)
+        if node.content and node.content.value
+    ]
+    assert "Состояние рынка" in values
+    state = next(value for value in values if "IMOEX2:" in value and "RVI:" in value)
+    assert "тренд " in state and "диапазон " in state and "шок " in state
+    assert any(arrow in state for arrow in ("⬆️ рост", "⬇️ снижение", "➡️ флэт"))
 
 
 def test_home_separates_equity_and_futures_open_times() -> None:

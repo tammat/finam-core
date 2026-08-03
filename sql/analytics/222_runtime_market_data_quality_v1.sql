@@ -2,20 +2,36 @@ BEGIN;
 
 CREATE OR REPLACE VIEW analytics.runtime_market_data_quality_v1 AS
 WITH active AS (
-    SELECT symbol, upper(coalesce(nullif(timeframe, ''), 'M5')) AS timeframe
+    SELECT symbol, upper(coalesce(nullif(timeframe, ''), 'M5')) AS timeframe,
+           true AS requires_cost_spec
     FROM runtime_active_universe
     WHERE is_enabled
+    UNION ALL
+    SELECT regime.symbol,regime.timeframe,false
+    FROM (VALUES
+      ('IMOEX2','M1'),
+      ('RVI','M1'),
+      ('MXU6@RTSX','M1')
+    ) AS regime(symbol,timeframe)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM runtime_active_universe u
+      WHERE u.is_enabled AND u.symbol=regime.symbol
+    )
 ), local_clock AS (
     SELECT clock_timestamp() AS now_utc,
            clock_timestamp() AT TIME ZONE 'Europe/Moscow' AS now_msk
 ), prepared AS (
-    SELECT a.symbol,a.timeframe,c.now_utc,c.now_msk,
+    SELECT a.symbol,a.timeframe,a.requires_cost_spec,c.now_utc,c.now_msk,
            CASE WHEN a.timeframe='M1' THEN 60 ELSE 300 END AS interval_seconds,
            CASE
              WHEN extract(isodow FROM c.now_msk) BETWEEN 1 AND 5 AND a.symbol LIKE '%@MISX'
                THEN c.now_msk::time >= time '06:50' AND c.now_msk::time < time '23:50'
              WHEN extract(isodow FROM c.now_msk) BETWEEN 1 AND 5 AND a.symbol LIKE '%@RTSX'
                THEN c.now_msk::time >= time '08:50' AND c.now_msk::time < time '23:50'
+             WHEN extract(isodow FROM c.now_msk) BETWEEN 1 AND 5 AND a.symbol='IMOEX2'
+               THEN c.now_msk::time >= time '06:50' AND c.now_msk::time < time '23:50'
+             WHEN extract(isodow FROM c.now_msk) BETWEEN 1 AND 5 AND a.symbol IN ('IMOEX','RTSI','RVI')
+               THEN c.now_msk::time >= time '10:00' AND c.now_msk::time < time '18:50'
              WHEN extract(isodow FROM c.now_msk) IN (6,7)
                THEN c.now_msk::time >= time '10:00' AND c.now_msk::time < time '19:00'
              ELSE false
@@ -33,6 +49,9 @@ WITH active AS (
           SELECT ts FROM market_bars
           WHERE symbol=p.symbol AND timeframe=p.timeframe
             AND ts + p.interval_seconds*interval '1 second' <= p.now_utc
+            -- Planned overnight/weekend breaks are not missing candles. While
+            -- a session is open, assess continuity only inside today's session.
+            AND (NOT p.session_open OR ts >= date_trunc('day',p.now_msk) AT TIME ZONE 'Europe/Moscow')
           ORDER BY ts DESC LIMIT 4
         ) recent ORDER BY ts
       ) sequenced
@@ -49,7 +68,8 @@ SELECT symbol,timeframe,session_open,latest_bar,
          -- one refresh cycle, and two minutes of ingestion/API jitter.
          WHEN extract(epoch FROM(now_utc-latest_bar)) > CASE WHEN timeframe='M1' THEN 180 ELSE 720 END THEN 'STALE'
          WHEN maximum_gap_seconds > interval_seconds*1.5 THEN 'GAP'
-         WHEN symbol LIKE '%@RTSX' AND (verified_at IS NULL OR verified_at < now_utc-interval '48 hours') THEN 'COST_SPEC_STALE'
+         WHEN requires_cost_spec AND symbol LIKE '%@RTSX'
+           AND (verified_at IS NULL OR verified_at < now_utc-interval '48 hours') THEN 'COST_SPEC_STALE'
          ELSE 'READY'
        END AS quality_code
 FROM quality;

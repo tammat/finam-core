@@ -15,7 +15,10 @@ import psycopg2.extras
 import requests
 
 
-TARGETS = ["IMOEX", "IMOEX2", "RTSI"]
+# IMOEX2 is the extended-hours broad-market regime feed. RVI is intentionally
+# collected as a non-tradable volatility-regime feature; it may remain empty
+# before the main index session starts.
+TARGETS = ["IMOEX", "IMOEX2", "RTSI", "RVI"]
 TIMEFRAMES = {"M1": 1, "M5": 5}
 
 
