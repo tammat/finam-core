@@ -152,6 +152,21 @@ def main() -> int:
                         source_version = EXCLUDED.source_version,
                         build_id = EXCLUDED.build_id,
                         refreshed_at = now()
+                    WHERE
+                        market_snapshot_v1.open
+                            IS DISTINCT FROM EXCLUDED.open
+                        OR market_snapshot_v1.high
+                            IS DISTINCT FROM EXCLUDED.high
+                        OR market_snapshot_v1.low
+                            IS DISTINCT FROM EXCLUDED.low
+                        OR market_snapshot_v1.close
+                            IS DISTINCT FROM EXCLUDED.close
+                        OR market_snapshot_v1.volume
+                            IS DISTINCT FROM EXCLUDED.volume
+                        OR market_snapshot_v1.freshness_sec
+                            IS DISTINCT FROM EXCLUDED.freshness_sec
+                        OR market_snapshot_v1.quality_status
+                            IS DISTINCT FROM EXCLUDED.quality_status
                     """,
                     (
                         SOURCE_VERSION,
@@ -166,9 +181,9 @@ def main() -> int:
                         SELECT
                             symbol,
                             timeframe,
-                            max(bar_ts) AS last_bar_ts
-                        FROM marketcore.market_snapshot_v1
-                        GROUP BY symbol, timeframe
+                            market_snapshot_last_ts AS last_bar_ts
+                        FROM analytics.feature_store_watermark_v1
+                        WHERE market_snapshot_last_ts IS NOT NULL
                     ),
                     new_rows AS (
                         SELECT mb.*
@@ -276,6 +291,40 @@ def main() -> int:
                 )
 
             processed_rows = max(cur.rowcount, 0)
+
+            if args.mode == "incremental":
+                cur.execute(
+                    """
+                    WITH latest_state AS (
+                        SELECT DISTINCT ON (
+                            symbol,
+                            timeframe
+                        )
+                            symbol,
+                            timeframe,
+                            bar_ts AS last_bar_ts
+                        FROM marketcore.market_snapshot_v1
+                        ORDER BY
+                            symbol,
+                            timeframe,
+                            bar_ts DESC
+                    )
+                    UPDATE analytics.feature_store_watermark_v1 w
+                    SET
+                        market_snapshot_last_ts =
+                            latest_state.last_bar_ts,
+                        source_version = %s,
+                        updated_at = now()
+                    FROM latest_state
+                    WHERE w.symbol = latest_state.symbol
+                      AND w.timeframe =
+                          latest_state.timeframe
+                      AND w.market_snapshot_last_ts
+                          IS DISTINCT FROM
+                          latest_state.last_bar_ts
+                    """,
+                    (SOURCE_VERSION,),
+                )
 
             if args.dry_run:
                 conn.rollback()
