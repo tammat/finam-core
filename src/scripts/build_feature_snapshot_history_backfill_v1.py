@@ -91,7 +91,8 @@ def main() -> int:
                             timeframe,
                             feature_snapshot_last_ts AS last_feature_ts
                         FROM analytics.feature_store_watermark_v1
-                        WHERE feature_snapshot_last_ts IS NOT NULL
+                        WHERE market_dirty
+                          AND feature_snapshot_last_ts IS NOT NULL
                     ),
                     new_rows AS (
                         SELECT
@@ -386,12 +387,12 @@ def main() -> int:
                     SET
                         feature_snapshot_last_ts =
                             market_snapshot_last_ts,
+                        market_dirty = false,
+                        feature_processed_at = clock_timestamp(),
                         source_version = %s,
-                        updated_at = now()
-                    WHERE market_snapshot_last_ts IS NOT NULL
-                      AND feature_snapshot_last_ts
-                          IS DISTINCT FROM
-                          market_snapshot_last_ts
+                        updated_at = clock_timestamp()
+                    WHERE market_dirty
+                      AND market_snapshot_last_ts IS NOT NULL
                     """,
                     (SOURCE_VERSION,),
                 )

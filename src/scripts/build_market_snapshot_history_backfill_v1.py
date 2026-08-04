@@ -51,6 +51,7 @@ def main() -> int:
     build_id = str(uuid.uuid4())
 
     processed_rows = 0
+    changed_pairs: list[tuple[str, str]] = []
 
     with psycopg2.connect(DB) as conn:
         with conn.cursor(
@@ -289,6 +290,7 @@ def main() -> int:
                             IS DISTINCT FROM EXCLUDED.close
                         OR market_snapshot_v1.volume
                             IS DISTINCT FROM EXCLUDED.volume
+                    RETURNING symbol, timeframe
                     """,
                     (
                         overlap_bars,
@@ -297,7 +299,44 @@ def main() -> int:
                     ),
                 )
 
-            processed_rows = max(cur.rowcount, 0)
+            if args.mode == "incremental":
+                changed_rows = cur.fetchall()
+                changed_pairs = sorted(
+                    {
+                        (
+                            str(row["symbol"]),
+                            str(row["timeframe"]),
+                        )
+                        for row in changed_rows
+                    }
+                )
+                processed_rows = len(changed_rows)
+
+                if changed_pairs:
+                    psycopg2.extras.execute_values(
+                        cur,
+                        """
+                        UPDATE
+                            analytics.feature_store_watermark_v1 w
+                        SET
+                            market_dirty = true,
+                            market_dirty_at = clock_timestamp(),
+                            source_version =
+                                'MARKET_SNAPSHOT_HISTORY_BACKFILL_V1',
+                            updated_at = clock_timestamp()
+                        FROM (
+                            VALUES %s
+                        ) AS changed(symbol, timeframe)
+                        WHERE w.symbol = changed.symbol
+                          AND w.timeframe = changed.timeframe
+                        """,
+                        changed_pairs,
+                        template="(%s, %s)",
+                        page_size=500,
+                        fetch=False,
+                    )
+            else:
+                processed_rows = max(cur.rowcount, 0)
 
             if args.mode == "incremental":
                 cur.execute(
