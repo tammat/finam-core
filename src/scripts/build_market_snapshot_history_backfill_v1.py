@@ -163,10 +163,6 @@ def main() -> int:
                             IS DISTINCT FROM EXCLUDED.close
                         OR market_snapshot_v1.volume
                             IS DISTINCT FROM EXCLUDED.volume
-                        OR market_snapshot_v1.freshness_sec
-                            IS DISTINCT FROM EXCLUDED.freshness_sec
-                        OR market_snapshot_v1.quality_status
-                            IS DISTINCT FROM EXCLUDED.quality_status
                     """,
                     (
                         SOURCE_VERSION,

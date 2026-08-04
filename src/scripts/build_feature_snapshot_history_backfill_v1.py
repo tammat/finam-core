@@ -367,14 +367,6 @@ def main() -> int:
                         IS DISTINCT FROM EXCLUDED.volume_sma20
                     OR feature_snapshot_v1.volume_ratio20
                         IS DISTINCT FROM EXCLUDED.volume_ratio20
-                    OR feature_snapshot_v1.freshness_sec
-                        IS DISTINCT FROM EXCLUDED.freshness_sec
-                    OR feature_snapshot_v1.market_quality_status
-                        IS DISTINCT FROM
-                        EXCLUDED.market_quality_status
-                    OR feature_snapshot_v1.feature_quality_score
-                        IS DISTINCT FROM
-                        EXCLUDED.feature_quality_score
             """
 
             cur.execute(
