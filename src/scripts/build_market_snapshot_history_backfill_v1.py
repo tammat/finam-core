@@ -200,6 +200,15 @@ def main() -> int:
                             symbol,
                             timeframe
                         FROM new_rows
+
+                        UNION
+
+                        SELECT
+                            w.symbol,
+                            w.timeframe
+                        FROM analytics.feature_store_watermark_v1 w
+                        WHERE w.market_dirty
+                          AND w.market_snapshot_last_ts IS NOT NULL
                     ),
                     overlap_rows AS (
                         SELECT previous_bar.*
