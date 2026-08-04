@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse, unquote
 
+from marketcore.api.read_models.feature_store_historical_correction_v1 import build_read_model
+
 import psycopg2
 import psycopg2.extras
 
@@ -2071,6 +2073,73 @@ class Handler(BaseHTTPRequestHandler):
                     "ui_direct_sql": 0,
                     "logic": "market_universe_research_queue_v1"
                 }))
+                return
+
+
+            if path == "/api/kg/v1/feature-store/historical-corrections":
+                try:
+                    limit = int(
+                        q.get("limit", ["50"])[0]
+                    )
+                except (TypeError, ValueError):
+                    self.send_json(
+                        400,
+                        response(
+                            "ERROR",
+                            {},
+                            {
+                                "error": "limit must be integer",
+                                "reason_code": "INVALID_LIMIT",
+                            },
+                        ),
+                    )
+                    return
+
+                if limit < 1 or limit > 500:
+                    self.send_json(
+                        400,
+                        response(
+                            "ERROR",
+                            {},
+                            {
+                                "error": "limit must be between 1 and 500",
+                                "reason_code": "LIMIT_OUT_OF_RANGE",
+                            },
+                        ),
+                    )
+                    return
+
+                data = build_read_model(
+                    DB,
+                    audit_limit=limit,
+                )
+
+                self.send_json(
+                    200,
+                    response(
+                        "OK",
+                        data,
+                        {
+                            "source": (
+                                "analytics."
+                                "feature_store_historical_"
+                                "correction_audit_v1"
+                            ),
+                            "watermark_source": (
+                                "analytics."
+                                "feature_store_watermark_v1"
+                            ),
+                            "logic": (
+                                "MARKETCORE_UI_HISTORICAL_"
+                                "CORRECTION_READ_MODEL_V1"
+                            ),
+                            "ui_direct_sql": 0,
+                            "read_only": 1,
+                            "write_actions_allowed": 0,
+                            "systemctl_actions_allowed": 0,
+                        },
+                    ),
+                )
                 return
 
 
