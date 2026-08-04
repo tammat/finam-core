@@ -191,15 +191,20 @@ def main() -> int:
                          AND mb.ts > w.last_bar_ts
                         WHERE mb.close IS NOT NULL
                     ),
+                    changed_scope AS (
+                        SELECT DISTINCT
+                            symbol,
+                            timeframe
+                        FROM new_rows
+                    ),
                     overlap_rows AS (
                         SELECT previous_bar.*
-                        FROM watermark w
+                        FROM changed_scope scope
                         CROSS JOIN LATERAL (
                             SELECT mb.*
                             FROM public.market_bars mb
-                            WHERE mb.symbol = w.symbol
-                              AND mb.timeframe = w.timeframe
-                              AND mb.ts <= w.last_bar_ts
+                            WHERE mb.symbol = scope.symbol
+                              AND mb.timeframe = scope.timeframe
                               AND mb.close IS NOT NULL
                             ORDER BY mb.ts DESC
                             LIMIT %s
