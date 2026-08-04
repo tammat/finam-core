@@ -113,3 +113,6 @@ tmp/untracked_review_*/
 .codex-backup/
 runtime/locks/
 runtime/*.log
+
+# Локальные диагностические отчёты PostgreSQL и runtime
+runtime/audits/
