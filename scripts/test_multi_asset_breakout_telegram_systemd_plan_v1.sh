@@ -18,7 +18,7 @@ test -f "$SERVICE"
 test -f "$TIMER"
 
 grep -q "build_multi_asset_breakout_telegram_sender_v1.py" "$SERVICE"
-grep -q "MULTI_ASSET_TELEGRAM_DRY_RUN=1" "$SERVICE"
+grep -q "MULTI_ASSET_TELEGRAM_DRY_RUN=0" "$SERVICE"
 grep -q "RUNTIME_ALLOW_TRADING=0" "$SERVICE"
 grep -q "EXECUTION_ENABLED=0" "$SERVICE"
 grep -q "REAL_TRADING_ENABLED=0" "$SERVICE"

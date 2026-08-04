@@ -46,7 +46,7 @@ def main() -> int:
     print(f"execution_enabled={os.getenv('EXECUTION_ENABLED', '0')}")
     print(f"real_trading_enabled={os.getenv('REAL_TRADING_ENABLED', '0')}")
     print("db_update=0")
-    print("telegram_real_send=0")
+    print("telegram_notification_send_enabled=1")
     print(f"unit={UNIT}")
     print(f"timer={TIMER}")
     print(f"since={SINCE}")
@@ -136,8 +136,7 @@ def main() -> int:
         and last_runtime_allow == "0"
         and last_execution_enabled == "0"
         and last_real_trading_enabled == "0"
-        and last_telegram_dry_run == "1"
-        and last_telegram_sent == "0"
+        and last_telegram_dry_run == "0"
         and execution_bad == 0
         and real_bad == 0
         and tracebacks == 0

@@ -8,7 +8,7 @@ echo "runtime_allow=0"
 echo "execution_enabled=0"
 echo "real_trading_enabled=0"
 echo "db_update=0"
-echo "telegram_real_send=0"
+echo "telegram_notification_send_enabled=1"
 
 python3 -m py_compile src/scripts/research/build_multi_asset_breakout_telegram_systemd_runtime_validation_v1.py
 
@@ -22,8 +22,7 @@ grep -q "timer_active=1" /tmp/multi_asset_breakout_telegram_systemd_runtime_vali
 grep -q "timer_enabled=1" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
 grep -q "last_execution_enabled=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
 grep -q "last_real_trading_enabled=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
-grep -q "last_telegram_dry_run=1" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
-grep -q "last_telegram_sent=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
+grep -q "last_telegram_dry_run=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
 grep -q "execution_bad_lines=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
 grep -q "real_trading_bad_lines=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
 grep -q "tracebacks=0" /tmp/multi_asset_breakout_telegram_systemd_runtime_validation_v1.log
