@@ -6,6 +6,7 @@ from marketcore.presentation.render_tree.v2 import (
     ActionKindV2, RenderActionV2, RenderContentV2, RenderDocumentV2,
     RenderNodeStateV2, RenderNodeTypeV2, RenderNodeV2, validate_render_document_v2,
 )
+from marketcore.presentation.pages.decision_funnel_v1 import load_decision_funnel_section_v1
 
 
 def _leaf(kind, node_id, value=None, fmt=None, level=None):
@@ -997,6 +998,161 @@ def _historical_corrections_section(snapshot):
     )
 
 
+
+def _decision_funnel_section_v1():
+    """
+    Read-only секция Decision Funnel.
+
+    Данные поступают только через KG endpoint.
+    Ошибка endpoint отображается как UNAVAILABLE и не влияет
+    на runtime, execution или остальные секции Control V3.
+    """
+
+    section = load_decision_funnel_section_v1()
+    summary = (
+        section.summary_rows[0]
+        if section.summary_rows
+        else {}
+    )
+
+    status = str(section.status or "UNAVAILABLE").upper()
+    status_code = (
+        "OK"
+        if status == "READY"
+        else "WARNING"
+    )
+
+    signal_count = int(summary.get("signal_count") or 0)
+    event_count = int(summary.get("event_count") or 0)
+    reject_events = int(summary.get("reject_events") or 0)
+    error_events = int(summary.get("error_events") or 0)
+
+    rejection_rate = str(
+        summary.get("rejection_rate") or "—"
+    )
+
+    cards = RenderNodeV2(
+        RenderNodeTypeV2.GRID,
+        "control.v3.decision_funnel.summary",
+        children=(
+            _card(
+                "decision-funnel-status",
+                "Статус воронки",
+                status,
+                "Read-only данные KG API",
+                status_code,
+            ),
+            _card(
+                "decision-funnel-signals",
+                "Торговых намерений",
+                signal_count,
+                "Уникальные signal_id",
+                "OK" if signal_count else "WARNING",
+            ),
+            _card(
+                "decision-funnel-events",
+                "Событий решений",
+                event_count,
+                "Все наблюдаемые стадии",
+                "OK" if event_count else "WARNING",
+            ),
+            _card(
+                "decision-funnel-rejects",
+                "Отклонений",
+                reject_events,
+                f"Доля отклонений: {rejection_rate}",
+                "WARNING" if reject_events else "OK",
+            ),
+            _card(
+                "decision-funnel-errors",
+                "Ошибок воронки",
+                error_events,
+                "Ошибки наблюдения и проверок",
+                "WARNING" if error_events else "OK",
+            ),
+        ),
+    )
+
+    stage_lines = tuple(
+        _leaf(
+            RenderNodeTypeV2.SUBTITLE,
+            (
+                "control.v3.decision_funnel.stage."
+                f"{str(row.get('stage') or 'unknown').lower()}"
+            ),
+            (
+                f"{row.get('stage_title') or row.get('stage')}: "
+                f"сигналов {int(row.get('signal_count') or 0)}, "
+                f"пройдено {int(row.get('passed_signals') or 0)}, "
+                f"отклонено {int(row.get('rejected_signals') or 0)}, "
+                "конверсия "
+                f"{row.get('conversion_from_previous_stage') or '—'}"
+            ),
+        )
+        for row in section.stage_rows
+        if int(row.get("signal_count") or 0) > 0
+    )
+
+    rejection_lines = tuple(
+        _leaf(
+            RenderNodeTypeV2.SUBTITLE,
+            (
+                "control.v3.decision_funnel.rejection."
+                f"{index}"
+            ),
+            (
+                f"{row.get('stage_title') or row.get('stage')}: "
+                f"{row.get('reason_title') or row.get('reason_code')} "
+                f"— {int(row.get('signal_count') or 0)} сигналов"
+            ),
+        )
+        for index, row in enumerate(
+            section.rejection_rows[:10],
+            start=1,
+        )
+    )
+
+    detail_children = (
+        stage_lines
+        + rejection_lines
+    )
+
+    if not detail_children:
+        detail_children = (
+            _leaf(
+                RenderNodeTypeV2.SUBTITLE,
+                "control.v3.decision_funnel.empty",
+                (
+                    "События Decision Funnel пока отсутствуют. "
+                    "Runtime instrumentation не подключена."
+                ),
+            ),
+        )
+
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION,
+        "control.v3.decision_funnel",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "control.v3.decision_funnel.title",
+                "Воронка торговых решений",
+                level="SECTION",
+            ),
+            _leaf(
+                RenderNodeTypeV2.SUBTITLE,
+                "control.v3.decision_funnel.subtitle",
+                (
+                    "Причины прохождения и отклонения сигналов · "
+                    "только чтение · без прямого SQL"
+                ),
+            ),
+            cards,
+            *detail_children,
+        ),
+    )
+
+
 def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", document_id="operator.control.v3"):
     process = snapshot["process"]
     raw_process_status = str(process.get("status_code") or "").upper()
@@ -1025,6 +1181,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         RenderNodeV2(RenderNodeTypeV2.SECTION, "control.v3.overview", children=(cards,)),
         _compact_state_section(snapshot, raw_process_status),
         _signal_funnel_section(snapshot),
+        _decision_funnel_section_v1(),
         _market_regime_section(snapshot),
         _edge_diagnostic_section(snapshot),
         _swing_section(snapshot),
