@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Finam Historical Correction Audit hourly
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+AccuracySec=2min
+RandomizedDelaySec=5min
+Persistent=true
+Unit=finam-feature-store-historical-correction-audit.service
+
+[Install]
+WantedBy=timers.target

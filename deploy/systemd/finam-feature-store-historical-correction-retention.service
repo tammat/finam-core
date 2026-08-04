@@ -1,0 +1,37 @@
+[Unit]
+Description=Finam Feature Store Historical Correction Retention
+Documentation=file:/opt/finam-core/config/runtime/feature_store_historical_correction_retention_v1.json
+After=postgresql.service
+ConditionPathExists=/opt/finam-core/src/scripts/run_feature_store_historical_correction_retention_v1.py
+ConditionPathExists=/opt/finam-core/config/runtime/feature_store_historical_correction_retention_v1.json
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+WorkingDirectory=/opt/finam-core
+
+Environment=DATABASE_URL=postgresql:///finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=/opt/finam-core/venv/bin/python /opt/finam-core/src/scripts/run_feature_store_historical_correction_retention_v1.py --apply --batch-limit 5000
+
+TimeoutStartSec=15min
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=finam-feature-store-historical-correction-retention

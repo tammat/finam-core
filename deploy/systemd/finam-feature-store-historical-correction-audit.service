@@ -1,0 +1,38 @@
+[Unit]
+Description=Finam Feature Store Historical Correction Audit
+Documentation=file:/opt/finam-core/sql/analytics/014_feature_store_historical_correction_audit_v1.sql
+After=network-online.target postgresql.service
+Wants=network-online.target
+ConditionPathExists=/opt/finam-core/src/scripts/build_feature_store_historical_correction_audit_v1.py
+
+[Service]
+Type=oneshot
+User=alex
+Group=alex
+WorkingDirectory=/opt/finam-core
+
+Environment=DATABASE_URL=postgresql://finam:finam@127.0.0.1:5432/finam_core
+Environment=PYTHONPATH=/opt/finam-core/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=FEATURE_STORE_CORRECTION_VOLUME_TOLERANCE=0.00005
+
+ExecStart=/opt/finam-core/venv/bin/python /opt/finam-core/src/scripts/build_feature_store_historical_correction_audit_v1.py --window-bars 20
+
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=finam-feature-store-historical-correction-audit

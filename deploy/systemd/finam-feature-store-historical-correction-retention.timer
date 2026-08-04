@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Finam Historical Correction Retention daily
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+AccuracySec=5min
+RandomizedDelaySec=10min
+Persistent=true
+Unit=finam-feature-store-historical-correction-retention.service
+
+[Install]
+WantedBy=timers.target
