@@ -52,16 +52,22 @@ grep -q "VERDICT=CHECK_MARKETCORE_UI_SYSTEMD_8080_V1_OK" /tmp/marketcore_ui_syst
 server_ip=$(hostname -I | awk '{print $1}')
 echo "server_ip=$server_ip"
 echo "open_url=http://$server_ip:8080/"
-echo "open_risk=http://$server_ip:8080/risk"
-echo "open_settings=http://$server_ip:8080/settings"
 
-curl -fsS "http://127.0.0.1:8080/" >/tmp/marketcore_ui_home_8080.html
-curl -fsS "http://127.0.0.1:8080/risk" >/tmp/marketcore_ui_risk_8080.html
-curl -fsS "http://127.0.0.1:8080/settings" >/tmp/marketcore_ui_settings_8080.html
+curl -fsS   "http://127.0.0.1:8080/"   >/tmp/marketcore_ui_home_8080.html
 
-grep -q "MarketCore OS" /tmp/marketcore_ui_home_8080.html
-grep -q "Риски" /tmp/marketcore_ui_risk_8080.html
-grep -q "Настройки" /tmp/marketcore_ui_settings_8080.html
+curl -fsS   "http://127.0.0.1:8080/api/v2/domain-render-tree/control-center"   >/tmp/marketcore_ui_control_center_v2.json
+
+curl -fsS   "http://127.0.0.1:8080/api/v2/i18n/catalog?locale=ru-RU"   >/tmp/marketcore_ui_i18n_ru_v2.json
+
+grep -q   "MarketCore OS"   /tmp/marketcore_ui_home_8080.html
+
+grep -q   'data-marketcore-ui-runtime="v2"'   /tmp/marketcore_ui_home_8080.html
+
+grep -q   "workspace-shell-bootstrap.js"   /tmp/marketcore_ui_home_8080.html
+
+test -s   /tmp/marketcore_ui_control_center_v2.json
+
+test -s   /tmp/marketcore_ui_i18n_ru_v2.json
 
 echo "runtime_changed=0"
 echo "execution_changed=0"
@@ -69,4 +75,8 @@ echo "orders_changed=0"
 echo "fills_changed=0"
 echo "micro_live_allowed=0"
 echo "VERDICT=MARKETCORE_UI_SYSTEMD_8080_V1_READY"
+echo "ui_runtime=v2"
+echo "control_center_api=OK"
+echo "i18n_ru_catalog=OK"
+echo "legacy_html_routes_required=0"
 echo "VERDICT=TEST_MARKETCORE_UI_SYSTEMD_8080_V1_OK"
