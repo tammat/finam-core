@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse, unquote
 
 from marketcore.api.read_models.feature_store_historical_correction_v1 import build_read_model
+from marketcore.api.read_models.decision_funnel_v1 import build_read_model as build_decision_funnel_read_model
 
 import psycopg2
 import psycopg2.extras
@@ -2137,6 +2138,170 @@ class Handler(BaseHTTPRequestHandler):
                             "read_only": 1,
                             "write_actions_allowed": 0,
                             "systemctl_actions_allowed": 0,
+                        },
+                    ),
+                )
+                return
+
+
+            if path == "/api/kg/v1/decision-funnel":
+                def integer_parameter(
+                    name: str,
+                    *,
+                    default: int,
+                    minimum: int,
+                    maximum: int,
+                ) -> int:
+                    raw = q.get(name, [str(default)])[0]
+
+                    try:
+                        value = int(raw)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            f"{name}:INVALID_INTEGER"
+                        ) from exc
+
+                    if value < minimum or value > maximum:
+                        raise ValueError(
+                            f"{name}:OUT_OF_RANGE"
+                        )
+
+                    return value
+
+                def optional_text_parameter(
+                    name: str,
+                    *,
+                    maximum_length: int = 200,
+                ) -> str | None:
+                    raw = q.get(name, [""])[0]
+                    value = unquote(str(raw)).strip()
+
+                    if not value:
+                        return None
+
+                    if len(value) > maximum_length:
+                        raise ValueError(
+                            f"{name}:TOO_LONG"
+                        )
+
+                    return value
+
+                try:
+                    hours = integer_parameter(
+                        "hours",
+                        default=24,
+                        minimum=1,
+                        maximum=8760,
+                    )
+                    recent_limit = integer_parameter(
+                        "recent_limit",
+                        default=50,
+                        minimum=1,
+                        maximum=500,
+                    )
+                    reason_limit = integer_parameter(
+                        "reason_limit",
+                        default=20,
+                        minimum=1,
+                        maximum=100,
+                    )
+                    dimension_limit = integer_parameter(
+                        "dimension_limit",
+                        default=100,
+                        minimum=1,
+                        maximum=500,
+                    )
+
+                    symbol = optional_text_parameter(
+                        "symbol"
+                    )
+                    strategy = optional_text_parameter(
+                        "strategy"
+                    )
+                    timeframe = optional_text_parameter(
+                        "timeframe",
+                        maximum_length=50,
+                    )
+                except ValueError as exc:
+                    parameter, reason_code = (
+                        str(exc).split(":", 1)
+                    )
+
+                    self.send_json(
+                        400,
+                        response(
+                            "ERROR",
+                            {},
+                            {
+                                "error": (
+                                    "invalid decision funnel "
+                                    f"parameter: {parameter}"
+                                ),
+                                "parameter": parameter,
+                                "reason_code": reason_code,
+                                "read_only": 1,
+                                "runtime_instrumentation": 0,
+                            },
+                        ),
+                    )
+                    return
+
+                try:
+                    data = build_decision_funnel_read_model(
+                        DB,
+                        hours=hours,
+                        symbol=symbol,
+                        strategy=strategy,
+                        timeframe=timeframe,
+                        recent_limit=recent_limit,
+                        reason_limit=reason_limit,
+                        dimension_limit=dimension_limit,
+                    )
+                except Exception as exc:
+                    # Не раскрываем DATABASE_URL, SQL и внутренние
+                    # параметры подключения в HTTP-ответе.
+                    self.send_json(
+                        500,
+                        response(
+                            "ERROR",
+                            {},
+                            {
+                                "error": (
+                                    "decision funnel read model "
+                                    "is unavailable"
+                                ),
+                                "reason_code": (
+                                    "READ_MODEL_UNAVAILABLE"
+                                ),
+                                "exception_type": (
+                                    type(exc).__name__
+                                ),
+                                "read_only": 1,
+                                "runtime_instrumentation": 0,
+                            },
+                        ),
+                    )
+                    return
+
+                self.send_json(
+                    200,
+                    response(
+                        "OK",
+                        data,
+                        {
+                            "source": (
+                                "analytics."
+                                "signal_decision_funnel_v1"
+                            ),
+                            "logic": (
+                                "DECISION_FUNNEL_KG_API_V1"
+                            ),
+                            "ui_direct_sql": 0,
+                            "read_only": 1,
+                            "write_actions_allowed": 0,
+                            "systemctl_actions_allowed": 0,
+                            "runtime_instrumentation": 0,
+                            "execution_actions_allowed": 0,
                         },
                     ),
                 )
