@@ -755,6 +755,248 @@ def _edge_diagnostic_section(snapshot):
     ))
 
 
+
+def _historical_corrections_section_v1(snapshot):
+    """Render tree секция исторических коррекций Feature Store."""
+
+    historical = snapshot.get("historical_corrections") or {}
+    summary = historical.get("summary") or {}
+    recent_audits = historical.get("recent_audits") or ()
+
+    changed_pairs = int(summary.get("changed_pairs") or 0)
+    changed_rows = int(summary.get("changed_rows") or 0)
+    current_dirty_rows = int(
+        summary.get("current_dirty_rows") or 0
+    )
+    watermark_lag = int(summary.get("watermark_lag") or 0)
+
+    status = str(historical.get("status") or "UNKNOWN")
+    read_only = bool(historical.get("read_only", True))
+
+    metrics = RenderNodeV2(
+        RenderNodeTypeV2.GRID,
+        "control.v3.feature_store_historical_corrections.metrics",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "control.v3.feature_store_historical_corrections.changed_pairs",
+                changed_pairs,
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "control.v3.feature_store_historical_corrections.changed_rows",
+                changed_rows,
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "control.v3.feature_store_historical_corrections.current_dirty_rows",
+                current_dirty_rows,
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "control.v3.feature_store_historical_corrections.watermark_lag",
+                watermark_lag,
+            ),
+        ),
+    )
+
+    header = RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW,
+        "control.v3.feature_store_historical_corrections.recent.header",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                "control.v3.feature_store_historical_corrections.recent.header.symbol",
+                "Инструмент",
+            ),
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                "control.v3.feature_store_historical_corrections.recent.header.timeframe",
+                "TF",
+            ),
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                "control.v3.feature_store_historical_corrections.recent.header.changed_rows",
+                "Изменено строк",
+            ),
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                "control.v3.feature_store_historical_corrections.recent.header.created_at",
+                "Проверено",
+            ),
+        ),
+    )
+
+    rows = []
+
+    for index, item in enumerate(tuple(recent_audits)[:20], start=1):
+        rows.append(
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_ROW,
+                (
+                    "control.v3.feature_store_historical_corrections."
+                    f"recent.row.{index}"
+                ),
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        (
+                            "control.v3.feature_store_historical_corrections."
+                            f"recent.row.{index}.symbol"
+                        ),
+                        item.get("symbol") or "—",
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        (
+                            "control.v3.feature_store_historical_corrections."
+                            f"recent.row.{index}.timeframe"
+                        ),
+                        item.get("timeframe") or "—",
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        (
+                            "control.v3.feature_store_historical_corrections."
+                            f"recent.row.{index}.changed_rows"
+                        ),
+                        int(item.get("changed_rows") or 0),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        (
+                            "control.v3.feature_store_historical_corrections."
+                            f"recent.row.{index}.created_at"
+                        ),
+                        item.get("created_at") or "—",
+                    ),
+                ),
+            )
+        )
+
+    table = RenderNodeV2(
+        RenderNodeTypeV2.TABLE,
+        "control.v3.feature_store_historical_corrections.recent_audits",
+        children=(
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_HEAD,
+                "control.v3.feature_store_historical_corrections.recent.head",
+                children=(header,),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_BODY,
+                "control.v3.feature_store_historical_corrections.recent.body",
+                children=tuple(rows),
+            ),
+        ),
+    )
+
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION,
+        "control.v3.feature_store_historical_corrections",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "control.v3.feature_store_historical_corrections.title",
+                "Исторические коррекции Feature Store",
+                level="SECTION",
+            ),
+            _leaf(
+                RenderNodeTypeV2.SUBTITLE,
+                "control.v3.feature_store_historical_corrections.subtitle",
+                (
+                    f"Статус: {status} · "
+                    f"read-only: {int(read_only)} · "
+                    f"последних аудитов: {len(recent_audits)}"
+                ),
+            ),
+            metrics,
+            table,
+        ),
+    )
+
+
+
+def _historical_corrections_section(snapshot):
+    """Read-only состояние исторических коррекций Feature Store."""
+
+    historical = dict(
+        snapshot.get("historical_corrections") or {}
+    )
+    summary = dict(historical.get("summary") or {})
+    recent_audits = tuple(
+        historical.get("recent_audits") or ()
+    )
+
+    changed_pairs = int(summary.get("changed_pairs") or 0)
+    changed_rows = int(summary.get("changed_rows") or 0)
+    current_dirty_rows = int(
+        summary.get("current_dirty_rows") or 0
+    )
+    watermark_lag = int(summary.get("watermark_lag") or 0)
+
+    status_code = str(
+        historical.get("status") or "UNKNOWN"
+    )
+    read_only = bool(
+        historical.get("read_only", True)
+    )
+
+    metric_rows = (
+        _metric_row(
+            "feature_store_historical_corrections.changed_pairs",
+            "Изменённые пары instrument/timeframe",
+            changed_pairs,
+        ),
+        _metric_row(
+            "feature_store_historical_corrections.changed_rows",
+            "Изменённые строки",
+            changed_rows,
+        ),
+        _metric_row(
+            "feature_store_historical_corrections.current_dirty_rows",
+            "Текущие dirty-строки",
+            current_dirty_rows,
+        ),
+        _metric_row(
+            "feature_store_historical_corrections.watermark_lag",
+            "Отставание watermark",
+            watermark_lag,
+        ),
+        _metric_row(
+            "feature_store_historical_corrections.recent_audits",
+            "Последние audit-записи",
+            len(recent_audits),
+        ),
+    )
+
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION,
+        "control.v3.feature_store_historical_corrections",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "control.v3.feature_store_historical_corrections.title",
+                "Исторические коррекции Feature Store",
+                level="SECTION",
+            ),
+            _leaf(
+                RenderNodeTypeV2.SUBTITLE,
+                "control.v3.feature_store_historical_corrections.subtitle",
+                (
+                    f"Статус: {status_code} · "
+                    f"read-only: {str(read_only).lower()}"
+                ),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_LIST,
+                "control.v3.feature_store_historical_corrections.metrics",
+                children=metric_rows,
+            ),
+        ),
+    )
+
+
 def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", document_id="operator.control.v3"):
     process = snapshot["process"]
     raw_process_status = str(process.get("status_code") or "").upper()
@@ -786,6 +1028,7 @@ def render_control_compact_v3(snapshot, *, timezone_code="Europe/Moscow", docume
         _market_regime_section(snapshot),
         _edge_diagnostic_section(snapshot),
         _swing_section(snapshot),
+        _historical_corrections_section_v1(snapshot),
         _priority_exact_section(snapshot.get("hierarchy_top_exact") or ()),
         _open_positions_section(snapshot.get("open_position_diagnostics") or ()),
         _compact_control_section(snapshot),

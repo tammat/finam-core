@@ -1,4 +1,9 @@
 from __future__ import annotations
+from marketcore.presentation.api_client import get_json
+
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
+import json
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -20,7 +25,139 @@ ACTIVE_SCOPES = (
 
 
 class ControlCompactV3Resolver:
+
+    HISTORICAL_CORRECTIONS_ENDPOINT = (
+        "/api/kg/v1/feature-store/historical-corrections?limit=50"
+    )
+
+    @classmethod
+    def _load_historical_corrections_v1(cls) -> dict:
+        """Получить read-only модель исторических коррекций через KG API."""
+
+        url = "http://127.0.0.1:8095" + cls.HISTORICAL_CORRECTIONS_ENDPOINT
+
+        try:
+            with urlopen(url, timeout=2.0) as response:
+                payload = json.loads(
+                    response.read().decode("utf-8")
+                )
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ) as exc:
+            return {
+                "status": "UNAVAILABLE",
+                "read_only": True,
+                "summary": {
+                    "changed_pairs": 0,
+                    "changed_rows": 0,
+                    "current_dirty_rows": 0,
+                    "watermark_lag": 0,
+                },
+                "recent_audits": [],
+                "error": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            }
+
+        data = payload.get("data")
+
+        if not isinstance(data, dict):
+            data = payload
+
+        if not isinstance(data, dict):
+            data = {}
+
+        data["read_only"] = True
+        return data
+
+class ControlCompactV3Resolver:
     """Small, source-backed operator snapshot for the unified Control screen."""
+
+
+    def _load_historical_corrections_v1(self) -> dict:
+        """Получить read-only данные исторических коррекций через KG API."""
+
+        fallback = {
+            "status": "ERROR",
+            "read_only": True,
+            "summary": {
+                "changed_pairs": 0,
+                "changed_rows": 0,
+                "current_dirty_rows": 0,
+                "watermark_lag": 0,
+            },
+            "recent_audits": [],
+            "metadata": {
+                "source": "KG_API",
+                "endpoint": "/api/kg/v1/feature-store/historical-corrections?limit=50",
+                "fallback": True,
+            },
+        }
+
+        try:
+            payload = get_json(
+                "/api/kg/v1/feature-store/historical-corrections?limit=50",
+                timeout=2.0,
+            )
+        except Exception as exc:
+            fallback["metadata"]["error_type"] = type(exc).__name__
+            return fallback
+
+        if not isinstance(payload, dict):
+            fallback["metadata"]["error_type"] = "INVALID_PAYLOAD_TYPE"
+            return fallback
+
+        data = payload.get("data") or {}
+
+        if not isinstance(data, dict):
+            fallback["metadata"]["error_type"] = "INVALID_DATA_TYPE"
+            return fallback
+
+        summary = data.get("summary") or {}
+        recent_audits = data.get("recent_audits") or []
+
+        if not isinstance(summary, dict):
+            summary = {}
+
+        if not isinstance(recent_audits, list):
+            recent_audits = []
+
+        return {
+            "status": str(
+                data.get("status")
+                or payload.get("status")
+                or "READY"
+            ),
+            "read_only": bool(
+                data.get(
+                    "read_only",
+                    payload.get("read_only", True),
+                )
+            ),
+            "summary": {
+                "changed_pairs": int(
+                    summary.get("changed_pairs", 0) or 0
+                ),
+                "changed_rows": int(
+                    summary.get("changed_rows", 0) or 0
+                ),
+                "current_dirty_rows": int(
+                    summary.get("current_dirty_rows", 0) or 0
+                ),
+                "watermark_lag": int(
+                    summary.get("watermark_lag", 0) or 0
+                ),
+            },
+            "recent_audits": recent_audits,
+            "metadata": payload.get("metadata") or {
+                "source": "KG_API",
+                "endpoint": "/api/kg/v1/feature-store/historical-corrections?limit=50",
+            },
+        }
 
     def resolve(self) -> dict:
         with psycopg2.connect("postgresql:///finam_core") as connection:
@@ -1061,6 +1198,10 @@ class ControlCompactV3Resolver:
             else:
                 row["operator_status"] = str(row.get("status_code") or "WAITING")
 
+        historical_corrections = (
+            self._load_historical_corrections_v1()
+        )
+
         return {
             "generated_at": datetime.now(timezone.utc),
             "target_trades": TARGET_TRADES,
@@ -1118,4 +1259,5 @@ class ControlCompactV3Resolver:
             "signal_funnel_reasons": signal_funnel_reasons,
             "swing_summary": swing_summary,
             "swing_items": swing_items,
+            "historical_corrections": historical_corrections,
         }
