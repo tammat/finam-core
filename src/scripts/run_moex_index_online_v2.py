@@ -17,6 +17,13 @@ DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 SOURCE_VERSION = "MOEX_INDEX_ONLINE_V2"
 MOSCOW = ZoneInfo("Europe/Moscow")
 
+# Точный count(*) по market_bars отключён в штатном online-цикле:
+# он использовался только для диагностики и запускал Parallel Seq Scan.
+DIAGNOSTIC_EXACT_COUNT = (
+    os.getenv("MOEX_INDEX_DIAGNOSTIC_EXACT_COUNT", "0").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+
 
 def closed_candle(candle: dict[str, Any], now: datetime) -> bool:
     end = candle.get("end")
@@ -77,10 +84,48 @@ def main() -> None:
                 m5_saved = resample_closed_m5(cur, symbol, date_from, now)
                 total_saved += m1_saved + m5_saved
                 for timeframe, saved in (("M1", m1_saved), ("M5", m5_saved)):
-                    cur.execute("SELECT max(ts) AS latest,count(*) AS bars FROM public.market_bars WHERE symbol=%s AND timeframe=%s", (symbol, timeframe))
-                    state = cur.fetchone()
-                    result.append({"symbol": symbol, "timeframe": timeframe, "fetched_m1": len(candles), "closed_m1": len(complete),
-                                   "upserted": saved, "latest": state["latest"].isoformat() if state["latest"] else None, "bars": state["bars"]})
+                    cur.execute(
+                        """
+                        SELECT ts AS latest
+                        FROM public.market_bars
+                        WHERE symbol=%s
+                          AND timeframe=%s
+                        ORDER BY ts DESC
+                        LIMIT 1
+                        """,
+                        (symbol, timeframe),
+                    )
+                    latest_row = cur.fetchone()
+                    latest = latest_row["latest"] if latest_row else None
+
+                    bars: int | None = None
+                    bars_status = "NOT_COUNTED_RUNTIME"
+
+                    if DIAGNOSTIC_EXACT_COUNT:
+                        cur.execute(
+                            """
+                            SELECT count(*)::bigint AS bars
+                            FROM public.market_bars
+                            WHERE symbol=%s
+                              AND timeframe=%s
+                            """,
+                            (symbol, timeframe),
+                        )
+                        bars = int(cur.fetchone()["bars"])
+                        bars_status = "EXACT_DIAGNOSTIC"
+
+                    result.append(
+                        {
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "fetched_m1": len(candles),
+                            "closed_m1": len(complete),
+                            "upserted": saved,
+                            "latest": latest.isoformat() if latest else None,
+                            "bars": bars,
+                            "bars_status": bars_status,
+                        }
+                    )
     print(json.dumps({"source": SOURCE_VERSION, "status": "ONLINE", "upserted": total_saved, "rows": result}, ensure_ascii=False))
     print("VERDICT=MOEX_INDEX_ONLINE_V2_OK")
 
