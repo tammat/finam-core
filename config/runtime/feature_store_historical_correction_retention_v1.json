@@ -1,0 +1,6 @@
+{
+  "contract_version": "FEATURE_STORE_HISTORICAL_CORRECTION_RETENTION_V1",
+  "clean_retention_days": 30,
+  "detected_retention_days": 180,
+  "delete_batch_limit": 5000
+}
