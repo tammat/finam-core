@@ -278,6 +278,17 @@ def main() -> int:
                         source_version = EXCLUDED.source_version,
                         build_id = EXCLUDED.build_id,
                         refreshed_at = now()
+                    WHERE
+                        market_snapshot_v1.open
+                            IS DISTINCT FROM EXCLUDED.open
+                        OR market_snapshot_v1.high
+                            IS DISTINCT FROM EXCLUDED.high
+                        OR market_snapshot_v1.low
+                            IS DISTINCT FROM EXCLUDED.low
+                        OR market_snapshot_v1.close
+                            IS DISTINCT FROM EXCLUDED.close
+                        OR market_snapshot_v1.volume
+                            IS DISTINCT FROM EXCLUDED.volume
                     """,
                     (
                         overlap_bars,
@@ -292,18 +303,20 @@ def main() -> int:
                 cur.execute(
                     """
                     WITH latest_state AS (
-                        SELECT DISTINCT ON (
-                            symbol,
-                            timeframe
-                        )
-                            symbol,
-                            timeframe,
-                            bar_ts AS last_bar_ts
-                        FROM marketcore.market_snapshot_v1
-                        ORDER BY
-                            symbol,
-                            timeframe,
-                            bar_ts DESC
+                        SELECT
+                            w.symbol,
+                            w.timeframe,
+                            latest_row.last_bar_ts
+                        FROM analytics.feature_store_watermark_v1 w
+                        CROSS JOIN LATERAL (
+                            SELECT
+                                ms.bar_ts AS last_bar_ts
+                            FROM marketcore.market_snapshot_v1 ms
+                            WHERE ms.symbol = w.symbol
+                              AND ms.timeframe = w.timeframe
+                            ORDER BY ms.bar_ts DESC
+                            LIMIT 1
+                        ) latest_row
                     )
                     UPDATE analytics.feature_store_watermark_v1 w
                     SET
@@ -313,8 +326,7 @@ def main() -> int:
                         updated_at = now()
                     FROM latest_state
                     WHERE w.symbol = latest_state.symbol
-                      AND w.timeframe =
-                          latest_state.timeframe
+                      AND w.timeframe = latest_state.timeframe
                       AND w.market_snapshot_last_ts
                           IS DISTINCT FROM
                           latest_state.last_bar_ts
