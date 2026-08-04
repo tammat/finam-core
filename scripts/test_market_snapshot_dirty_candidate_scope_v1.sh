@@ -33,9 +33,31 @@ for token in required:
             f"ERROR=required_contract_missing:{token}"
         )
 
+overlap_start = text.find("overlap_rows AS (")
+overlap_end = text.find(
+    "incremental_source AS (",
+    overlap_start,
+)
+
+if overlap_start < 0:
+    raise SystemExit(
+        "ERROR=overlap_rows_block_missing"
+    )
+
+if overlap_end < 0:
+    raise SystemExit(
+        "ERROR=incremental_source_block_missing"
+    )
+
+overlap_block = text[overlap_start:overlap_end]
+
 current_global_overlap = (
-    "FROM watermark w\n"
-    "                        CROSS JOIN LATERAL" in text
+    "FROM watermark w" in overlap_block
+)
+
+candidate_overlap_present = (
+    "FROM changed_scope scope" in overlap_block
+    and "CROSS JOIN LATERAL" in overlap_block
 )
 
 required_candidate_contract = [
@@ -48,10 +70,19 @@ print(
     "global_overlap_scope_present="
     f"{int(current_global_overlap)}"
 )
+print(
+    "candidate_overlap_scope_present="
+    f"{int(candidate_overlap_present)}"
+)
 
 if current_global_overlap:
     raise SystemExit(
         "ERROR=MARKET_OVERLAP_STILL_GLOBAL"
+    )
+
+if not candidate_overlap_present:
+    raise SystemExit(
+        "ERROR=MARKET_OVERLAP_CANDIDATE_SCOPE_MISSING"
     )
 
 for token in required_candidate_contract:

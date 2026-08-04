@@ -183,13 +183,17 @@ def main() -> int:
                         WHERE market_snapshot_last_ts IS NOT NULL
                     ),
                     new_rows AS (
-                        SELECT mb.*
+                        SELECT new_bar.*
                         FROM watermark w
-                        JOIN public.market_bars mb
-                          ON mb.symbol = w.symbol
-                         AND mb.timeframe = w.timeframe
-                         AND mb.ts > w.last_bar_ts
-                        WHERE mb.close IS NOT NULL
+                        CROSS JOIN LATERAL (
+                            SELECT mb.*
+                            FROM public.market_bars mb
+                            WHERE mb.symbol = w.symbol
+                              AND mb.timeframe = w.timeframe
+                              AND mb.ts > w.last_bar_ts
+                              AND mb.close IS NOT NULL
+                            ORDER BY mb.ts
+                        ) new_bar
                     ),
                     changed_scope AS (
                         SELECT DISTINCT
