@@ -35,41 +35,6 @@ MAX_WINDOW_BARS = int(
 )
 
 
-DDL = """
-CREATE TABLE IF NOT EXISTS analytics.feature_store_historical_correction_audit_v1 (
-    audit_id uuid PRIMARY KEY,
-    audit_run_id uuid NOT NULL,
-    symbol text NOT NULL,
-    timeframe text NOT NULL,
-    checked_rows integer NOT NULL,
-    changed_rows integer NOT NULL,
-    missing_market_snapshot_rows integer NOT NULL,
-    missing_market_bar_rows integer NOT NULL,
-    first_changed_ts timestamptz,
-    last_changed_ts timestamptz,
-    correction_detected boolean NOT NULL,
-    dry_run boolean NOT NULL,
-    source_version text NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT clock_timestamp()
-);
-
-CREATE INDEX IF NOT EXISTS
-    ix_feature_store_historical_correction_audit_run_v1
-ON analytics.feature_store_historical_correction_audit_v1 (
-    audit_run_id,
-    correction_detected,
-    symbol,
-    timeframe
-);
-
-CREATE INDEX IF NOT EXISTS
-    ix_feature_store_historical_correction_audit_pair_v1
-ON analytics.feature_store_historical_correction_audit_v1 (
-    symbol,
-    timeframe,
-    created_at DESC
-);
-"""
 
 
 @dataclass(frozen=True)
@@ -136,8 +101,28 @@ def validate_window_bars(value: int) -> int:
     return value
 
 
-def ensure_contract(cur: psycopg2.extensions.cursor) -> None:
-    cur.execute(DDL)
+def ensure_contract(
+    cur: psycopg2.extensions.cursor,
+) -> None:
+    cur.execute(
+        """
+        SELECT to_regclass(
+            'analytics.'
+            'feature_store_historical_correction_audit_v1'
+        ) AS audit_table
+        """
+    )
+
+    row = cur.fetchone()
+    table_name = row["audit_table"] if row else None
+
+    if table_name is None:
+        raise RuntimeError(
+            "Не применена migration "
+            "sql/analytics/"
+            "014_feature_store_historical_correction_audit_v1.sql"
+        )
+
 
 
 def audit_pairs(
