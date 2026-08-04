@@ -63,8 +63,13 @@ def main() -> int:
                         FROM analytics.market_microstructure_snapshot_v1
                         WHERE symbol=%s AND observed_at>=now()-(%s::text || ' minutes')::interval
                     ), latest AS (
-                        SELECT max(observed_at) AS last_observed_at,max(exchange_ts) AS last_exchange_ts
-                        FROM analytics.market_microstructure_snapshot_v1 WHERE symbol=%s
+                        SELECT
+                            observed_at AS last_observed_at,
+                            exchange_ts AS last_exchange_ts
+                        FROM analytics.market_microstructure_snapshot_v1
+                        WHERE symbol=%s
+                        ORDER BY observed_at DESC
+                        LIMIT 1
                     )
                     SELECT latest.*,
                            EXTRACT(EPOCH FROM (now()-last_observed_at)) AS observed_age_seconds,
