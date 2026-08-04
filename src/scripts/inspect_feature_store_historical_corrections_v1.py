@@ -7,7 +7,18 @@ import psycopg2
 import psycopg2.extras
 
 
-DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
+DB = os.getenv(
+    "DATABASE_URL",
+    "postgresql:///finam_core",
+)
+
+# market_snapshot_v1 хранит volume с точностью до четырёх знаков.
+# Половина шага округления не считается исторической коррекцией.
+VOLUME_TOLERANCE = os.getenv(
+    "FEATURE_STORE_CORRECTION_VOLUME_TOLERANCE",
+    "0.00005",
+)
+
 SOURCE_VERSION = "FEATURE_STORE_HISTORICAL_CORRECTION_FORENSIC_V1"
 
 DEFAULT_WINDOW_BARS = int(
@@ -127,8 +138,21 @@ def main() -> int:
 
                         source.volume AS source_volume,
                         snapshot.volume AS snapshot_volume,
-                        source.volume IS DISTINCT FROM snapshot.volume
-                            AS volume_changed,
+                        (
+                            source.volume IS NULL
+                            AND snapshot.volume IS NOT NULL
+                        )
+                        OR (
+                            source.volume IS NOT NULL
+                            AND snapshot.volume IS NULL
+                        )
+                        OR (
+                            source.volume IS NOT NULL
+                            AND snapshot.volume IS NOT NULL
+                            AND abs(
+                                snapshot.volume - source.volume
+                            ) > %s::numeric
+                        ) AS volume_changed,
 
                         snapshot.source_version
                             AS snapshot_source_version,
