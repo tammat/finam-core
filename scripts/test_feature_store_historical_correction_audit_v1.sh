@@ -33,7 +33,9 @@ required = [
     "IS DISTINCT FROM source.high",
     "IS DISTINCT FROM source.low",
     "IS DISTINCT FROM source.close",
-    "IS DISTINCT FROM source.volume",
+    "FEATURE_STORE_CORRECTION_VOLUME_TOLERANCE",
+    "snapshot.volume - source.volume",
+    "> %s::numeric",
     "market_dirty = true",
     "dirty_rows_updated",
     "--dry-run",
@@ -57,6 +59,15 @@ for token in forbidden:
         raise SystemExit(
             f"ERROR=forbidden_write_present:{token}"
         )
+
+legacy_volume_comparison = (
+    "snapshot.volume IS DISTINCT FROM source.volume"
+)
+
+if legacy_volume_comparison in text:
+    raise SystemExit(
+        "ERROR=legacy_exact_volume_comparison_present"
+    )
 
 print("source_contract=OK")
 PY
