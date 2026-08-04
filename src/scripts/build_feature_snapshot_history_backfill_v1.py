@@ -89,9 +89,9 @@ def main() -> int:
                         SELECT
                             symbol,
                             timeframe,
-                            max(bar_ts) AS last_feature_ts
-                        FROM analytics.feature_snapshot_v1
-                        GROUP BY symbol, timeframe
+                            feature_snapshot_last_ts AS last_feature_ts
+                        FROM analytics.feature_store_watermark_v1
+                        WHERE feature_snapshot_last_ts IS NOT NULL
                     ),
                     new_rows AS (
                         SELECT
@@ -336,6 +336,45 @@ def main() -> int:
                         EXCLUDED.source_version,
                     build_id = EXCLUDED.build_id,
                     refreshed_at = now()
+                WHERE
+                    feature_snapshot_v1.open
+                        IS DISTINCT FROM EXCLUDED.open
+                    OR feature_snapshot_v1.high
+                        IS DISTINCT FROM EXCLUDED.high
+                    OR feature_snapshot_v1.low
+                        IS DISTINCT FROM EXCLUDED.low
+                    OR feature_snapshot_v1.close
+                        IS DISTINCT FROM EXCLUDED.close
+                    OR feature_snapshot_v1.volume
+                        IS DISTINCT FROM EXCLUDED.volume
+                    OR feature_snapshot_v1.range_abs
+                        IS DISTINCT FROM EXCLUDED.range_abs
+                    OR feature_snapshot_v1.range_pct
+                        IS DISTINCT FROM EXCLUDED.range_pct
+                    OR feature_snapshot_v1.body_abs
+                        IS DISTINCT FROM EXCLUDED.body_abs
+                    OR feature_snapshot_v1.body_pct
+                        IS DISTINCT FROM EXCLUDED.body_pct
+                    OR feature_snapshot_v1.upper_wick_pct
+                        IS DISTINCT FROM EXCLUDED.upper_wick_pct
+                    OR feature_snapshot_v1.lower_wick_pct
+                        IS DISTINCT FROM EXCLUDED.lower_wick_pct
+                    OR feature_snapshot_v1.return1_pct
+                        IS DISTINCT FROM EXCLUDED.return1_pct
+                    OR feature_snapshot_v1.return5_pct
+                        IS DISTINCT FROM EXCLUDED.return5_pct
+                    OR feature_snapshot_v1.volume_sma20
+                        IS DISTINCT FROM EXCLUDED.volume_sma20
+                    OR feature_snapshot_v1.volume_ratio20
+                        IS DISTINCT FROM EXCLUDED.volume_ratio20
+                    OR feature_snapshot_v1.freshness_sec
+                        IS DISTINCT FROM EXCLUDED.freshness_sec
+                    OR feature_snapshot_v1.market_quality_status
+                        IS DISTINCT FROM
+                        EXCLUDED.market_quality_status
+                    OR feature_snapshot_v1.feature_quality_score
+                        IS DISTINCT FROM
+                        EXCLUDED.feature_quality_score
             """
 
             cur.execute(
@@ -347,6 +386,23 @@ def main() -> int:
             )
 
             processed_rows = max(cur.rowcount, 0)
+
+            if args.mode == "incremental":
+                cur.execute(
+                    """
+                    UPDATE analytics.feature_store_watermark_v1
+                    SET
+                        feature_snapshot_last_ts =
+                            market_snapshot_last_ts,
+                        source_version = %s,
+                        updated_at = now()
+                    WHERE market_snapshot_last_ts IS NOT NULL
+                      AND feature_snapshot_last_ts
+                          IS DISTINCT FROM
+                          market_snapshot_last_ts
+                    """,
+                    (SOURCE_VERSION,),
+                )
 
             if args.dry_run:
                 conn.rollback()
