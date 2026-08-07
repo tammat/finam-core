@@ -17,6 +17,11 @@ from psycopg2 import sql
 from psycopg2.extras import Json, RealDictCursor
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
+from finam_core.research.postgresql_edge_backtest_adapter_v1 import (
+    AdapterContractError,
+    SUPPORTED_STRATEGIES,
+    validate_parameters,
+)
 
 
 SOURCE_VERSION = "POSTGRESQL_EDGE_PARAMETER_SEARCH_V1"
@@ -279,6 +284,37 @@ def insert_tasks(
     templates = load_templates(cursor)
     columns = insertable_columns(cursor)
 
+    # Новые исследовательские стратегии могут ещё не иметь
+    # исторических строк в edge_lab_run_v1. В таком случае
+    # используем одну общую валидную строку только как структурный
+    # шаблон, после чего все идентифицирующие поля переопределяются.
+    missing_strategy_codes = sorted(
+        {
+            task.strategy_code
+            for task in tasks
+            if task.strategy_code not in templates
+        }
+    )
+
+    if missing_strategy_codes:
+        cursor.execute(
+            """
+            SELECT *
+            FROM analytics.edge_lab_run_v1
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """
+        )
+        generic_template = cursor.fetchone()
+
+        if generic_template is None:
+            raise RuntimeError(
+                "generic_edge_lab_task_template_missing"
+            )
+
+        for strategy_code in missing_strategy_codes:
+            templates[strategy_code] = dict(generic_template)
+
     inserted = 0
     duplicates = 0
 
@@ -339,6 +375,32 @@ def insert_tasks(
             duplicates += 1
             continue
 
+        if task.strategy_code not in SUPPORTED_STRATEGIES:
+            print(
+                "PRECHECK_FAILED "
+                f"reason=UNSUPPORTED_STRATEGY "
+                f"strategy={task.strategy_code} "
+                f"symbol={task.symbol} "
+                f"timeframe={task.timeframe}"
+            )
+            continue
+
+        try:
+            normalized_parameters = validate_parameters(
+                task.strategy_code,
+                dict(task.parameters),
+            )
+        except AdapterContractError as error:
+            print(
+                "PRECHECK_FAILED "
+                f"reason=INVALID_PARAMETER_CONTRACT "
+                f"strategy={task.strategy_code} "
+                f"symbol={task.symbol} "
+                f"timeframe={task.timeframe} "
+                f"error={error}"
+            )
+            continue
+
         run_uuid = str(uuid.uuid4())
 
         values = {
@@ -351,7 +413,7 @@ def insert_tasks(
             "symbol": task.symbol,
             "timeframe": task.timeframe,
             "parameter_hash": task.parameter_hash,
-            "parameter_json": Json(task.parameters),
+            "parameter_json": Json(normalized_parameters),
             "status_code": "QUEUED",
             "runner_version": RUNNER_VERSION,
             "source_version": SOURCE_VERSION,
@@ -368,6 +430,49 @@ def insert_tasks(
                 "template_values_missing:"
                 + ",".join(missing)
             )
+
+        minimum_bars = int(
+            normalized_parameters.get("minimum_bars", 100)
+        )
+
+        cursor.execute(
+            """
+            SELECT count(*)::bigint AS bar_count
+            FROM public.market_bars
+            WHERE symbol = %s
+              AND timeframe = %s
+            """,
+            (
+                task.symbol,
+                task.timeframe,
+            ),
+        )
+
+        bar_count = int(
+            cursor.fetchone()["bar_count"] or 0
+        )
+
+        if bar_count == 0:
+            print(
+                "PRECHECK_FAILED "
+                f"reason=NO_BARS "
+                f"strategy={task.strategy_code} "
+                f"symbol={task.symbol} "
+                f"timeframe={task.timeframe}"
+            )
+            continue
+
+        if bar_count < minimum_bars:
+            print(
+                "PRECHECK_FAILED "
+                f"reason=INSUFFICIENT_BARS "
+                f"strategy={task.strategy_code} "
+                f"symbol={task.symbol} "
+                f"timeframe={task.timeframe} "
+                f"bars={bar_count} "
+                f"minimum_bars={minimum_bars}"
+            )
+            continue
 
         cursor.execute(
             query,

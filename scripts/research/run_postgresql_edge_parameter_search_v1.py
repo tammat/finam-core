@@ -92,12 +92,9 @@ def classify(row: dict[str, Any]) -> tuple[str, str]:
             "COMMISSION_NOT_POSITIVE",
         )
 
-    if slippage <= 0:
-        return (
-            "INVALID_COST_MODEL",
-            "SLIPPAGE_NOT_POSITIVE",
-        )
-
+    # Отрицательная экономика при нулевом slippage уже достаточна
+    # для отклонения: положительное реальное проскальзывание
+    # способно только ухудшить такой результат.
     if expectancy <= 0:
         return (
             "REJECTED_AFTER_COSTS",
@@ -108,6 +105,14 @@ def classify(row: dict[str, Any]) -> tuple[str, str]:
         return (
             "REJECTED_AFTER_COSTS",
             "PROFIT_FACTOR_NOT_ABOVE_ONE",
+        )
+
+    # Положительный результат нельзя повышать до EDGE_CANDIDATE,
+    # пока нет подтверждённой положительной модели slippage.
+    if slippage <= 0:
+        return (
+            "COST_MODEL_INCOMPLETE",
+            "SLIPPAGE_MODEL_MISSING",
         )
 
     return (
