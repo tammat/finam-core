@@ -19,6 +19,11 @@ from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
+from finam_core.research.finam_commission_model_v1 import (
+    calculate_round_trip_commission,
+    normalize_commission_parameters,
+)
+
 
 
 SOURCE_VERSION = "POSTGRESQL_EDGE_BACKTEST_ADAPTER_V1"
@@ -28,6 +33,9 @@ SCORE_FORMULA_VERSION = "EDGE_RESEARCH_METRICS_V1"
 SUPPORTED_STRATEGIES = {
     "ATR_IMPULSE_V1",
     "MOMENTUM_CONTINUATION_V1",
+    "MEAN_REVERSION_ZSCORE_V1",
+    "TREND_PULLBACK_V1",
+    "VOLATILITY_BREAKOUT_FILTERED_V1",
 }
 
 TIMESTAMP_CANDIDATES = (
@@ -197,6 +205,19 @@ def validate_parameters(
     normalized.setdefault("minimum_bars", 100)
     normalized.setdefault("allow_short", True)
 
+    # MEAN_REVERSION_ZSCORE_V1
+    normalized.setdefault("zscore_lookback", 20)
+    normalized.setdefault("zscore_entry_threshold", 2.0)
+
+    # TREND_PULLBACK_V1
+    normalized.setdefault("fast_ma_period", 10)
+    normalized.setdefault("slow_ma_period", 50)
+    normalized.setdefault("pullback_atr_multiplier", 0.75)
+
+    # VOLATILITY_BREAKOUT_FILTERED_V1
+    normalized.setdefault("breakout_lookback", 20)
+    normalized.setdefault("minimum_atr_fraction", 0.002)
+
     if int(normalized["quantity"]) <= 0:
         raise AdapterContractError(
             "quantity_must_be_positive"
@@ -217,6 +238,51 @@ def validate_parameters(
             "momentum_period_must_be_positive"
         )
 
+    if int(normalized["zscore_lookback"]) < 5:
+        raise AdapterContractError(
+            "zscore_lookback_must_be_at_least_5"
+        )
+
+    if to_decimal(
+        normalized["zscore_entry_threshold"]
+    ) <= 0:
+        raise AdapterContractError(
+            "zscore_entry_threshold_must_be_positive"
+        )
+
+    if int(normalized["fast_ma_period"]) < 2:
+        raise AdapterContractError(
+            "fast_ma_period_must_be_at_least_2"
+        )
+
+    if (
+        int(normalized["slow_ma_period"])
+        <= int(normalized["fast_ma_period"])
+    ):
+        raise AdapterContractError(
+            "slow_ma_period_must_exceed_fast_ma_period"
+        )
+
+    if to_decimal(
+        normalized["pullback_atr_multiplier"]
+    ) <= 0:
+        raise AdapterContractError(
+            "pullback_atr_multiplier_must_be_positive"
+        )
+
+    if int(normalized["breakout_lookback"]) < 5:
+        raise AdapterContractError(
+            "breakout_lookback_must_be_at_least_5"
+        )
+
+    if to_decimal(
+        normalized["minimum_atr_fraction"]
+    ) < 0:
+        raise AdapterContractError(
+            "minimum_atr_fraction_must_be_non_negative"
+        )
+
+    normalized = normalize_commission_parameters(normalized)
     return normalized
 
 
@@ -322,6 +388,183 @@ def momentum_continuation_signal(
     return None
 
 
+
+def rolling_mean(
+    bars: Sequence[Bar],
+    index: int,
+    period: int,
+) -> Decimal | None:
+    if period <= 0 or index < period - 1:
+        return None
+
+    values = [
+        bars[position].close
+        for position in range(index - period + 1, index + 1)
+    ]
+
+    return sum(values, Decimal("0")) / Decimal(period)
+
+
+def rolling_mean_std(
+    bars: Sequence[Bar],
+    index: int,
+    period: int,
+) -> tuple[Decimal, Decimal] | None:
+    mean = rolling_mean(bars, index, period)
+
+    if mean is None:
+        return None
+
+    values = [
+        bars[position].close
+        for position in range(index - period + 1, index + 1)
+    ]
+
+    variance = sum(
+        (value - mean) * (value - mean)
+        for value in values
+    ) / Decimal(period)
+
+    if variance <= 0:
+        return mean, Decimal("0")
+
+    std = Decimal(str(math.sqrt(float(variance))))
+    return mean, std
+
+
+def mean_reversion_zscore_signal(
+    bars: Sequence[Bar],
+    index: int,
+    parameters: Mapping[str, Any],
+) -> str | None:
+    lookback = int(parameters["zscore_lookback"])
+    threshold = to_decimal(
+        parameters["zscore_entry_threshold"]
+    )
+
+    statistics_result = rolling_mean_std(
+        bars,
+        index,
+        lookback,
+    )
+
+    if statistics_result is None:
+        return None
+
+    mean, std = statistics_result
+
+    if std <= 0:
+        return None
+
+    zscore = (bars[index].close - mean) / std
+
+    if zscore <= -threshold:
+        return "LONG"
+
+    if (
+        bool(parameters["allow_short"])
+        and zscore >= threshold
+    ):
+        return "SHORT"
+
+    return None
+
+
+def trend_pullback_signal(
+    bars: Sequence[Bar],
+    index: int,
+    parameters: Mapping[str, Any],
+) -> str | None:
+    fast_period = int(parameters["fast_ma_period"])
+    slow_period = int(parameters["slow_ma_period"])
+    atr_period = int(parameters["atr_period"])
+    pullback_multiplier = to_decimal(
+        parameters["pullback_atr_multiplier"]
+    )
+
+    fast_ma = rolling_mean(bars, index, fast_period)
+    slow_ma = rolling_mean(bars, index, slow_period)
+    atr = rolling_atr(bars, index, atr_period)
+
+    if (
+        fast_ma is None
+        or slow_ma is None
+        or atr is None
+        or atr <= 0
+    ):
+        return None
+
+    current = bars[index].close
+    pullback_distance = atr * pullback_multiplier
+
+    if (
+        fast_ma > slow_ma
+        and current <= fast_ma - pullback_distance
+        and current > slow_ma
+    ):
+        return "LONG"
+
+    if (
+        bool(parameters["allow_short"])
+        and fast_ma < slow_ma
+        and current >= fast_ma + pullback_distance
+        and current < slow_ma
+    ):
+        return "SHORT"
+
+    return None
+
+
+def volatility_breakout_filtered_signal(
+    bars: Sequence[Bar],
+    index: int,
+    parameters: Mapping[str, Any],
+) -> str | None:
+    lookback = int(parameters["breakout_lookback"])
+    atr_period = int(parameters["atr_period"])
+    minimum_atr_fraction = to_decimal(
+        parameters["minimum_atr_fraction"]
+    )
+
+    if index < max(lookback, atr_period):
+        return None
+
+    atr = rolling_atr(bars, index, atr_period)
+
+    if atr is None or atr <= 0:
+        return None
+
+    current = bars[index].close
+
+    if current <= 0:
+        return None
+
+    atr_fraction = atr / current
+
+    if atr_fraction < minimum_atr_fraction:
+        return None
+
+    previous_high = max(
+        bars[position].high
+        for position in range(index - lookback, index)
+    )
+    previous_low = min(
+        bars[position].low
+        for position in range(index - lookback, index)
+    )
+
+    if current > previous_high:
+        return "LONG"
+
+    if (
+        bool(parameters["allow_short"])
+        and current < previous_low
+    ):
+        return "SHORT"
+
+    return None
+
+
 SIGNAL_BUILDERS: dict[
     str,
     Callable[
@@ -332,6 +575,13 @@ SIGNAL_BUILDERS: dict[
     "ATR_IMPULSE_V1": atr_impulse_signal,
     "MOMENTUM_CONTINUATION_V1": (
         momentum_continuation_signal
+    ),
+    "MEAN_REVERSION_ZSCORE_V1": (
+        mean_reversion_zscore_signal
+    ),
+    "TREND_PULLBACK_V1": trend_pullback_signal,
+    "VOLATILITY_BREAKOUT_FILTERED_V1": (
+        volatility_breakout_filtered_signal
     ),
 }
 
@@ -416,7 +666,13 @@ def build_trades(
             ) * quantity
             side = "SHORT"
 
-        commission = commission_per_side * Decimal("2")
+        commission_breakdown = calculate_round_trip_commission(
+            entry_price=entry_price,
+            exit_price=exit_price,
+            quantity_units=quantity,
+            parameters=parameters,
+        )
+        commission = commission_breakdown.round_trip_total
         market_pnl = (
             (market_exit - market_entry) * quantity
             if side == "LONG"
