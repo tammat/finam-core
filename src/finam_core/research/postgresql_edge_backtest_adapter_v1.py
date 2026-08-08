@@ -1188,6 +1188,25 @@ def load_bars(
         )
         values.append(task.timeframe)
 
+    bar_start_ts = parameters.get("bar_start_ts")
+    bar_end_ts = parameters.get("bar_end_ts")
+
+    if bar_start_ts is not None:
+        predicates.append(
+            sql.SQL("{} >= %s").format(
+                sql.Identifier(timestamp_column)
+            )
+        )
+        values.append(bar_start_ts)
+
+    if bar_end_ts is not None:
+        predicates.append(
+            sql.SQL("{} <= %s").format(
+                sql.Identifier(timestamp_column)
+            )
+        )
+        values.append(bar_end_ts)
+
     volume_expression = (
         sql.Identifier(str(volume_column))
         if volume_column is not None
