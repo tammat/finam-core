@@ -1142,18 +1142,35 @@ def load_bars(
     task: ResearchTask,
     parameters: Mapping[str, Any],
 ) -> list[Bar]:
-    schema_name = str(
-        parameters.get(
-            "bar_schema",
-            DEFAULT_BAR_SCHEMA,
+    dataset_version = str(
+        task.dataset_version
+    ).strip()
+
+    if dataset_version == "default":
+        schema_name = str(
+            parameters.get(
+                "bar_schema",
+                DEFAULT_BAR_SCHEMA,
+            )
         )
-    )
-    table_name = str(
-        parameters.get(
-            "bar_table",
-            DEFAULT_BAR_TABLE,
+        table_name = str(
+            parameters.get(
+                "bar_table",
+                DEFAULT_BAR_TABLE,
+            )
         )
-    )
+        versioned_dataset = False
+
+    elif dataset_version == "NATIVE_FINAM_M5_V1":
+        schema_name = "analytics"
+        table_name = "research_market_bars_v1"
+        versioned_dataset = True
+
+    else:
+        raise AdapterContractError(
+            "unsupported_dataset_version:"
+            f"{dataset_version}"
+        )
 
     contract = discover_bar_contract(
         cursor,
@@ -1187,6 +1204,14 @@ def load_bars(
             )
         )
         values.append(task.timeframe)
+
+    if versioned_dataset:
+        predicates.append(
+            sql.SQL("{} = %s").format(
+                sql.Identifier("dataset_version")
+            )
+        )
+        values.append(dataset_version)
 
     bar_start_ts = parameters.get("bar_start_ts")
     bar_end_ts = parameters.get("bar_end_ts")
