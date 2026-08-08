@@ -1,4 +1,5 @@
 from __future__ import annotations
+import argparse
 
 import json
 import os
@@ -111,18 +112,108 @@ def same_spec(row: dict[str, Any], spec: Spec) -> bool:
     )) and int(row["price_precision"]) == spec.price_precision
 
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Sync MarketCore contract specifications from MOEX ISS."
+    )
+
+    parser.add_argument(
+        "--symbol",
+        action="append",
+        default=[],
+        help=(
+            "Sync only the specified concrete symbol. "
+            "May be supplied multiple times."
+        ),
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Expose the requested symbol set without "
+            "opening PostgreSQL or performing writes."
+        ),
+    )
+
+    return parser
+
 def main() -> int:
+    args = build_parser().parse_args()
+
+    requested_symbols = tuple(
+        dict.fromkeys(
+            symbol.strip()
+            for symbol in args.symbol
+            if symbol.strip()
+        )
+    )
+
+    # --dry-run является полностью диагностическим режимом:
+    # PostgreSQL не открывается и никаких записей не выполняется.
+    if args.dry_run:
+        if not requested_symbols:
+            raise SystemExit(
+                "dry_run_requires_at_least_one_symbol"
+            )
+
+        print("dry_run=1")
+        print(f"symbol_count={len(requested_symbols)}")
+
+        for symbol in requested_symbols:
+            print(f"DRY_RUN_SYMBOL symbol={symbol}")
+
+        print("db_writes_performed=0")
+        print("runtime_changed=0")
+        print("execution_changed=0")
+        print("orders_changed=0")
+        print("fills_changed=0")
+        print("micro_live_allowed=0")
+        print(
+            "VERDICT="
+            "MARKET_CONTRACT_SPEC_SYNC_V1_DRY_RUN_READY"
+        )
+        return 0
+
     run_id = uuid.uuid4()
     written = unchanged = skipped = failed = 0
+
     with psycopg2.connect(DB) as connection:
-        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-            cursor.execute("""INSERT INTO analytics.contract_spec_sync_run_v1(run_id,status_code)
-                VALUES(%s,'RUNNING')""", (str(run_id),))
-            cursor.execute("""SELECT DISTINCT symbol FROM public.market_bars
-                WHERE timeframe='M5' AND ts>=clock_timestamp()-interval '7 days'
-                  AND source NOT IN ('unknown','synthetic_futures_backfill_v1')
-                  AND (symbol LIKE '%@MISX' OR symbol LIKE '%@RTSX') ORDER BY symbol""")
-            symbols = [row["symbol"] for row in cursor.fetchall()]
+        with connection.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        ) as cursor:
+            cursor.execute(
+                """INSERT INTO analytics.contract_spec_sync_run_v1(run_id,status_code)
+                VALUES(%s,'RUNNING')""",
+                (str(run_id),),
+            )
+
+            # Explicit --symbol является authoritative selector.
+            # Это позволяет синхронизировать исторические concrete
+            # contracts, отсутствующие в 7-day active universe.
+            if requested_symbols:
+                symbols = list(requested_symbols)
+            else:
+                cursor.execute(
+                    """SELECT DISTINCT symbol FROM public.market_bars
+                    WHERE timeframe='M5'
+                      AND ts>=clock_timestamp()-interval '7 days'
+                      AND source NOT IN (
+                          'unknown',
+                          'synthetic_futures_backfill_v1'
+                      )
+                      AND (
+                          symbol LIKE '%@MISX'
+                          OR symbol LIKE '%@RTSX'
+                      )
+                    ORDER BY symbol"""
+                )
+                symbols = [
+                    row["symbol"]
+                    for row in cursor.fetchall()
+                ]
+
             connection.commit()
 
             for symbol in symbols:
