@@ -54,6 +54,14 @@ def main() -> int:
         required=True,
     )
     parser.add_argument(
+        "--template-run-uuid",
+        default=None,
+        help=(
+            "Явный template run_uuid от "
+            "POSTGRESQL_EDGE_BACKTEST_ADAPTER_V1"
+        ),
+    )
+    parser.add_argument(
         "--save",
         action="store_true",
     )
@@ -77,45 +85,87 @@ def main() -> int:
         with conn.cursor(
             cursor_factory=RealDictCursor,
         ) as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    run_uuid::text,
-                    research_code,
-                    strategy_code,
-                    strategy_version,
-                    symbol,
-                    timeframe,
-                    parameter_json,
-                    parameter_hash,
-                    dataset_version,
-                    runner_version,
-                    source_version
-                FROM analytics.edge_lab_run_v1
-                WHERE symbol = %s
-                  AND strategy_code = %s
-                  AND timeframe = %s
-                  AND parameter_json IS NOT NULL
-                ORDER BY
-                    CASE
-                        WHEN status_code = 'DONE' THEN 0
-                        WHEN status_code = 'SUPERSEDED' THEN 1
-                        ELSE 2
-                    END,
-                    created_at DESC,
-                    run_uuid
-                LIMIT 1
-                """,
-                (
-                    args.continuous_symbol,
-                    args.strategy_code,
-                    args.timeframe,
-                ),
-            )
+            if args.template_run_uuid:
+                cursor.execute(
+                    """
+                    SELECT
+                        run_uuid::text,
+                        research_code,
+                        strategy_code,
+                        strategy_version,
+                        symbol,
+                        timeframe,
+                        parameter_json,
+                        parameter_hash,
+                        dataset_version,
+                        runner_version,
+                        source_version
+                    FROM analytics.edge_lab_run_v1
+                    WHERE run_uuid = %s::uuid
+                      AND strategy_code = %s
+                      AND timeframe = %s
+                      AND parameter_json IS NOT NULL
+                      AND status_code = 'DONE'
+                      AND runner_version =
+                          'POSTGRESQL_EDGE_BACKTEST_ADAPTER_V1'
+                    LIMIT 1
+                    """,
+                    (
+                        args.template_run_uuid,
+                        args.strategy_code,
+                        args.timeframe,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        run_uuid::text,
+                        research_code,
+                        strategy_code,
+                        strategy_version,
+                        symbol,
+                        timeframe,
+                        parameter_json,
+                        parameter_hash,
+                        dataset_version,
+                        runner_version,
+                        source_version
+                    FROM analytics.edge_lab_run_v1
+                    WHERE symbol = %s
+                      AND strategy_code = %s
+                      AND timeframe = %s
+                      AND parameter_json IS NOT NULL
+                      AND runner_version =
+                          'POSTGRESQL_EDGE_BACKTEST_ADAPTER_V1'
+                    ORDER BY
+                        CASE
+                            WHEN status_code = 'DONE' THEN 0
+                            WHEN status_code = 'SUPERSEDED' THEN 1
+                            ELSE 2
+                        END,
+                        created_at DESC,
+                        run_uuid
+                    LIMIT 1
+                    """,
+                    (
+                        args.continuous_symbol,
+                        args.strategy_code,
+                        args.timeframe,
+                    ),
+                )
 
             template = cursor.fetchone()
 
             if template is None:
+                if args.template_run_uuid:
+                    raise SystemExit(
+                        "ERROR=explicit_template_missing_or_incompatible:"
+                        f"{args.template_run_uuid}:"
+                        f"{args.strategy_code}:"
+                        f"{args.timeframe}"
+                    )
+
                 raise SystemExit(
                     "ERROR=continuous_symbol_template_missing:"
                     f"{args.continuous_symbol}:"

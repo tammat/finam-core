@@ -602,6 +602,7 @@ def build_trades(
     cbr_rates: Sequence[CbrReferenceRate] = (),
     futures_tick_size: Decimal | None = None,
     futures_lot_size: Decimal | None = None,
+    futures_contract_multiplier: Decimal | None = None,
 ) -> list[Trade]:
     normalized = validate_parameters(
         strategy_code,
@@ -659,6 +660,22 @@ def build_trades(
         trade_ts: datetime,
     ) -> Decimal:
         if not use_brz6_monetary_model:
+            if symbol is not None and symbol.endswith("@RTSX"):
+                if (
+                    futures_contract_multiplier is None
+                    or futures_contract_multiplier <= 0
+                ):
+                    raise AdapterContractError(
+                        "FUTURES_CONTRACT_MULTIPLIER_NOT_RESOLVED:"
+                        f"{symbol}"
+                    )
+
+                return (
+                    price_delta
+                    * quantity
+                    * futures_contract_multiplier
+                )
+
             return price_delta * quantity
 
         reference = select_rate_asof(
@@ -1252,7 +1269,7 @@ def load_completed_task_for_dry_run(
 
     Контракт:
     - требуется явный run_uuid;
-    - разрешён только status_code=DONE;
+    - разрешены status_code=DONE и FAILED;
     - FOR UPDATE запрещён;
     - status_code не изменяется;
     - persisted trades/observations не изменяются.
@@ -1263,7 +1280,7 @@ def load_completed_task_for_dry_run(
         SELECT *
         FROM analytics.edge_lab_run_v1
         WHERE run_uuid = %s
-          AND status_code = 'DONE'
+          AND status_code IN ('DONE', 'FAILED')
         """,
         (run_uuid,),
     )
@@ -1628,6 +1645,80 @@ def mark_failed(
 
 
 
+def load_futures_contract_multiplier(
+    cursor: RealDictCursor,
+    symbol: str,
+) -> Decimal:
+    """
+    Разрешает денежный multiplier только по exact active
+    спецификации конкретного фьючерсного контракта.
+
+    Root/reference fallback запрещён: BR@RTSX и NG@RTSX
+    не являются допустимой заменой concrete contract spec.
+    """
+
+    cursor.execute(
+        """
+        SELECT
+            tick_size,
+            tick_value,
+            contract_multiplier,
+            source_version
+        FROM analytics.market_contract_spec_v1
+        WHERE symbol = %s
+          AND is_active
+        ORDER BY valid_from DESC
+        LIMIT 2
+        """,
+        (symbol,),
+    )
+
+    rows = cursor.fetchall()
+
+    if len(rows) != 1:
+        raise AdapterContractError(
+            "FUTURES_CONTRACT_SPEC_NOT_RESOLVED:"
+            f"{symbol}:count={len(rows)}"
+        )
+
+    row = rows[0]
+
+    tick_size = Decimal(str(row["tick_size"]))
+    tick_value = Decimal(str(row["tick_value"]))
+    contract_multiplier = Decimal(
+        str(row["contract_multiplier"])
+    )
+
+    if tick_size <= 0:
+        raise AdapterContractError(
+            f"FUTURES_TICK_SIZE_NOT_POSITIVE:{symbol}"
+        )
+
+    if tick_value <= 0:
+        raise AdapterContractError(
+            f"FUTURES_TICK_VALUE_NOT_POSITIVE:{symbol}"
+        )
+
+    if contract_multiplier <= 0:
+        raise AdapterContractError(
+            "FUTURES_CONTRACT_MULTIPLIER_NOT_POSITIVE:"
+            f"{symbol}"
+        )
+
+    calculated_multiplier = tick_value / tick_size
+
+    if abs(
+        contract_multiplier - calculated_multiplier
+    ) > Decimal("0.000001"):
+        raise AdapterContractError(
+            "FUTURES_CONTRACT_SPEC_IDENTITY_MISMATCH:"
+            f"{symbol}:stored={contract_multiplier}:"
+            f"calculated={calculated_multiplier}"
+        )
+
+    return contract_multiplier
+
+
 def load_brz6_monetary_context(
     cursor: RealDictCursor,
 ) -> tuple[
@@ -1762,6 +1853,7 @@ def execute_one(
                 cbr_rates: list[CbrReferenceRate] = []
                 futures_tick_size: Decimal | None = None
                 futures_lot_size: Decimal | None = None
+                futures_contract_multiplier: Decimal | None = None
 
                 if task.symbol == "BRZ6@RTSX":
                     (
@@ -1770,6 +1862,13 @@ def execute_one(
                         futures_lot_size,
                     ) = load_brz6_monetary_context(
                         cursor
+                    )
+                elif task.symbol.endswith("@RTSX"):
+                    futures_contract_multiplier = (
+                        load_futures_contract_multiplier(
+                            cursor,
+                            task.symbol,
+                        )
                     )
 
                 started = time.perf_counter()
@@ -1781,6 +1880,9 @@ def execute_one(
                     cbr_rates=cbr_rates,
                     futures_tick_size=futures_tick_size,
                     futures_lot_size=futures_lot_size,
+                    futures_contract_multiplier=(
+                        futures_contract_multiplier
+                    ),
                 )
                 elapsed_ms = int(
                     (time.perf_counter() - started) * 1000
