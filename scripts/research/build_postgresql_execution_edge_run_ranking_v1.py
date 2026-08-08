@@ -140,9 +140,6 @@ def main() -> int:
                 JOIN analytics.research_trade_v1 t
                   ON t.run_uuid = r.run_uuid
                 WHERE r.research_batch_id = %s
-                  AND r.strategy_code = %s
-                  AND r.symbol = %s
-                  AND r.timeframe = %s
                 GROUP BY
                     r.run_uuid,
                     r.research_code,
@@ -158,9 +155,6 @@ def main() -> int:
                 """,
                 (
                     args.batch_id,
-                    TARGET_STRATEGY,
-                    TARGET_SYMBOL,
-                    TARGET_TIMEFRAME,
                 ),
             )
 
