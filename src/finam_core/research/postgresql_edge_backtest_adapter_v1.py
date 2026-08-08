@@ -19,6 +19,13 @@ from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
 from finam_core.analytics.statistics_repository import build_psycopg_url
+from finam_core.research.cbr_reference_rate_v1 import (
+    CbrReferenceRate,
+    brz_tick_value_rub,
+    futures_price_delta_to_rub,
+    select_rate_asof,
+)
+
 from finam_core.research.finam_commission_model_v1 import (
     calculate_round_trip_commission,
     normalize_commission_parameters,
@@ -590,6 +597,11 @@ def build_trades(
     bars: Sequence[Bar],
     strategy_code: str,
     parameters: Mapping[str, Any],
+    *,
+    symbol: str | None = None,
+    cbr_rates: Sequence[CbrReferenceRate] = (),
+    futures_tick_size: Decimal | None = None,
+    futures_lot_size: Decimal | None = None,
 ) -> list[Trade]:
     normalized = validate_parameters(
         strategy_code,
@@ -614,6 +626,58 @@ def build_trades(
 
     signal_builder = SIGNAL_BUILDERS[strategy_code]
     trades: list[Trade] = []
+
+    use_brz6_monetary_model = (
+        symbol == "BRZ6@RTSX"
+    )
+
+    if use_brz6_monetary_model:
+        if not cbr_rates:
+            raise AdapterContractError(
+                "BRZ6_CBR_REFERENCE_RATES_MISSING"
+            )
+
+        if (
+            futures_tick_size is None
+            or futures_tick_size <= 0
+        ):
+            raise AdapterContractError(
+                "BRZ6_TICK_SIZE_NOT_RESOLVED"
+            )
+
+        if (
+            futures_lot_size is None
+            or futures_lot_size <= 0
+        ):
+            raise AdapterContractError(
+                "BRZ6_LOT_SIZE_NOT_RESOLVED"
+            )
+
+    def monetary_pnl(
+        *,
+        price_delta: Decimal,
+        trade_ts: datetime,
+    ) -> Decimal:
+        if not use_brz6_monetary_model:
+            return price_delta * quantity
+
+        reference = select_rate_asof(
+            list(cbr_rates),
+            trade_ts.date(),
+        )
+
+        tick_value = brz_tick_value_rub(
+            tick_size=futures_tick_size,
+            lot_size=futures_lot_size,
+            usd_rub_rate=reference.rate_value,
+        )
+
+        return futures_price_delta_to_rub(
+            price_delta=price_delta,
+            quantity=quantity,
+            tick_size=futures_tick_size,
+            tick_value=tick_value,
+        )
 
     index = 1
 
@@ -646,9 +710,12 @@ def build_trades(
                 "SELL",
                 slippage_bps,
             )
-            gross_pnl = (
-                exit_price - entry_price
-            ) * quantity
+            gross_pnl = monetary_pnl(
+                price_delta=(
+                    exit_price - entry_price
+                ),
+                trade_ts=entry_bar.ts,
+            )
             side = "LONG"
         else:
             entry_price = apply_slippage(
@@ -661,9 +728,12 @@ def build_trades(
                 "BUY",
                 slippage_bps,
             )
-            gross_pnl = (
-                entry_price - exit_price
-            ) * quantity
+            gross_pnl = monetary_pnl(
+                price_delta=(
+                    entry_price - exit_price
+                ),
+                trade_ts=entry_bar.ts,
+            )
             side = "SHORT"
 
         commission_breakdown = calculate_round_trip_commission(
@@ -673,10 +743,13 @@ def build_trades(
             parameters=parameters,
         )
         commission = commission_breakdown.round_trip_total
-        market_pnl = (
-            (market_exit - market_entry) * quantity
-            if side == "LONG"
-            else (market_entry - market_exit) * quantity
+        market_pnl = monetary_pnl(
+            price_delta=(
+                market_exit - market_entry
+                if side == "LONG"
+                else market_entry - market_exit
+            ),
+            trade_ts=entry_bar.ts,
         )
 
         slippage_cost = max(
@@ -1169,6 +1242,40 @@ def row_to_task(row: Mapping[str, Any]) -> ResearchTask:
     )
 
 
+
+def load_completed_task_for_dry_run(
+    cursor: RealDictCursor,
+    run_uuid: str,
+) -> ResearchTask | None:
+    """
+    Загружает завершённый research run только для read-only replay.
+
+    Контракт:
+    - требуется явный run_uuid;
+    - разрешён только status_code=DONE;
+    - FOR UPDATE запрещён;
+    - status_code не изменяется;
+    - persisted trades/observations не изменяются.
+    """
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM analytics.edge_lab_run_v1
+        WHERE run_uuid = %s
+          AND status_code = 'DONE'
+        """,
+        (run_uuid,),
+    )
+
+    row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return row_to_task(row)
+
+
 def claim_task(
     cursor: RealDictCursor,
     run_uuid: str | None,
@@ -1520,6 +1627,95 @@ def mark_failed(
     connection.commit()
 
 
+
+def load_brz6_monetary_context(
+    cursor: RealDictCursor,
+) -> tuple[
+    list[CbrReferenceRate],
+    Decimal,
+    Decimal,
+]:
+    """
+    Загружает подтверждённый BRZ6 monetary context.
+
+    Future CBR lookup выполняется позднее через select_rate_asof().
+    Tick size и lot size разрешаются только если все сохранённые
+    concrete specs BRZ6 согласованы между собой.
+    """
+
+    cursor.execute(
+        """
+        SELECT
+            rate_date,
+            rate_value
+        FROM analytics.cbr_reference_rate_v1
+        WHERE currency_code = 'USD'
+          AND cbr_code = 'R01235'
+        ORDER BY rate_date
+        """
+    )
+
+    cbr_rates = [
+        CbrReferenceRate(
+            currency_code="USD",
+            cbr_code="R01235",
+            rate_date=row["rate_date"],
+            rate_value=Decimal(
+                str(row["rate_value"])
+            ),
+        )
+        for row in cursor.fetchall()
+    ]
+
+    if not cbr_rates:
+        raise AdapterContractError(
+            "BRZ6_CBR_REFERENCE_TABLE_EMPTY"
+        )
+
+    cursor.execute(
+        """
+        SELECT DISTINCT
+            tick_size,
+            lot_size
+        FROM analytics.market_contract_spec_v1
+        WHERE symbol = 'BRZ6@RTSX'
+        ORDER BY tick_size, lot_size
+        """
+    )
+
+    spec_rows = cursor.fetchall()
+
+    if len(spec_rows) != 1:
+        raise AdapterContractError(
+            "BRZ6_STATIC_SPEC_NOT_UNIQUE:"
+            f"count={len(spec_rows)}"
+        )
+
+    tick_size = Decimal(
+        str(spec_rows[0]["tick_size"])
+    )
+
+    lot_size = Decimal(
+        str(spec_rows[0]["lot_size"])
+    )
+
+    if tick_size <= 0:
+        raise AdapterContractError(
+            "BRZ6_TICK_SIZE_NOT_POSITIVE"
+        )
+
+    if lot_size <= 0:
+        raise AdapterContractError(
+            "BRZ6_LOT_SIZE_NOT_POSITIVE"
+        )
+
+    return (
+        cbr_rates,
+        tick_size,
+        lot_size,
+    )
+
+
 def execute_one(
     run_uuid: str | None = None,
     dry_run: bool = False,
@@ -1534,7 +1730,16 @@ def execute_one(
             with connection.cursor(
                 cursor_factory=RealDictCursor,
             ) as cursor:
-                task = claim_task(cursor, run_uuid)
+                if dry_run and run_uuid is not None:
+                    task = load_completed_task_for_dry_run(
+                        cursor,
+                        run_uuid,
+                    )
+                else:
+                    task = claim_task(
+                        cursor,
+                        run_uuid,
+                    )
 
                 if task is None:
                     print("queued_task_found=0")
@@ -1554,11 +1759,28 @@ def execute_one(
                     parameters,
                 )
 
+                cbr_rates: list[CbrReferenceRate] = []
+                futures_tick_size: Decimal | None = None
+                futures_lot_size: Decimal | None = None
+
+                if task.symbol == "BRZ6@RTSX":
+                    (
+                        cbr_rates,
+                        futures_tick_size,
+                        futures_lot_size,
+                    ) = load_brz6_monetary_context(
+                        cursor
+                    )
+
                 started = time.perf_counter()
                 trades = build_trades(
                     bars,
                     task.strategy_code,
                     parameters,
+                    symbol=task.symbol,
+                    cbr_rates=cbr_rates,
+                    futures_tick_size=futures_tick_size,
+                    futures_lot_size=futures_lot_size,
                 )
                 elapsed_ms = int(
                     (time.perf_counter() - started) * 1000
@@ -1568,6 +1790,80 @@ def execute_one(
                     len(bars),
                     trades,
                 )
+
+                if dry_run:
+                    gross_pnl_sum = sum(
+                        (
+                            trade.gross_pnl
+                            for trade in trades
+                        ),
+                        Decimal("0"),
+                    )
+
+                    commission_sum = sum(
+                        (
+                            trade.commission
+                            for trade in trades
+                        ),
+                        Decimal("0"),
+                    )
+
+                    slippage_sum = sum(
+                        (
+                            trade.slippage
+                            for trade in trades
+                        ),
+                        Decimal("0"),
+                    )
+
+                    net_pnl_sum = sum(
+                        (
+                            trade.net_pnl
+                            for trade in trades
+                        ),
+                        Decimal("0"),
+                    )
+
+                    market_pnl_sum = (
+                        gross_pnl_sum
+                        + slippage_sum
+                    )
+
+                    gross_identity_error = (
+                        market_pnl_sum
+                        - slippage_sum
+                        - gross_pnl_sum
+                    )
+
+                    net_identity_error = (
+                        gross_pnl_sum
+                        - commission_sum
+                        - net_pnl_sum
+                    )
+
+                    print(
+                        f"market_pnl_sum={market_pnl_sum}"
+                    )
+                    print(
+                        f"gross_pnl_sum={gross_pnl_sum}"
+                    )
+                    print(
+                        f"commission_sum={commission_sum}"
+                    )
+                    print(
+                        f"slippage_sum={slippage_sum}"
+                    )
+                    print(
+                        f"net_pnl_sum={net_pnl_sum}"
+                    )
+                    print(
+                        "gross_identity_error="
+                        f"{gross_identity_error}"
+                    )
+                    print(
+                        "net_identity_error="
+                        f"{net_identity_error}"
+                    )
 
                 print(f"run_uuid={task.run_uuid}")
                 print(f"strategy_code={task.strategy_code}")
