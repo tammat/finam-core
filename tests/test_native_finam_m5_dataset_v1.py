@@ -194,7 +194,316 @@ def test_validate_rejects_duplicate_timestamp():
         )
 
 
-def test_write_mode_is_not_implemented_in_source():
+def test_write_mode_uses_controlled_persistence_path():
     source = SCRIPT.read_text()
 
-    assert "write_mode_not_implemented" in source
+    assert "write_mode_not_implemented" not in source
+    assert "persist_dataset(bars)" in source
+    assert "post_write_fingerprint_changed" in source
+    assert "RESEARCH_USE_ALLOWED=0" in source
+
+
+def test_verify_persisted_dataset_accepts_identical():
+    bars = [
+        make_bar(0),
+        make_bar(5),
+        make_bar(10),
+    ]
+
+    fingerprint = builder.verify_persisted_dataset(
+        bars,
+        bars,
+    )
+
+    assert fingerprint == builder.dataset_fingerprint(
+        bars
+    )
+
+
+def test_verify_persisted_dataset_rejects_count_mismatch():
+    expected = [
+        make_bar(0),
+        make_bar(5),
+    ]
+
+    persisted = [
+        make_bar(0),
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match="persisted_dataset_count_mismatch",
+    ):
+        builder.verify_persisted_dataset(
+            persisted,
+            expected,
+        )
+
+
+def test_verify_persisted_dataset_rejects_fingerprint_mismatch():
+    expected = [
+        make_bar(0),
+        make_bar(5),
+    ]
+
+    persisted = [
+        make_bar(0),
+        make_bar(
+            5,
+            close="2.700",
+        ),
+    ]
+
+    with pytest.raises(
+        RuntimeError,
+        match="persisted_dataset_fingerprint_mismatch",
+    ):
+        builder.verify_persisted_dataset(
+            persisted,
+            expected,
+        )
+
+
+def test_persist_dataset_rejects_empty_before_db(monkeypatch):
+    called = False
+
+    def forbidden_connect(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("database_connect_not_allowed")
+
+    monkeypatch.setattr(
+        builder.psycopg2,
+        "connect",
+        forbidden_connect,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="cannot_persist_empty_dataset",
+    ):
+        builder.persist_dataset([])
+
+    assert called is False
+
+
+def test_persist_dataset_rejects_mixed_identity_before_db(
+    monkeypatch,
+):
+    first = make_bar(0)
+
+    second = build_bar(
+        dataset_version=NATIVE_FINAM_M5_V1,
+        symbol="OTHER@TEST",
+        timeframe="M5",
+        ts=datetime(
+            2026, 8, 8, 10, 5,
+            tzinfo=timezone.utc,
+        ),
+        open=Decimal("2.746"),
+        high=Decimal("2.747"),
+        low=Decimal("2.745"),
+        close=Decimal("2.746"),
+        volume=Decimal("10"),
+        provider=builder.PROVIDER,
+        provider_data_version=(
+            builder.PROVIDER_DATA_VERSION
+        ),
+    )
+
+    called = False
+
+    def forbidden_connect(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("database_connect_not_allowed")
+
+    monkeypatch.setattr(
+        builder.psycopg2,
+        "connect",
+        forbidden_connect,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="mixed_dataset_identity_not_allowed",
+    ):
+        builder.persist_dataset(
+            [first, second]
+        )
+
+    assert called is False
+
+
+def test_main_dry_run_never_calls_persist_dataset(
+    monkeypatch,
+):
+    bars = [
+        make_bar(0),
+        make_bar(5),
+    ]
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        builder,
+        "FinamBarsClient",
+        FakeClient,
+    )
+
+    monkeypatch.setattr(
+        builder,
+        "fetch_chunked_bars",
+        lambda *args, **kwargs: (bars, 1),
+    )
+
+    persist_calls = []
+
+    def forbidden_persist(value):
+        persist_calls.append(value)
+        raise AssertionError(
+            "persist_dataset_called_in_dry_run"
+        )
+
+    monkeypatch.setattr(
+        builder,
+        "persist_dataset",
+        forbidden_persist,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--start",
+            "2026-08-08T10:00:00+00:00",
+            "--end",
+            "2026-08-08T11:00:00+00:00",
+        ],
+    )
+
+    assert builder.main() == 0
+    assert persist_calls == []
+
+
+def test_main_write_calls_persist_exactly_once(
+    monkeypatch,
+):
+    bars = [
+        make_bar(0),
+        make_bar(5),
+    ]
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        builder,
+        "FinamBarsClient",
+        FakeClient,
+    )
+
+    monkeypatch.setattr(
+        builder,
+        "fetch_chunked_bars",
+        lambda *args, **kwargs: (bars, 1),
+    )
+
+    calls = []
+
+    class Result:
+        rows_seen = 2
+        rows_inserted = 2
+        rows_identical = 0
+
+    expected_fingerprint = (
+        builder.dataset_fingerprint(bars)
+    )
+
+    def fake_persist(value):
+        calls.append(value)
+        return Result(), expected_fingerprint
+
+    monkeypatch.setattr(
+        builder,
+        "persist_dataset",
+        fake_persist,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--start",
+            "2026-08-08T10:00:00+00:00",
+            "--end",
+            "2026-08-08T11:00:00+00:00",
+            "--write",
+        ],
+    )
+
+    assert builder.main() == 0
+    assert calls == [bars]
+
+
+def test_main_write_rejects_post_write_fingerprint_change(
+    monkeypatch,
+):
+    bars = [
+        make_bar(0),
+        make_bar(5),
+    ]
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        builder,
+        "FinamBarsClient",
+        FakeClient,
+    )
+
+    monkeypatch.setattr(
+        builder,
+        "fetch_chunked_bars",
+        lambda *args, **kwargs: (bars, 1),
+    )
+
+    class Result:
+        rows_seen = 2
+        rows_inserted = 2
+        rows_identical = 0
+
+    monkeypatch.setattr(
+        builder,
+        "persist_dataset",
+        lambda value: (
+            Result(),
+            "0" * 64,
+        ),
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--start",
+            "2026-08-08T10:00:00+00:00",
+            "--end",
+            "2026-08-08T11:00:00+00:00",
+            "--write",
+        ],
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="post_write_fingerprint_changed",
+    ):
+        builder.main()

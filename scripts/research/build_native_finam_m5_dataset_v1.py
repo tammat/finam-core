@@ -3,10 +3,18 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from finam_core.analytics.statistics_repository import build_psycopg_url
 from finam_core.ingestion.bars_client import FinamBarsClient
+from finam_core.research.versioned_market_bars_ingestion_v1 import (
+    VersionedMarketBarsIngestionResult,
+    ingest_many,
+)
 from finam_core.research.versioned_market_bars_v1 import (
     NATIVE_FINAM_M5_V1,
     VersionedResearchBar,
@@ -233,6 +241,146 @@ def validate_dataset(
         )
 
 
+def load_persisted_dataset(
+    cursor: RealDictCursor,
+    *,
+    dataset_version: str,
+    symbol: str,
+    timeframe: str,
+) -> list[VersionedResearchBar]:
+    cursor.execute(
+        """
+        SELECT
+            dataset_version,
+            symbol,
+            timeframe,
+            ts,
+            open,
+            high,
+            low,
+            close,
+            volume,
+            provider,
+            provider_data_version,
+            source_payload_hash
+        FROM analytics.research_market_bars_v1
+        WHERE dataset_version = %s
+          AND symbol = %s
+          AND timeframe = %s
+        ORDER BY ts
+        """,
+        (
+            dataset_version,
+            symbol,
+            timeframe,
+        ),
+    )
+
+    return [
+        VersionedResearchBar(
+            dataset_version=row["dataset_version"],
+            symbol=row["symbol"],
+            timeframe=row["timeframe"],
+            ts=row["ts"],
+            open=Decimal(str(row["open"])),
+            high=Decimal(str(row["high"])),
+            low=Decimal(str(row["low"])),
+            close=Decimal(str(row["close"])),
+            volume=Decimal(str(row["volume"])),
+            provider=row["provider"],
+            provider_data_version=row[
+                "provider_data_version"
+            ],
+            source_payload_hash=row[
+                "source_payload_hash"
+            ],
+        )
+        for row in cursor.fetchall()
+    ]
+
+
+def verify_persisted_dataset(
+    persisted: list[VersionedResearchBar],
+    expected: list[VersionedResearchBar],
+) -> str:
+    if len(persisted) != len(expected):
+        raise RuntimeError(
+            "persisted_dataset_count_mismatch:"
+            f"expected={len(expected)}:"
+            f"actual={len(persisted)}"
+        )
+
+    expected_fingerprint = dataset_fingerprint(
+        expected
+    )
+    persisted_fingerprint = dataset_fingerprint(
+        persisted
+    )
+
+    if persisted_fingerprint != expected_fingerprint:
+        raise RuntimeError(
+            "persisted_dataset_fingerprint_mismatch:"
+            f"expected={expected_fingerprint}:"
+            f"actual={persisted_fingerprint}"
+        )
+
+    return persisted_fingerprint
+
+
+def persist_dataset(
+    bars: list[VersionedResearchBar],
+) -> tuple[
+    VersionedMarketBarsIngestionResult,
+    str,
+]:
+    if not bars:
+        raise RuntimeError(
+            "cannot_persist_empty_dataset"
+        )
+
+    dataset_version = bars[0].dataset_version
+    symbol = bars[0].symbol
+    timeframe = bars[0].timeframe
+
+    if any(
+        bar.dataset_version != dataset_version
+        or bar.symbol != symbol
+        or bar.timeframe != timeframe
+        for bar in bars
+    ):
+        raise RuntimeError(
+            "mixed_dataset_identity_not_allowed"
+        )
+
+    with psycopg2.connect(
+        build_psycopg_url()
+    ) as connection:
+        with connection.cursor(
+            cursor_factory=RealDictCursor
+        ) as cursor:
+            result = ingest_many(
+                cursor,
+                bars,
+            )
+
+            persisted = load_persisted_dataset(
+                cursor,
+                dataset_version=dataset_version,
+                symbol=symbol,
+                timeframe=timeframe,
+            )
+
+            fingerprint = verify_persisted_dataset(
+                persisted,
+                bars,
+            )
+
+        # context manager commits only after
+        # verification completed successfully.
+
+    return result, fingerprint
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
 
@@ -267,11 +415,6 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-
-    if args.write:
-        raise RuntimeError(
-            "write_mode_not_implemented"
-        )
 
     start = parse_ts(args.start)
     end = parse_ts(args.end)
@@ -349,14 +492,48 @@ def main() -> int:
             bar.source_payload_hash,
         )
 
-    print()
-    print("DATABASE_WRITE=NO")
-    print("PARAMETER_SEARCH=NO")
-    print("ADAPTER_CHANGED=0")
-    print(
-        "VERDICT="
-        "NATIVE_FINAM_M5_DATASET_V1_DRY_RUN_OK"
-    )
+    if args.write:
+        result, persisted_fingerprint = (
+            persist_dataset(bars)
+        )
+
+        if persisted_fingerprint != fingerprint:
+            raise RuntimeError(
+                "post_write_fingerprint_changed"
+            )
+
+        print()
+        print("=== PERSISTENCE ===")
+        print(
+            f"rows_seen={result.rows_seen}"
+        )
+        print(
+            f"rows_inserted={result.rows_inserted}"
+        )
+        print(
+            f"rows_identical={result.rows_identical}"
+        )
+        print(
+            "persisted_fingerprint="
+            f"{persisted_fingerprint}"
+        )
+        print("DATABASE_WRITE=YES")
+        print("PARAMETER_SEARCH=NO")
+        print("ADAPTER_CHANGED=0")
+        print("RESEARCH_USE_ALLOWED=0")
+        print(
+            "VERDICT="
+            "NATIVE_FINAM_M5_DATASET_V1_PERSISTED"
+        )
+    else:
+        print()
+        print("DATABASE_WRITE=NO")
+        print("PARAMETER_SEARCH=NO")
+        print("ADAPTER_CHANGED=0")
+        print(
+            "VERDICT="
+            "NATIVE_FINAM_M5_DATASET_V1_DRY_RUN_OK"
+        )
 
     return 0
 
