@@ -1,0 +1,65 @@
+MARKET RESEARCH V5 GLDRUBF MOEX CONTRACT / COST EVIDENCE
+
+checkpoint_id=GLDRUBF-005
+checkpoint_name=GLDRUBF_MOEX_CONTRACT_COST_EVIDENCE_FROZEN_V1
+
+research_track=GLDRUBF_RESEARCH_V1
+symbol=GLDRUBF@RTSX
+
+source=MOEX_ISS
+source_secid=GLDRUBF
+source_boardid=RFUD
+
+# Canonical instrument identity
+exchange_code=RTSX
+asset_class=FUTURES
+currency_code=RUB
+instrument_name=GLDRUBF
+
+# Contract specification from read-only MOEX ISS probe
+lot_size=1
+tick_size=0.1
+tick_value=0.1
+contract_multiplier=1
+price_precision=1
+quantity_step=1
+underlying_units=1
+
+# Raw MOEX contract fields
+MOEX_MINSTEP=0.1
+MOEX_STEPPRICE=0.1
+MOEX_LOTVOLUME=1
+MOEX_DECIMALS=1
+
+# Cost evidence
+initial_margin=1261.11
+buy_sell_fee=1.51
+scalper_fee=0.76
+
+# Raw MOEX cost fields
+MOEX_INITIALMARGIN=1261.11
+MOEX_BUYSELLFEE=1.51
+MOEX_SCALPERFEE=0.76
+MOEX_NEGOTIATEDFEE=0.5
+MOEX_EXERCISEFEE=11.42
+
+# Probe evidence
+moex_spec_resolution=PASS
+moex_spec_internal_consistency=PASS
+readonly_probe_isolation=PASS
+
+canonical_contract_spec_rows_before_persist=0
+canonical_cost_spec_rows_before_persist=0
+
+# Governance
+database_write_during_probe=NO
+backtest_run=NO
+parameter_search=NO
+oos_revealed=NO
+pnl_revealed=NO
+
+is_evaluator_status=BLOCKED
+slippage_model_resolved=NO
+funding_model_resolved=NO
+
+VERDICT=GLDRUBF_MOEX_CONTRACT_COST_EVIDENCE_FROZEN
