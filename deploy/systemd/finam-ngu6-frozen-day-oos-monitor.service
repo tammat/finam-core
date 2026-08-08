@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=alex
+Group=alex
 WorkingDirectory=/opt/finam-core
 EnvironmentFile=/opt/finam-core/deploy/env/.env
 EnvironmentFile=-/opt/finam-core/.env
