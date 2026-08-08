@@ -77,6 +77,46 @@ case "$monitor_rc" in
             exit 1
         fi
 
+        freeze_output="$(
+            /opt/finam-core/venv/bin/python \
+                /opt/finam-core/scripts/research/freeze_ngu6_frozen_day_oos_inventory_v1.py \
+                "$output_file"
+        )"
+
+        printf '%s\n' "$freeze_output"
+
+        freeze_status="$(
+            printf '%s\n' "$freeze_output" \
+            | grep '^FREEZE_STATUS=' \
+            | tail -1 \
+            | cut -d= -f2-
+        )"
+
+        freeze_sha="$(
+            printf '%s\n' "$freeze_output" \
+            | grep '^FREEZE_SHA256=' \
+            | tail -1 \
+            | cut -d= -f2-
+        )"
+
+        freeze_path="$(
+            printf '%s\n' "$freeze_output" \
+            | grep '^FREEZE_PATH=' \
+            | tail -1 \
+            | cut -d= -f2-
+        )"
+
+        if [ "$freeze_status" = "ALREADY_FROZEN" ]; then
+            echo "TELEGRAM_SENT=NO"
+            echo "WRAPPER_VERDICT=OOS_INVENTORY_ALREADY_FROZEN"
+            exit 0
+        fi
+
+        if [ "$freeze_status" != "CREATED" ]; then
+            echo "ERROR: unexpected freeze status=$freeze_status"
+            exit 1
+        fi
+
         {
             echo "FINAM CORE — OOS EVENT"
             echo
@@ -90,7 +130,9 @@ case "$monitor_rc" in
             grep '^TRADE_IDENTITY=' "$output_file" \
                 | sed 's/^TRADE_IDENTITY=/Trade: /'
             echo
-            echo "Inventory frozen: NO"
+            echo "Inventory frozen: YES"
+            echo "Freeze SHA256: ${freeze_sha}"
+            echo "Freeze artifact: ${freeze_path}"
             echo "PnL revealed: NO"
             echo "Strategy changed: NO"
             echo "Parameter search: NO"
