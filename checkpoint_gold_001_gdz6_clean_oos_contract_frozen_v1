@@ -1,0 +1,65 @@
+MARKET RESEARCH V5 GOLD CLEAN OOS CONTRACT CHECKPOINT
+
+checkpoint_id=GOLD-001
+checkpoint_name=GDZ6_CLEAN_OOS_CONTRACT_FROZEN_V1
+
+research_track=GOLD
+symbol=GDZ6@RTSX
+timeframe=M5
+
+# Historical independence evidence
+first_gdz6_repo_use_commit=44142e4e
+first_gdz6_repo_use_ts=2026-06-09T06:07:59+03:00
+first_gdz6_repo_use_purpose=REPLAY_READINESS_ONLY
+first_gdz6_repo_use_metrics=COUNT_MIN_MAX_ONLY
+gdz6_pre_freeze_performance_use_found=0
+
+# Contract chronology
+gold_baseline_commit=8ede954b
+gold_baseline_ts=2026-06-09T06:28:43+03:00
+gold_exit_selection_commit=1d2884c1
+gold_exit_selection_ts=2026-06-09T06:33:10+03:00
+gold_session_selection_commit=ec7ff724
+gold_session_selection_ts=2026-06-09T06:44:37+03:00
+gold_hour_selection_commit=9aa4287d
+gold_hour_selection_ts=2026-06-09T07:02:04+03:00
+gold_profile_freeze_reference_commit=ac25aba6
+gold_profile_freeze_reference_ts=2026-06-10T07:57:04+03:00
+
+# Frozen strategy contract
+direction=SHORT_ONLY
+signal_rule=CLOSE_LT_MEAN20_X_0_998
+lookback_bars=20
+exit_bars=10
+hours_msk=15,16,17,18
+
+regime_filter=OFF
+synthetic_exit=OFF
+
+# Execution / monetary contract
+commission=REAL_REQUIRED
+slippage=REAL_REQUIRED
+futures_monetary_model=REQUIRED
+historical_contract_spec_resolution=REQUIRED
+
+# Clean historical OOS boundary
+oos_boundary_msk=2026-06-10T07:57:04+03:00
+oos_boundary_utc=2026-06-10T04:57:04+00:00
+oos_rule=ONLY_SIGNALS_STRICTLY_AFTER_BOUNDARY
+
+# Research governance
+parameter_search=PROHIBITED
+automatic_parameter_search=PROHIBITED
+strategy_change=PROHIBITED
+regime_filter_addition=PROHIBITED
+synthetic_exit_use=PROHIBITED
+pnl_reveal_before_inventory_freeze=PROHIBITED
+
+# Independence status
+gdz6_historical_oos_candidate=CLEAN_ENOUGH_TO_INVENTORY
+gdu6_historical_oos_candidate=CONTAMINATED_BY_PARAMETER_SELECTION
+
+DATABASE_WRITE=NO
+BACKTEST_RUN=NO
+PNL_REVEALED=0
+VERDICT=GDZ6_CLEAN_OOS_CONTRACT_FROZEN
