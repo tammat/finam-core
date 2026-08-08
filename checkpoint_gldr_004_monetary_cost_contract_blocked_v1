@@ -1,0 +1,92 @@
+MARKET RESEARCH V5 GLDRUBF MONETARY / COST CONTRACT CHECKPOINT
+
+checkpoint_id=GLDRUBF-004
+checkpoint_name=GLDRUBF_MONETARY_COST_CONTRACT_BLOCKED_V1
+
+research_track=GLDRUBF_RESEARCH_V1
+symbol=GLDRUBF@RTSX
+timeframe=M5
+
+parent_track_checkpoint=checkpoint_gldr_002_research_track_opened_v1
+research_plan_checkpoint=checkpoint_gldr_003_research_plan_frozen_v1
+
+# ============================================================
+# GOVERNANCE RESOLUTION
+# ============================================================
+
+gldr_002_funding_model_required=YES
+gldr_003_funding_model_text=REQUIRED_FOR_HYPOTHESIS_3
+
+resolution_rule=STRICTER_PARENT_REQUIREMENT_PREVAILS
+
+funding_execution_accounting_required_for_hypothesis_1=YES
+funding_execution_accounting_required_for_hypothesis_2=YES
+funding_execution_accounting_required_for_hypothesis_3=YES
+
+funding_as_predictive_feature_hypothesis_1=NO
+funding_as_predictive_feature_hypothesis_2=NO
+funding_as_predictive_feature_hypothesis_3=YES
+
+# H1/H2 therefore do not use funding to generate signals.
+# They still must include any applicable funding cash flow in net PnL.
+
+# ============================================================
+# MONETARY FORMULA
+# ============================================================
+
+gross_pnl_formula=SIDE_X_EXIT_MINUS_ENTRY_X_CONTRACT_MULTIPLIER_X_QUANTITY
+
+net_pnl_components=GROSS_MINUS_COMMISSION_MINUS_SLIPPAGE_MINUS_APPLICABLE_FUNDING
+
+commission_required=YES
+slippage_required=YES
+funding_cashflow_required_WHEN_APPLICABLE=YES
+
+zero_commission_assumption_allowed=NO
+zero_slippage_assumption_allowed=NO
+unknown_funding_assumed_zero_allowed=NO
+
+# ============================================================
+# CURRENT EVIDENCE STATE
+# ============================================================
+
+canonical_contract_spec_rows=0
+canonical_cost_spec_rows=0
+
+versioned_funding_dataset_available=NO
+
+contract_multiplier_resolved=NO
+commission_schedule_resolved=NO
+slippage_model_resolved=NO
+funding_schedule_resolved=NO
+
+# ============================================================
+# FAIL-CLOSED RESEARCH GATES
+# ============================================================
+
+is_signal_generation_allowed=NO
+is_parameter_evaluation_allowed=NO
+is_pnl_calculation_allowed=NO
+is_candidate_selection_allowed=NO
+
+oos_access_allowed=NO
+oos_revealed=NO
+pnl_revealed=NO
+
+is_evaluator_implementation_status=BLOCKED_PENDING_MONETARY_CONTRACT
+
+# ============================================================
+# UNBLOCK REQUIREMENTS
+# ============================================================
+
+unblock_1=CANONICAL_GLDRUBF_CONTRACT_SPEC
+unblock_2=CANONICAL_GLDRUBF_COST_SPEC
+unblock_3=PRECOMMITTED_SLIPPAGE_MODEL
+unblock_4=VERSIONED_FUNDING_EVENT_AND_RATE_SOURCE
+
+all_unblock_requirements_mandatory=YES
+
+parameter_grid_change_allowed=NO
+research_plan_change_allowed=NO
+
+VERDICT=GLDRUBF_MONETARY_CONTRACT_BLOCKED
