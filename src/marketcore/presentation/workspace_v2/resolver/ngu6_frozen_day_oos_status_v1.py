@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -28,6 +30,13 @@ CONTINUATION_SCRIPT = (
     / "scripts"
     / "research"
     / "continue_native_finam_m5_dataset_v1.py"
+)
+
+
+FREEZE_DIR = (
+    ROOT
+    / "runtime"
+    / "ngu6-frozen-day-oos-inventory-v1"
 )
 
 
@@ -59,6 +68,10 @@ class Ngu6FrozenDayOosStatusV1:
     oos3_boundary: str
     new_completed_day_trades: int
     inventory_frozen: bool
+    freeze_artifact_count: int
+    latest_freeze_identity_sha256: str
+    latest_frozen_trade_count: int
+    latest_frozen_at_utc: str
     pnl_revealed: bool
     last_verdict: str
 
@@ -184,61 +197,228 @@ def _bool_value(
     }
 
 
-def _significant_events(
+def _journal_fail_closed_events(
     lines: list[str],
 ) -> tuple[Ngu6FrozenDayOosEventV1, ...]:
-    event_markers = (
-        (
-            "NEW_FROZEN_DAY_INVENTORY_READY",
-            "NEW_INVENTORY",
-        ),
-        (
-            "OOS_EVENT_NOTIFIED",
-            "NEW_INVENTORY",
-        ),
-        (
-            "MONITOR_FAIL_CLOSED=YES",
-            "FAIL_CLOSED",
-        ),
-        (
-            "OOS_RESULT",
-            "OOS_RESULT",
-        ),
-    )
-
     items: list[Ngu6FrozenDayOosEventV1] = []
     seen: set[str] = set()
 
     for line in reversed(lines):
         stripped = line.strip()
 
-        if not stripped:
+        if "MONITOR_FAIL_CLOSED=YES" not in stripped:
             continue
 
-        for marker, event_type in event_markers:
-            if marker not in stripped:
-                continue
+        if stripped in seen:
+            continue
 
-            identity = f"{event_type}|{stripped}"
+        seen.add(stripped)
 
-            if identity in seen:
-                break
-
-            seen.add(identity)
-
-            items.append(
-                Ngu6FrozenDayOosEventV1(
-                    event_type=event_type,
-                    text=stripped,
-                )
+        items.append(
+            Ngu6FrozenDayOosEventV1(
+                event_type="FAIL_CLOSED",
+                text=stripped,
             )
-
-            break
+        )
 
         if len(items) >= 10:
             break
 
     return tuple(items)
+
+
+def _load_freeze_artifacts() -> list[dict[str, object]]:
+    if not FREEZE_DIR.exists():
+        return []
+
+    artifacts: list[dict[str, object]] = []
+
+    for path in sorted(
+        FREEZE_DIR.glob("inventory_*.json")
+    ):
+        try:
+            raw = path.read_bytes()
+            data = json.loads(
+                raw.decode("utf-8")
+            )
+
+            if not isinstance(data, dict):
+                continue
+
+            identity_sha = str(
+                data.get("identity_sha256", "")
+            )
+
+            expected_name = (
+                f"inventory_{identity_sha}.json"
+            )
+
+            if (
+                not identity_sha
+                or path.name != expected_name
+            ):
+                continue
+
+            if (
+                data.get("inventory_frozen")
+                is not True
+            ):
+                continue
+
+            if (
+                data.get("pnl_revealed")
+                is not False
+            ):
+                continue
+
+            if (
+                data.get("parameter_search")
+                is not False
+            ):
+                continue
+
+            if (
+                data.get("strategy_changed")
+                is not False
+            ):
+                continue
+
+            if (
+                data.get("dataset_version")
+                != DATASET_VERSION
+            ):
+                continue
+
+            if (
+                data.get("oos3_boundary")
+                != OOS3_BOUNDARY
+            ):
+                continue
+
+            trade_identities = data.get(
+                "trade_identities"
+            )
+
+            if (
+                not isinstance(
+                    trade_identities,
+                    list,
+                )
+                and not isinstance(
+                    trade_identities,
+                    tuple,
+                )
+            ):
+                continue
+
+            if not trade_identities:
+                continue
+
+            artifacts.append(
+                {
+                    "path": str(path),
+                    "identity_sha256": (
+                        identity_sha
+                    ),
+                    "artifact_sha256": (
+                        hashlib.sha256(
+                            raw
+                        ).hexdigest()
+                    ),
+                    "frozen_at_utc": str(
+                        data.get(
+                            "frozen_at_utc",
+                            "",
+                        )
+                    ),
+                    "trade_count": len(
+                        trade_identities
+                    ),
+                    "dataset_rows": int(
+                        data.get(
+                            "dataset_rows",
+                            0,
+                        )
+                    ),
+                    "dataset_last": str(
+                        data.get(
+                            "dataset_last",
+                            "",
+                        )
+                    ),
+                }
+            )
+
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            json.JSONDecodeError,
+        ):
+            # UI fail-soft: invalid artifact does not
+            # make the entire Research workspace fail.
+            continue
+
+    artifacts.sort(
+        key=lambda item: (
+            str(
+                item.get(
+                    "frozen_at_utc",
+                    "",
+                )
+            ),
+            str(
+                item.get(
+                    "identity_sha256",
+                    "",
+                )
+            ),
+        ),
+        reverse=True,
+    )
+
+    return artifacts
+
+
+def _freeze_events(
+    artifacts: list[dict[str, object]],
+) -> tuple[Ngu6FrozenDayOosEventV1, ...]:
+    items: list[Ngu6FrozenDayOosEventV1] = []
+
+    for artifact in artifacts[:10]:
+        items.append(
+            Ngu6FrozenDayOosEventV1(
+                event_type="INVENTORY_FROZEN",
+                text=(
+                    "frozen_at="
+                    f"{artifact['frozen_at_utc']} "
+                    "trades="
+                    f"{artifact['trade_count']} "
+                    "identity_sha256="
+                    f"{artifact['identity_sha256']} "
+                    "artifact_sha256="
+                    f"{artifact['artifact_sha256']}"
+                ),
+            )
+        )
+
+    return tuple(items)
+
+
+def _merge_events(
+    freeze_events: tuple[
+        Ngu6FrozenDayOosEventV1,
+        ...
+    ],
+    journal_events: tuple[
+        Ngu6FrozenDayOosEventV1,
+        ...
+    ],
+) -> tuple[Ngu6FrozenDayOosEventV1, ...]:
+    return (
+        freeze_events
+        + journal_events
+    )[:10]
 
 
 def _load_canonical_dataset():
@@ -300,12 +480,52 @@ def resolve_ngu6_frozen_day_oos_status_v1(
         )
     )
 
-    inventory_frozen = _bool_value(
-        _last_value(
-            lines,
-            "INVENTORY_FROZEN=",
-            "0",
+    freeze_artifacts = (
+        _load_freeze_artifacts()
+    )
+
+    inventory_frozen = bool(
+        freeze_artifacts
+    )
+
+    latest_freeze = (
+        freeze_artifacts[0]
+        if freeze_artifacts
+        else None
+    )
+
+    freeze_artifact_count = len(
+        freeze_artifacts
+    )
+
+    latest_freeze_identity_sha256 = (
+        str(
+            latest_freeze[
+                "identity_sha256"
+            ]
         )
+        if latest_freeze
+        else "NONE"
+    )
+
+    latest_frozen_trade_count = (
+        int(
+            latest_freeze[
+                "trade_count"
+            ]
+        )
+        if latest_freeze
+        else 0
+    )
+
+    latest_frozen_at_utc = (
+        str(
+            latest_freeze[
+                "frozen_at_utc"
+            ]
+        )
+        if latest_freeze
+        else "NONE"
     )
 
     pnl_revealed = _bool_value(
@@ -424,8 +644,27 @@ def resolve_ngu6_frozen_day_oos_status_v1(
         oos3_boundary=OOS3_BOUNDARY,
         new_completed_day_trades=new_completed,
         inventory_frozen=inventory_frozen,
+        freeze_artifact_count=(
+            freeze_artifact_count
+        ),
+        latest_freeze_identity_sha256=(
+            latest_freeze_identity_sha256
+        ),
+        latest_frozen_trade_count=(
+            latest_frozen_trade_count
+        ),
+        latest_frozen_at_utc=(
+            latest_frozen_at_utc
+        ),
         pnl_revealed=pnl_revealed,
         last_verdict=last_verdict,
 
-        events=_significant_events(lines),
+        events=_merge_events(
+            _freeze_events(
+                freeze_artifacts
+            ),
+            _journal_fail_closed_events(
+                lines
+            ),
+        ),
     )

@@ -702,6 +702,28 @@ def _ngu6_oos_panel():
                 ),
             ),
             _ngu6_oos_metric(
+                "freeze_count",
+                "Freeze artifacts",
+                value=s.freeze_artifact_count,
+                fmt="INTEGER",
+            ),
+            _ngu6_oos_metric(
+                "frozen_trades",
+                "Frozen trades",
+                value=s.latest_frozen_trade_count,
+                fmt="INTEGER",
+            ),
+            _ngu6_oos_metric(
+                "freeze_sha",
+                "Identity SHA256",
+                value=s.latest_freeze_identity_sha256,
+            ),
+            _ngu6_oos_metric(
+                "frozen_at",
+                "Последний freeze",
+                value=s.latest_frozen_at_utc,
+            ),
+            _ngu6_oos_metric(
                 "pnl",
                 "PnL",
                 value=(

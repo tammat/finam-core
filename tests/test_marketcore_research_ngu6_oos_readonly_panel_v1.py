@@ -152,3 +152,134 @@ def test_ngu6_oos_empty_events_are_not_rendered_as_empty_table(
         "research.ngu6_oos.events"
         not in ids
     )
+
+
+def test_inventory_state_comes_from_freeze_store(
+    tmp_path,
+    monkeypatch,
+):
+    import json
+
+    from marketcore.presentation.workspace_v2.resolver import (
+        ngu6_frozen_day_oos_status_v1 as status_module,
+    )
+
+    freeze_dir = tmp_path / "freeze"
+    freeze_dir.mkdir()
+
+    identity_sha = "a" * 64
+
+    artifact = {
+        "freezer_version": (
+            "NGU6_FROZEN_DAY_OOS_INVENTORY_FREEZER_V1"
+        ),
+        "frozen_at_utc": (
+            "2026-08-10T13:10:00+00:00"
+        ),
+        "symbol": "NGU6@RTSX",
+        "timeframe": "M5",
+        "dataset_version": "NATIVE_FINAM_M5_V1",
+        "dataset_rows": 9000,
+        "dataset_last": (
+            "2026-08-10T13:00:00+00:00"
+        ),
+        "oos3_boundary": (
+            "2026-08-08T12:45:00+00:00"
+        ),
+        "new_completed_day_trades": 1,
+        "trade_identities": [
+            (
+                "1|2026-08-10T10:00:00+00:00|"
+                "LONG|2026-08-10T10:25:00+00:00|219"
+            )
+        ],
+        "inventory_frozen": True,
+        "pnl_revealed": False,
+        "parameter_search": False,
+        "strategy_changed": False,
+        "monitor_verdict": (
+            "NEW_FROZEN_DAY_INVENTORY_READY"
+        ),
+        "identity_sha256": identity_sha,
+    }
+
+    (
+        freeze_dir
+        / f"inventory_{identity_sha}.json"
+    ).write_text(
+        json.dumps(artifact),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        status_module,
+        "FREEZE_DIR",
+        freeze_dir,
+    )
+
+    monkeypatch.setattr(
+        status_module,
+        "_journal_lines",
+        lambda: [
+            "INVENTORY_FROZEN=0",
+            "PNL_REVEALED=0",
+            "VERDICT=NO_NEW_FROZEN_DAY_TRADES",
+        ],
+    )
+
+    status = (
+        status_module
+        .resolve_ngu6_frozen_day_oos_status_v1()
+    )
+
+    assert status.inventory_frozen is True
+    assert status.freeze_artifact_count == 1
+    assert status.latest_frozen_trade_count == 1
+    assert (
+        status.latest_freeze_identity_sha256
+        == identity_sha
+    )
+
+    assert any(
+        event.event_type
+        == "INVENTORY_FROZEN"
+        for event in status.events
+    )
+
+
+def test_journal_inventory_flag_cannot_fake_freeze(
+    tmp_path,
+    monkeypatch,
+):
+    from marketcore.presentation.workspace_v2.resolver import (
+        ngu6_frozen_day_oos_status_v1 as status_module,
+    )
+
+    monkeypatch.setattr(
+        status_module,
+        "FREEZE_DIR",
+        tmp_path / "absent",
+    )
+
+    monkeypatch.setattr(
+        status_module,
+        "_journal_lines",
+        lambda: [
+            "INVENTORY_FROZEN=1",
+            "PNL_REVEALED=0",
+            "VERDICT=NO_NEW_FROZEN_DAY_TRADES",
+        ],
+    )
+
+    status = (
+        status_module
+        .resolve_ngu6_frozen_day_oos_status_v1()
+    )
+
+    assert status.inventory_frozen is False
+    assert status.freeze_artifact_count == 0
+    assert status.latest_frozen_trade_count == 0
+    assert (
+        status.latest_freeze_identity_sha256
+        == "NONE"
+    )
