@@ -1,0 +1,12 @@
+[Unit]
+Description=Run FINAM NGU6 frozen DAY OOS monitor hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=2min
+Persistent=true
+Unit=finam-ngu6-frozen-day-oos-monitor.service
+
+[Install]
+WantedBy=timers.target

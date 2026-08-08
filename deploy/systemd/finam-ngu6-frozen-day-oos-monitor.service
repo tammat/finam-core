@@ -1,0 +1,17 @@
+[Unit]
+Description=FINAM NGU6 frozen DAY OOS monitor
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/finam-core
+EnvironmentFile=/opt/finam-core/deploy/env/.env
+EnvironmentFile=-/opt/finam-core/.env
+ExecStart=/opt/finam-core/deploy/run-ngu6-frozen-day-oos-monitor-v1.sh
+
+NoNewPrivileges=true
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target
