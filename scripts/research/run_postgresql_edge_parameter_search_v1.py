@@ -15,6 +15,10 @@ from finam_core.research.postgresql_edge_backtest_adapter_v1 import (
     execute_one,
 )
 
+from finam_core.research.futures_monetary_validity_v1 import (
+    load_monetary_validity_by_run,
+)
+
 
 OUTPUT_ROOT = pathlib.Path(
     "/tmp/postgresql_edge_parameter_search_v1"
@@ -119,6 +123,44 @@ def classify(row: dict[str, Any]) -> tuple[str, str]:
         "EDGE_CANDIDATE",
         "POSITIVE_AFTER_COSTS",
     )
+
+
+def apply_monetary_ranking_guard(
+    *,
+    symbol: str,
+    run_uuid: str,
+    classification: str,
+    reason: str,
+    monetary_by_run: dict[str, dict],
+) -> tuple[str, str]:
+    """
+    Fail-closed monetary guard для futures EDGE_CANDIDATE.
+
+    Первичная причина отклонения сохраняется для всех результатов,
+    которые не дошли до EDGE_CANDIDATE.
+    Equity ranking не изменяется.
+    """
+    if classification != "EDGE_CANDIDATE":
+        return classification, reason
+
+    if not symbol.endswith("@RTSX"):
+        return classification, reason
+
+    monetary = monetary_by_run.get(run_uuid)
+
+    if monetary is None:
+        return (
+            "MONETARY_VALIDITY_REJECTED",
+            "MONETARY_LINEAGE_MISSING",
+        )
+
+    if not monetary["ranking_allowed"]:
+        return (
+            "MONETARY_VALIDITY_REJECTED",
+            str(monetary["monetary_status"]),
+        )
+
+    return classification, reason
 
 
 def load_results(
@@ -247,6 +289,8 @@ def main() -> int:
     raw_results = load_results(args.batch_id)
     classified: list[dict[str, Any]] = []
 
+    monetary_by_run = load_monetary_validity_by_run()
+
     for row in raw_results:
         if row["trades"] is None:
             classification = (
@@ -261,6 +305,16 @@ def main() -> int:
             )
         else:
             classification, reason = classify(row)
+
+        classification, reason = (
+            apply_monetary_ranking_guard(
+                symbol=str(row["symbol"]),
+                run_uuid=str(row["run_uuid"]),
+                classification=classification,
+                reason=reason,
+                monetary_by_run=monetary_by_run,
+            )
+        )
 
         classified.append(
             {
