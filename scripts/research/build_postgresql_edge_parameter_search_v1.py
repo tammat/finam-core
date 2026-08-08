@@ -34,9 +34,17 @@ DEFAULT_OUTPUT_ROOT = pathlib.Path(
     "/tmp/postgresql_edge_parameter_search_v1"
 )
 
+DEFAULT_STRATEGIES = (
+    "ATR_IMPULSE_V1",
+    "MOMENTUM_CONTINUATION_V1",
+)
+
 SUPPORTED_STRATEGIES = (
     "ATR_IMPULSE_V1",
     "MOMENTUM_CONTINUATION_V1",
+    "MEAN_REVERSION_ZSCORE_V1",
+    "TREND_PULLBACK_V1",
+    "VOLATILITY_BREAKOUT_FILTERED_V1",
 )
 
 
@@ -299,6 +307,74 @@ def build_momentum_grid(
         }
 
 
+def build_mean_reversion_grid(
+    base: dict[str, Any],
+) -> Iterable[dict[str, Any]]:
+    for (
+        lookback,
+        threshold,
+        hold_bars,
+    ) in itertools.product(
+        (10, 20, 40),
+        (1.5, 2.0, 2.5),
+        (3, 5),
+    ):
+        yield {
+            **base,
+            "zscore_lookback": lookback,
+            "zscore_entry_threshold": threshold,
+            "hold_bars": hold_bars,
+            "allow_short": True,
+        }
+
+
+def build_trend_pullback_grid(
+    base: dict[str, Any],
+) -> Iterable[dict[str, Any]]:
+    for (
+        fast_period,
+        slow_period,
+        pullback_multiplier,
+        hold_bars,
+    ) in itertools.product(
+        (10, 20),
+        (50, 100),
+        (0.5, 0.75, 1.0),
+        (3, 5),
+    ):
+        yield {
+            **base,
+            "atr_period": 14,
+            "fast_ma_period": fast_period,
+            "slow_ma_period": slow_period,
+            "pullback_atr_multiplier": pullback_multiplier,
+            "hold_bars": hold_bars,
+            "allow_short": True,
+        }
+
+
+def build_volatility_breakout_grid(
+    base: dict[str, Any],
+) -> Iterable[dict[str, Any]]:
+    for (
+        lookback,
+        minimum_atr_fraction,
+        hold_bars,
+    ) in itertools.product(
+        (10, 20, 40),
+        (0.001, 0.002, 0.004),
+        (3, 5),
+    ):
+        yield {
+            **base,
+            "atr_period": 14,
+            "breakout_lookback": lookback,
+            "minimum_atr_fraction": minimum_atr_fraction,
+            "hold_bars": hold_bars,
+            "allow_short": True,
+        }
+
+
 def build_search_tasks(
     *,
     symbols: list[str],
@@ -317,11 +393,7 @@ def build_search_tasks(
     )
 
     selected_strategies = set(
-        strategies
-        or (
-            "ATR_IMPULSE_V1",
-            "MOMENTUM_CONTINUATION_V1",
-        )
+        strategies or DEFAULT_STRATEGIES
     )
 
     for symbol, timeframe in itertools.product(
@@ -371,6 +443,56 @@ def build_search_tasks(
                         timeframe=timeframe,
                         parameter_hash=parameter_hash(
                             "MOMENTUM_CONTINUATION_V1",
+                            parameters,
+                        ),
+                        parameters=parameters,
+                    )
+                )
+
+        if "MEAN_REVERSION_ZSCORE_V1" in selected_strategies:
+            for parameters in build_mean_reversion_grid(base):
+                tasks.append(
+                    SearchTask(
+                        strategy_code="MEAN_REVERSION_ZSCORE_V1",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        parameter_hash=parameter_hash(
+                            "MEAN_REVERSION_ZSCORE_V1",
+                            parameters,
+                        ),
+                        parameters=parameters,
+                    )
+                )
+
+        if "TREND_PULLBACK_V1" in selected_strategies:
+            for parameters in build_trend_pullback_grid(base):
+                tasks.append(
+                    SearchTask(
+                        strategy_code="TREND_PULLBACK_V1",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        parameter_hash=parameter_hash(
+                            "TREND_PULLBACK_V1",
+                            parameters,
+                        ),
+                        parameters=parameters,
+                    )
+                )
+
+        if (
+            "VOLATILITY_BREAKOUT_FILTERED_V1"
+            in selected_strategies
+        ):
+            for parameters in build_volatility_breakout_grid(base):
+                tasks.append(
+                    SearchTask(
+                        strategy_code=(
+                            "VOLATILITY_BREAKOUT_FILTERED_V1"
+                        ),
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        parameter_hash=parameter_hash(
+                            "VOLATILITY_BREAKOUT_FILTERED_V1",
                             parameters,
                         ),
                         parameters=parameters,
@@ -713,10 +835,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--strategies",
         nargs="+",
-        choices=(
-            "ATR_IMPULSE_V1",
-            "MOMENTUM_CONTINUATION_V1",
-        ),
+        choices=SUPPORTED_STRATEGIES,
         default=None,
         help=(
             "Ограничить генерацию указанными "
@@ -825,6 +944,21 @@ def main() -> int:
         == "MOMENTUM_CONTINUATION_V1"
         for task in tasks
     )
+    mean_reversion_count = sum(
+        task.strategy_code
+        == "MEAN_REVERSION_ZSCORE_V1"
+        for task in tasks
+    )
+    trend_pullback_count = sum(
+        task.strategy_code
+        == "TREND_PULLBACK_V1"
+        for task in tasks
+    )
+    volatility_breakout_count = sum(
+        task.strategy_code
+        == "VOLATILITY_BREAKOUT_FILTERED_V1"
+        for task in tasks
+    )
 
     inserted = 0
     duplicates = 0
@@ -851,6 +985,12 @@ def main() -> int:
         f"TASK_COUNT={len(tasks)}",
         f"ATR_TASK_COUNT={atr_count}",
         f"MOMENTUM_TASK_COUNT={momentum_count}",
+        f"MEAN_REVERSION_TASK_COUNT={mean_reversion_count}",
+        f"TREND_PULLBACK_TASK_COUNT={trend_pullback_count}",
+        (
+            "VOLATILITY_BREAKOUT_TASK_COUNT="
+            f"{volatility_breakout_count}"
+        ),
         f"INSERTED_COUNT={inserted}",
         f"DUPLICATE_COUNT={duplicates}",
         f"PLAN_ONLY={int(args.plan_only)}",
@@ -883,6 +1023,18 @@ def main() -> int:
     print(f"task_count={len(tasks)}")
     print(f"atr_task_count={atr_count}")
     print(f"momentum_task_count={momentum_count}")
+    print(
+        f"mean_reversion_task_count="
+        f"{mean_reversion_count}"
+    )
+    print(
+        f"trend_pullback_task_count="
+        f"{trend_pullback_count}"
+    )
+    print(
+        f"volatility_breakout_task_count="
+        f"{volatility_breakout_count}"
+    )
     print(f"inserted_count={inserted}")
     print(f"duplicate_count={duplicates}")
     print(f"plan_only={int(args.plan_only)}")
