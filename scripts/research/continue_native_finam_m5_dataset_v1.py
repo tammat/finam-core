@@ -249,6 +249,31 @@ def verify_prefix_fingerprint(
     return actual
 
 
+
+M5_BAR_DURATION = timedelta(minutes=5)
+M5_FINALIZATION_LAG = timedelta(seconds=30)
+
+
+def filter_finalized_candidate(
+    candidate: list[VersionedResearchBar],
+    *,
+    request_end: datetime,
+) -> tuple[list[VersionedResearchBar], int]:
+    cutoff = (
+        request_end
+        - M5_BAR_DURATION
+        - M5_FINALIZATION_LAG
+    )
+
+    finalized = [
+        bar
+        for bar in candidate
+        if bar.ts <= cutoff
+    ]
+
+    return finalized, len(candidate) - len(finalized)
+
+
 def classify_continuation(
     persisted: list[VersionedResearchBar],
     candidate: list[VersionedResearchBar],
@@ -575,6 +600,16 @@ def main() -> int:
     validate_candidate_identity(candidate)
     validate_candidate_ordering(candidate)
 
+    candidate, provisional_rows_dropped = (
+        filter_finalized_candidate(
+            candidate,
+            request_end=request_end,
+        )
+    )
+
+    validate_candidate_identity(candidate)
+    validate_candidate_ordering(candidate)
+
     classification = classify_continuation(
         persisted,
         candidate,
@@ -586,6 +621,10 @@ def main() -> int:
     print("request_start =", request_start)
     print("request_end =", request_end)
     print("request_count =", request_count)
+    print(
+        "provisional_rows_dropped =",
+        provisional_rows_dropped,
+    )
     print(
         "overlap_identical =",
         classification.overlap_identical,
