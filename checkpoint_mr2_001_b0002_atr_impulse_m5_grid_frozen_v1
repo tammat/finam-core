@@ -1,0 +1,57 @@
+MARKET RESEARCH V2 B0002 GRID FREEZE
+
+research_cycle=MR2-001
+batch=MR2_001_B0002_ATR_IMPULSE_M5
+strategy=ATR_IMPULSE_V1
+symbol=BRZ6@RTSX
+timeframe=M5
+
+selection_reason=NEXT_PREDECLARED_ELIGIBLE_SUPPORTED_FAMILY
+selection_by_historical_performance=0
+
+canonical_grid_source=/opt/finam-core/scripts/research/build_postgresql_edge_parameter_search_v1.py
+manual_grid_reduction_allowed=0
+
+frozen_parameter_hash_count=24
+unique_parameter_hash_count=24
+parameter_grid_frozen=1
+
+commission_per_side=1.5
+slippage_bps=2.0
+bar_limit=20000
+quantity=1
+
+monetary_model=CBR_OFFICIAL_USD_RUB_ASOF_V1
+reference_fx_code=R01235
+generic_futures_pnl_allowed=0
+
+oos_allowed=0
+shadow_allowed=0
+paper_allowed=0
+micro_live_allowed=0
+
+PARAMETERS
+PARAMETER index=1 parameter_hash=455722c1413e000a50e554c66143ca04 json={"allow_short":false,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=2 parameter_hash=34c178558aa288586ce22826b4611dcc json={"allow_short":true,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=3 parameter_hash=bdc68ba2c0589053946c454687608ecd json={"allow_short":false,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=4 parameter_hash=afb9a0b11d404c05b211556d8e41a39b json={"allow_short":true,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=5 parameter_hash=e25f09186252cd87f525a8a14e987eed json={"allow_short":false,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=6 parameter_hash=c6f8ebc138e5e220aa55ec4f8ef6fb0e json={"allow_short":true,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=7 parameter_hash=8d997e871ab8a6096e6af4ab3cbafc89 json={"allow_short":false,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=8 parameter_hash=9df3eb4d1e74481d4d3ab650707969e3 json={"allow_short":true,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=9 parameter_hash=94a819ad606198e3c0734dc1ec563fce json={"allow_short":false,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=10 parameter_hash=8b879a10d265b57b28ea85eb2b31f218 json={"allow_short":true,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=11 parameter_hash=16bdf863d9a834d962dbe48acac92ab1 json={"allow_short":false,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=12 parameter_hash=446cd991690b32e2e2bdf4ad3453c283 json={"allow_short":true,"atr_period":10,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=13 parameter_hash=0ae65c2907bcf00ccdeaff4a8fc0a274 json={"allow_short":false,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=14 parameter_hash=3d925e49930ae7e9ac00f1df5785e19d json={"allow_short":true,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=15 parameter_hash=ba4be52797a25ca38e977c73cca8b9b2 json={"allow_short":false,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=16 parameter_hash=1e73d7ea3bd4906eca11f498a70c2eb8 json={"allow_short":true,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":0.75,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=17 parameter_hash=df2287026bd7403cccd4991ffc0e4004 json={"allow_short":false,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=18 parameter_hash=3f03ad09baad5143f76f4bede175abc2 json={"allow_short":true,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=19 parameter_hash=5e9b5d9c4444d8dc6cc85d0799b80039 json={"allow_short":false,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=20 parameter_hash=b087bbcf1382a3ddcb94a3347e6a156b json={"allow_short":true,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.0,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=21 parameter_hash=4c6c3a0f448d689f4576e42273b2700d json={"allow_short":false,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=22 parameter_hash=635bb8d0026ba4bb560fb6987be7131d json={"allow_short":true,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":3,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=23 parameter_hash=f858d5f25a72db75ef1a86aeb67987b2 json={"allow_short":false,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
+PARAMETER index=24 parameter_hash=66783abdbe5a604c0d6ff2a74334031b json={"allow_short":true,"atr_period":14,"bar_limit":20000,"bar_schema":"public","bar_table":"market_bars","commission_per_side":1.5,"hold_bars":5,"impulse_atr_multiplier":1.5,"market_regime":"PARAMETER_SEARCH_V1","minimum_bars":100,"momentum_period":10,"quantity":1,"slippage_bps":2.0}
