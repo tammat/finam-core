@@ -1,0 +1,51 @@
+MARKET RESEARCH V5 GLDRUBF RESEARCH TRACK CHECKPOINT
+
+checkpoint_id=GLDRUBF-002
+checkpoint_name=GLDRUBF_RESEARCH_TRACK_OPENED_V1
+
+research_track=GLDRUBF_RESEARCH_V1
+
+symbol=GLDRUBF@RTSX
+asset_class=FUTURES
+contract_type=PERPETUAL
+timeframe=M5
+
+dataset_version=NATIVE_FINAM_M5_GLDRUBF_V1
+dataset_checkpoint=checkpoint_gldr_001_native_finam_m5_dataset_frozen_v1
+dataset_fingerprint=70fe036956305c3747c8c1994f718567fb2f2cd8f9084cb1b99f2ee31d36c330
+dataset_rows=5083
+dataset_first_bar=2026-07-09T05:55:00+00:00
+dataset_last_bar=2026-08-08T15:55:00+00:00
+
+provider=FINAM_GRPC
+provider_data_version=FINAM_NATIVE_M5_V1
+
+# Evidence isolation
+gdu6_proxy_evidence_carried_forward=NO
+gdz6_historical_evidence_carried_forward=NO
+old_gold_shadow_results_carried_forward=NO
+old_gold_regime_filter_carried_forward=NO
+old_gold_synthetic_exit_results_carried_forward=NO
+
+# Research governance
+strategy_selected=NO
+parameters_selected=NO
+parameter_search_started=NO
+backtest_started=NO
+pnl_revealed=NO
+
+parameter_search_requires_explicit_hypothesis=YES
+oos_boundary_requires_freeze_before_reveal=YES
+future_parameter_change_requires_new_hypothesis=YES
+
+# Perpetual-futures requirements
+funding_model_required=YES
+commission_model_required=YES
+slippage_model_required=YES
+contract_spec_required=YES
+native_symbol_required=YES
+proxy_symbol_allowed=NO
+
+# Current state
+research_use_allowed=HYPOTHESIS_FORMULATION_ONLY
+VERDICT=GLDRUBF_RESEARCH_TRACK_OPENED
