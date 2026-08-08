@@ -1,6 +1,7 @@
 from __future__ import annotations
 from marketcore.presentation.render_tree.v2 import ActionKindV2,RenderActionV2,RenderContentV2,RenderDocumentV2,RenderNodeStateV2,RenderNodeTypeV2,RenderNodeV2,validate_render_document_v2
 from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import ResearchSnapshotV2
+from marketcore.presentation.workspace_v2.resolver.ngu6_frozen_day_oos_status_v1 import resolve_ngu6_frozen_day_oos_status_v1
 
 def _leaf(t,i,*,key=None,args=None,value=None,fmt=None,level=None):
     return RenderNodeV2(t,i,content=RenderContentV2(message_key=key,message_args=args,value=value,format_code=fmt,level_code=level))
@@ -432,6 +433,285 @@ def _operating_cycle_card(s):
             )),
         ))
 
+
+def _ngu6_oos_metric(
+    code,
+    label,
+    *,
+    value=None,
+    fmt=None,
+):
+    return RenderNodeV2(
+        RenderNodeTypeV2.METRIC_ROW,
+        f"research.ngu6_oos.{code}",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.METRIC_LABEL,
+                f"research.ngu6_oos.{code}.label",
+                value=label,
+            ),
+            _leaf(
+                RenderNodeTypeV2.METRIC_VALUE,
+                f"research.ngu6_oos.{code}.value",
+                value=value,
+                fmt=fmt,
+            ),
+        ),
+    )
+
+
+def _ngu6_oos_panel():
+    s = resolve_ngu6_frozen_day_oos_status_v1()
+
+    health_state = (
+        "OK"
+        if s.health_code == "HEALTHY"
+        else "WARNING"
+    )
+
+    monitor_card = RenderNodeV2(
+        RenderNodeTypeV2.CARD,
+        "research.ngu6_oos.monitor",
+        state=RenderNodeStateV2(
+            status_code=health_state
+        ),
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "research.ngu6_oos.monitor.title",
+                value="OOS Monitor",
+            ),
+            _ngu6_oos_metric(
+                "health",
+                "Состояние",
+                value=s.health_code,
+            ),
+            _ngu6_oos_metric(
+                "timer",
+                "Timer",
+                value=(
+                    f"{s.timer_active} / "
+                    f"{s.timer_substate}"
+                ),
+            ),
+            _ngu6_oos_metric(
+                "last_run",
+                "Последний запуск",
+                value=s.last_trigger,
+            ),
+            _ngu6_oos_metric(
+                "next_run",
+                "Следующий запуск",
+                value=s.next_trigger,
+            ),
+            _ngu6_oos_metric(
+                "service",
+                "Service",
+                value=(
+                    f"{s.service_result} / "
+                    f"{s.service_exec_status}"
+                ),
+            ),
+        ),
+    )
+
+    dataset_card = RenderNodeV2(
+        RenderNodeTypeV2.CARD,
+        "research.ngu6_oos.dataset",
+        state=RenderNodeStateV2(
+            status_code=(
+                "OK"
+                if s.dataset_freshness == "CURRENT"
+                else "WARNING"
+            )
+        ),
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "research.ngu6_oos.dataset.title",
+                value="NATIVE_FINAM_M5_V1",
+            ),
+            _ngu6_oos_metric(
+                "dataset_rows",
+                "Строк",
+                value=s.dataset_rows,
+                fmt="INTEGER",
+            ),
+            _ngu6_oos_metric(
+                "dataset_last",
+                "Последний M5",
+                value=s.dataset_last,
+                fmt="DATETIME",
+            ),
+            _ngu6_oos_metric(
+                "dataset_freshness",
+                "Актуальность",
+                value=s.dataset_freshness,
+            ),
+            _ngu6_oos_metric(
+                "dataset_age",
+                "Возраст, сек.",
+                value=s.dataset_age_seconds,
+                fmt="INTEGER",
+            ),
+            _ngu6_oos_metric(
+                "dataset_fingerprint",
+                "Fingerprint",
+                value=s.dataset_fingerprint,
+            ),
+        ),
+    )
+
+    oos_card = RenderNodeV2(
+        RenderNodeTypeV2.CARD,
+        "research.ngu6_oos.oos3",
+        state=RenderNodeStateV2(
+            status_code=(
+                "WARNING"
+                if s.new_completed_day_trades
+                else "OK"
+            )
+        ),
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "research.ngu6_oos.oos3.title",
+                value="Frozen OOS3",
+            ),
+            _ngu6_oos_metric(
+                "boundary",
+                "Boundary",
+                value=s.oos3_boundary,
+            ),
+            _ngu6_oos_metric(
+                "new_trades",
+                "Новых DAY-сделок",
+                value=s.new_completed_day_trades,
+                fmt="INTEGER",
+            ),
+            _ngu6_oos_metric(
+                "inventory",
+                "Inventory frozen",
+                value=(
+                    "YES"
+                    if s.inventory_frozen
+                    else "NO"
+                ),
+            ),
+            _ngu6_oos_metric(
+                "pnl",
+                "PnL revealed",
+                value=(
+                    "YES"
+                    if s.pnl_revealed
+                    else "NO"
+                ),
+            ),
+            _ngu6_oos_metric(
+                "verdict",
+                "Последний verdict",
+                value=s.last_verdict,
+            ),
+        ),
+    )
+
+    event_rows = []
+
+    for index, event in enumerate(
+        s.events,
+        start=1,
+    ):
+        event_rows.append(
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_ROW,
+                f"research.ngu6_oos.event.{index}",
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.ngu6_oos."
+                        f"event.{index}.type",
+                        value=event.event_type,
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.ngu6_oos."
+                        f"event.{index}.text",
+                        value=event.text,
+                    ),
+                ),
+            )
+        )
+
+    header = RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW,
+        "research.ngu6_oos.events.header",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                "research.ngu6_oos.events."
+                "header.type",
+                value="Событие",
+            ),
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                "research.ngu6_oos.events."
+                "header.text",
+                value="Детали",
+            ),
+        ),
+    )
+
+    events_table = RenderNodeV2(
+        RenderNodeTypeV2.TABLE,
+        "research.ngu6_oos.events",
+        children=(
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_HEAD,
+                "research.ngu6_oos.events.head",
+                children=(header,),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_BODY,
+                "research.ngu6_oos.events.body",
+                children=tuple(event_rows),
+            ),
+        ),
+    )
+
+    return (
+        _leaf(
+            RenderNodeTypeV2.TITLE,
+            "research.ngu6_oos.title",
+            value="NGU6 Frozen DAY OOS",
+            level="SECTION",
+        ),
+        _leaf(
+            RenderNodeTypeV2.TEXT,
+            "research.ngu6_oos.subtitle",
+            value=(
+                "Read-only контроль frozen OOS. "
+                "UI не запускает monitor и не "
+                "изменяет стратегию."
+            ),
+        ),
+        RenderNodeV2(
+            RenderNodeTypeV2.GRID,
+            "research.ngu6_oos.cards",
+            children=(
+                monitor_card,
+                dataset_card,
+                oos_card,
+            ),
+        ),
+        _leaf(
+            RenderNodeTypeV2.TITLE,
+            "research.ngu6_oos.events.title",
+            value="Значимые OOS-события",
+            level="SECTION",
+        ),
+        events_table,
+    )
+
 def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Moscow"):
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
     source_as_of=min(times) if times else s.generated_at
@@ -472,6 +752,7 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
         _operating_cycle_card(s),
         _current_cycle_card(s),
     ]
+    children.extend(_ngu6_oos_panel())
     if s.remediation_branches:
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.remediation.title",
                                key="research.remediation.title",level="SECTION"),
