@@ -22,6 +22,9 @@ from finam_core.research.postgresql_edge_backtest_adapter_v1 import (
     SUPPORTED_STRATEGIES,
     validate_parameters,
 )
+from finam_core.research.finam_commission_model_v1 import (
+    MODEL_FINAM_FUTURES_CONFIGURED_V1,
+)
 
 
 SOURCE_VERSION = "POSTGRESQL_EDGE_PARAMETER_SEARCH_V1"
@@ -76,6 +79,160 @@ def parameter_hash(
     return hashlib.md5(
         canonical_json(identity).encode("utf-8")
     ).hexdigest()
+
+
+def load_verified_futures_costs(
+    symbols: list[str],
+) -> dict[str, dict[str, Any]]:
+    """
+    Загружает доказанный cost contract для concrete BR/NG futures.
+
+    Broker fee берётся из VERIFIED CONTRACT_COUNT evidence.
+    Exchange fee берётся из актуального MOEX SCALPERFEE.
+    Любая неоднозначность блокирует построение futures search.
+    """
+    futures_symbols = sorted(
+        {
+            symbol
+            for symbol in symbols
+            if symbol.endswith("@RTSX")
+        }
+    )
+
+    if not futures_symbols:
+        return {}
+
+    unsupported = [
+        symbol
+        for symbol in futures_symbols
+        if not (
+            symbol.startswith("BR")
+            or symbol.startswith("NG")
+        )
+    ]
+
+    if unsupported:
+        raise RuntimeError(
+            "futures_broker_fee_evidence_unresolved:"
+            + ",".join(unsupported)
+        )
+
+    with psycopg2.connect(build_psycopg_url()) as conn:
+        conn.set_session(readonly=True)
+
+        with conn.cursor(
+            cursor_factory=RealDictCursor
+        ) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    min(commission_per_contract) AS min_fee,
+                    max(commission_per_contract) AS max_fee,
+                    count(*)::bigint AS evidence_rows
+                FROM analytics.futures_commission_allocation_v1
+                WHERE evidence_status = 'VERIFIED'
+                  AND allocation_model = 'CONTRACT_COUNT'
+                  AND (
+                       symbol LIKE 'BR%%@RTSX'
+                       OR symbol LIKE 'NG%%@RTSX'
+                  )
+                """
+            )
+            broker_row = cursor.fetchone()
+
+            if (
+                broker_row is None
+                or int(broker_row["evidence_rows"] or 0) == 0
+            ):
+                raise RuntimeError(
+                    "verified_futures_broker_fee_missing"
+                )
+
+            min_fee = Decimal(
+                str(broker_row["min_fee"])
+            )
+            max_fee = Decimal(
+                str(broker_row["max_fee"])
+            )
+
+            if min_fee <= 0:
+                raise RuntimeError(
+                    "verified_futures_broker_fee_not_positive"
+                )
+
+            fee_tolerance = Decimal("0.000001")
+
+            if max_fee - min_fee > fee_tolerance:
+                raise RuntimeError(
+                    "verified_futures_broker_fee_conflict:"
+                    f"min={min_fee}:max={max_fee}"
+                )
+
+            broker_fee = min_fee
+
+            cursor.execute(
+                """
+                SELECT
+                    symbol,
+                    scalper_fee,
+                    source_version
+                FROM analytics.market_contract_cost_spec_v1
+                WHERE symbol = ANY(%s)
+                  AND source_version =
+                      'MOEX_ISS_CONTRACT_SPEC_V1'
+                ORDER BY symbol
+                """,
+                (futures_symbols,),
+            )
+            exchange_rows = cursor.fetchall()
+
+    by_symbol = {
+        str(row["symbol"]): row
+        for row in exchange_rows
+    }
+
+    missing = [
+        symbol
+        for symbol in futures_symbols
+        if symbol not in by_symbol
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "futures_exchange_fee_evidence_missing:"
+            + ",".join(missing)
+        )
+
+    result: dict[str, dict[str, Any]] = {}
+
+    for symbol in futures_symbols:
+        row = by_symbol[symbol]
+        exchange_fee = Decimal(
+            str(row["scalper_fee"])
+        )
+
+        if exchange_fee <= 0:
+            raise RuntimeError(
+                "futures_exchange_fee_not_positive:"
+                f"{symbol}"
+            )
+
+        result[symbol] = {
+            "commission_model": (
+                MODEL_FINAM_FUTURES_CONFIGURED_V1
+            ),
+            "commission_per_side": 0.0,
+            "futures_broker_fee_per_contract_per_side": (
+                float(broker_fee)
+            ),
+            "futures_exchange_fee_per_contract_per_side": (
+                float(exchange_fee)
+            ),
+            "futures_other_fee_per_contract_per_side": 0.0,
+            "futures_fee_evidence_verified": True,
+        }
+
+    return result
 
 
 def common_parameters(
@@ -150,14 +307,14 @@ def build_search_tasks(
     slippage_bps: Decimal,
     bar_limit: int,
     strategies: tuple[str, ...] | None = None,
+    futures_cost_by_symbol: (
+        dict[str, dict[str, Any]] | None
+    ) = None,
 ) -> list[SearchTask]:
-    base = common_parameters(
-        commission_per_side=commission_per_side,
-        slippage_bps=slippage_bps,
-        bar_limit=bar_limit,
-    )
-
     tasks: list[SearchTask] = []
+    futures_cost_by_symbol = (
+        futures_cost_by_symbol or {}
+    )
 
     selected_strategies = set(
         strategies
@@ -171,6 +328,25 @@ def build_search_tasks(
         symbols,
         timeframes,
     ):
+        base = common_parameters(
+            commission_per_side=commission_per_side,
+            slippage_bps=slippage_bps,
+            bar_limit=bar_limit,
+        )
+
+        if symbol.endswith("@RTSX"):
+            futures_cost = futures_cost_by_symbol.get(
+                symbol
+            )
+
+            if futures_cost is None:
+                raise RuntimeError(
+                    "futures_cost_contract_missing:"
+                    f"{symbol}"
+                )
+
+            base.update(futures_cost)
+
         if "ATR_IMPULSE_V1" in selected_strategies:
             for parameters in build_atr_grid(base):
                 tasks.append(
@@ -583,12 +759,19 @@ def main() -> int:
         )
     )
 
+    futures_cost_by_symbol = (
+        load_verified_futures_costs(symbols)
+    )
+
     tasks = build_search_tasks(
         symbols=symbols,
         timeframes=timeframes,
         commission_per_side=args.commission_per_side,
         slippage_bps=args.slippage_bps,
         bar_limit=args.bar_limit,
+        futures_cost_by_symbol=(
+            futures_cost_by_symbol
+        ),
         strategies=(
             tuple(args.strategies)
             if args.strategies
