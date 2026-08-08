@@ -149,6 +149,7 @@ def build_search_tasks(
     commission_per_side: Decimal,
     slippage_bps: Decimal,
     bar_limit: int,
+    strategies: tuple[str, ...] | None = None,
 ) -> list[SearchTask]:
     base = common_parameters(
         commission_per_side=commission_per_side,
@@ -158,37 +159,47 @@ def build_search_tasks(
 
     tasks: list[SearchTask] = []
 
+    selected_strategies = set(
+        strategies
+        or (
+            "ATR_IMPULSE_V1",
+            "MOMENTUM_CONTINUATION_V1",
+        )
+    )
+
     for symbol, timeframe in itertools.product(
         symbols,
         timeframes,
     ):
-        for parameters in build_atr_grid(base):
-            tasks.append(
-                SearchTask(
-                    strategy_code="ATR_IMPULSE_V1",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    parameter_hash=parameter_hash(
-                        "ATR_IMPULSE_V1",
-                        parameters,
-                    ),
-                    parameters=parameters,
+        if "ATR_IMPULSE_V1" in selected_strategies:
+            for parameters in build_atr_grid(base):
+                tasks.append(
+                    SearchTask(
+                        strategy_code="ATR_IMPULSE_V1",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        parameter_hash=parameter_hash(
+                            "ATR_IMPULSE_V1",
+                            parameters,
+                        ),
+                        parameters=parameters,
+                    )
                 )
-            )
 
-        for parameters in build_momentum_grid(base):
-            tasks.append(
-                SearchTask(
-                    strategy_code="MOMENTUM_CONTINUATION_V1",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    parameter_hash=parameter_hash(
-                        "MOMENTUM_CONTINUATION_V1",
-                        parameters,
-                    ),
-                    parameters=parameters,
+        if "MOMENTUM_CONTINUATION_V1" in selected_strategies:
+            for parameters in build_momentum_grid(base):
+                tasks.append(
+                    SearchTask(
+                        strategy_code="MOMENTUM_CONTINUATION_V1",
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        parameter_hash=parameter_hash(
+                            "MOMENTUM_CONTINUATION_V1",
+                            parameters,
+                        ),
+                        parameters=parameters,
+                    )
                 )
-            )
 
     return tasks
 
@@ -523,6 +534,21 @@ def parse_args() -> argparse.Namespace:
         "--plan-only",
         action="store_true",
     )
+    parser.add_argument(
+        "--strategies",
+        nargs="+",
+        choices=(
+            "ATR_IMPULSE_V1",
+            "MOMENTUM_CONTINUATION_V1",
+        ),
+        default=None,
+        help=(
+            "Ограничить генерацию указанными "
+            "strategy family. По умолчанию "
+            "сохраняется прежнее поведение."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -563,6 +589,11 @@ def main() -> int:
         commission_per_side=args.commission_per_side,
         slippage_bps=args.slippage_bps,
         bar_limit=args.bar_limit,
+        strategies=(
+            tuple(args.strategies)
+            if args.strategies
+            else None
+        ),
     )
 
     if len(tasks) > args.max_tasks:
