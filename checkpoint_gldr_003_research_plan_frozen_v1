@@ -1,0 +1,151 @@
+MARKET RESEARCH V5 GLDRUBF RESEARCH PLAN CHECKPOINT
+
+checkpoint_id=GLDRUBF-003
+checkpoint_name=GLDRUBF_RESEARCH_PLAN_FROZEN_V1
+
+research_track=GLDRUBF_RESEARCH_V1
+symbol=GLDRUBF@RTSX
+timeframe=M5
+
+dataset_version=NATIVE_FINAM_M5_GLDRUBF_V1
+dataset_fingerprint=70fe036956305c3747c8c1994f718567fb2f2cd8f9084cb1b99f2ee31d36c330
+
+# ============================================================
+# DATA SPLIT
+# ============================================================
+
+dataset_first_bar=2026-07-09T05:55:00+00:00
+dataset_last_bar=2026-08-08T15:55:00+00:00
+
+is_start=2026-07-09T05:55:00+00:00
+is_end=2026-07-29T23:59:59+00:00
+
+oos_boundary=2026-07-30T00:00:00+00:00
+oos_end=2026-08-08T15:55:00+00:00
+
+split_type=STRICT_CHRONOLOGICAL
+oos_visibility_during_selection=PROHIBITED
+
+# ============================================================
+# HYPOTHESIS 1 — INTRADAY MEAN REVERSION
+# ============================================================
+
+hypothesis_1_code=GLDR_MR_V1
+hypothesis_1_status=AUTHORIZED_FOR_IS_TEST
+
+hypothesis_1_logic=SHORT_TERM_PRICE_DISLOCATION_MEAN_REVERTS
+
+hypothesis_1_direction=LONG_AND_SHORT
+
+hypothesis_1_reference=ROLLING_CLOSE_MEAN
+hypothesis_1_dispersion=ROLLING_CLOSE_STD
+
+hypothesis_1_lookback_bars_allowed=24,48
+hypothesis_1_entry_z_allowed=1.5,2.0
+hypothesis_1_exit_bars_allowed=6,12
+
+hypothesis_1_stop_loss=NONE_IN_V1
+hypothesis_1_take_profit=NONE_IN_V1
+hypothesis_1_regime_filter=NONE_IN_V1
+hypothesis_1_session_filter=NONE_IN_V1
+
+hypothesis_1_max_parameter_combinations=8
+
+# ============================================================
+# HYPOTHESIS 2 — VOLATILITY COMPRESSION / BREAKOUT
+# ============================================================
+
+hypothesis_2_code=GLDR_BREAKOUT_V1
+hypothesis_2_status=AUTHORIZED_FOR_IS_TEST
+
+hypothesis_2_logic=LOCAL_COMPRESSION_CAN_PRECEDE_DIRECTIONAL_EXPANSION
+
+hypothesis_2_direction=LONG_AND_SHORT
+
+hypothesis_2_breakout_lookback_allowed=12,24
+hypothesis_2_atr_lookback_allowed=12,24
+hypothesis_2_breakout_buffer_atr_allowed=0,0.25
+hypothesis_2_exit_bars_allowed=6,12
+
+hypothesis_2_stop_loss=NONE_IN_V1
+hypothesis_2_take_profit=NONE_IN_V1
+hypothesis_2_regime_filter=NONE_IN_V1
+hypothesis_2_session_filter=NONE_IN_V1
+
+hypothesis_2_max_parameter_combinations=16
+
+# ============================================================
+# HYPOTHESIS 3 — FUNDING / AUTOPROLONGATION
+# ============================================================
+
+hypothesis_3_code=GLDR_FUNDING_V1
+hypothesis_3_status=BLOCKED_PENDING_FUNDING_DATA
+
+hypothesis_3_logic=PERPETUAL_FUNDING_OR_AUTOPROLONGATION_MAY_CREATE_TEMPORARY_PRICE_PRESSURE
+
+hypothesis_3_parameter_search=PROHIBITED
+hypothesis_3_backtest=PROHIBITED
+hypothesis_3_activation_requires=VERSIONED_FUNDING_OR_SWAPRATE_DATASET
+
+# ============================================================
+# EXECUTION / COST CONTRACT
+# ============================================================
+
+commission_model=REQUIRED
+slippage_model=REQUIRED
+funding_model=REQUIRED_FOR_HYPOTHESIS_3
+contract_spec=REQUIRED
+
+zero_commission_result_allowed=NO
+zero_slippage_result_allowed=NO
+synthetic_exit_allowed=NO
+proxy_symbol_allowed=NO
+
+# ============================================================
+# SELECTION GOVERNANCE
+# ============================================================
+
+parameter_grid_expansion_after_results=PROHIBITED
+parameter_value_interpolation_after_results=PROHIBITED
+session_filter_addition_after_results=PROHIBITED
+regime_filter_addition_after_results=PROHIBITED
+direction_removal_after_results=PROHIBITED
+
+one_is_candidate_per_hypothesis=YES
+candidate_selection_uses_is_only=YES
+
+oos_parameter_change=PROHIBITED
+oos_strategy_change=PROHIBITED
+
+# Minimum evidence rules are classification guards,
+# not parameter-selection criteria.
+
+minimum_is_completed_trades=20
+minimum_oos_completed_trades=10
+
+insufficient_trade_count_verdict=INCONCLUSIVE
+
+# ============================================================
+# EVIDENCE ISOLATION
+# ============================================================
+
+gdu6_results_used=NO
+gdz6_results_used=NO
+old_gold_shadow_results_used=NO
+old_gold_regime_filter_used=NO
+old_gold_synthetic_exit_results_used=NO
+
+# ============================================================
+# CURRENT STATE
+# ============================================================
+
+strategy_family_count=3
+authorized_for_is_test_count=2
+blocked_hypothesis_count=1
+
+parameter_search_started=NO
+backtest_started=NO
+oos_revealed=NO
+pnl_revealed=NO
+
+VERDICT=GLDRUBF_RESEARCH_PLAN_FROZEN
