@@ -74,3 +74,38 @@ def test_cross_day_trade_rejected():
             tzinfo=timezone.utc,
         ),
     )
+
+
+def test_monitor_does_not_read_public_market_bars():
+    source = MONITOR_PATH.read_text()
+
+    assert "FROM public.market_bars" not in source
+
+
+def test_monitor_routes_via_persisted_native_dataset():
+    source = MONITOR_PATH.read_text()
+
+    assert (
+        "load_persisted_dataset_snapshot"
+        in source
+    )
+
+
+def test_monitor_reuses_existing_contract_spec_loader():
+    source = MONITOR_PATH.read_text()
+
+    assert "FORWARD_OBSERVER_SCRIPT" in source
+    assert "load_contract_spec_at" in source
+    assert (
+        "analytics.instrument_contract_spec_v1"
+        not in source
+    )
+
+
+def test_monitor_does_not_duplicate_contract_spec_sql():
+    source = MONITOR_PATH.read_text()
+
+    assert (
+        "FROM analytics.market_contract_spec_v1"
+        not in source
+    )

@@ -26,6 +26,13 @@ CONTINUATION_SCRIPT = (
     / "scripts/research/continue_native_finam_m5_dataset_v1.py"
 )
 
+
+FORWARD_OBSERVER_SCRIPT = (
+    ROOT
+    / "scripts/research/"
+    "run_ngu6_mean_reversion_forward_observer_v1.py"
+)
+
 OOS3_BOUNDARY = datetime(
     2026, 8, 8, 12, 45,
     tzinfo=timezone.utc,
@@ -68,49 +75,62 @@ def run_continuation() -> None:
         )
 
 
+def load_continuation_module():
+    spec = importlib.util.spec_from_file_location(
+        "ngu6_oos_monitor_continuation",
+        CONTINUATION_SCRIPT,
+    )
+
+    if spec is None or spec.loader is None:
+        raise MonitorContractError(
+            "continuation_module_import_failed"
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    return module
+
+
 def load_bars() -> list[Bar]:
-    with psycopg2.connect(build_psycopg_url()) as conn:
-        conn.set_session(readonly=True)
+    continuation = load_continuation_module()
 
-        with conn.cursor(
-            cursor_factory=RealDictCursor
-        ) as cur:
-            cur.execute(
-                """
-                SELECT
-                    ts,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                FROM public.market_bars
-                WHERE symbol = %s
-                  AND timeframe = %s
-                ORDER BY ts
-                """,
-                (SYMBOL, TIMEFRAME),
-            )
+    bars = (
+        continuation
+        .load_persisted_dataset_snapshot()
+    )
 
-            rows = cur.fetchall()
-
-    if not rows:
+    if not bars:
         raise MonitorContractError(
             "native_m5_dataset_empty"
         )
 
-    return [
-        Bar(
-            ts=row["ts"],
-            open=row["open"],
-            high=row["high"],
-            low=row["low"],
-            close=row["close"],
-            volume=row["volume"] or 0,
-        )
-        for row in rows
-    ]
+    return list(bars)
 
+
+
+def load_forward_observer_script_module():
+    spec = importlib.util.spec_from_file_location(
+        "ngu6_oos_monitor_forward_observer_script",
+        FORWARD_OBSERVER_SCRIPT,
+    )
+
+    if spec is None or spec.loader is None:
+        raise MonitorContractError(
+            "forward_observer_script_import_failed"
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, "load_contract_spec_at"):
+        raise MonitorContractError(
+            "forward_observer_contract_spec_loader_missing"
+        )
+
+    return module
 
 def load_contract_specs(
     bars: list[Bar],
@@ -124,66 +144,31 @@ def load_contract_specs(
     if not timestamps:
         return {}
 
-    with psycopg2.connect(build_psycopg_url()) as conn:
+    forward_observer = (
+        load_forward_observer_script_module()
+    )
+
+    resolved: dict[
+        datetime,
+        ContractSpecSnapshot,
+    ] = {}
+
+    with psycopg2.connect(
+        build_psycopg_url()
+    ) as conn:
         conn.set_session(readonly=True)
 
         with conn.cursor(
             cursor_factory=RealDictCursor
         ) as cur:
-            cur.execute(
-                """
-                SELECT
-                    id,
-                    valid_from,
-                    valid_to,
-                    tick_size,
-                    tick_value,
-                    contract_multiplier,
-                    source_version
-                FROM analytics.instrument_contract_spec_v1
-                WHERE symbol = %s
-                ORDER BY valid_from
-                """,
-                (SYMBOL,),
-            )
-
-            specs = cur.fetchall()
-
-    if not specs:
-        raise MonitorContractError(
-            "contract_spec_inventory_empty"
-        )
-
-    resolved: dict[datetime, ContractSpecSnapshot] = {}
-
-    for ts in timestamps:
-        matches = [
-            row
-            for row in specs
-            if row["valid_from"] <= ts
-            and (
-                row["valid_to"] is None
-                or ts < row["valid_to"]
-            )
-        ]
-
-        if len(matches) != 1:
-            raise MonitorContractError(
-                "contract_spec_resolution_failed:"
-                f"{ts.isoformat()}:matches={len(matches)}"
-            )
-
-        row = matches[0]
-
-        resolved[ts] = ContractSpecSnapshot(
-            contract_spec_id=row["id"],
-            valid_from=row["valid_from"],
-            valid_to=row["valid_to"],
-            tick_size=row["tick_size"],
-            tick_value=row["tick_value"],
-            contract_multiplier=row["contract_multiplier"],
-            source_version=row["source_version"],
-        )
+            for ts in timestamps:
+                resolved[ts] = (
+                    forward_observer
+                    .load_contract_spec_at(
+                        cur,
+                        ts,
+                    )
+                )
 
     return resolved
 
