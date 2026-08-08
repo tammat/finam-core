@@ -1,0 +1,53 @@
+MARKET RESEARCH V5 GLDRUBF SLIPPAGE MODEL CHECKPOINT
+
+checkpoint_id=GLDRUBF-006
+checkpoint_name=GLDRUBF_SLIPPAGE_MODEL_FROZEN_V1
+
+research_track=GLDRUBF_RESEARCH_V1
+symbol=GLDRUBF@RTSX
+timeframe=M5
+
+contract_spec_id=222
+
+tick_size=0.1
+tick_value=0.1
+contract_multiplier=1
+
+# Precommitted execution model
+slippage_model=FIXED_ADVERSE_TICKS_PER_FILL_V1
+
+entry_slippage_ticks=1
+exit_slippage_ticks=1
+round_trip_slippage_ticks=2
+
+long_entry_adjustment=PLUS_1_TICK
+long_exit_adjustment=MINUS_1_TICK
+
+short_entry_adjustment=MINUS_1_TICK
+short_exit_adjustment=PLUS_1_TICK
+
+slippage_cash_per_fill_per_contract=0.1
+round_trip_slippage_cash_per_contract=0.2
+
+slippage_formula=TICKS_X_TICK_VALUE_X_QUANTITY
+
+# Governance
+slippage_calibrated_on_is=NO
+slippage_calibrated_on_oos=NO
+bid_ask_spread_backfit=NO
+dynamic_slippage_allowed=NO
+strategy_specific_slippage_allowed=NO
+parameter_search_on_slippage=PROHIBITED
+
+slippage_change_after_is_results=PROHIBITED
+slippage_change_after_oos_results=PROHIBITED
+
+# Any alternative execution model is a new research hypothesis.
+future_slippage_change_requires_new_checkpoint=YES
+
+backtest_run_before_slippage_freeze=NO
+parameter_search_before_slippage_freeze=NO
+oos_revealed=NO
+pnl_revealed=NO
+
+VERDICT=GLDRUBF_SLIPPAGE_MODEL_FROZEN
