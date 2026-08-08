@@ -93,3 +93,62 @@ def test_ngu6_oos_panel_valid_when_dataset_unavailable(monkeypatch):
     )
 
     validate_render_document_v2(document)
+
+
+def test_ngu6_oos_panel_has_compact_status_bar():
+    source = inspect.getsource(
+        research_v2_domain_renderer._ngu6_oos_panel
+    )
+
+    assert "research.ngu6_oos.status_bar" in source
+    assert "RenderNodeTypeV2.BADGE" in source
+    assert "NO NEW TRADE" in source
+
+
+def test_ngu6_oos_empty_events_are_not_rendered_as_empty_table(
+    monkeypatch,
+):
+    from dataclasses import replace
+
+    from marketcore.presentation.workspace_v2.resolver import (
+        ngu6_frozen_day_oos_status_v1 as status_module,
+    )
+
+    current = (
+        status_module
+        .resolve_ngu6_frozen_day_oos_status_v1()
+    )
+
+    monkeypatch.setattr(
+        research_v2_domain_renderer,
+        "resolve_ngu6_frozen_day_oos_status_v1",
+        lambda: replace(
+            current,
+            events=(),
+        ),
+    )
+
+    nodes = (
+        research_v2_domain_renderer
+        ._ngu6_oos_panel()
+    )
+
+    def walk(node):
+        yield node
+        for child in node.children:
+            yield from walk(child)
+
+    ids = {
+        item.node_id
+        for root in nodes
+        for item in walk(root)
+    }
+
+    assert (
+        "research.ngu6_oos.events.empty"
+        in ids
+    )
+    assert (
+        "research.ngu6_oos.events"
+        not in ids
+    )

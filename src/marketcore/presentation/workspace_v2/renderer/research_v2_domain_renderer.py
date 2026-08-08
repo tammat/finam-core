@@ -463,10 +463,115 @@ def _ngu6_oos_metric(
 def _ngu6_oos_panel():
     s = resolve_ngu6_frozen_day_oos_status_v1()
 
+    monitor_ok = (
+        s.health_code == "HEALTHY"
+        and s.timer_active == "active"
+        and s.timer_substate == "waiting"
+        and s.service_result == "success"
+        and s.service_exec_status == "0"
+    )
+
+    dataset_ok = (
+        s.dataset_freshness == "CURRENT"
+    )
+
+    oos_event = (
+        s.new_completed_day_trades > 0
+    )
+
     health_state = (
         "OK"
-        if s.health_code == "HEALTHY"
+        if monitor_ok
         else "WARNING"
+    )
+
+    dataset_state = (
+        "OK"
+        if dataset_ok
+        else "WARNING"
+    )
+
+    oos_state = (
+        "WARNING"
+        if oos_event
+        else "OK"
+    )
+
+    headline_text = " · ".join(
+        (
+            (
+                "HEALTHY"
+                if monitor_ok
+                else "ATTENTION"
+            ),
+            (
+                "TIMER WAITING"
+                if (
+                    s.timer_active == "active"
+                    and s.timer_substate == "waiting"
+                )
+                else "TIMER ATTENTION"
+            ),
+            (
+                "DATA CURRENT"
+                if dataset_ok
+                else f"DATA {s.dataset_freshness}"
+            ),
+            (
+                "NEW OOS TRADE"
+                if oos_event
+                else "NO NEW TRADE"
+            ),
+        )
+    )
+
+    status_bar = RenderNodeV2(
+        RenderNodeTypeV2.CARD,
+        "research.ngu6_oos.status_bar",
+        state=RenderNodeStateV2(
+            status_code=(
+                "WARNING"
+                if (
+                    not monitor_ok
+                    or not dataset_ok
+                    or oos_event
+                )
+                else "OK"
+            )
+        ),
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "research.ngu6_oos.status_bar.title",
+                value="NGU6 Frozen DAY OOS",
+            ),
+            _leaf(
+                RenderNodeTypeV2.BADGE,
+                "research.ngu6_oos.status_bar.badge",
+                value=(
+                    "HEALTHY"
+                    if (
+                        monitor_ok
+                        and dataset_ok
+                        and not oos_event
+                    )
+                    else "ATTENTION"
+                ),
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "research.ngu6_oos.status_bar.summary",
+                value=headline_text,
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "research.ngu6_oos.status_bar.readonly",
+                value=(
+                    "READ-ONLY · параметрический поиск запрещён · "
+                    "PnL не раскрывается"
+                ),
+            ),
+        ),
     )
 
     monitor_card = RenderNodeV2(
@@ -479,12 +584,7 @@ def _ngu6_oos_panel():
             _leaf(
                 RenderNodeTypeV2.TITLE,
                 "research.ngu6_oos.monitor.title",
-                value="OOS Monitor",
-            ),
-            _ngu6_oos_metric(
-                "health",
-                "Состояние",
-                value=s.health_code,
+                value="Monitor",
             ),
             _ngu6_oos_metric(
                 "timer",
@@ -519,11 +619,7 @@ def _ngu6_oos_panel():
         RenderNodeTypeV2.CARD,
         "research.ngu6_oos.dataset",
         state=RenderNodeStateV2(
-            status_code=(
-                "OK"
-                if s.dataset_freshness == "CURRENT"
-                else "WARNING"
-            )
+            status_code=dataset_state
         ),
         children=(
             _leaf(
@@ -570,11 +666,6 @@ def _ngu6_oos_panel():
                     else None
                 ),
             ),
-            _ngu6_oos_metric(
-                "dataset_fingerprint",
-                "Fingerprint",
-                value=s.dataset_fingerprint,
-            ),
         ),
     )
 
@@ -582,11 +673,7 @@ def _ngu6_oos_panel():
         RenderNodeTypeV2.CARD,
         "research.ngu6_oos.oos3",
         state=RenderNodeStateV2(
-            status_code=(
-                "WARNING"
-                if s.new_completed_day_trades
-                else "OK"
-            )
+            status_code=oos_state
         ),
         children=(
             _leaf(
@@ -607,29 +694,63 @@ def _ngu6_oos_panel():
             ),
             _ngu6_oos_metric(
                 "inventory",
-                "Inventory frozen",
+                "Inventory",
                 value=(
-                    "YES"
+                    "FROZEN"
                     if s.inventory_frozen
-                    else "NO"
+                    else "WAITING"
                 ),
             ),
             _ngu6_oos_metric(
                 "pnl",
-                "PnL revealed",
+                "PnL",
                 value=(
-                    "YES"
+                    "REVEALED"
                     if s.pnl_revealed
-                    else "NO"
+                    else "HIDDEN"
                 ),
             ),
             _ngu6_oos_metric(
                 "verdict",
-                "Последний verdict",
+                "Verdict",
                 value=s.last_verdict,
             ),
         ),
     )
+
+    panel_children = [
+        status_bar,
+        RenderNodeV2(
+            RenderNodeTypeV2.GRID,
+            "research.ngu6_oos.cards",
+            children=(
+                monitor_card,
+                dataset_card,
+                oos_card,
+            ),
+        ),
+    ]
+
+    panel_children.extend(
+        (
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "research.ngu6_oos.events.title",
+                value="Значимые OOS-события",
+                level="SECTION",
+            ),
+        )
+    )
+
+    if not s.events:
+        panel_children.append(
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "research.ngu6_oos.events.empty",
+                value="Значимых OOS-событий пока нет.",
+            )
+        )
+        return tuple(panel_children)
 
     event_rows = []
 
@@ -641,6 +762,17 @@ def _ngu6_oos_panel():
             RenderNodeV2(
                 RenderNodeTypeV2.TABLE_ROW,
                 f"research.ngu6_oos.event.{index}",
+                state=RenderNodeStateV2(
+                    status_code=(
+                        "WARNING"
+                        if event.event_type
+                        in {
+                            "FAIL_CLOSED",
+                            "NEW_INVENTORY",
+                        }
+                        else "OK"
+                    )
+                ),
                 children=(
                     _leaf(
                         RenderNodeTypeV2.TABLE_CELL,
@@ -658,25 +790,6 @@ def _ngu6_oos_panel():
             )
         )
 
-    header = RenderNodeV2(
-        RenderNodeTypeV2.TABLE_ROW,
-        "research.ngu6_oos.events.header",
-        children=(
-            _leaf(
-                RenderNodeTypeV2.TABLE_HEADER_CELL,
-                "research.ngu6_oos.events."
-                "header.type",
-                value="Событие",
-            ),
-            _leaf(
-                RenderNodeTypeV2.TABLE_HEADER_CELL,
-                "research.ngu6_oos.events."
-                "header.text",
-                value="Детали",
-            ),
-        ),
-    )
-
     events_table = RenderNodeV2(
         RenderNodeTypeV2.TABLE,
         "research.ngu6_oos.events",
@@ -684,7 +797,26 @@ def _ngu6_oos_panel():
             RenderNodeV2(
                 RenderNodeTypeV2.TABLE_HEAD,
                 "research.ngu6_oos.events.head",
-                children=(header,),
+                children=(
+                    RenderNodeV2(
+                        RenderNodeTypeV2.TABLE_ROW,
+                        "research.ngu6_oos.events.header",
+                        children=(
+                            _leaf(
+                                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                                "research.ngu6_oos.events."
+                                "header.type",
+                                value="Событие",
+                            ),
+                            _leaf(
+                                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                                "research.ngu6_oos.events."
+                                "header.text",
+                                value="Детали",
+                            ),
+                        ),
+                    ),
+                ),
             ),
             RenderNodeV2(
                 RenderNodeTypeV2.TABLE_BODY,
@@ -694,39 +826,9 @@ def _ngu6_oos_panel():
         ),
     )
 
-    return (
-        _leaf(
-            RenderNodeTypeV2.TITLE,
-            "research.ngu6_oos.title",
-            value="NGU6 Frozen DAY OOS",
-            level="SECTION",
-        ),
-        _leaf(
-            RenderNodeTypeV2.TEXT,
-            "research.ngu6_oos.subtitle",
-            value=(
-                "Read-only контроль frozen OOS. "
-                "UI не запускает monitor и не "
-                "изменяет стратегию."
-            ),
-        ),
-        RenderNodeV2(
-            RenderNodeTypeV2.GRID,
-            "research.ngu6_oos.cards",
-            children=(
-                monitor_card,
-                dataset_card,
-                oos_card,
-            ),
-        ),
-        _leaf(
-            RenderNodeTypeV2.TITLE,
-            "research.ngu6_oos.events.title",
-            value="Значимые OOS-события",
-            level="SECTION",
-        ),
-        events_table,
-    )
+    panel_children.append(events_table)
+
+    return tuple(panel_children)
 
 def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Moscow"):
     times=[x for x in (s.last_cycle_at,s.summary_refreshed_at,s.queue_updated_at,s.oos_updated_at) if x]
