@@ -61,3 +61,35 @@ def test_dataset_version_is_frozen():
         ngu6_frozen_day_oos_status_v1.DATASET_VERSION
         == "NATIVE_FINAM_M5_V1"
     )
+
+
+def test_ngu6_oos_panel_valid_when_dataset_unavailable(monkeypatch):
+    from marketcore.presentation.render_tree.v2.validation import (
+        validate_render_document_v2,
+    )
+    from marketcore.presentation.workspace_v2.resolver import (
+        ngu6_frozen_day_oos_status_v1 as status_module,
+    )
+
+    def unavailable():
+        raise RuntimeError("dataset_unavailable_for_test")
+
+    monkeypatch.setattr(
+        status_module,
+        "_load_canonical_dataset",
+        unavailable,
+    )
+
+    document = (
+        research_v2_domain_renderer
+        .render_research_domain_v2(
+            __import__(
+                "marketcore.presentation.workspace_v2.resolver."
+                "research_v2_resolver",
+                fromlist=["ResearchV2Resolver"],
+            ).ResearchV2Resolver().resolve(),
+            timezone_code="Europe/Moscow",
+        )
+    )
+
+    validate_render_document_v2(document)

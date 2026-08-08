@@ -540,8 +540,16 @@ def _ngu6_oos_panel():
             _ngu6_oos_metric(
                 "dataset_last",
                 "Последний M5",
-                value=s.dataset_last,
-                fmt="DATETIME",
+                value=(
+                    s.dataset_last
+                    if s.dataset_last is not None
+                    else "UNAVAILABLE"
+                ),
+                fmt=(
+                    "DATETIME"
+                    if s.dataset_last is not None
+                    else None
+                ),
             ),
             _ngu6_oos_metric(
                 "dataset_freshness",
@@ -551,8 +559,16 @@ def _ngu6_oos_panel():
             _ngu6_oos_metric(
                 "dataset_age",
                 "Возраст, сек.",
-                value=s.dataset_age_seconds,
-                fmt="INTEGER",
+                value=(
+                    s.dataset_age_seconds
+                    if s.dataset_age_seconds is not None
+                    else "UNAVAILABLE"
+                ),
+                fmt=(
+                    "INTEGER"
+                    if s.dataset_age_seconds is not None
+                    else None
+                ),
             ),
             _ngu6_oos_metric(
                 "dataset_fingerprint",
