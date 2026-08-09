@@ -1,0 +1,33 @@
+{
+  "symbols": [
+    "USDRUBF@RTSX",
+    "NVTK@MISX",
+    "PLZL@MISX",
+    "VTBR@MISX",
+    "T@MISX"
+  ],
+  "timeframe": "M5",
+  "development_fraction": 0.75,
+
+  "minimum_bars": 6000,
+  "minimum_oos_trades": 50,
+  "minimum_oos_profit_factor": 1.10,
+  "minimum_oos_expectancy": 0.0,
+
+  "strategy_code": "TREND_PULLBACK_V1",
+
+  "canonical_parameter_source": "postgresql_edge_backtest_adapter_v1.normalize_defaults",
+
+  "canonical_parameters": {
+    "allow_short": true,
+    "atr_period": 14,
+    "fast_ma_period": 10,
+    "slow_ma_period": 50,
+    "pullback_atr_multiplier": 0.75
+  },
+
+  "screen_exit_horizon": {
+    "hold_bars": 5,
+    "source": "SCREEN_BASELINE_V1"
+  }
+}
