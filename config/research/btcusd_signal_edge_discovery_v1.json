@@ -1,0 +1,31 @@
+{
+  "symbol": "BTCUSD",
+  "timeframe": "M5",
+
+  "minimum_bars": 6000,
+  "development_fraction": 0.75,
+
+  "minimum_oos_trades": 50,
+  "minimum_oos_profit_factor": 1.10,
+  "minimum_oos_expectancy": 0.0,
+
+  "families": {
+    "MOMENTUM": [
+      {"lookback": 10, "hold": 5, "threshold": 0.25},
+      {"lookback": 20, "hold": 5, "threshold": 0.50},
+      {"lookback": 40, "hold": 10, "threshold": 1.00}
+    ],
+
+    "MEAN_REVERSION": [
+      {"lookback": 10, "hold": 5, "threshold": 1.0},
+      {"lookback": 20, "hold": 5, "threshold": 1.5},
+      {"lookback": 40, "hold": 10, "threshold": 2.0}
+    ],
+
+    "BREAKOUT": [
+      {"lookback": 10, "hold": 5, "threshold": 0.25},
+      {"lookback": 20, "hold": 5, "threshold": 0.50},
+      {"lookback": 40, "hold": 10, "threshold": 1.00}
+    ]
+  }
+}
