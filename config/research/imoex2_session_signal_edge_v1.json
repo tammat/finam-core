@@ -1,0 +1,41 @@
+{
+  "symbol": "IMOEX2",
+  "timeframe": "M5",
+  "timezone": "Europe/Moscow",
+
+  "minimum_bars": 6000,
+  "development_fraction": 0.75,
+
+  "minimum_oos_trades": 30,
+  "minimum_oos_profit_factor": 1.10,
+  "minimum_oos_expectancy": 0.0,
+  "minimum_folds_passed": 2,
+  "maximum_adjusted_p_value": 0.05,
+
+  "sessions": [
+    {"code": "MORNING",   "start": "10:00", "end": "12:00"},
+    {"code": "MIDDAY",    "start": "12:00", "end": "15:00"},
+    {"code": "AFTERNOON", "start": "15:00", "end": "18:00"},
+    {"code": "EVENING",   "start": "18:00", "end": "23:50"}
+  ],
+
+  "families": {
+    "MOMENTUM": [
+      {"lookback": 10, "hold": 5, "threshold": 0.25},
+      {"lookback": 20, "hold": 5, "threshold": 0.50},
+      {"lookback": 40, "hold": 10, "threshold": 1.00}
+    ],
+
+    "MEAN_REVERSION": [
+      {"lookback": 10, "hold": 5, "threshold": 1.0},
+      {"lookback": 20, "hold": 5, "threshold": 1.5},
+      {"lookback": 40, "hold": 10, "threshold": 2.0}
+    ],
+
+    "BREAKOUT": [
+      {"lookback": 10, "hold": 5, "threshold": 0.25},
+      {"lookback": 20, "hold": 5, "threshold": 0.50},
+      {"lookback": 40, "hold": 10, "threshold": 1.00}
+    ]
+  }
+}
