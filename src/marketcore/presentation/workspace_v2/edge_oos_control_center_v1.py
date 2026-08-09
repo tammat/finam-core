@@ -12,6 +12,7 @@ import psycopg2
 import psycopg2.extras
 
 from marketcore.presentation.framework.i18n_resolver import UiI18nResolverV1
+from marketcore.presentation.workspace_v2.edge_asset_strategy_decision_board_v1 import render_edge_asset_strategy_decision_board_v1
 
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
@@ -1002,6 +1003,7 @@ def _section_link(section_id: str, label: str, value: object, active_section: st
 
 
 def render_edge_oos_control_center_v1(notice: str = "", active_section: str = "") -> str:
+    asset_strategy_decision_board = render_edge_asset_strategy_decision_board_v1()
     i18n = UiI18nResolverV1(locale_code="ru")
     if active_section not in {
         "data-quality-gate",
@@ -1340,6 +1342,7 @@ def render_edge_oos_control_center_v1(notice: str = "", active_section: str = ""
           <button type="submit">Найти инструменты Finam</button></form>
           <form method="post" action="/workspace-v2/control-center/edge-oos/strategy-generator">
           <button type="submit">Генератор стратегий</button></form></div></header>
+        {asset_strategy_decision_board}
         <section class="mc-action-status" data-action-status data-state="RUNNING" hidden aria-live="polite">
           <div class="mc-action-status-head"><strong data-action-status-text>Выполняется</strong><span data-action-progress-pct>0%</span></div>
           <div class="mc-action-progress" role="progressbar" aria-label="Ход выполнения"><span data-action-progress-fill></span></div>
