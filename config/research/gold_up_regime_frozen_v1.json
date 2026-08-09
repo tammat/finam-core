@@ -1,0 +1,24 @@
+{
+  "hypothesis_code": "GOLD_UP_REGIME_FROZEN_V1",
+  "symbol": "GDU6@RTSX",
+  "strategy": "gold_short_only_shadow_v1",
+  "timeframe": "M5",
+  "regime_rule": "SMA20_GT_SMA50",
+  "exit_model": "MARKET_BARS_M5_NEXT_10",
+  "freeze_boundary_exclusive": "2026-08-07 14:10:00+00",
+  "development_sample_trades": 428,
+  "development_up_trades": 130,
+  "development_up_profit_factor": 1.376,
+  "development_up_expectancy": 1.547692,
+  "development_down_trades": 298,
+  "development_down_profit_factor": 0.8174,
+  "development_down_expectancy": -1.327517,
+  "oos_policy": {
+    "development_rows_allowed": false,
+    "minimum_oos_trades": 20,
+    "pass_expectancy_gt": 0,
+    "pass_profit_factor_gte": 1.2
+  },
+  "runtime_allow": false,
+  "execution_enabled": false
+}

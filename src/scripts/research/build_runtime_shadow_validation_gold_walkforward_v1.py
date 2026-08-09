@@ -13,27 +13,36 @@ BUCKETS = int(os.getenv("GOLD_WALKFORWARD_BUCKETS", "4"))
 SQL = """
 WITH signals AS (
     SELECT
-        id,
-        symbol,
-        timeframe,
-        signal_ts,
-        side,
-        entry_price::numeric AS entry_price,
-        ROW_NUMBER() OVER (
-            PARTITION BY symbol, timeframe, strategy
-            ORDER BY signal_ts
-        ) AS rn,
-        LEAD(entry_price::numeric, 10) OVER (
-            PARTITION BY symbol, timeframe, strategy
-            ORDER BY signal_ts
-        ) AS exit_price
-    FROM runtime_shadow_gold_signals
-    WHERE symbol=%s
-      AND strategy=%s
+        s.id,
+        s.symbol,
+        s.timeframe,
+        s.signal_ts,
+        s.side,
+        s.entry_price::numeric AS entry_price,
+        x.exit_ts,
+        x.exit_price
+    FROM runtime_shadow_gold_signals s
+    LEFT JOIN LATERAL (
+        SELECT
+            b.ts AS exit_ts,
+            b.close::numeric AS exit_price
+        FROM market_bars b
+        WHERE b.symbol = s.symbol
+          AND b.timeframe = s.timeframe
+          AND b.ts > s.signal_ts
+        ORDER BY b.ts
+        OFFSET 9
+        LIMIT 1
+    ) x ON true
+    WHERE s.symbol=%s
+      AND s.strategy=%s
 ),
 scored AS (
     SELECT
         *,
+        EXTRACT(
+            EPOCH FROM (exit_ts - signal_ts)
+        ) / 60.0 AS exit_gap_minutes,
         CASE
             WHEN exit_price IS NULL THEN NULL
             WHEN side='SELL' THEN entry_price - exit_price
@@ -67,6 +76,7 @@ def main() -> None:
     print(f"symbol={SYMBOL}")
     print(f"strategy={STRATEGY}")
     print(f"buckets={BUCKETS}")
+    print("exit_model=MARKET_BARS_M5_NEXT_10")
     print()
 
     with psycopg2.connect(os.environ["DATABASE_URL"]) as conn:
