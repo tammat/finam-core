@@ -1,0 +1,14 @@
+{
+  "timeframe": "M5",
+  "minimum_bars": 6000,
+  "minimum_trading_days": 60,
+  "maximum_relative_staleness_hours": 24,
+  "minimum_median_range_bps": 1.0,
+  "current_branch_prefixes": [
+    "BR",
+    "NG",
+    "GD",
+    "GLD"
+  ],
+  "maximum_results": 30
+}
