@@ -53,6 +53,49 @@ MIN_FOLDS_PASSED = 2
 MAX_ADJUSTED_P = 0.05
 
 
+def gross_metrics(trades) -> dict:
+    """Signal-only metrics по Trade.gross_pnl."""
+    values = [
+        float(trade.gross_pnl)
+        for trade in trades
+    ]
+
+    wins = [
+        value
+        for value in values
+        if value > 0
+    ]
+
+    losses = [
+        value
+        for value in values
+        if value <= 0
+    ]
+
+    gross_win = sum(wins)
+    gross_loss = abs(sum(losses))
+
+    if gross_loss > 0:
+        profit_factor = gross_win / gross_loss
+    elif gross_win > 0:
+        profit_factor = gross_win
+    else:
+        profit_factor = 0.0
+
+    expectancy = (
+        sum(values) / len(values)
+        if values
+        else 0.0
+    )
+
+    return {
+        "trades": len(values),
+        "profit_factor": profit_factor,
+        "expectancy": expectancy,
+        "gross_pnl": sum(values),
+    }
+
+
 def dec(value) -> Decimal:
     return Decimal(str(value or 0))
 
@@ -65,8 +108,22 @@ def trade_pnl(trade) -> float:
     return 0.0
 
 
+def gross_trade_pnl(trade) -> float:
+    """Статистический тест использует только gross signal PnL."""
+    value = getattr(
+        trade,
+        "gross_pnl",
+        None,
+    )
+
+    if value is None:
+        return 0.0
+
+    return float(value)
+
+
 def raw_p_value(trades) -> float:
-    values = [trade_pnl(t) for t in trades]
+    values = [gross_trade_pnl(t) for t in trades]
 
     if len(values) < 2:
         return 1.0
@@ -110,7 +167,7 @@ def fold_result(trades) -> tuple[int, list[tuple]]:
 
         sample = ordered[start:stop]
 
-        result = metrics(sample)
+        result = gross_metrics(sample)
 
         trades_count = int(
             result.get("trades") or 0
@@ -156,6 +213,7 @@ def main() -> int:
     print("mode=gross_candidate_forensic")
     print("parameter_search_performed=0")
     print("execution_costs_used=0")
+    print("signal_metric_source=GROSS_PNL")
     print("economic_edge_claimed=0")
     print()
 
@@ -258,7 +316,7 @@ def main() -> int:
                             end_ts=oos_stop,
                         )
 
-                        result = metrics(oos)
+                        result = gross_metrics(oos)
 
                         count = int(
                             result.get("trades")

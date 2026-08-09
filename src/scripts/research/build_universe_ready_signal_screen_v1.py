@@ -45,6 +45,57 @@ STRATEGY_CODES = {
 }
 
 
+def gross_metrics(trades) -> dict:
+    """
+    Чистые signal metrics только по Trade.gross_pnl.
+
+    Execution commission/spread/impact/slippage намеренно
+    исключены из этого этапа исследования.
+    """
+    values = [
+        float(trade.gross_pnl)
+        for trade in trades
+    ]
+
+    wins = [
+        value
+        for value in values
+        if value > 0
+    ]
+
+    losses = [
+        value
+        for value in values
+        if value <= 0
+    ]
+
+    gross_win = sum(wins)
+    gross_loss = abs(sum(losses))
+
+    if gross_loss > 0:
+        profit_factor = (
+            gross_win / gross_loss
+        )
+    elif gross_win > 0:
+        profit_factor = gross_win
+    else:
+        profit_factor = 0.0
+
+    expectancy = (
+        sum(values) / len(values)
+        if values
+        else 0.0
+    )
+
+    return {
+        "trades": len(values),
+        "profit_factor": profit_factor,
+        "expectancy": expectancy,
+        "gross_pnl": sum(values),
+    }
+
+
+
 def dec(value) -> Decimal:
     if value is None:
         return Decimal("0")
@@ -66,6 +117,7 @@ def main() -> int:
     print(f"symbols={len(symbols)}")
     print("execution_instrument_used=0")
     print("execution_costs_used=0")
+    print("signal_metric_source=GROSS_PNL")
     print("commission=0")
     print("slippage=0")
     print()
@@ -208,7 +260,7 @@ def main() -> int:
                             )
                         )
 
-                        metric = metrics(
+                        metric = gross_metrics(
                             oos_trades
                         )
 
@@ -340,6 +392,7 @@ def main() -> int:
         print("economic_edge_claimed=0")
         print("execution_instrument_used=0")
         print("execution_costs_used=0")
+        print("signal_metric_source=GROSS_PNL")
         print("purged_oos_used=1")
         print("db_writes_performed=0")
         print("runtime_changed=0")
