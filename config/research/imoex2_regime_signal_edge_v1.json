@@ -1,0 +1,46 @@
+{
+  "symbol": "IMOEX2",
+  "timeframe": "M5",
+
+  "minimum_bars": 6000,
+  "minimum_regime_confidence": 0.60,
+  "minimum_regime_coverage": 0.80,
+
+  "development_fraction": 0.75,
+
+  "minimum_oos_trades": 30,
+  "minimum_oos_profit_factor": 1.10,
+  "minimum_oos_expectancy": 0.0,
+  "minimum_folds_passed": 2,
+  "maximum_adjusted_p_value": 0.05,
+
+  "regimes": [
+    "compression",
+    "range_normal",
+    "trend_up",
+    "trend_down",
+    "range_expansion",
+    "trend_down_expansion",
+    "trend_up_expansion"
+  ],
+
+  "families": {
+    "MOMENTUM": [
+      {"lookback": 10, "hold": 5, "threshold": 0.25},
+      {"lookback": 20, "hold": 5, "threshold": 0.50},
+      {"lookback": 40, "hold": 10, "threshold": 1.00}
+    ],
+
+    "MEAN_REVERSION": [
+      {"lookback": 10, "hold": 5, "threshold": 1.0},
+      {"lookback": 20, "hold": 5, "threshold": 1.5},
+      {"lookback": 40, "hold": 10, "threshold": 2.0}
+    ],
+
+    "BREAKOUT": [
+      {"lookback": 10, "hold": 5, "threshold": 0.25},
+      {"lookback": 20, "hold": 5, "threshold": 0.50},
+      {"lookback": 40, "hold": 10, "threshold": 1.00}
+    ]
+  }
+}
