@@ -56,3 +56,24 @@ git status --short
 
 echo
 echo "VERDICT=TEST_EDGE_ASSET_STRATEGY_DECISION_BOARD_V1_OK"
+
+echo
+echo "=== NEXT ACTION CONTRACT ==="
+
+grep -q \
+  'Следующее действие' \
+  <<< "$OUTPUT"
+
+grep -q \
+  'Накопить prospective OOS: 0/20' \
+  <<< "$OUTPUT"
+
+grep -q \
+  'Искать новую стратегическую семью' \
+  <<< "$OUTPUT"
+
+grep -q \
+  'Искать новую независимую гипотезу' \
+  <<< "$OUTPUT"
+
+echo "VERDICT=TEST_EDGE_DECISION_BOARD_NEXT_ACTION_V1_OK"

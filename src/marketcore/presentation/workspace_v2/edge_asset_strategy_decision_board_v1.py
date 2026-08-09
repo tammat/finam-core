@@ -246,6 +246,16 @@ def load_edge_asset_strategy_decisions_v1() -> list[dict]:
             "expectancy": gold["expectancy"],
             "strategy_status": gold["status"],
             "reason": gold["reason"],
+            "next_action": (
+                f"Накопить prospective OOS: "
+                f"{gold['trades']}/{gold['minimum']}"
+                if gold["status"] == "ACCUMULATING"
+                else
+                "Провести promotion review"
+                if gold["status"] == "OOS_PASS"
+                else
+                "Отклонить гипотезу или сформировать новую"
+            ),
             "promotion": "BLOCKED",
         })
 
@@ -275,6 +285,11 @@ def load_edge_asset_strategy_decisions_v1() -> list[dict]:
                 if br_reject
                 else "clean_chain_review_required"
             ),
+            "next_action": (
+                "Искать новую стратегическую семью"
+                if br_reject
+                else "Завершить clean-chain review"
+            ),
             "promotion": "BLOCKED",
         })
 
@@ -303,6 +318,11 @@ def load_edge_asset_strategy_decisions_v1() -> list[dict]:
                 "negative_clean_full_chain_edge"
                 if ng_reject
                 else "clean_chain_review_required"
+            ),
+            "next_action": (
+                "Искать новую независимую гипотезу"
+                if ng_reject
+                else "Завершить clean-chain review"
             ),
             "promotion": "BLOCKED",
         })
@@ -348,6 +368,7 @@ def render_edge_asset_strategy_decision_board_v1() -> str:
             f"<td><span class=\"mc-oos-badge {css}\">"
             f"{html.escape(status)}</span></td>"
             f"<td>{html.escape(row['reason'])}</td>"
+            f"<td><b>{html.escape(row['next_action'])}</b></td>"
             f"<td>{html.escape(row['promotion'])}</td>"
             "</tr>"
         )
@@ -376,6 +397,7 @@ def render_edge_asset_strategy_decision_board_v1() -> str:
               <th>Expectancy</th>
               <th>Решение</th>
               <th>Причина</th>
+              <th>Следующее действие</th>
               <th>Promotion</th>
             </tr>
           </thead>
