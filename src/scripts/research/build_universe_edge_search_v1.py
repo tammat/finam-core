@@ -32,6 +32,329 @@ def load_config() -> dict:
     return json.loads(CONFIG_PATH.read_text())
 
 
+
+def build_calendar_freshness_map(
+    conn,
+    symbols,
+    timeframe,
+):
+    """
+    Calendar-aware freshness для Universe Edge Search V1.
+
+    Не сравнивает session markets с global max(ts) 24x7 universe.
+
+    Возвращает:
+        symbol -> {
+            "fresh": bool,
+            "calendar_mode": str,
+            "active_weekdays": tuple[int, ...],
+            "missed_expected_sessions": int,
+            "wall_lag_hours": float,
+        }
+    """
+    import json
+    import statistics
+    from collections import defaultdict
+    from datetime import timedelta
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    calendar_cfg_path = Path(
+        "config/research/"
+        "universe_trading_calendar_freshness_v1.json"
+    )
+
+    calendar_cfg = json.loads(
+        calendar_cfg_path.read_text()
+    )
+
+    timezone = ZoneInfo(
+        calendar_cfg["timezone"]
+    )
+
+    lookback_days = int(
+        calendar_cfg["calendar_lookback_days"]
+    )
+
+    minimum_sessions = int(
+        calendar_cfg[
+            "minimum_sessions_per_weekday"
+        ]
+    )
+
+    minimum_daily_bars = int(
+        calendar_cfg[
+            "minimum_daily_bars_for_active_weekday"
+        ]
+    )
+
+    minimum_activity_ratio = float(
+        calendar_cfg[
+            "minimum_weekday_activity_ratio"
+        ]
+    )
+
+    continuous_active_weekdays = int(
+        calendar_cfg[
+            "continuous_minimum_active_weekdays"
+        ]
+    )
+
+    continuous_median_daily_bars = int(
+        calendar_cfg[
+            "continuous_minimum_median_daily_bars"
+        ]
+    )
+
+    continuous_max_lag_hours = float(
+        calendar_cfg[
+            "continuous_maximum_lag_hours"
+        ]
+    )
+
+    session_max_missed = int(
+        calendar_cfg[
+            "session_maximum_missed_sessions"
+        ]
+    )
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT clock_timestamp()
+            """
+        )
+        now_utc = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            SELECT symbol, ts
+            FROM public.market_bars
+            WHERE symbol = ANY(%s)
+              AND timeframe=%s
+              AND ts >= (
+                    clock_timestamp()
+                    - (%s || ' days')::interval
+              )
+            ORDER BY symbol,ts
+            """,
+            (
+                list(symbols),
+                timeframe,
+                lookback_days,
+            ),
+        )
+
+        rows = cur.fetchall()
+
+    now_local = now_utc.astimezone(timezone)
+
+    timestamps = defaultdict(list)
+
+    for symbol, ts in rows:
+        timestamps[str(symbol)].append(
+            ts.astimezone(timezone)
+        )
+
+    result = {}
+
+    for symbol in symbols:
+        series = timestamps.get(symbol, [])
+
+        if not series:
+            result[symbol] = {
+                "fresh": False,
+                "calendar_mode": "INSUFFICIENT",
+                "active_weekdays": tuple(),
+                "missed_expected_sessions": 0,
+                "wall_lag_hours": float("inf"),
+            }
+            continue
+
+        by_date = defaultdict(list)
+
+        for ts in series:
+            by_date[ts.date()].append(ts)
+
+        daily = []
+
+        for trade_date, day_rows in by_date.items():
+            ordered = sorted(day_rows)
+
+            daily.append({
+                "date": trade_date,
+                "weekday": trade_date.weekday(),
+                "bars": len(ordered),
+                "first_minute":
+                    ordered[0].hour * 60
+                    + ordered[0].minute,
+            })
+
+        weekday_days = defaultdict(list)
+
+        for row in daily:
+            weekday_days[
+                row["weekday"]
+            ].append(row)
+
+        weekday_median_bars = {}
+
+        for weekday in range(7):
+            samples = weekday_days.get(
+                weekday,
+                [],
+            )
+
+            if samples:
+                weekday_median_bars[weekday] = (
+                    statistics.median(
+                        row["bars"]
+                        for row in samples
+                    )
+                )
+            else:
+                weekday_median_bars[weekday] = 0.0
+
+        maximum_weekday_bars = max(
+            weekday_median_bars.values(),
+            default=0.0,
+        )
+
+        active_weekdays = []
+
+        for weekday in range(7):
+            samples = weekday_days.get(
+                weekday,
+                [],
+            )
+
+            if len(samples) < minimum_sessions:
+                continue
+
+            median_bars = (
+                weekday_median_bars[weekday]
+            )
+
+            activity_ratio = (
+                median_bars
+                / maximum_weekday_bars
+                if maximum_weekday_bars > 0
+                else 0.0
+            )
+
+            if (
+                median_bars
+                >= minimum_daily_bars
+                and activity_ratio
+                >= minimum_activity_ratio
+            ):
+                active_weekdays.append(
+                    weekday
+                )
+
+        median_daily_bars = statistics.median(
+            row["bars"]
+            for row in daily
+        )
+
+        continuous = (
+            len(active_weekdays)
+            >= continuous_active_weekdays
+            and median_daily_bars
+            >= continuous_median_daily_bars
+        )
+
+        last_ts = max(series)
+
+        wall_lag_hours = (
+            now_local - last_ts
+        ).total_seconds() / 3600.0
+
+        if continuous:
+            fresh = (
+                wall_lag_hours
+                <= continuous_max_lag_hours
+            )
+
+            result[symbol] = {
+                "fresh": fresh,
+                "calendar_mode":
+                    "CONTINUOUS_24X7",
+                "active_weekdays":
+                    tuple(active_weekdays),
+                "missed_expected_sessions": 0,
+                "wall_lag_hours":
+                    wall_lag_hours,
+            }
+
+            continue
+
+        active_set = set(
+            active_weekdays
+        )
+
+        last_date = last_ts.date()
+        today = now_local.date()
+
+        missed_sessions = 0
+
+        current = (
+            last_date
+            + timedelta(days=1)
+        )
+
+        while current < today:
+            if current.weekday() in active_set:
+                missed_sessions += 1
+
+            current += timedelta(days=1)
+
+        today_samples = weekday_days.get(
+            today.weekday(),
+            [],
+        )
+
+        if (
+            today.weekday() in active_set
+            and today_samples
+        ):
+            median_open = int(
+                statistics.median(
+                    row["first_minute"]
+                    for row in today_samples
+                )
+            )
+
+            current_minute = (
+                now_local.hour * 60
+                + now_local.minute
+            )
+
+            if (
+                current_minute >= median_open
+                and last_date < today
+            ):
+                missed_sessions += 1
+
+        fresh = (
+            missed_sessions
+            <= session_max_missed
+        )
+
+        result[symbol] = {
+            "fresh": fresh,
+            "calendar_mode": "SESSION",
+            "active_weekdays":
+                tuple(active_weekdays),
+            "missed_expected_sessions":
+                missed_sessions,
+            "wall_lag_hours":
+                wall_lag_hours,
+        }
+
+    return result
+
+
 def main() -> int:
     cfg = load_config()
 
@@ -170,6 +493,15 @@ def main() -> int:
         eligible = []
         blocked = []
 
+        calendar_freshness = build_calendar_freshness_map(
+            conn,
+            [
+                str(item["symbol"])
+                for item in raw_rows
+            ],
+            timeframe,
+        )
+
         for row in raw_rows:
             symbol = str(row["symbol"])
             symbol_upper = symbol.upper()
@@ -197,6 +529,25 @@ def main() -> int:
 
             if staleness > max_staleness:
                 reasons.append("STALE_RELATIVE_TO_UNIVERSE")
+
+            # CALENDAR_FRESHNESS_GATE_NORMALIZATION
+            freshness = calendar_freshness.get(
+                str(row["symbol"])
+            )
+
+            reasons = [
+                reason
+                for reason in reasons
+                if reason != "STALE_RELATIVE_TO_UNIVERSE"
+            ]
+
+            if (
+                freshness is None
+                or not freshness["fresh"]
+            ):
+                reasons.append(
+                    "STALE_RELATIVE_TO_UNIVERSE"
+                )
 
             median_range = row["median_range_bps"]
 
@@ -274,6 +625,9 @@ def main() -> int:
 
         print("edge_probability_calculated=0")
         print("strategy_search_performed=0")
+        print("freshness_model=TRADING_CALENDAR_V1")
+        print("global_universe_timestamp_used_for_gate=0")
+        print("calendar_activity_ratio_used=1")
         print("db_writes_performed=0")
         print("runtime_changed=0")
         print("execution_changed=0")
