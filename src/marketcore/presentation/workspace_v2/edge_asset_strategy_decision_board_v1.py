@@ -286,7 +286,7 @@ def load_edge_asset_strategy_decisions_v1() -> list[dict]:
                 else "clean_chain_review_required"
             ),
             "next_action": (
-                "Искать новую стратегическую семью"
+                "Понизить приоритет BR; искать edge в других инструментах"
                 if br_reject
                 else "Завершить clean-chain review"
             ),
