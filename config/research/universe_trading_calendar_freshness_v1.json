@@ -1,0 +1,25 @@
+{
+  "timeframe": "M5",
+  "timezone": "Europe/Moscow",
+  "calendar_lookback_days": 120,
+  "minimum_sessions_per_weekday": 4,
+  "minimum_daily_bars_for_active_weekday": 12,
+  "continuous_minimum_active_weekdays": 7,
+  "continuous_minimum_median_daily_bars": 240,
+  "continuous_maximum_lag_hours": 2.0,
+  "session_maximum_missed_sessions": 0,
+  "audit_symbols": [
+    "SBERP@MISX",
+    "VTBR@MISX",
+    "NVTK@MISX",
+    "T@MISX",
+    "SBER@MISX",
+    "LKOH@MISX",
+    "PLZL@MISX",
+    "IMOEX",
+    "RTSI",
+    "BTCUSD",
+    "ETHUSD"
+  ],
+  "minimum_weekday_activity_ratio": 0.75
+}
