@@ -393,6 +393,38 @@ def main() -> int:
                 if step.endswith("build_edge_regime_hypothesis_discovery_v2.py"):
                     markets_evaluated = max(markets_evaluated,output_metric(result.stdout,"markets"))
                     campaign_progress = output_metric(result.stdout,"campaign_progress_pct")
+
+                    discovery_match = re.findall(
+                        r"(?m)^discovery_run_id=([0-9a-f-]{36})$",
+                        result.stdout,
+                    )
+                    if discovery_match:
+                        discovery_run_id = discovery_match[-1]
+                        with psycopg2.connect("postgresql:///finam_core") as lineage_connection:
+                            with lineage_connection.cursor() as lineage_cursor:
+                                lineage_cursor.execute(
+                                    """
+                                    SELECT scenario_run_id
+                                    FROM analytics.edge_regime_discovery_run_v3
+                                    WHERE discovery_run_id=%s::uuid
+                                    """,
+                                    (discovery_run_id,),
+                                )
+                                lineage_row = lineage_cursor.fetchone()
+
+                        if not lineage_row or lineage_row[0] is None:
+                            raise RuntimeError(
+                                f"DISCOVERY_SCENARIO_OWNER_MISSING:{discovery_run_id}"
+                            )
+
+                        discovery_owner_scenario = str(lineage_row[0])
+                        env["EDGE_SEARCH_SCENARIO_RUN_ID"] = discovery_owner_scenario
+                        env["EDGE_SEARCH_DISCOVERY_RUN_ID"] = discovery_run_id
+                        print(
+                            "discovery_owner_scenario_run_id="
+                            f"{discovery_owner_scenario}"
+                        )
+
                     checkpointed = result.returncode == 0 and output_flag(result.stdout,"stage_complete") is False
                     if not checkpointed:
                         combinations_evaluated += output_metric(result.stdout,"strategy_regime_pairs")

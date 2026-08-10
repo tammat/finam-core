@@ -199,12 +199,63 @@ def _summary(trades) -> dict:
 def _create_campaign(cur) -> dict:
     cutoff = time.strftime("%Y-%m-%dT%H:00:00+03:00")
     campaign_id = uuid.uuid5(NAMESPACE, cutoff)
+
+    raw_scenario_run_id = os.getenv("EDGE_SEARCH_SCENARIO_RUN_ID")
+    scenario_run_id = None
+    if raw_scenario_run_id:
+        # Fail closed: orchestration lineage must be a valid UUID.
+        scenario_run_id = str(uuid.UUID(raw_scenario_run_id))
+
     cur.execute("""INSERT INTO analytics.walkforward_campaign_v4
-      (campaign_id,data_cutoff_ts,status_code,phase_code,top_share,cpu_limit)
-      VALUES(%s,%s,'RUNNING','COARSE',.10,%s) ON CONFLICT DO NOTHING""", (str(campaign_id), cutoff,CPU_LIMIT))
-    markets = load_research_universe(cur, run_id=str(campaign_id), stage_code="WALKFORWARD_V4",
-                                     min_bars=6000, freshness_minutes=FRESHNESS_MINUTES)
-    configs = load_search_configuration(cur)
+      (campaign_id,scenario_run_id,data_cutoff_ts,status_code,phase_code,top_share,cpu_limit)
+      VALUES(%s,%s,%s,'RUNNING','COARSE',.10,%s) ON CONFLICT DO NOTHING""",
+      (str(campaign_id), scenario_run_id, cutoff, CPU_LIMIT))
+
+    # Детерминированный campaign_id может совпасть с ранее fail-closed
+    # пустой campaign того же часового cutoff. Разрешаем повторное
+    # использование только если в ней действительно нет algorithm tasks.
+    cur.execute("""
+      UPDATE analytics.walkforward_campaign_v4 c
+      SET status_code='RUNNING',
+          phase_code='COARSE',
+          scenario_run_id=coalesce(c.scenario_run_id,%s::uuid),
+          tasks_total=0,
+          tasks_complete=0,
+          progress_pct=0,
+          error_text=NULL,
+          finished_at=NULL,
+          heartbeat_at=clock_timestamp()
+      WHERE c.campaign_id=%s
+        AND c.status_code='FAILED'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM analytics.walkforward_algorithm_task_v4 a
+          WHERE a.campaign_id=c.campaign_id
+        )
+    """, (scenario_run_id, str(campaign_id)))
+
+    try:
+        markets = load_research_universe(
+            cur,
+            run_id=str(campaign_id),
+            stage_code="WALKFORWARD_V4",
+            min_bars=6000,
+            freshness_minutes=FRESHNESS_MINUTES,
+        )
+        configs = load_search_configuration(cur)
+    except Exception as exc:
+        cur.execute("""
+          UPDATE analytics.walkforward_campaign_v4
+          SET status_code='FAILED',
+              error_text=%s,
+              finished_at=clock_timestamp(),
+              heartbeat_at=clock_timestamp()
+          WHERE campaign_id=%s
+        """, (
+            f"CREATE_CAMPAIGN_FAILED:{type(exc).__name__}:{str(exc)[:3500]}",
+            str(campaign_id),
+        ))
+        raise
     order = 0
     for market in markets:
         for family, config in configs:
@@ -610,6 +661,21 @@ def main() -> None:
           status_code='COMPLETE',progress_pct=100,
           finished_at=coalesce(finished_at,clock_timestamp()),heartbeat_at=clock_timestamp()
           WHERE phase_code='COMPLETE' AND status_code<>'COMPLETE'""")
+        cur.execute("""
+          UPDATE analytics.walkforward_campaign_v4 c
+          SET status_code='FAILED',
+              error_text='EMPTY_RUNNING_CAMPAIGN_NO_ALGORITHM_TASKS',
+              finished_at=clock_timestamp(),
+              heartbeat_at=clock_timestamp()
+          WHERE c.status_code='RUNNING'
+            AND c.phase_code<>'COMPLETE'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM analytics.walkforward_algorithm_task_v4 a
+              WHERE a.campaign_id=c.campaign_id
+            )
+        """)
+
         cur.execute("""SELECT * FROM analytics.walkforward_campaign_v4
           WHERE status_code='RUNNING' AND phase_code<>'COMPLETE'
           ORDER BY started_at LIMIT 1""")
