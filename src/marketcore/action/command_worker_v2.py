@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -412,7 +413,13 @@ class GovernedCommandWorkerV2:
             return self._finish(row, False, None, str(exc)[:256])
 
     def _finish(self, row, success: bool, result: str | None, failure: str | None) -> str:
+        continuation_required = (
+            success
+            and row["request_kind"] == "EDGE_SEARCH_RUN"
+            and result == "VERDICT=AUTONOMOUS_EDGE_SEARCH_CHECKPOINTED"
+        )
         status = "COMPLETED" if success else "FAILED"
+
         with psycopg2.connect("postgresql:///finam_core") as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -421,7 +428,35 @@ class GovernedCommandWorkerV2:
                 )
                 if cursor.rowcount != 1:
                     raise RuntimeError("WORKER_REQUEST_STATE_CONFLICT")
-                if row.get("process_id") is not None:
+
+                if continuation_required:
+                    continuation_id = str(
+                        uuid.uuid5(
+                            uuid.UUID(str(row["request_id"])),
+                            "EDGE_SEARCH_CHECKPOINT_CONTINUATION_V1",
+                        )
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO marketcore_action.command_request_v2
+                          (request_id,action_id,request_kind,command_code,actor_id,
+                           target_id,status,requested_at,process_id)
+                        VALUES
+                          (%s,%s,'EDGE_SEARCH_RUN',%s,%s,%s,'PENDING',
+                           clock_timestamp(),%s)
+                        ON CONFLICT(request_id) DO NOTHING
+                        """,
+                        (
+                            continuation_id,
+                            row["action_id"],
+                            row["command_code"],
+                            row["actor_id"],
+                            row["target_id"],
+                            row.get("process_id"),
+                        ),
+                    )
+
+                if row.get("process_id") is not None and not continuation_required:
                     process_status = "SUCCEEDED" if success else "FAILED"
                     cursor.execute("""UPDATE marketcore_action.research_process_v1
                         SET status_code=%s,progress_pct=100,current_step_code='COMPLETE',
@@ -441,7 +476,15 @@ class GovernedCommandWorkerV2:
                         VALUES(%s,'EXECUTION_FINISHED',%s,100,'COMPLETE',
                                jsonb_build_object('request_id',%s,'result',%s,'failure',%s))""",
                         (row["process_id"],process_status,row["request_id"],result,failure))
-        self._record(row, AuditStageV2.EXECUTION_FINISHED, DispatchStatusV2.EXECUTED if success else DispatchStatusV2.FAILED, "WORKER_COMPLETED" if success else "WORKER_FAILED", result)
+
+        self._record(
+            row,
+            AuditStageV2.EXECUTION_FINISHED,
+            DispatchStatusV2.EXECUTED if success else DispatchStatusV2.FAILED,
+            "WORKER_RESUMABLE" if continuation_required
+            else ("WORKER_COMPLETED" if success else "WORKER_FAILED"),
+            result,
+        )
         return status
 
     def _record(self, row, stage, status, reason, result=None) -> None:
