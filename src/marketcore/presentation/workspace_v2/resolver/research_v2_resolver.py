@@ -3,7 +3,7 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
-from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,InstrumentScoutItemV1,MethodologyGateFailureV1,OosRemediationBranchV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,ResearchUniverseItemV1,StrategyDegradationV1
+from marketcore.presentation.workspace_v2.domain.research_snapshot_v2 import EdgeSearchRunAuditV1,FuturesRollItemV1,InstrumentScoutItemV1,MethodologyGateFailureV1,OosRemediationBranchV1,ResearchAlgorithmResultV2,ResearchSnapshotV2,TrendPullbackEdgeValidationV1,ResearchUniverseItemV1,StrategyDegradationV1
 
 def _utc(value):
     if value is None: return None
@@ -354,4 +354,90 @@ class ResearchV2Resolver:
                     int(row["after_costs_pass"] or 0),int(row["cost_lost"] or 0),
                     bool(row["diagnostic_only"]),str(row["process_status"]),float(row["progress_pct"] or 0),
                     str(row["current_step_code"]),_utc(row["updated_at"])) for row in cursor.fetchall())
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),int(scout.get("specification_pass") or 0),int(scout.get("liquidity_pass") or 0),int(scout.get("information_ranked") or 0),int(scout.get("coarse_queued") or 0),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),bool(validation_funnel.get("total")),int(validation_funnel.get("in_sample") or 0),int(validation_funnel.get("oos") or 0),int(validation_funnel.get("after_costs") or 0),int(validation_funnel.get("stable") or 0),str(validation_funnel.get("bottleneck_stage") or "NO_DATA"),int(validation_funnel.get("lost_variants") or 0),str(validation_funnel.get("recommendation_code") or "NO_DATA"),strategy_degradation,methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,remediation_branches,int(live_signals.get("signals") or 0),int(live_signals.get("symbols") or 0),int(paper_fills.get("fills") or 0),int(paper_fills.get("symbols") or 0),_utc(paper_fills.get("last_fill_at")),int(closed_trades.get("closed") or 0),float(closed_trades.get("pnl") or 0),int(regime_discovery.get("tasks_completed") or 0),int(regime_discovery.get("tasks_total") or 0),int(regime_discovery.get("progress_pct") or 0),str(regime_discovery.get("status_code") or "NOT_RUN"),str(operating.get("phase_code") or "WAITING"),_utc(operating.get("next_session_at")),str(operating.get("status_code") or "WAITING"),str(historical_audit.get("decision_code") or "NOT_RUN"),now)
+                cursor.execute("""
+                    SELECT
+                        r.symbol,
+                        r.robustness_status,
+                        r.positive_variants,
+                        r.variants_total,
+                        r.stable_variants,
+                        r.variants_evaluated_for_fold_stability,
+                        COALESCE(
+                            c.cost_validation_status,
+                            CASE
+                                WHEN r.symbol LIKE '%@RTSX'
+                                    THEN 'FUTURES_COST_SEMANTICS_PENDING'
+                                ELSE 'COST_VALIDATION_PENDING'
+                            END
+                        ) AS cost_status,
+                        c.net_pnl,
+                        c.net_expectancy,
+                        c.net_profit_factor,
+                        COALESCE(
+                            c.economic_edge_claimed,
+                            false
+                        ) AS economic_edge_claimed,
+                        false AS micro_live_allowed
+                    FROM
+                        marketcore_ui.trend_pullback_canonical_robustness_v1 r
+                    LEFT JOIN
+                        marketcore_ui.trend_pullback_equity_base_cost_validation_v1 c
+                    ON
+                        c.symbol = r.symbol
+                        AND c.strategy_code = r.strategy_code
+                        AND c.timeframe = r.timeframe
+                    WHERE
+                        r.strategy_code = 'TREND_PULLBACK_V1'
+                        AND r.timeframe = 'M5'
+                    ORDER BY r.symbol
+                """)
+
+                trend_pullback_edge_validation = tuple(
+                    TrendPullbackEdgeValidationV1(
+                        symbol=str(row["symbol"]),
+                        robustness_status=str(
+                            row["robustness_status"]
+                        ),
+                        positive_variants=int(
+                            row["positive_variants"]
+                        ),
+                        variants_total=int(
+                            row["variants_total"]
+                        ),
+                        stable_variants=int(
+                            row["stable_variants"]
+                        ),
+                        stable_variants_total=int(
+                            row[
+                                "variants_evaluated_for_fold_stability"
+                            ]
+                        ),
+                        cost_status=str(
+                            row["cost_status"]
+                        ),
+                        net_pnl=(
+                            float(row["net_pnl"])
+                            if row["net_pnl"] is not None
+                            else None
+                        ),
+                        net_expectancy=(
+                            float(row["net_expectancy"])
+                            if row["net_expectancy"] is not None
+                            else None
+                        ),
+                        net_profit_factor=(
+                            float(row["net_profit_factor"])
+                            if row["net_profit_factor"] is not None
+                            else None
+                        ),
+                        economic_edge_claimed=bool(
+                            row["economic_edge_claimed"]
+                        ),
+                        micro_live_allowed=bool(
+                            row["micro_live_allowed"]
+                        ),
+                    )
+                    for row in cursor.fetchall()
+                )
+
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),int(scout.get("specification_pass") or 0),int(scout.get("liquidity_pass") or 0),int(scout.get("information_ranked") or 0),int(scout.get("coarse_queued") or 0),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),bool(validation_funnel.get("total")),int(validation_funnel.get("in_sample") or 0),int(validation_funnel.get("oos") or 0),int(validation_funnel.get("after_costs") or 0),int(validation_funnel.get("stable") or 0),str(validation_funnel.get("bottleneck_stage") or "NO_DATA"),int(validation_funnel.get("lost_variants") or 0),str(validation_funnel.get("recommendation_code") or "NO_DATA"),strategy_degradation,methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,remediation_branches,int(live_signals.get("signals") or 0),int(live_signals.get("symbols") or 0),int(paper_fills.get("fills") or 0),int(paper_fills.get("symbols") or 0),_utc(paper_fills.get("last_fill_at")),int(closed_trades.get("closed") or 0),float(closed_trades.get("pnl") or 0),int(regime_discovery.get("tasks_completed") or 0),int(regime_discovery.get("tasks_total") or 0),int(regime_discovery.get("progress_pct") or 0),str(regime_discovery.get("status_code") or "NOT_RUN"),str(operating.get("phase_code") or "WAITING"),_utc(operating.get("next_session_at")),str(operating.get("status_code") or "WAITING"),str(historical_audit.get("decision_code") or "NOT_RUN"),now,trend_pullback_edge_validation)

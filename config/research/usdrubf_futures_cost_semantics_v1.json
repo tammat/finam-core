@@ -1,0 +1,34 @@
+{
+  "symbol": "USDRUBF@RTSX",
+  "contract_code": "USDRUBF",
+
+  "actual_finam_commission_evidence_available": false,
+
+  "fallback_model": "MOEX_CURRENT_MAKER_TAKER",
+
+  "contract_lot_underlying_units": 1000,
+  "tick_size": 0.01,
+  "tick_value_rub": 10.0,
+
+  "ordinary_unaddressed_taker_rate_pct": 0.00462,
+  "addressed_rate_pct": 0.00154,
+  "maker_rate_pct": 0.0,
+
+  "base_entry_liquidity_role": "TAKER",
+  "base_exit_liquidity_role": "TAKER",
+
+  "exercise_fee_included_in_ordinary_close": false,
+  "funding_included_in_trade_commission": false,
+
+  "legacy_iss_fields": {
+    "buy_sell_fee": 3.79,
+    "scalper_fee": 1.90,
+    "negotiated_fee": 1.27,
+    "authoritative_for_current_backtest": false
+  },
+
+  "economic_edge_claimed": false,
+  "micro_live_allowed": false,
+
+  "source_version": "USDRUBF_FUTURES_COST_SEMANTICS_V1"
+}

@@ -9,6 +9,10 @@ import psycopg2
 import psycopg2.extras
 import requests
 
+from scripts.run_autonomous_edge_search_cycle_v1 import (
+    session_freshness_minutes,
+)
+
 
 DB = os.getenv("DATABASE_URL", "postgresql:///finam_core")
 WATCH_DAYS = int(os.getenv("V5_ROLLOVER_WATCH_DAYS", "7"))
@@ -63,6 +67,33 @@ def fetch_snapshot(symbol: str) -> MarketSnapshot:
     return MarketSnapshot(expiry, volume, trades)
 
 
+def persisted_last_trade_date(cursor, symbol: str) -> date | None:
+    """Последняя подтвержденная MOEX дата окончания торгов контракта."""
+    cursor.execute(
+        """
+        SELECT source_payload->>'LASTTRADEDATE' AS last_trade_date
+        FROM analytics.contract_spec_sync_item_v1
+        WHERE symbol=%s
+          AND status_code IN ('CREATED','UPDATED','UNCHANGED')
+          AND source_version='MOEX_ISS_CONTRACT_SPEC_V1'
+          AND source_payload ? 'LASTTRADEDATE'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (symbol,),
+    )
+
+    row = cursor.fetchone()
+    if not row:
+        return None
+
+    raw = row["last_trade_date"]
+    if not raw:
+        return None
+
+    return date.fromisoformat(str(raw)[:10])
+
+
 def _record(cursor, *, root, current, next_symbol, action, reason, details) -> None:
     cursor.execute("""
         INSERT INTO analytics.v5_futures_rollover_decision_v1(
@@ -72,6 +103,94 @@ def _record(cursor, *, root, current, next_symbol, action, reason, details) -> N
 
 
 def _switch(cursor, *, root: str, current: str, next_symbol: str, scope: str) -> None:
+    # Upstream assignment handoff:
+    # runtime allocator не должен повторно активировать истёкший контракт.
+    cursor.execute(
+        """
+        INSERT INTO analytics.runtime_strategy_assignment_v1(
+            symbol,
+            timeframe,
+            asset_group,
+            strategy_code,
+            generator_code,
+            enabled,
+            priority,
+            countertrend_long_allowed,
+            commission_bps,
+            spread_bps,
+            slippage_bps,
+            min_edge_buffer_bps,
+            assignment_reason,
+            updated_at,
+            countertrend_short_allowed,
+            v4_paper_enabled,
+            min_orderbook_coverage,
+            cost_source
+        )
+        SELECT
+            %s,
+            timeframe,
+            asset_group,
+            strategy_code,
+            generator_code,
+            true,
+            priority,
+            countertrend_long_allowed,
+            commission_bps,
+            spread_bps,
+            slippage_bps,
+            min_edge_buffer_bps,
+            assignment_reason || '; automatic flat rollover',
+            clock_timestamp(),
+            countertrend_short_allowed,
+            v4_paper_enabled,
+            min_orderbook_coverage,
+            cost_source
+        FROM analytics.runtime_strategy_assignment_v1
+        WHERE symbol=%s
+          AND enabled=true
+        ON CONFLICT(symbol,timeframe) DO UPDATE SET
+            asset_group=excluded.asset_group,
+            strategy_code=excluded.strategy_code,
+            generator_code=excluded.generator_code,
+            enabled=true,
+            priority=excluded.priority,
+            countertrend_long_allowed=excluded.countertrend_long_allowed,
+            commission_bps=excluded.commission_bps,
+            spread_bps=excluded.spread_bps,
+            slippage_bps=excluded.slippage_bps,
+            min_edge_buffer_bps=excluded.min_edge_buffer_bps,
+            assignment_reason=excluded.assignment_reason,
+            updated_at=excluded.updated_at,
+            countertrend_short_allowed=excluded.countertrend_short_allowed,
+            v4_paper_enabled=excluded.v4_paper_enabled,
+            min_orderbook_coverage=excluded.min_orderbook_coverage,
+            cost_source=excluded.cost_source
+        """,
+        (next_symbol, current),
+    )
+
+    if cursor.rowcount == 0:
+        raise RuntimeError(
+            "NEXT_RUNTIME_STRATEGY_ASSIGNMENT_NOT_CREATED"
+        )
+
+    cursor.execute(
+        """
+        UPDATE analytics.runtime_strategy_assignment_v1
+        SET enabled=false,
+            updated_at=clock_timestamp()
+        WHERE symbol=%s
+          AND enabled=true
+        """,
+        (current,),
+    )
+
+    if cursor.rowcount == 0:
+        raise RuntimeError(
+            "CURRENT_RUNTIME_STRATEGY_ASSIGNMENT_NOT_DISABLED"
+        )
+
     cursor.execute("""
         INSERT INTO analytics.runtime_strategy_policy_v2(
           symbol,timeframe,regime_family,strategy_code,generator_code,enabled,
@@ -87,6 +206,22 @@ def _switch(cursor, *, root: str, current: str, next_symbol: str, scope: str) ->
     """, (next_symbol,current))
     if cursor.rowcount == 0:
         raise RuntimeError("NEXT_STRATEGY_POLICY_NOT_CREATED")
+
+    # Старый контракт после успешного policy handoff больше не должен
+    # участвовать в последующей materialization runtime_active_universe.
+    cursor.execute(
+        """
+        UPDATE analytics.runtime_strategy_policy_v2
+        SET enabled=false,
+            updated_at=clock_timestamp()
+        WHERE symbol=%s
+          AND enabled=true
+        """,
+        (current,),
+    )
+
+    if cursor.rowcount == 0:
+        raise RuntimeError("CURRENT_STRATEGY_POLICY_NOT_DISABLED")
 
     cursor.execute("""
         INSERT INTO runtime_active_universe(
@@ -121,8 +256,19 @@ def _switch(cursor, *, root: str, current: str, next_symbol: str, scope: str) ->
         cursor.execute("""UPDATE analytics.v5_asset_contract_readiness_v1
           SET runtime_symbol=%s,updated_at=clock_timestamp() WHERE asset_code='GOLD'""", (next_symbol,))
 
-    cursor.execute("SELECT analytics.resolve_paper_portfolio_scope_v1(%s,'paper')", (next_symbol,))
-    resolved = str((cursor.fetchone() or [""])[0] or "")
+    cursor.execute(
+        """
+        SELECT analytics.resolve_paper_portfolio_scope_v1(
+            %s,
+            'paper'
+        ) AS portfolio_scope
+        """,
+        (next_symbol,),
+    )
+    resolved_row = cursor.fetchone() or {}
+    resolved = str(
+        resolved_row.get("portfolio_scope") or ""
+    )
     if resolved != scope:
         raise RuntimeError(f"V5_SCOPE_CHANGED:{scope}:{resolved}")
 
@@ -155,9 +301,23 @@ def main() -> int:
                     _record(cursor,root=root,current=current,next_symbol=None,action="KEEP",reason="NEXT_CONTRACT_MISSING",details=details)
                     kept += 1
                     continue
-                cursor.execute("""SELECT EXISTS(SELECT 1
-                  FROM analytics.paper_research_position_projection_v1
-                  WHERE symbol=%s AND abs(coalesce(nullif(state->>'qty','')::numeric,0))>1e-9) AS open""", (current,))
+                cursor.execute(
+                    """
+                    SELECT EXISTS(
+                        SELECT 1
+                        FROM analytics.paper_research_position_projection_v1
+                        WHERE portfolio_scope=%s
+                          AND symbol=%s
+                          AND abs(
+                              coalesce(
+                                  nullif(state->>'qty','')::numeric,
+                                  0
+                              )
+                          ) > 1e-9
+                    ) AS open
+                    """,
+                    (scope, current),
+                )
                 if bool(cursor.fetchone()["open"]):
                     _record(cursor,root=root,current=current,next_symbol=next_symbol,action="BLOCK",reason="OPEN_POSITION",details=details)
                     blocked_open += 1
@@ -165,8 +325,31 @@ def main() -> int:
                 cursor.execute("""SELECT max(ts) AS latest_bar FROM market_bars
                   WHERE symbol=%s AND timeframe IN ('M1','M5')""", (next_symbol,))
                 latest_bar = cursor.fetchone()["latest_bar"]
-                if latest_bar is None or datetime.now(timezone.utc)-latest_bar.astimezone(timezone.utc) > timedelta(minutes=10):
-                    _record(cursor,root=root,current=current,next_symbol=next_symbol,action="BLOCK",reason="NEXT_BARS_STALE",details=details)
+                freshness_minutes = session_freshness_minutes()
+
+                if (
+                    latest_bar is None
+                    or datetime.now(timezone.utc)
+                    - latest_bar.astimezone(timezone.utc)
+                    > timedelta(minutes=freshness_minutes)
+                ):
+                    _record(
+                        cursor,
+                        root=root,
+                        current=current,
+                        next_symbol=next_symbol,
+                        action="BLOCK",
+                        reason="NEXT_BARS_STALE",
+                        details={
+                            **details,
+                            "freshness_minutes": freshness_minutes,
+                            "latest_bar": (
+                                latest_bar.isoformat()
+                                if latest_bar is not None
+                                else None
+                            ),
+                        },
+                    )
                     kept += 1
                     continue
                 cursor.execute("""SELECT verified_at FROM analytics.market_contract_cost_spec_v1
@@ -178,7 +361,35 @@ def main() -> int:
                 try:
                     current_md,next_md = fetch_snapshot(current),fetch_snapshot(next_symbol)
                     expiry = current_md.last_trade_date
-                    days = (expiry-date.today()).days if expiry else None
+                    expiry_source = "MOEX_LIVE"
+
+                    if expiry is None:
+                        expiry = persisted_last_trade_date(
+                            cursor,
+                            current,
+                        )
+                        expiry_source = (
+                            "PERSISTED_MOEX_SPEC"
+                            if expiry is not None
+                            else "UNAVAILABLE"
+                        )
+
+                    days = (
+                        (expiry - date.today()).days
+                        if expiry
+                        else None
+                    )
+
+                    details = {
+                        **details,
+                        "expiry": (
+                            expiry.isoformat()
+                            if expiry is not None
+                            else None
+                        ),
+                        "expiry_source": expiry_source,
+                        "days": days,
+                    }
                     allowed,reason = choose_rollover(
                         days=days,current_volume=current_md.volume,current_trades=current_md.trades,
                         next_volume=next_md.volume,next_trades=next_md.trades,

@@ -35,11 +35,15 @@ def load_search_configuration(cursor):
     if not rows:
         raise RuntimeError("EDGE_SEARCH_ALGORITHM_CONFIG_MISSING")
     result = []
+    canonical_regime_policy_by_algorithm = {}
     for row in rows:
         family = row["algorithm_code"]
         grid = list(row["parameter_grid"][:int(row["coarse_budget"])])
         if not grid:
             raise RuntimeError(f"EDGE_SEARCH_PARAMETER_GRID_EMPTY:{family}")
+        canonical_regime_policy_by_algorithm[family] = dict(
+            row["regime_policy"] or {}
+        )
         result.append((family, {
             "strategy_code": row["strategy_code"], "grid": grid,
             "regime_policy": row["regime_policy"], "gate_policy": row["gate_policy"],
@@ -58,9 +62,25 @@ def load_search_configuration(cursor):
             {**item, "adaptive_scenario_id": str(row["adaptive_scenario_id"])}
             for item in row["parameter_grid"]
         ]
+        canonical_regime_policy = dict(
+            canonical_regime_policy_by_algorithm.get(
+                row["algorithm_code"]
+            ) or {}
+        )
+        if not canonical_regime_policy.get("allowed_regimes"):
+            raise RuntimeError(
+                "ADAPTIVE_SCENARIO_CANONICAL_REGIME_POLICY_MISSING:"
+                f"{row['algorithm_code']}"
+            )
+
+        adaptive_regime_policy = {
+            **canonical_regime_policy,
+            "target_symbols": [row["target_symbol"]],
+        }
+
         result.append((row["algorithm_code"], {
             "strategy_code": row["strategy_code"], "grid": grid,
-            "regime_policy": {"target_symbols": [row["target_symbol"]]},
+            "regime_policy": adaptive_regime_policy,
             "gate_policy": row["generation_policy"]["gate_policy"],
             "config_version": row["config_version"],
         }))

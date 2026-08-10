@@ -342,6 +342,139 @@ def _futures_roll_cards(items):
             )))
     return RenderNodeV2(RenderNodeTypeV2.GRID,"research.futures.cards",children=tuple(cards))
 
+def _trend_pullback_edge_validation_table(items):
+    columns = (
+        ("symbol", "Инструмент"),
+        ("robustness", "Robustness"),
+        ("positive", "Positive variants"),
+        ("stable", "Stable variants"),
+        ("costs", "Costs"),
+        ("net_pnl", "Net PnL"),
+        ("net_expectancy", "Net expectancy"),
+        ("net_pf", "Net PF"),
+        ("economic_edge", "Economic edge"),
+        ("micro_live", "Micro live"),
+    )
+
+    header = RenderNodeV2(
+        RenderNodeTypeV2.TABLE_ROW,
+        "research.trend_pullback_edge.header",
+        children=tuple(
+            _leaf(
+                RenderNodeTypeV2.TABLE_HEADER_CELL,
+                f"research.trend_pullback_edge.header.{code}",
+                value=title,
+            )
+            for code, title in columns
+        ),
+    )
+
+    rows = []
+
+    for index, item in enumerate(items, start=1):
+        rows.append(
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_ROW,
+                f"research.trend_pullback_edge.{index}",
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.symbol",
+                        value=item.symbol,
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.robustness",
+                        value=item.robustness_status,
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.positive",
+                        value=(
+                            f"{item.positive_variants}/"
+                            f"{item.variants_total}"
+                        ),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.stable",
+                        value=(
+                            f"{item.stable_variants}/"
+                            f"{item.stable_variants_total}"
+                        ),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.costs",
+                        value=item.cost_status,
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.net_pnl",
+                        value=(
+                            item.net_pnl
+                            if item.net_pnl is not None
+                            else "—"
+                        ),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.net_expectancy",
+                        value=(
+                            item.net_expectancy
+                            if item.net_expectancy is not None
+                            else "—"
+                        ),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.net_pf",
+                        value=(
+                            item.net_profit_factor
+                            if item.net_profit_factor is not None
+                            else "—"
+                        ),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.economic_edge",
+                        value=(
+                            "ПОДТВЕРЖДЁН"
+                            if item.economic_edge_claimed
+                            else "НЕ ПОДТВЕРЖДЁН"
+                        ),
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.TABLE_CELL,
+                        f"research.trend_pullback_edge.{index}.micro_live",
+                        value=(
+                            "РАЗРЕШЁН"
+                            if item.micro_live_allowed
+                            else "ЗАПРЕЩЁН"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    return RenderNodeV2(
+        RenderNodeTypeV2.TABLE,
+        "research.trend_pullback_edge.table",
+        children=(
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_HEAD,
+                "research.trend_pullback_edge.head",
+                children=(header,),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.TABLE_BODY,
+                "research.trend_pullback_edge.body",
+                children=tuple(rows),
+            ),
+        ),
+    )
+
+
 def _run_audit_table(items):
     columns=("status","started","steps","duration","outcome","reason","analysis","recommendation")
     header=RenderNodeV2(RenderNodeTypeV2.TABLE_ROW,"research.audit.header",children=tuple(_leaf(RenderNodeTypeV2.TABLE_HEADER_CELL,f"research.audit.header.{code}",key=f"research.audit.column.{code}") for code in columns))
@@ -899,6 +1032,20 @@ def render_research_domain_v2(s: ResearchSnapshotV2, *, timezone_code="Europe/Mo
                          _remediation_branch_table(s.remediation_branches)))
     if s.validation_funnel_available:
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.validation_funnel.title",key="research.validation_funnel.title",level="SECTION"),_validation_funnel_tiles(s),_validation_funnel_recommendation(s)))
+
+    if s.trend_pullback_edge_validation:
+        children.extend((
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "research.trend_pullback_edge.title",
+                value="Валидация edge TREND_PULLBACK_V1",
+                level="SECTION",
+            ),
+            _trend_pullback_edge_validation_table(
+                s.trend_pullback_edge_validation
+            ),
+        ))
+
     if s.strategy_degradation:
         children.extend((_leaf(RenderNodeTypeV2.TITLE,"research.degradation.title",key="research.degradation.title",level="SECTION"),_strategy_degradation_table(s.strategy_degradation)))
     if s.global_trials:

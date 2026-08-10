@@ -31,6 +31,20 @@ class ResearchCheckVM:
 
 
 @dataclass(frozen=True)
+class ResearchEdgeValidationVM:
+    symbol: str
+    robustness: str
+    positive_variants: str
+    stable_variants: str
+    cost_status: str
+    net_pnl: str
+    net_expectancy: str
+    net_profit_factor: str
+    economic_edge: str
+    micro_live: str
+
+
+@dataclass(frozen=True)
 class ResearchCenterVM:
     title: str = "Исследования"
     subtitle: str = "Research Center"
@@ -38,6 +52,7 @@ class ResearchCenterVM:
     overview: list[ResearchMetricVM] = field(default_factory=list)
     candidates: list[ResearchCandidateVM] = field(default_factory=list)
     checks: list[ResearchCheckVM] = field(default_factory=list)
+    edge_validation: list[ResearchEdgeValidationVM] = field(default_factory=list)
     actions: list[ResearchMetricVM] = field(default_factory=list)
 
 

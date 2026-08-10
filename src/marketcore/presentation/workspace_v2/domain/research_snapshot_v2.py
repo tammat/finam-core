@@ -120,6 +120,22 @@ class OosRemediationBranchV1:
     updated_at: datetime | None
 
 @dataclass(frozen=True, slots=True)
+class TrendPullbackEdgeValidationV1:
+    symbol: str
+    robustness_status: str
+    positive_variants: int
+    variants_total: int
+    stable_variants: int
+    stable_variants_total: int
+    cost_status: str
+    net_pnl: float | None
+    net_expectancy: float | None
+    net_profit_factor: float | None
+    economic_edge_claimed: bool
+    micro_live_allowed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ResearchSnapshotV2:
     supervisor_status: str
     active_symbols: int
@@ -206,3 +222,4 @@ class ResearchSnapshotV2:
     live_chain_status: str
     historical_audit_status: str
     generated_at: datetime
+    trend_pullback_edge_validation: tuple[TrendPullbackEdgeValidationV1, ...]

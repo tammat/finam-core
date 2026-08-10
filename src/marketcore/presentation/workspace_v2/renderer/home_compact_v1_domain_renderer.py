@@ -230,6 +230,7 @@ def _now_section(snapshot):
              status="OK" if readiness.get("verdict_code") in {"PAPER_READY", "CALENDAR_CLOSED"} else "WARNING",
              source="analytics.monday_readiness_snapshot_v1",
              source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
+        _research_progress_row(snapshot),
         _row("research-resources", "Ресурсы исследований",
              (f"ресурсный контроль перенёс {int(resources.get('deferred_hour') or 0)} запусков · "
               f"очередь продолжает работу · последний: {resources.get('last_deferred_job') or 'нет'}"
@@ -244,6 +245,74 @@ def _now_section(snapshot):
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.now.title", "Сейчас", level="SECTION"),
         metrics,
     ))
+
+
+
+def _research_progress_row(snapshot):
+    progress = snapshot.get("research_progress") or {}
+
+    if not progress:
+        return _row(
+            "research-progress",
+            "Поиск edge",
+            "нет данных о текущем исследовании",
+            status="WARNING",
+        )
+
+    total = int(progress.get("tasks_total") or 0)
+    completed = int(progress.get("tasks_completed") or 0)
+    pending = int(progress.get("pending_tasks") or 0)
+    running = int(progress.get("running_tasks") or 0)
+    failed = int(progress.get("failed_tasks") or 0)
+    results = int(progress.get("results_total") or 0)
+    pct = int(progress.get("progress_pct") or 0)
+    code = str(progress.get("status_code") or "").upper()
+    opening_guard = bool(
+        progress.get("opening_guard_active")
+    )
+
+    if failed:
+        status = "BLOCKED"
+        state_text = (
+            f"ошибок {failed} · требуется диагностика"
+        )
+    elif code == "COMPLETE" or (
+        total > 0 and completed >= total
+    ):
+        status = "OK"
+        state_text = "этап завершён"
+    elif pending > 0 and running == 0:
+        status = "WARNING"
+        state_text = "контрольная точка сохранена"
+        if opening_guard:
+            state_text += (
+                " · защищённое рыночное окно"
+            )
+        else:
+            state_text += (
+                " · ожидает следующего запуска"
+            )
+    else:
+        status = "OK"
+        state_text = "исследование выполняется"
+
+    return _row(
+        "research-progress",
+        "Поиск edge",
+        (
+            f"Regime Discovery · {completed} / {total}"
+            f" · {pct}% · результатов {results}"
+            f" · осталось {pending}"
+            f" · ошибок {failed}"
+            f" · {state_text}"
+        ),
+        status=status,
+        source="analytics.edge_regime_discovery_run_v3",
+        source_as_of=(
+            progress.get("heartbeat_at")
+            or snapshot.get("generated_at")
+        ),
+    )
 
 
 def _progress_section(snapshot):
@@ -286,6 +355,267 @@ def _progress_section(snapshot):
     )
     return RenderNodeV2(
         RenderNodeTypeV2.SECTION, "home.compact.progress", children=(title, metric_list)
+    )
+
+
+
+def _research_funnel_section(snapshot):
+    """Фактическое состояние исследовательской воронки."""
+    research = snapshot.get("research_progress") or {}
+    process = snapshot.get("process") or {}
+    oos = snapshot.get("v5_oos_evidence") or {}
+    promotion = snapshot.get("promotion_summary") or {}
+    shadow_rows = tuple(snapshot.get("shadow_dynamics") or ())
+    challengers = tuple(snapshot.get("reachable_challengers") or ())
+
+    total = int(research.get("tasks_total") or 0)
+    completed = int(research.get("tasks_completed") or 0)
+    discovery_failed = int(research.get("failed_tasks") or 0)
+    discovery_code = str(research.get("status_code") or "").upper()
+
+    discovery_complete = (
+        discovery_code == "COMPLETE"
+        and total > 0
+        and completed >= total
+        and discovery_failed == 0
+    )
+
+    if discovery_failed:
+        discovery_status = "BLOCKED"
+        discovery_text = f"ошибок {discovery_failed} · требуется диагностика"
+    elif discovery_complete:
+        discovery_status = "OK"
+        discovery_text = (
+            f"завершено · {completed} / {total} · "
+            f"результатов {int(research.get('results_total') or 0)}"
+        )
+    else:
+        discovery_status = "WARNING"
+        discovery_text = (
+            f"{completed} / {total} · "
+            f"{int(research.get('progress_pct') or 0)}%"
+        )
+
+    process_step = str(process.get("current_step") or "").upper()
+    process_code = str(process.get("status_code") or "").upper()
+    process_pct = int(process.get("progress_pct") or 0)
+    opening_guard = bool(research.get("opening_guard_active"))
+
+    if process_step == "WALKFORWARD":
+        if process_code in {"FAILED", "ERROR", "STALLED", "BLOCKED"}:
+            walkforward_status = "BLOCKED"
+            walkforward_text = "ошибка этапа · требуется диагностика"
+        elif process_code in {"RUNNING", "STARTED"}:
+            walkforward_status = "OK"
+            walkforward_text = f"выполняется · прогресс цикла {process_pct}%"
+        elif process_code in {"SKIPPED", "CHECKPOINTED"}:
+            walkforward_status = "WARNING"
+            walkforward_text = (
+                f"ожидает разрешённого окна · прогресс цикла {process_pct}%"
+                if opening_guard
+                else f"ожидает следующего запуска · прогресс цикла {process_pct}%"
+            )
+        else:
+            walkforward_status = "WARNING"
+            walkforward_text = (
+                f"статус {process_code or 'не определён'} · "
+                f"прогресс цикла {process_pct}%"
+            )
+    else:
+        walkforward_status = "WARNING"
+        walkforward_text = (
+            "нет активного Walk-Forward шага"
+            if discovery_complete
+            else "ожидает завершения Regime Discovery"
+        )
+
+    collecting = int(oos.get("collecting_runs") or 0)
+    passed = int(oos.get("passed_runs") or 0)
+    failed = int(oos.get("failed_runs") or 0)
+    waiting = int(oos.get("waiting_admissions") or 0)
+
+    if passed > 0:
+        oos_status = "OK"
+        oos_text = f"PASS {passed} · COLLECTING {collecting} · FAIL {failed}"
+    elif collecting > 0:
+        oos_status = "WARNING"
+        oos_text = (
+            f"собираются будущие наблюдения: {collecting} · "
+            f"ожидают допуска {waiting} · PASS 0 · FAIL {failed}"
+        )
+    elif failed > 0:
+        oos_status = "BLOCKED"
+        oos_text = f"PASS 0 · FAIL {failed}"
+    else:
+        oos_status = "WARNING"
+        oos_text = "независимая проверка ещё не начата"
+
+    methodology = snapshot.get("methodology_gate") or {}
+
+    methodology_evaluated = int(
+        methodology.get("evaluated") or 0
+    )
+    methodology_passed = int(
+        methodology.get("passed") or 0
+    )
+    methodology_failed = int(
+        methodology.get("failed") or 0
+    )
+    methodology_promoted = int(
+        methodology.get("promotion_allowed") or 0
+    )
+
+    methodology_ts = methodology.get("last_evaluated_at")
+    discovery_ts = (
+        research.get("finished_at")
+        or research.get("heartbeat_at")
+    )
+
+    methodology_stale = bool(
+        methodology_ts
+        and discovery_ts
+        and methodology_ts < discovery_ts
+    )
+
+    if not methodology:
+        methodology_status = "WARNING"
+        methodology_text = (
+            "NOT_RUN · methodology evaluation отсутствует"
+        )
+    elif methodology_stale:
+        methodology_status = "WARNING"
+        methodology_text = (
+            f"STALE · последняя оценка "
+            f"{methodology.get('contract_code') or 'UNKNOWN'}: "
+            f"PASS {methodology_passed} · FAIL {methodology_failed} · "
+            "не относится к текущей Regime Discovery campaign"
+        )
+    elif methodology_passed > 0:
+        methodology_status = "OK"
+        methodology_text = (
+            f"PASS · оценено {methodology_evaluated} · "
+            f"PASS {methodology_passed} · "
+            f"promotion allowed {methodology_promoted}"
+        )
+    elif methodology_failed > 0:
+        methodology_status = "BLOCKED"
+        methodology_text = (
+            f"FAIL · оценено {methodology_evaluated} · "
+            f"FAIL {methodology_failed} · "
+            f"promotion allowed {methodology_promoted}"
+        )
+    else:
+        methodology_status = "WARNING"
+        methodology_text = (
+            f"NOT_RUN · оценено {methodology_evaluated}"
+        )
+
+    shadow_count = len(shadow_rows)
+    challenger_count = len(challengers)
+
+    shadow_status = "WARNING"
+    shadow_text = (
+        f"активен · сравнительных результатов {shadow_count} · "
+        f"prospective challengers {challenger_count}"
+        if shadow_count or challenger_count
+        else "фактических Shadow evidence пока нет"
+    )
+
+    promoted = int(promotion.get("promoted_oos") or 0)
+    admitted = int(promotion.get("paper_admitted") or 0)
+
+    if admitted > 0:
+        paper_status = "OK"
+        paper_text = (
+            f"новый V5-допуск {admitted} · OOS подтверждено {promoted}"
+        )
+    else:
+        paper_status = "WARNING"
+        paper_text = (
+            f"новый V5-допуск 0 · OOS подтверждено {promoted} · "
+            "исторический Paper не считается продвижением новой когорты"
+        )
+
+    rows = (
+        _row(
+            "research-funnel.discovery",
+            "1. Regime Discovery",
+            discovery_text,
+            status=discovery_status,
+            source="analytics.edge_regime_discovery_run_v3",
+            source_as_of=(
+                research.get("finished_at")
+                or research.get("heartbeat_at")
+                or snapshot.get("generated_at")
+            ),
+        ),
+        _row(
+            "research-funnel.walkforward",
+            "2. Walk-Forward",
+            walkforward_text,
+            status=walkforward_status,
+            source="analytics.edge_search_cycle_status_v1",
+            source_as_of=(
+                process.get("finished_at")
+                or snapshot.get("generated_at")
+            ),
+        ),
+        _row(
+            "research-funnel.oos",
+            "3. V5 OOS",
+            oos_text,
+            status=oos_status,
+        ),
+        _row(
+            "research-funnel.methodology",
+            "4. Methodology Gate",
+            methodology_text,
+            status=methodology_status,
+        ),
+        _row(
+            "research-funnel.shadow",
+            "5. Shadow",
+            shadow_text,
+            status=shadow_status,
+        ),
+        _row(
+            "research-funnel.paper",
+            "6. Paper",
+            paper_text,
+            status=paper_status,
+        ),
+        _row(
+            "research-funnel.real",
+            "7. REAL",
+            "выключен · требуется отдельный safety-допуск после доказанного edge",
+            status="BLOCKED",
+        ),
+    )
+
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION,
+        "home.compact.research-funnel",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "home.compact.research-funnel.title",
+                "Исследовательская воронка",
+                level="SECTION",
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "home.compact.research-funnel.help",
+                (
+                    "Этап считается пройденным только по фактическим данным. "
+                    "Ожидание следующего этапа не считается PASS."
+                ),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_LIST,
+                "home.compact.research-funnel.metrics",
+                children=rows,
+            ),
+        ),
     )
 
 
@@ -1225,6 +1555,116 @@ def _signals_today_section(snapshot, timezone_code):
     ))
 
 
+
+def _net_first_section(snapshot):
+    summary = snapshot.get("net_first_summary") or {}
+
+    total = int(
+        summary.get("total_candidates") or 0
+    )
+    resolved = int(
+        summary.get("economically_resolved") or 0
+    )
+    admit = int(
+        summary.get("would_admit") or 0
+    )
+    reject = int(
+        summary.get("would_reject") or 0
+    )
+    saved = int(
+        summary.get("potential_downstream_saved") or 0
+    )
+    reject_rate = float(
+        summary.get("economic_reject_rate_pct") or 0
+    )
+    coverage = float(
+        summary.get("economic_coverage_pct") or 0
+    )
+    enforced = bool(
+        summary.get("enforced_admission_enabled")
+    )
+
+    if total == 0:
+        status = "WARNING"
+        coverage_text = "данные Net-First пока недоступны"
+    else:
+        status = "OK" if resolved == total else "WARNING"
+        coverage_text = (
+            f"{resolved}/{total} · покрытие {coverage:.1f}%"
+        )
+
+    rows = (
+        _row(
+            "net-first.coverage",
+            "Экономика рассчитана",
+            coverage_text,
+            status=status,
+            source="marketcore_ui.net_first_shadow_summary_v1",
+            source_as_of=summary.get("created_at"),
+        ),
+        _row(
+            "net-first.gate",
+            "Economic Gate",
+            (
+                f"PASS {admit} · REJECT {reject} · "
+                f"отсев {reject_rate:.2f}%"
+            ),
+            status="OK" if total else "WARNING",
+            source="marketcore_ui.net_first_shadow_summary_v1",
+            source_as_of=summary.get("created_at"),
+        ),
+        _row(
+            "net-first.saved",
+            "Экономия downstream",
+            (
+                f"{saved} кандидатов можно остановить "
+                "до дорогих проверок"
+            ),
+            status="OK" if total else "WARNING",
+            source="marketcore_ui.net_first_shadow_summary_v1",
+            source_as_of=summary.get("created_at"),
+        ),
+        _row(
+            "net-first.enforcement",
+            "Enforcement",
+            (
+                "ВКЛЮЧЁН"
+                if enforced
+                else "ВЫКЛЮЧЕН · Shadow"
+            ),
+            status="OK" if enforced else "WARNING",
+            source="marketcore_ui.net_first_shadow_summary_v1",
+            source_as_of=summary.get("created_at"),
+        ),
+    )
+
+    return RenderNodeV2(
+        RenderNodeTypeV2.SECTION,
+        "home.compact.net-first",
+        children=(
+            _leaf(
+                RenderNodeTypeV2.TITLE,
+                "home.compact.net-first.title",
+                "Экономика поиска edge",
+                level="SECTION",
+            ),
+            _leaf(
+                RenderNodeTypeV2.TEXT,
+                "home.compact.net-first.help",
+                (
+                    "Сначала учитываются реальные издержки; "
+                    "только экономически допустимые кандидаты "
+                    "должны переходить к следующим проверкам."
+                ),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_LIST,
+                "home.compact.net-first.metrics",
+                children=rows,
+            ),
+        ),
+    )
+
 def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
     page = RenderNodeV2(RenderNodeTypeV2.PAGE, "home.compact.page", children=(
         _leaf(RenderNodeTypeV2.TITLE, "home.compact.title", "MarketCore", level="PAGE"),
@@ -1232,6 +1672,8 @@ def render_home_compact_v1(snapshot, *, timezone_code="Europe/Moscow"):
               "Поиск преимущества · без реальных сделок"),
         _now_section(snapshot),
         _signals_today_section(snapshot, timezone_code),
+        _net_first_section(snapshot),
+        _research_funnel_section(snapshot),
         _focus_candidates_section(snapshot),
         _reachable_challengers_section(snapshot),
         _shadow_dynamics_section(snapshot),

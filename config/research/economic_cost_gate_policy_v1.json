@@ -1,0 +1,6 @@
+{
+  "minimum_trades": 50,
+  "minimum_net_expectancy": "0",
+  "minimum_net_profit_factor": "1.0",
+  "source_version": "ECONOMIC_COST_GATE_POLICY_V1"
+}

@@ -1,0 +1,36 @@
+{
+  "symbols": [
+    "USDRUBF@RTSX",
+    "NVTK@MISX",
+    "PLZL@MISX",
+    "VTBR@MISX",
+    "T@MISX"
+  ],
+  "timeframe": "M5",
+  "development_fraction": 0.75,
+  "minimum_bars": 6000,
+  "minimum_oos_trades": 50,
+  "minimum_oos_profit_factor": 1.10,
+  "minimum_oos_expectancy": 0.0,
+  "strategy_code": "TREND_PULLBACK_V1",
+  "variants": [
+    {
+      "fast_ma": 10,
+      "slow_ma": 100,
+      "pullback_atr": 0.50,
+      "hold_bars": 5
+    },
+    {
+      "fast_ma": 10,
+      "slow_ma": 100,
+      "pullback_atr": 0.75,
+      "hold_bars": 5
+    },
+    {
+      "fast_ma": 20,
+      "slow_ma": 100,
+      "pullback_atr": 0.75,
+      "hold_bars": 10
+    }
+  ]
+}

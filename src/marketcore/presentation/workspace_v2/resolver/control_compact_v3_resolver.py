@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
+from marketcore.research_window_guard_v1 import is_market_opening_guard
 
 from finam_core.session.session_manager import SessionManager
 
@@ -452,6 +453,114 @@ class ControlCompactV3Resolver:
                     WHERE evaluated_at >= clock_timestamp()-interval '1 hour'
                 """)
                 research_resource_gate = dict(cursor.fetchone() or {})
+
+                cursor.execute("""
+                    WITH latest AS (
+                        SELECT
+                            discovery_run_id,
+                            status_code,
+                            tasks_total,
+                            tasks_completed,
+                            results_total,
+                            progress_pct,
+                            started_at,
+                            heartbeat_at,
+                            finished_at,
+                            error_text
+                        FROM analytics.edge_regime_discovery_run_v3
+                        ORDER BY started_at DESC
+                        LIMIT 1
+                    )
+                    SELECT
+                        r.discovery_run_id,
+                        r.status_code,
+                        r.tasks_total,
+                        r.tasks_completed,
+                        r.results_total,
+                        r.progress_pct,
+                        r.started_at,
+                        r.heartbeat_at,
+                        r.finished_at,
+                        r.error_text,
+                        count(t.*) FILTER (
+                            WHERE t.status_code='PENDING'
+                        )::int AS pending_tasks,
+                        count(t.*) FILTER (
+                            WHERE t.status_code='RUNNING'
+                        )::int AS running_tasks,
+                        count(t.*) FILTER (
+                            WHERE t.status_code='FAILED'
+                        )::int AS failed_tasks
+                    FROM latest r
+                    LEFT JOIN analytics.edge_regime_discovery_task_v3 t
+                      ON t.discovery_run_id=r.discovery_run_id
+                    GROUP BY
+                        r.discovery_run_id,
+                        r.status_code,
+                        r.tasks_total,
+                        r.tasks_completed,
+                        r.results_total,
+                        r.progress_pct,
+                        r.started_at,
+                        r.heartbeat_at,
+                        r.finished_at,
+                        r.error_text
+                """)
+                research_progress = dict(
+                    cursor.fetchone() or {}
+                )
+
+                cursor.execute("""
+                    WITH latest AS (
+                        SELECT scenario_run_id
+                        FROM analytics.edge_methodology_evaluation_v1
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    )
+                    SELECT
+                        e.scenario_run_id,
+                        max(e.contract_code) AS contract_code,
+                        count(*)::int AS evaluated,
+                        count(*) FILTER (
+                            WHERE e.verdict_code='PASS'
+                        )::int AS passed,
+                        count(*) FILTER (
+                            WHERE e.verdict_code='FAIL'
+                        )::int AS failed,
+                        count(*) FILTER (
+                            WHERE e.promotion_allowed
+                        )::int AS promotion_allowed,
+                        count(*) FILTER (
+                            WHERE e.statistical_pass
+                        )::int AS statistical_pass,
+                        count(*) FILTER (
+                            WHERE e.robustness_pass
+                        )::int AS robustness_pass,
+                        count(*) FILTER (
+                            WHERE e.holdout_pass
+                        )::int AS holdout_pass,
+                        count(*) FILTER (
+                            WHERE e.execution_pass
+                        )::int AS execution_pass,
+                        count(*) FILTER (
+                            WHERE e.capacity_pass
+                        )::int AS capacity_pass,
+                        count(*) FILTER (
+                            WHERE e.portfolio_pass
+                        )::int AS portfolio_pass,
+                        max(e.created_at) AS last_evaluated_at
+                    FROM analytics.edge_methodology_evaluation_v1 e
+                    WHERE e.scenario_run_id=(
+                        SELECT scenario_run_id FROM latest
+                    )
+                    GROUP BY e.scenario_run_id
+                """)
+                methodology_gate = dict(
+                    cursor.fetchone() or {}
+                )
+                research_progress["opening_guard_active"] = (
+                    is_market_opening_guard()
+                )
                 cursor.execute("""WITH latest AS (
                     SELECT run_id,status_code,groups_total,ready_for_expensive_gates,
                            degradation_alerts,finished_at
@@ -1198,6 +1307,32 @@ class ControlCompactV3Resolver:
             else:
                 row["operator_status"] = str(row.get("status_code") or "WAITING")
 
+        with connection.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        ) as net_first_cursor:
+            net_first_cursor.execute(
+                """
+                SELECT
+                    total_candidates,
+                    economically_resolved,
+                    would_admit,
+                    would_reject,
+                    economic_reject_rate_pct,
+                    potential_downstream_saved,
+                    economic_coverage_pct,
+                    shadow_admission_validated,
+                    enforced_admission_enabled,
+                    source_version,
+                    created_at
+                FROM marketcore_ui.net_first_shadow_summary_v1
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            )
+            net_first_summary = dict(
+                net_first_cursor.fetchone() or {}
+            )
+
         historical_corrections = (
             self._load_historical_corrections_v1()
         )
@@ -1231,6 +1366,8 @@ class ControlCompactV3Resolver:
             "market_shock_gate": market_shock_gate,
             "monday_readiness": monday_readiness,
             "research_resource_gate": research_resource_gate,
+            "research_progress": research_progress,
+            "methodology_gate": methodology_gate,
             "lightweight_statistics": lightweight_statistics,
             "manual_symbol": str((nearest or {}).get("symbol") or "BRQ6@RTSX"),
             "hierarchy": hierarchy,
@@ -1247,6 +1384,7 @@ class ControlCompactV3Resolver:
             "adaptive_policy_families": adaptive_policy_families,
             "v5_oos_evidence": v5_oos_evidence,
             "v5_oos_runs": v5_oos_runs,
+            "net_first_summary": net_first_summary,
             "reachable_challengers": reachable_challengers,
             "reachable_morning_audit": reachable_morning_audit,
             "recent_unique_signals": recent_unique_signals,

@@ -3314,6 +3314,336 @@ th {{ background: #f3f3f3; }}
 
 
 
+
+def load_trend_pullback_edge_validation_v1() -> dict:
+    """
+    Read-only источник воронки TREND_PULLBACK_V1.
+
+    Объединяет canonical robustness и base-cost validation.
+    Отсутствие cost-row означает PENDING, а не PASS.
+    """
+    dsn = os.environ.get("DATABASE_URL")
+
+    if not dsn:
+        return {
+            "status": "DATABASE_URL_NOT_SET",
+            "rows": [],
+        }
+
+    try:
+        with psycopg.connect(
+            dsn,
+            row_factory=dict_row,
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        r.run_uuid AS robustness_run_uuid,
+                        r.created_at AS robustness_created_at,
+                        r.symbol,
+                        r.strategy_code,
+                        r.timeframe,
+
+                        r.positive_variants,
+                        r.variants_total,
+                        r.stable_variants,
+                        r.variants_evaluated_for_fold_stability,
+                        r.positive_neighbor_ratio,
+                        r.fold_stable_ratio,
+                        r.robustness_status,
+
+                        c.run_uuid AS cost_run_uuid,
+                        c.created_at AS cost_created_at,
+                        c.gross_pnl,
+                        c.total_cost,
+                        c.net_pnl,
+                        c.net_expectancy,
+                        c.net_profit_factor,
+                        c.cost_to_gross_ratio,
+                        c.cost_validation_status,
+
+                        CASE
+                            WHEN c.cost_validation_status IS NOT NULL
+                                THEN c.cost_validation_status
+                            WHEN r.symbol LIKE '%@RTSX'
+                                THEN 'FUTURES_COST_SEMANTICS_PENDING'
+                            ELSE 'COST_VALIDATION_PENDING'
+                        END AS effective_cost_status,
+
+                        COALESCE(
+                            c.economic_edge_claimed,
+                            false
+                        ) AS economic_edge_claimed,
+
+                        false AS micro_live_allowed
+
+                    FROM
+                        marketcore_ui.trend_pullback_canonical_robustness_v1 r
+
+                    LEFT JOIN
+                        marketcore_ui.trend_pullback_equity_base_cost_validation_v1 c
+                    ON
+                        c.symbol = r.symbol
+                        AND c.strategy_code = r.strategy_code
+                        AND c.timeframe = r.timeframe
+
+                    WHERE
+                        r.strategy_code = 'TREND_PULLBACK_V1'
+                        AND r.timeframe = 'M5'
+
+                    ORDER BY
+                        CASE r.symbol
+                            WHEN 'USDRUBF@RTSX' THEN 1
+                            WHEN 'NVTK@MISX' THEN 2
+                            WHEN 'PLZL@MISX' THEN 3
+                            ELSE 99
+                        END,
+                        r.symbol
+                    """
+                )
+
+                rows = [
+                    dict(row)
+                    for row in cur.fetchall()
+                ]
+
+        return {
+            "status": "READY",
+            "rows": rows,
+        }
+
+    except Exception as exc:
+        return {
+            "status": "LOAD_FAILED",
+            "rows": [],
+            "error": (
+                f"{type(exc).__name__}: {exc}"
+            ),
+        }
+
+
+def render_trend_pullback_edge_validation_v1(
+    payload: dict | None = None,
+) -> str:
+    data = load_trend_pullback_edge_validation_v1()
+
+    def esc(value):
+        return html.escape(
+            "" if value is None else str(value)
+        )
+
+    def status_badge(value: str) -> str:
+        mapping = {
+            "ROBUST": (
+                "ROBUST",
+                "good",
+            ),
+            "REJECT_AFTER_BASE_COSTS": (
+                "ОТКЛОНЕНО ПО COSTS",
+                "bad",
+            ),
+            "FUTURES_COST_SEMANTICS_PENDING": (
+                "ОЖИДАЕТ FUTURES COSTS",
+                "warn",
+            ),
+            "COST_VALIDATION_PENDING": (
+                "ОЖИДАЕТ COST VALIDATION",
+                "warn",
+            ),
+            "SURVIVE_AFTER_BASE_COSTS": (
+                "BASE COST PASS",
+                "good",
+            ),
+        }
+
+        label, kind = mapping.get(
+            str(value),
+            (str(value), "neutral"),
+        )
+
+        return dashboard_badge_v1(
+            label,
+            kind,
+        )
+
+    rows = data.get("rows") or []
+
+    table_rows = ""
+
+    for row in rows:
+        positive_variants = (
+            f"{row.get('positive_variants')}/"
+            f"{row.get('variants_total')}"
+        )
+
+        stable_variants = (
+            f"{row.get('stable_variants')}/"
+            f"{row.get('variants_evaluated_for_fold_stability')}"
+        )
+
+        cost_status = row.get(
+            "effective_cost_status"
+        )
+
+        economic_edge = (
+            dashboard_badge_v1(
+                "ПОДТВЕРЖДЁН",
+                "good",
+            )
+            if row.get("economic_edge_claimed")
+            else dashboard_badge_v1(
+                "НЕ ПОДТВЕРЖДЁН",
+                "bad",
+            )
+        )
+
+        micro_live = dashboard_badge_v1(
+            "ЗАПРЕЩЁН",
+            "bad",
+        )
+
+        table_rows += f"""
+        <tr>
+          <td><b>{esc(row.get('symbol'))}</b></td>
+          <td>{status_badge(row.get('robustness_status'))}</td>
+          <td>{esc(positive_variants)}</td>
+          <td>{esc(stable_variants)}</td>
+          <td>{status_badge(cost_status)}</td>
+          <td>{esc(fmt_num_v1(row.get('gross_pnl'), 4))}</td>
+          <td>{esc(fmt_num_v1(row.get('total_cost'), 4))}</td>
+          <td>{esc(fmt_num_v1(row.get('net_pnl'), 4))}</td>
+          <td>{esc(fmt_num_v1(row.get('net_expectancy'), 6))}</td>
+          <td>{esc(fmt_num_v1(row.get('net_profit_factor'), 4))}</td>
+          <td>{economic_edge}</td>
+          <td>{micro_live}</td>
+        </tr>
+        """
+
+    if not table_rows:
+        table_rows = """
+        <tr>
+          <td colspan="12">
+            Нет данных TREND_PULLBACK edge validation.
+          </td>
+        </tr>
+        """
+
+    robust_count = sum(
+        1
+        for row in rows
+        if row.get("robustness_status") == "ROBUST"
+    )
+
+    rejected_count = sum(
+        1
+        for row in rows
+        if row.get("effective_cost_status")
+        == "REJECT_AFTER_BASE_COSTS"
+    )
+
+    pending_count = sum(
+        1
+        for row in rows
+        if str(
+            row.get("effective_cost_status")
+        ).endswith("PENDING")
+    )
+
+    error_html = ""
+
+    if data.get("status") != "READY":
+        error_html = (
+            '<div class="card bad">'
+            '<b>Ошибка загрузки:</b> '
+            f'{esc(data.get("error") or data.get("status"))}'
+            '</div>'
+        )
+
+    body = f"""
+    <h1>Валидация торгового преимущества</h1>
+
+    <div class="card">
+      <h2>TREND_PULLBACK_V1 / M5</h2>
+      <div class="kpi">
+        <div>
+          <b>{len(rows)}</b><br>
+          кандидатов
+        </div>
+        <div>
+          <b>{robust_count}</b><br>
+          прошли robustness
+        </div>
+        <div>
+          <b>{rejected_count}</b><br>
+          отклонено после costs
+        </div>
+        <div>
+          <b>{pending_count}</b><br>
+          ожидают cost validation
+        </div>
+      </div>
+    </div>
+
+    {error_html}
+
+    <div class="card">
+      <h2>Воронка Edge Validation</h2>
+
+      <table>
+        <tr>
+          <th>Инструмент</th>
+          <th>Robustness</th>
+          <th>Положительные параметры</th>
+          <th>Стабильные параметры</th>
+          <th>Costs</th>
+          <th>Gross PnL</th>
+          <th>Total cost</th>
+          <th>Net PnL</th>
+          <th>Net expectancy</th>
+          <th>Net PF</th>
+          <th>Economic edge</th>
+          <th>Micro live</th>
+        </tr>
+
+        {table_rows}
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Интерпретация</h2>
+
+      <p>
+        <b>NVTK и PLZL:</b>
+        gross edge прошёл robustness,
+        но не пережил базовые комиссии и slippage.
+      </p>
+
+      <p>
+        <b>USDRUBF:</b>
+        robustness подтверждён,
+        однако futures fee semantics ещё не закрыта.
+        Отсутствие cost-result не является PASS.
+      </p>
+
+      <p>
+        <b>Economic edge:</b>
+        пока не подтверждён ни для одного инструмента.
+      </p>
+
+      <p>
+        <b>Micro live:</b>
+        запрещён для всей текущей выборки.
+      </p>
+    </div>
+    """
+
+    return finam_core_shell_v1(
+        "Edge Validation",
+        body,
+    )
+
+
 def fmt_msk_dt_v1(value):
     return dashboard_format_all_utc_timestamps_to_msk_v1(str(value)) if value is not None else "—"
 
@@ -3474,6 +3804,7 @@ def dashboard_main_navigation_v1():
   <a href="/equities">Акции</a> |
   <a href="/rs-bottom-forward">История</a> |
   <a href="/edge-stability">Edge</a> |
+  <a href="/edge-validation">Валидация edge</a> |
   <a href="/archive">Архив</a>
 </div>
 """
@@ -3720,6 +4051,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+
+
+            if path in {"/edge-validation", "/edge-validation/"}:
+                self.send_html_v1(
+                    render_trend_pullback_edge_validation_v1(
+                        payload
+                    )
+                )
                 return
 
             if path in {"/leaderboard", "/leaderboard/"}:

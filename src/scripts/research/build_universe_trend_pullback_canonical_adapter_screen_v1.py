@@ -165,18 +165,25 @@ def normalize_signal(value) -> int:
 
 def call_canonical_signal(
     fn,
+    signature,
     bars: list[MarketBar],
     index: int,
     parameters: dict,
+    closes: list,
+    highs: list,
+    lows: list,
+    opens: list,
 ):
     """
     Вызывает trend_pullback_signal только по фактической сигнатуре.
 
     Поддерживаем только явно распознаваемые argument names.
     При неизвестном контракте fail closed.
-    """
-    signature = inspect.signature(fn)
 
+    Performance contract:
+    signature и OHLC-массивы рассчитываются один раз
+    на build_canonical_trades(), а не на каждый бар.
+    """
     values = {
         "bars": bars,
         "market_bars": bars,
@@ -185,10 +192,10 @@ def call_canonical_signal(
         "i": index,
         "parameters": parameters,
         "params": parameters,
-        "closes": [bar.close for bar in bars],
-        "highs": [bar.high for bar in bars],
-        "lows": [bar.low for bar in bars],
-        "opens": [bar.open for bar in bars],
+        "closes": closes,
+        "highs": highs,
+        "lows": lows,
+        "opens": opens,
     }
 
     kwargs = {}
@@ -231,6 +238,14 @@ def build_canonical_trades(
         parameters["hold_bars"]
     )
 
+    # Performance-only precomputation.
+    # Эти данные неизменны в пределах одного variant-run.
+    signature = inspect.signature(signal_fn)
+    closes = [bar.close for bar in bars]
+    highs = [bar.high for bar in bars]
+    lows = [bar.low for bar in bars]
+    opens = [bar.open for bar in bars]
+
     trades: list[GrossTrade] = []
 
     minimum_index = max(
@@ -251,9 +266,14 @@ def build_canonical_trades(
     ):
         raw_signal = call_canonical_signal(
             signal_fn,
+            signature,
             bars,
             index,
             parameters,
+            closes,
+            highs,
+            lows,
+            opens,
         )
 
         direction = normalize_signal(

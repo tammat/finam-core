@@ -1,0 +1,76 @@
+{
+  "symbols": [
+    "USDRUBF@RTSX",
+    "NVTK@MISX",
+    "PLZL@MISX"
+  ],
+
+  "timeframe": "M5",
+  "development_fraction": 0.75,
+
+  "minimum_oos_trades": 50,
+  "minimum_positive_neighbor_ratio": 0.70,
+
+  "screen_exit_horizon": {
+    "hold_bars": 5
+  },
+
+  "variants": [
+    {
+      "code": "BASELINE",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 10,
+      "slow_ma_period": 50,
+      "pullback_atr_multiplier": 0.75
+    },
+    {
+      "code": "FAST_MINUS",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 8,
+      "slow_ma_period": 50,
+      "pullback_atr_multiplier": 0.75
+    },
+    {
+      "code": "FAST_PLUS",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 12,
+      "slow_ma_period": 50,
+      "pullback_atr_multiplier": 0.75
+    },
+    {
+      "code": "SLOW_MINUS",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 10,
+      "slow_ma_period": 40,
+      "pullback_atr_multiplier": 0.75
+    },
+    {
+      "code": "SLOW_PLUS",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 10,
+      "slow_ma_period": 60,
+      "pullback_atr_multiplier": 0.75
+    },
+    {
+      "code": "PULLBACK_MINUS",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 10,
+      "slow_ma_period": 50,
+      "pullback_atr_multiplier": 0.60
+    },
+    {
+      "code": "PULLBACK_PLUS",
+      "allow_short": true,
+      "atr_period": 14,
+      "fast_ma_period": 10,
+      "slow_ma_period": 50,
+      "pullback_atr_multiplier": 0.90
+    }
+  ]
+}

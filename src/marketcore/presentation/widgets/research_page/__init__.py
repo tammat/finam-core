@@ -1,0 +1,1 @@
+"""Виджеты production Research Center."""
