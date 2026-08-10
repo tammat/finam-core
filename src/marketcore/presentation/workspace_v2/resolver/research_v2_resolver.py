@@ -55,10 +55,65 @@ class ResearchV2Resolver:
                     FROM public.closed_trades
                     WHERE coalesce(closed_at,created_at)>=clock_timestamp()-interval '1 hour'""")
                 closed_trades=cursor.fetchone() or {}
-                cursor.execute("""SELECT status_code,tasks_completed,tasks_total,progress_pct
+                cursor.execute("""
+                    SELECT
+                        discovery_run_id,
+                        scenario_run_id,
+                        status_code,
+                        tasks_completed,
+                        tasks_total,
+                        progress_pct,
+                        heartbeat_at
                     FROM analytics.edge_regime_discovery_run_v3
-                    ORDER BY started_at DESC LIMIT 1""")
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """)
                 regime_discovery=cursor.fetchone() or {}
+
+                cursor.execute("""
+                    SELECT reason_code
+                    FROM analytics.edge_search_cycle_status_v1
+                    WHERE status_code='SKIPPED'
+                      AND current_step='RESOURCE_GUARD'
+                    ORDER BY finished_at DESC NULLS LAST
+                    LIMIT 1
+                """)
+                regime_pause=cursor.fetchone() or {}
+
+                cursor.execute("""
+                    SELECT
+                        campaign_id,
+                        scenario_run_id,
+                        status_code,
+                        phase_code,
+                        tasks_complete,
+                        tasks_total,
+                        progress_pct
+                    FROM analytics.walkforward_campaign_v4
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """)
+                walkforward=cursor.fetchone() or {}
+
+                discovery_scenario = str(
+                    regime_discovery.get("scenario_run_id") or ""
+                )
+                walkforward_scenario = str(
+                    walkforward.get("scenario_run_id") or ""
+                )
+
+                if (
+                    discovery_scenario
+                    and walkforward_scenario
+                    and discovery_scenario == walkforward_scenario
+                ):
+                    lineage_status = "MATCHED"
+                elif discovery_scenario and walkforward_scenario:
+                    lineage_status = "MISMATCH"
+                elif discovery_scenario and walkforward:
+                    lineage_status = "PRE_PATCH_UNLINKED"
+                else:
+                    lineage_status = "WAITING_FOR_POST_PATCH_CAMPAIGN"
                 cursor.execute("""SELECT item_count,total_parameter_variants
                     FROM analytics.edge_next_research_plan_v1
                     ORDER BY created_at DESC LIMIT 1""")
@@ -440,4 +495,35 @@ class ResearchV2Resolver:
                     for row in cursor.fetchall()
                 )
 
-        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),int(scout.get("specification_pass") or 0),int(scout.get("liquidity_pass") or 0),int(scout.get("information_ranked") or 0),int(scout.get("coarse_queued") or 0),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),bool(validation_funnel.get("total")),int(validation_funnel.get("in_sample") or 0),int(validation_funnel.get("oos") or 0),int(validation_funnel.get("after_costs") or 0),int(validation_funnel.get("stable") or 0),str(validation_funnel.get("bottleneck_stage") or "NO_DATA"),int(validation_funnel.get("lost_variants") or 0),str(validation_funnel.get("recommendation_code") or "NO_DATA"),strategy_degradation,methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,remediation_branches,int(live_signals.get("signals") or 0),int(live_signals.get("symbols") or 0),int(paper_fills.get("fills") or 0),int(paper_fills.get("symbols") or 0),_utc(paper_fills.get("last_fill_at")),int(closed_trades.get("closed") or 0),float(closed_trades.get("pnl") or 0),int(regime_discovery.get("tasks_completed") or 0),int(regime_discovery.get("tasks_total") or 0),int(regime_discovery.get("progress_pct") or 0),str(regime_discovery.get("status_code") or "NOT_RUN"),str(operating.get("phase_code") or "WAITING"),_utc(operating.get("next_session_at")),str(operating.get("status_code") or "WAITING"),str(historical_audit.get("decision_code") or "NOT_RUN"),now,trend_pullback_edge_validation)
+        return ResearchSnapshotV2(str(runtime.get("status") or "UNAVAILABLE"),_count_symbols(runtime.get("active_symbols")),_count_symbols(runtime.get("failed_symbols")),_utc(runtime.get("last_cycle_at")),int(summary.get("research_candidates") or 0),int(summary.get("oos_pass") or 0),int(summary.get("paper_ready") or 0),_utc(summary.get("refreshed_at")),int(queue["total"]),int(queue["pending"]),int(queue["failed"]),_utc(queue["updated_at"]),int(oos["total"]),int(oos["passed"]),_utc(oos["updated_at"]),str(edge_search.get("status") or "NOT_RUN"),str(edge_search.get("current_step") or "NOT_RUN"),int(edge_search.get("progress_pct") or 0),int(edge_search.get("markets_evaluated") or 0),int(edge_search.get("combinations_evaluated") or 0),int(edge_search.get("oos_pass") or 0),_utc(edge_search.get("finished_at")),int(next_plan.get("item_count") or 0),int(next_plan.get("total_parameter_variants") or 0),int(edge_auto_queue.get("active") or 0),str(edge_auto_status.get("status_code") or "NEVER_RUN"),int(scout.get("discovered") or 0),int(scout.get("selected") or 0),int(scout.get("backfill") or 0),int(scout.get("watch_added") or 0),str(scout.get("status_code") or "NOT_RUN"),int(scout.get("specification_pass") or 0),int(scout.get("liquidity_pass") or 0),int(scout.get("information_ranked") or 0),int(scout.get("coarse_queued") or 0),scout_last,scout_next,str(scout_schedule.get("run_status") or "SCHEDULED"),int(methodology.get("evaluated") or 0),int(methodology.get("passed") or 0),int(execution.get("quote_symbols") or 0),int(execution.get("spec_count") or 0),str(execution.get("quote_status") or "STALE"),str(execution.get("spec_status") or "PARTIAL"),int(governance.get("global_trials") or 0),int(governance.get("global_pass") or 0),int(holdout.get("opened") or 0),int(holdout.get("reused") or 0),int(pnl_units.get("pnl_ready") or 0),int(pnl_units.get("pnl_blocked") or 0),int(governance.get("equity_experiments") or 0),int(governance.get("futures_experiments") or 0),int(portfolio_selection.get("selected") or 0),bool(validation_funnel.get("total")),int(validation_funnel.get("in_sample") or 0),int(validation_funnel.get("oos") or 0),int(validation_funnel.get("after_costs") or 0),int(validation_funnel.get("stable") or 0),str(validation_funnel.get("bottleneck_stage") or "NO_DATA"),int(validation_funnel.get("lost_variants") or 0),str(validation_funnel.get("recommendation_code") or "NO_DATA"),strategy_degradation,methodology_failures,futures_roll_items,scout_items,universe_items,algorithms,runs,remediation_branches,int(live_signals.get("signals") or 0),int(live_signals.get("symbols") or 0),int(paper_fills.get("fills") or 0),int(paper_fills.get("symbols") or 0),_utc(paper_fills.get("last_fill_at")),int(closed_trades.get("closed") or 0),float(closed_trades.get("pnl") or 0),int(regime_discovery.get("tasks_completed") or 0),int(regime_discovery.get("tasks_total") or 0),int(regime_discovery.get("progress_pct") or 0),str(regime_discovery.get("status_code") or "NOT_RUN"),str(operating.get("phase_code") or "WAITING"),_utc(operating.get("next_session_at")),str(operating.get("status_code") or "WAITING"),str(historical_audit.get("decision_code") or "NOT_RUN"),now,trend_pullback_edge_validation,
+            regime_discovery_run_id=str(
+                regime_discovery.get("discovery_run_id") or ""
+            ),
+            regime_scenario_run_id=discovery_scenario,
+            regime_heartbeat_at=_utc(
+                regime_discovery.get("heartbeat_at")
+            ),
+            regime_pause_reason=str(
+                regime_pause.get("reason_code") or ""
+            ),
+            walkforward_campaign_id=str(
+                walkforward.get("campaign_id") or ""
+            ),
+            walkforward_scenario_run_id=walkforward_scenario,
+            walkforward_tasks_complete=int(
+                walkforward.get("tasks_complete") or 0
+            ),
+            walkforward_tasks_total=int(
+                walkforward.get("tasks_total") or 0
+            ),
+            walkforward_progress_pct=int(
+                walkforward.get("progress_pct") or 0
+            ),
+            walkforward_status=str(
+                walkforward.get("status_code") or "NOT_RUN"
+            ),
+            walkforward_phase=str(
+                walkforward.get("phase_code") or "NOT_RUN"
+            ),
+            lineage_status=lineage_status,
+        )

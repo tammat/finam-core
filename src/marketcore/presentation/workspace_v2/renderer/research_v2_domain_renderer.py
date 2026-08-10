@@ -16,6 +16,29 @@ def _domain(t, node_id, value):
     key = _domain_key(value)
     return _leaf(t, node_id, key=key, args={"tooltip_key": f"{key}.tooltip"})
 
+def _reason(t, node_id, value):
+    """
+    Диагностический payload не должен становиться i18n message_key.
+
+    Стабильные reason codes переводятся через research.domain.*.
+    Runtime diagnostics с параметрами отображаются как literal value,
+    чтобы новый payload не мог обрушить весь Render Tree.
+    """
+    raw = str(value or "NO_DATA").strip()
+
+    dynamic_payload = (
+        "=" in raw
+        or "," in raw
+        or "\n" in raw
+        or "\r" in raw
+        or len(raw) > 120
+    )
+
+    if dynamic_payload:
+        return _leaf(t, node_id, value=raw)
+
+    return _domain(t, node_id, raw)
+
 def _process_status(node_id, item):
     key = _domain_key(item.status)
     return _leaf(RenderNodeTypeV2.TABLE_CELL,node_id,key=key,args={
@@ -486,7 +509,7 @@ def _run_audit_table(items):
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.steps",key="research.audit.steps",args={"completed":item.steps_completed,"total":item.steps_total}),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.duration",value=item.duration_seconds,fmt="INTEGER"),
             _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.outcome",item.outcome),
-            _domain(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.reason",item.reason),
+            _reason(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.reason",item.reason),
             _leaf(RenderNodeTypeV2.TABLE_CELL,f"research.audit.{index}.analysis",value=item.explanation),
             _recommendation(f"research.audit.{index}.recommendation",item),
         ),action=RenderActionV2(
@@ -522,7 +545,7 @@ def _current_cycle_card(s):
         )),
         RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.reason",children=(
             _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.reason.label",key="research.current.reason"),
-            _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.reason.value",key="research.current.running") if running else _domain(RenderNodeTypeV2.METRIC_VALUE,"research.current.reason.value",item.reason),
+            _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.reason.value",key="research.current.running") if running else _reason(RenderNodeTypeV2.METRIC_VALUE,"research.current.reason.value",item.reason),
         )),
         RenderNodeV2(RenderNodeTypeV2.METRIC_ROW,"research.current.next",children=(
             _leaf(RenderNodeTypeV2.METRIC_LABEL,"research.current.next.label",key="research.current.next"),
@@ -540,6 +563,102 @@ def _current_cycle_card(s):
                 _leaf(RenderNodeTypeV2.METRIC_VALUE,"research.current.regime_progress.value",value=s.regime_progress_pct,fmt="DECIMAL"),
             )),
         ))
+
+    if s.regime_discovery_run_id:
+        rows.extend((
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_ROW,
+                "research.current.discovery_scenario",
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_LABEL,
+                        "research.current.discovery_scenario.label",
+                        value="Discovery Scenario",
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_VALUE,
+                        "research.current.discovery_scenario.value",
+                        value=s.regime_scenario_run_id or "—",
+                    ),
+                ),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_ROW,
+                "research.current.discovery_pause",
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_LABEL,
+                        "research.current.discovery_pause.label",
+                        value="Discovery pause",
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_VALUE,
+                        "research.current.discovery_pause.value",
+                        value=s.regime_pause_reason or "—",
+                    ),
+                ),
+            ),
+        ))
+
+    if s.walkforward_campaign_id:
+        rows.extend((
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_ROW,
+                "research.current.walkforward",
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_LABEL,
+                        "research.current.walkforward.label",
+                        value="Walk-Forward",
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_VALUE,
+                        "research.current.walkforward.value",
+                        value=(
+                            f"{s.walkforward_tasks_complete}/"
+                            f"{s.walkforward_tasks_total} "
+                            f"({s.walkforward_progress_pct}%)"
+                        ),
+                    ),
+                ),
+            ),
+            RenderNodeV2(
+                RenderNodeTypeV2.METRIC_ROW,
+                "research.current.walkforward_scenario",
+                children=(
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_LABEL,
+                        "research.current.walkforward_scenario.label",
+                        value="Walk-Forward Scenario",
+                    ),
+                    _leaf(
+                        RenderNodeTypeV2.METRIC_VALUE,
+                        "research.current.walkforward_scenario.value",
+                        value=s.walkforward_scenario_run_id or "—",
+                    ),
+                ),
+            ),
+        ))
+
+    rows.append(
+        RenderNodeV2(
+            RenderNodeTypeV2.METRIC_ROW,
+            "research.current.lineage",
+            children=(
+                _leaf(
+                    RenderNodeTypeV2.METRIC_LABEL,
+                    "research.current.lineage.label",
+                    value="Lineage",
+                ),
+                _domain(
+                    RenderNodeTypeV2.METRIC_VALUE,
+                    "research.current.lineage.value",
+                    s.lineage_status,
+                ),
+            ),
+        )
+    )
+
     return RenderNodeV2(RenderNodeTypeV2.CARD,"research.current",state=RenderNodeStateV2(status_code=status),children=tuple(rows))
 
 def _operating_cycle_card(s):

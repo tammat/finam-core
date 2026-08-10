@@ -223,3 +223,19 @@ class ResearchSnapshotV2:
     historical_audit_status: str
     generated_at: datetime
     trend_pullback_edge_validation: tuple[TrendPullbackEdgeValidationV1, ...]
+
+    # Read-only observability: Discovery -> Walk-Forward lineage.
+    regime_discovery_run_id: str = ""
+    regime_scenario_run_id: str = ""
+    regime_heartbeat_at: datetime | None = None
+    regime_pause_reason: str = ""
+
+    walkforward_campaign_id: str = ""
+    walkforward_scenario_run_id: str = ""
+    walkforward_tasks_complete: int = 0
+    walkforward_tasks_total: int = 0
+    walkforward_progress_pct: int = 0
+    walkforward_status: str = "NOT_RUN"
+    walkforward_phase: str = "NOT_RUN"
+
+    lineage_status: str = "WAITING_FOR_POST_PATCH_CAMPAIGN"
