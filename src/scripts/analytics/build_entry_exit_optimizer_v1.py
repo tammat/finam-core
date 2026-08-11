@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from decimal import Decimal
+from pathlib import Path
+
+from marketcore.research.economics.economic_cost_gate_policy_loader_v1 import (
+    load_economic_cost_gate_policy_v1,
+)
+from marketcore.research.economics.verified_net_admission_v1 import (
+    build_verified_net_metrics_v1,
+    evaluate_verified_net_admission_v1,
+)
+
+
 import json
 import os
 import random
@@ -695,8 +707,51 @@ def main() -> int:
                         admission_id = str(existing_workflow["admission_id"])
                         oos_run_id = (str(existing_workflow["oos_run_id"])
                                       if existing_workflow["oos_run_id"] else None)
-                if (not admission_id and statistical_pass and expensive_pass
-                        and selected_for_frozen_oos):
+                net_first_values = tuple(
+                    Decimal(str(row["shadow_r"]))
+                    for row in evaluation_rows
+                    if row.get("shadow_r") is not None
+                )
+
+                net_first_metrics = build_verified_net_metrics_v1(
+                    net_first_values
+                )
+
+                net_first_policy = load_economic_cost_gate_policy_v1(
+                    Path(__file__).resolve().parents[3]
+                    / "config/research/economic_cost_gate_policy_v1.json"
+                )
+
+                net_first_admission = (
+                    evaluate_verified_net_admission_v1(
+                        metrics=net_first_metrics,
+                        policy=net_first_policy,
+                    )
+                )
+
+                net_first_pass = net_first_admission.passed
+
+                metrics["net_first_admission"] = {
+                    "status": str(net_first_admission.status),
+                    "passed": net_first_pass,
+                    "trades": net_first_metrics.trades,
+                    "net_expectancy": str(
+                        net_first_metrics.net_expectancy
+                    ),
+                    "net_profit_factor": str(
+                        net_first_metrics.net_profit_factor
+                    ),
+                    "policy_source":
+                        "ECONOMIC_COST_GATE_POLICY_V1",
+                }
+
+                if (
+                    not admission_id
+                    and statistical_pass
+                    and expensive_pass
+                    and net_first_pass
+                    and selected_for_frozen_oos
+                ):
                     admission_id = ensure_frozen_entry_exit_oos(
                         cur,strategy=strategy,symbol=str(trades[0][0]["symbol"]),side=side,
                         variant=variant,rows=evaluation_rows,timeframe=SUPPORTED[strategy])
