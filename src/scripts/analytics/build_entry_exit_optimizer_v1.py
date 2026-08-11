@@ -649,7 +649,11 @@ def main() -> int:
             freeze_eligible = []
             for item in candidate_results:
                 checks = dict(item[1].get("checks") or {})
-                for key in ("oos_positive", "oos_better"):
+                for key in (
+                    "oos_positive",
+                    "oos_better",
+                    "parameter_plateau",
+                ):
                     checks.pop(key, None)
                 if (item[1].get("statistical_gate", {}).get("verdict") == "PASS"
                         and item[1].get("futility_gate", {}).get("verdict") != "REJECT"
@@ -689,6 +693,9 @@ def main() -> int:
                 checks = dict(metrics.get("checks") or {})
                 preliminary_oos = {key: checks.pop(key) for key in
                                    ("oos_positive", "oos_better") if key in checks}
+                # parameter_plateau требует shadow_oos_r и относится к
+                # post-OOS validation, поэтому не блокирует первичный OOS admission.
+                checks.pop("parameter_plateau", None)
                 expensive_pass = bool(checks) and all(checks.values())
                 statistical_pass = metrics.get("statistical_gate", {}).get("verdict") == "PASS"
                 admission_id = None
