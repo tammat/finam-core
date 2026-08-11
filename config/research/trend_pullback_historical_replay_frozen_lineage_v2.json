@@ -1,0 +1,94 @@
+{
+  "schema_version": "TREND_PULLBACK_HISTORICAL_REPLAY_FROZEN_LINEAGE_V2",
+  "strategy_code": "TREND_PULLBACK_V1",
+  "timeframe": "M5",
+  "development_fraction": 0.75,
+  "created_from_commit": "15f36b93a2f9ecc6cb399427825ce63f5675e151",
+  "legacy_v1_reproducible": false,
+  "symbols": {
+    "NVTK@MISX": {
+      "first_bar_ts": "2025-07-01T07:00:00+03:00",
+      "last_bar_ts": "2026-08-11T09:00:00+03:00",
+      "bar_count": 66291,
+      "market_bars_sha256": "aeb486fa5c0c3c687fe70f1fda83e2f3899b4f8aa2a89cc5bb14c5701d91be69"
+    },
+    "PLZL@MISX": {
+      "first_bar_ts": "2025-07-12T10:00:00+03:00",
+      "last_bar_ts": "2026-08-11T09:00:00+03:00",
+      "bar_count": 60077,
+      "market_bars_sha256": "d3a205532c9b1c498c71b0ff542e77e30eea037cf2e2d776b513be6e507c0f41"
+    },
+    "USDRUBF@RTSX": {
+      "first_bar_ts": "2023-07-03T09:00:00+03:00",
+      "last_bar_ts": "2026-08-11T09:00:00+03:00",
+      "bar_count": 135934,
+      "market_bars_sha256": "e9ced02cbcbf4fbd820c1e2204b4e1f2b21c4b8c30572f30559336373d541fc2"
+    }
+  },
+  "hash_contract": {
+    "algorithm": "sha256",
+    "columns": [
+      "ts",
+      "open",
+      "high",
+      "low",
+      "close",
+      "COALESCE(volume,0)"
+    ],
+    "row_serialization": "pipe_join_str_utf8_newline",
+    "order_by": [
+      "ts",
+      "open",
+      "high",
+      "low",
+      "close",
+      "COALESCE(volume,0)"
+    ],
+    "timeframe_filter_required": true,
+    "ohlc_non_null_required": true,
+    "bounded_by_config_time_range": true,
+    "transaction_isolation": "REPEATABLE READ",
+    "timestamp_normalization": "Europe/Moscow",
+    "session_timezone_independent": true,
+    "row_separator": "LF_BYTE_0A"
+  },
+  "hash_contract_finalized": true,
+  "dataset_contract": {
+    "table": "public.market_bars",
+    "timeframe": "M5",
+    "ohlc_non_null_required": true,
+    "volume_null_normalization": "COALESCE(volume,0)",
+    "bounded_by_symbol_first_last_ts": true
+  },
+  "exact_replay_dataset_finalized": true,
+  "expected_metrics_v2": {
+    "NVTK@MISX": {
+      "trades": 1155,
+      "gross_pnl": "444.6",
+      "total_cost": "1236.907500000",
+      "net_pnl": "-792.307500000",
+      "net_expectancy": "-0.6859805194805194805194805195",
+      "net_profit_factor": "0.5730775429436119065353110779",
+      "status": "REJECT_NEGATIVE_EXPECTANCY"
+    },
+    "PLZL@MISX": {
+      "trades": 1127,
+      "gross_pnl": "1020.2",
+      "total_cost": "2045.606700000",
+      "net_pnl": "-1025.406700000",
+      "net_expectancy": "-0.9098551020408163265306122449",
+      "net_profit_factor": "0.6972598802935479398572034908",
+      "status": "REJECT_NEGATIVE_EXPECTANCY"
+    },
+    "USDRUBF@RTSX": {
+      "trades": 2587,
+      "gross_pnl": "22725.0",
+      "total_cost": "23664.927455",
+      "net_pnl": "-939.927455",
+      "net_expectancy": "-0.3633271955933513722458446077",
+      "net_profit_factor": "0.9892678042852954546361543077",
+      "status": "REJECT_NEGATIVE_EXPECTANCY"
+    }
+  },
+  "economic_baseline_finalized": true
+}
