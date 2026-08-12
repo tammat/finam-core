@@ -20,6 +20,12 @@ class ExecutiveOverviewPage(BaseDashboardPage):
         self.vm = ExecutiveOverviewService().load()
 
     def render_body(self) -> str:
+        from marketcore.presentation.widgets.home_page.edge_search import (
+            HomeEdgeSearchWidget,
+        )
+        from marketcore.services.research.research_center_service import (
+            ResearchCenterService,
+        )
         vm = self.vm
 
         try:
@@ -36,7 +42,10 @@ class ExecutiveOverviewPage(BaseDashboardPage):
         from marketcore.presentation.widgets.activity_summary.renderer import ActivitySummaryWidget
         from marketcore.presentation.widgets.quick_actions.renderer import QuickActionsWidget
 
+        frontier = ResearchCenterService().load().frontier
+
         widgets = [
+            HomeEdgeSearchWidget(),
             ExecutiveHealthWidget(),
             PlatformStatusWidget(),
             MarketSummaryWidget(),
@@ -56,7 +65,12 @@ class ExecutiveOverviewPage(BaseDashboardPage):
             '</section>'
         )
 
-        return header + "".join(widget.render(vm) for widget in widgets)
+        return header + "".join(
+            widget.render(frontier)
+            if isinstance(widget, HomeEdgeSearchWidget)
+            else widget.render(vm)
+            for widget in widgets
+        )
 
 
 @home_router.get("/", response_class=HTMLResponse)
