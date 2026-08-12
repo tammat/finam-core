@@ -24,12 +24,14 @@ class ResearchCenterPage(BaseDashboardPage):
 
         from marketcore.presentation.widgets.research_page.overview import ResearchOverviewWidget
         from marketcore.presentation.widgets.research_page.candidates import ResearchCandidatesWidget
+        from marketcore.presentation.widgets.research_page.frontier import ResearchFrontierWidget
         from marketcore.presentation.widgets.research_page.checks import ResearchChecksWidget
         from marketcore.presentation.widgets.research_page.edge_validation import ResearchEdgeValidationWidget
         from marketcore.presentation.widgets.research_page.actions import ResearchActionsWidget
 
         widgets = [
             ResearchOverviewWidget(),
+            ResearchFrontierWidget(),
             ResearchCandidatesWidget(),
             ResearchChecksWidget(),
             ResearchEdgeValidationWidget(),
