@@ -23,6 +23,9 @@ from marketcore.presentation.workspace_v2.renderer.control_center_v2_domain_rend
     render_control_center_domain_v2,
 )
 from marketcore.presentation.workspace_v2.resolver.control_compact_v3_resolver import ControlCompactV3Resolver
+from marketcore.services.research.research_center_service import (
+    ResearchCenterService,
+)
 from marketcore.presentation.workspace_v2.renderer.control_compact_v3_domain_renderer import render_control_compact_v3
 from marketcore.presentation.workspace_v2.renderer.home_v2_domain_renderer import (
     render_home_domain_v2,
@@ -80,6 +83,34 @@ def _compact_snapshot() -> dict:
         if cached is not None and now - cached[0] < _COMPACT_CACHE_TTL_SECONDS:
             return cached[1]
         snapshot = ControlCompactV3Resolver().resolve()
+
+        frontier = ResearchCenterService().load().frontier
+
+        snapshot = dict(snapshot)
+        snapshot["physical_edge_frontier"] = {
+            "status": frontier.status,
+            "target_candidates": frontier.target_candidates,
+            "contract_mixing_allowed":
+                frontier.contract_mixing_allowed,
+            "source_read_only":
+                frontier.source_read_only,
+            "rows": tuple(
+                {
+                    "rank": row.rank,
+                    "physical_symbol": row.physical_symbol,
+                    "strategy": row.strategy,
+                    "side": row.side,
+                    "state": row.state,
+                    "pairs": row.pairs,
+                    "oos_pairs": row.oos_pairs,
+                    "net_expectancy": row.net_expectancy,
+                    "paired_gain": row.paired_gain,
+                    "placebo_delta": row.placebo_delta,
+                }
+                for row in frontier.rows[:3]
+            ),
+        }
+
         _COMPACT_CACHE = (monotonic(), snapshot)
         return snapshot
 

@@ -231,6 +231,7 @@ def _now_section(snapshot):
              source="analytics.monday_readiness_snapshot_v1",
              source_as_of=readiness.get("evaluated_at") or snapshot.get("generated_at")),
         _research_progress_row(snapshot),
+        *_physical_edge_frontier_rows(snapshot),
         _row("research-resources", "Ресурсы исследований",
              (f"ресурсный контроль перенёс {int(resources.get('deferred_hour') or 0)} запусков · "
               f"очередь продолжает работу · последний: {resources.get('last_deferred_job') or 'нет'}"
@@ -246,6 +247,57 @@ def _now_section(snapshot):
         metrics,
     ))
 
+
+
+
+def _physical_edge_frontier_rows(snapshot):
+    frontier = snapshot.get("physical_edge_frontier") or {}
+    rows = tuple(frontier.get("rows") or ())
+
+    state_labels = {
+        "TARGET_CANDIDATE": "TARGET",
+        "NET_POSITIVE_BASELINE_INFERIOR":
+            "NET+ / BASELINE−",
+        "BASELINE_SUPERIOR_NET_NEGATIVE":
+            "BASELINE+ / NET−",
+        "NET_NEGATIVE_BASELINE_INFERIOR":
+            "NET− / BASELINE−",
+        "INSUFFICIENT_SAMPLE":
+            "МАЛАЯ ВЫБОРКА",
+    }
+
+    result = []
+
+    for row in rows[:3]:
+        rank = int(row.get("rank") or 0)
+        symbol = str(row.get("physical_symbol") or "")
+        state_code = str(row.get("state") or "")
+        state = state_labels.get(
+            state_code,
+            state_code,
+        )
+
+        result.append(
+            _row(
+                f"physical-frontier-{rank}",
+                f"#{rank} {symbol}",
+                (
+                    f"{state} · "
+                    f"Net {row.get('net_expectancy') or '—'} · "
+                    f"Paired {row.get('paired_gain') or '—'} · "
+                    f"Pairs {int(row.get('pairs') or 0)}"
+                ),
+                status=(
+                    "OK"
+                    if state_code == "TARGET_CANDIDATE"
+                    else "WARNING"
+                ),
+                source="ResearchCenterService",
+                source_as_of=snapshot.get("generated_at"),
+            )
+        )
+
+    return tuple(result)
 
 
 def _research_progress_row(snapshot):
