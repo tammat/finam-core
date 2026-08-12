@@ -28,35 +28,74 @@ class ExecutiveOverviewPage(BaseDashboardPage):
         )
         vm = self.vm
 
-        try:
-            from marketcore.presentation.widgets.executive_health.renderer import ExecutiveHealthWidget
-        except ModuleNotFoundError:
-            return super().render_body()
-        from marketcore.presentation.widgets.platform_status.renderer import PlatformStatusWidget
-        from marketcore.presentation.widgets.market_summary.renderer import MarketSummaryWidget
-        from marketcore.presentation.widgets.research_summary.renderer import ResearchSummaryWidget
-        from marketcore.presentation.widgets.metadata_summary.renderer import MetadataSummaryWidget
-        from marketcore.presentation.widgets.risk_summary.renderer import RiskSummaryWidget
-        from marketcore.presentation.widgets.execution_summary.renderer import ExecutionSummaryWidget
-        from marketcore.presentation.widgets.version_summary.renderer import VersionSummaryWidget
-        from marketcore.presentation.widgets.activity_summary.renderer import ActivitySummaryWidget
-        from marketcore.presentation.widgets.quick_actions.renderer import QuickActionsWidget
+        from importlib import import_module
+
+        def optional_widget(
+            module_name: str,
+            class_name: str,
+        ):
+            try:
+                module = import_module(module_name)
+            except ModuleNotFoundError:
+                return None
+            return getattr(module, class_name, None)
+
+        optional_widget_specs = (
+            (
+                "marketcore.presentation.widgets.executive_health.renderer",
+                "ExecutiveHealthWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.platform_status.renderer",
+                "PlatformStatusWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.market_summary.renderer",
+                "MarketSummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.research_summary.renderer",
+                "ResearchSummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.metadata_summary.renderer",
+                "MetadataSummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.risk_summary.renderer",
+                "RiskSummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.execution_summary.renderer",
+                "ExecutionSummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.version_summary.renderer",
+                "VersionSummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.activity_summary.renderer",
+                "ActivitySummaryWidget",
+            ),
+            (
+                "marketcore.presentation.widgets.quick_actions.renderer",
+                "QuickActionsWidget",
+            ),
+        )
 
         frontier = ResearchCenterService().load().frontier
 
         widgets = [
             HomeEdgeSearchWidget(),
-            ExecutiveHealthWidget(),
-            PlatformStatusWidget(),
-            MarketSummaryWidget(),
-            ResearchSummaryWidget(),
-            MetadataSummaryWidget(),
-            RiskSummaryWidget(),
-            ExecutionSummaryWidget(),
-            VersionSummaryWidget(),
-            ActivitySummaryWidget(),
-            QuickActionsWidget(),
         ]
+
+        for module_name, class_name in optional_widget_specs:
+            widget_class = optional_widget(
+                module_name,
+                class_name,
+            )
+            if widget_class is not None:
+                widgets.append(widget_class())
 
         header = (
             '<section class="fc-card">'
