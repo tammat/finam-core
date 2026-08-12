@@ -45,6 +45,34 @@ class ResearchEdgeValidationVM:
 
 
 @dataclass(frozen=True)
+class ResearchFrontierCandidateVM:
+    rank: int
+    physical_symbol: str
+    strategy: str
+    side: str
+    candidate: str
+    state: str
+    pairs: int
+    oos_pairs: int
+    net_expectancy: str
+    paired_gain: str
+    placebo_delta: str
+    priority_gap: str
+
+
+@dataclass(frozen=True)
+class ResearchFrontierVM:
+    status: str = "READY"
+    physical_cohorts: int = 0
+    target_candidates: int = 0
+    contract_mixing_allowed: bool = False
+    source_read_only: bool = True
+    rows: list[ResearchFrontierCandidateVM] = field(
+        default_factory=list
+    )
+
+
+@dataclass(frozen=True)
 class ResearchCenterVM:
     title: str = "Исследования"
     subtitle: str = "Research Center"
@@ -53,6 +81,9 @@ class ResearchCenterVM:
     candidates: list[ResearchCandidateVM] = field(default_factory=list)
     checks: list[ResearchCheckVM] = field(default_factory=list)
     edge_validation: list[ResearchEdgeValidationVM] = field(default_factory=list)
+    frontier: ResearchFrontierVM = field(
+        default_factory=ResearchFrontierVM
+    )
     actions: list[ResearchMetricVM] = field(default_factory=list)
 
 
