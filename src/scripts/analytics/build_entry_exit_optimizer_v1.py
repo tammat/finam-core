@@ -34,6 +34,37 @@ from finam_core.analytics.entry_exit_optimizer import (
 from finam_core.research.purged_split import purged_temporal_split
 from scripts.analytics.build_futures_risk_calibration_v1 import atr_at_entry, timeframe_delta
 
+TARGET_SYMBOL = os.getenv(
+    "EDGE_SEARCH_TARGET_SYMBOL", ""
+).strip()
+
+TARGET_STRATEGY = os.getenv(
+    "EDGE_SEARCH_TARGET_STRATEGY", ""
+).strip()
+
+TARGET_SIDE = os.getenv(
+    "EDGE_SEARCH_TARGET_SIDE", ""
+).strip().upper()
+
+
+TARGETED_RESEARCH_ONLY = (
+    os.getenv("ENTRY_EXIT_TARGETED_RESEARCH_ONLY", "0") == "1"
+)
+
+if TARGETED_RESEARCH_ONLY:
+    if not TARGET_SYMBOL or "@" not in TARGET_SYMBOL:
+        raise RuntimeError(
+            "TARGETED_RESEARCH_ONLY_REQUIRES_PHYSICAL_SYMBOL"
+        )
+    if not TARGET_STRATEGY:
+        raise RuntimeError(
+            "TARGETED_RESEARCH_ONLY_REQUIRES_STRATEGY"
+        )
+    if TARGET_SIDE not in {"LONG", "SHORT"}:
+        raise RuntimeError(
+            "TARGETED_RESEARCH_ONLY_REQUIRES_SIDE"
+        )
+
 SUPPORTED = {
     "MEAN_REVERSION_EQUITY": "M5",
     "VOLATILITY_BREAKOUT_EQUITY": "M5",
@@ -255,70 +286,71 @@ def entry_context_at_signal(cursor, trade: dict, timeframe: str, atr: float,
 def main() -> int:
     with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("select pg_advisory_xact_lock(hashtext('entry_exit_optimizer_v1'))")
-        # Preserve legacy evidence for audit, but fail it closed: the former
-        # NEXT_BAR control collides mechanically with CONFIRM_1 candidates.
-        cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
-          SET recommendation_status='KEEP_SHADOW',
-              metrics=jsonb_set(jsonb_set(jsonb_set(
-                metrics,'{negative_control,passed}','false'::jsonb,true),
-                '{negative_control,reason}','\"INVALID_LEGACY_PLACEBO_NEXT_BAR\"'::jsonb,true),
-                '{negative_control,control_code}','\"LEGACY_INVALID_NEXT_BAR_V1\"'::jsonb,true)
-          WHERE metrics ? 'negative_control'
-            AND coalesce(metrics #>> '{negative_control,control_code}','')=''""")
-        # A legacy control must not keep a second candidate alive in the
-        # prospective funnel.  Protected V5/Paper stages remain immutable.
-        cur.execute("""UPDATE analytics.entry_exit_promotion_workflow_v1 w
-          SET workflow_stage='REJECTED',
-              statistical_verdict='FAIL',
-              evidence=jsonb_set(jsonb_set(w.evidence,
-                '{promotion_workflow,selected_for_shadow_funnel}','false'::jsonb,true),
-                '{promotion_workflow,selection_reason}',
-                '\"LEGACY_PLACEBO_CONTROL_QUARANTINED\"'::jsonb,true),
-              last_transition_at=clock_timestamp()
-          WHERE w.workflow_stage IN ('SHADOW_ACCUMULATION','EXPENSIVE_GATES_FAILED')
-            AND EXISTS (
-              SELECT 1 FROM analytics.entry_exit_recommendation_v1 r
-              WHERE r.strategy_code=w.strategy_code AND r.symbol_group=w.symbol_group
-                AND r.side_code=w.side_code AND r.candidate_code=w.candidate_code
-                AND r.metrics #>> '{negative_control,control_code}'='LEGACY_INVALID_NEXT_BAR_V1'
-            )""")
-        # Diagnostic-only backfill for recommendations frozen before the
-        # explicit Gross/Costs/Net contract.  Existing net outcomes are not
-        # changed; cost R is reconstructed from the stored pre-entry context.
-        cur.execute("""WITH economics AS (
-          SELECT p.strategy_code,
-                 CASE
-                   WHEN p.strategy_code='BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
-                   WHEN p.strategy_code='NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
-                   WHEN p.strategy_code='CNY_REGIME_FUTURES' THEN 'CNY'
-                   WHEN p.strategy_code='USD_REGIME_FUTURES' THEN 'USD'
-                   WHEN p.strategy_code='GOLD_TREND_BREAKOUT' THEN 'GOLD'
-                   ELSE split_part(p.symbol_code,'@',1)
-                 END AS symbol_group,
-                 p.side_code,p.candidate_code,
-                 avg(p.shadow_net_r + (p.entry_context->>'cost_to_atr')::numeric /
-                     nullif(p.stop_atr,0)) AS gross_expectancy_r,
-                 avg((p.entry_context->>'cost_to_atr')::numeric /
-                     nullif(p.stop_atr,0)) AS roundtrip_cost_r,
-                 avg(p.shadow_net_r) AS net_expectancy_r
-          FROM analytics.entry_exit_signal_shadow_pair_v2 p
-          WHERE p.shadow_net_r IS NOT NULL AND p.entry_context ? 'cost_to_atr'
-            AND p.stop_atr>0
-          GROUP BY 1,2,3,4
-        )
-        UPDATE analytics.entry_exit_recommendation_v1 r
-          SET metrics=jsonb_set(r.metrics,'{economics_decomposition}',
-                jsonb_build_object(
-                  'gross_expectancy_r',e.gross_expectancy_r,
-                  'roundtrip_cost_r',e.roundtrip_cost_r,
-                  'net_expectancy_r',e.net_expectancy_r,
-                  'source','DIAGNOSTIC_BACKFILL_FROM_STORED_COST_TO_ATR_V1'),true)
-        FROM economics e
-        WHERE r.strategy_code=e.strategy_code AND r.symbol_group=e.symbol_group
-          AND r.side_code=e.side_code AND r.candidate_code=e.candidate_code
-          AND r.metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
-          AND (r.metrics #>> '{economics_decomposition,gross_expectancy_r}' IS NULL
-            OR r.metrics #>> '{economics_decomposition,roundtrip_cost_r}' IS NULL)""")
+        if not TARGETED_RESEARCH_ONLY:
+            # Preserve legacy evidence for audit, but fail it closed: the former
+            # NEXT_BAR control collides mechanically with CONFIRM_1 candidates.
+            cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
+              SET recommendation_status='KEEP_SHADOW',
+                  metrics=jsonb_set(jsonb_set(jsonb_set(
+                    metrics,'{negative_control,passed}','false'::jsonb,true),
+                    '{negative_control,reason}','\"INVALID_LEGACY_PLACEBO_NEXT_BAR\"'::jsonb,true),
+                    '{negative_control,control_code}','\"LEGACY_INVALID_NEXT_BAR_V1\"'::jsonb,true)
+              WHERE metrics ? 'negative_control'
+                AND coalesce(metrics #>> '{negative_control,control_code}','')=''""")
+            # A legacy control must not keep a second candidate alive in the
+            # prospective funnel.  Protected V5/Paper stages remain immutable.
+            cur.execute("""UPDATE analytics.entry_exit_promotion_workflow_v1 w
+              SET workflow_stage='REJECTED',
+                  statistical_verdict='FAIL',
+                  evidence=jsonb_set(jsonb_set(w.evidence,
+                    '{promotion_workflow,selected_for_shadow_funnel}','false'::jsonb,true),
+                    '{promotion_workflow,selection_reason}',
+                    '\"LEGACY_PLACEBO_CONTROL_QUARANTINED\"'::jsonb,true),
+                  last_transition_at=clock_timestamp()
+              WHERE w.workflow_stage IN ('SHADOW_ACCUMULATION','EXPENSIVE_GATES_FAILED')
+                AND EXISTS (
+                  SELECT 1 FROM analytics.entry_exit_recommendation_v1 r
+                  WHERE r.strategy_code=w.strategy_code AND r.symbol_group=w.symbol_group
+                    AND r.side_code=w.side_code AND r.candidate_code=w.candidate_code
+                    AND r.metrics #>> '{negative_control,control_code}'='LEGACY_INVALID_NEXT_BAR_V1'
+                )""")
+            # Diagnostic-only backfill for recommendations frozen before the
+            # explicit Gross/Costs/Net contract.  Existing net outcomes are not
+            # changed; cost R is reconstructed from the stored pre-entry context.
+            cur.execute("""WITH economics AS (
+              SELECT p.strategy_code,
+                     CASE
+                       WHEN p.strategy_code='BR_CONSERVATIVE_BREAKOUT' THEN 'BR'
+                       WHEN p.strategy_code='NG_CONSERVATIVE_BREAKOUT_M1' THEN 'NG'
+                       WHEN p.strategy_code='CNY_REGIME_FUTURES' THEN 'CNY'
+                       WHEN p.strategy_code='USD_REGIME_FUTURES' THEN 'USD'
+                       WHEN p.strategy_code='GOLD_TREND_BREAKOUT' THEN 'GOLD'
+                       ELSE split_part(p.symbol_code,'@',1)
+                     END AS symbol_group,
+                     p.side_code,p.candidate_code,
+                     avg(p.shadow_net_r + (p.entry_context->>'cost_to_atr')::numeric /
+                         nullif(p.stop_atr,0)) AS gross_expectancy_r,
+                     avg((p.entry_context->>'cost_to_atr')::numeric /
+                         nullif(p.stop_atr,0)) AS roundtrip_cost_r,
+                     avg(p.shadow_net_r) AS net_expectancy_r
+              FROM analytics.entry_exit_signal_shadow_pair_v2 p
+              WHERE p.shadow_net_r IS NOT NULL AND p.entry_context ? 'cost_to_atr'
+                AND p.stop_atr>0
+              GROUP BY 1,2,3,4
+            )
+            UPDATE analytics.entry_exit_recommendation_v1 r
+              SET metrics=jsonb_set(r.metrics,'{economics_decomposition}',
+                    jsonb_build_object(
+                      'gross_expectancy_r',e.gross_expectancy_r,
+                      'roundtrip_cost_r',e.roundtrip_cost_r,
+                      'net_expectancy_r',e.net_expectancy_r,
+                      'source','DIAGNOSTIC_BACKFILL_FROM_STORED_COST_TO_ATR_V1'),true)
+            FROM economics e
+            WHERE r.strategy_code=e.strategy_code AND r.symbol_group=e.symbol_group
+              AND r.side_code=e.side_code AND r.candidate_code=e.candidate_code
+              AND r.metrics #>> '{negative_control,control_code}'='TIME_SHIFTED_ENTRY_V2'
+              AND (r.metrics #>> '{economics_decomposition,gross_expectancy_r}' IS NULL
+                OR r.metrics #>> '{economics_decomposition,roundtrip_cost_r}' IS NULL)""")
         cur.execute("""
           SELECT s.id,coalesce(nullif(s.signal_id,''),'signal-row:'||s.id::text) signal_id,
                  c.id AS trade_id,s.symbol,s.strategy,
@@ -340,10 +372,29 @@ def main() -> int:
                 LIKE 'FRESH_V5%%'
             AND s.status IN ('FILLED','RISK_REJECTED')
             AND s.strategy=ANY(%s)
+            AND (%s='' OR s.symbol=%s)
+            AND (%s='' OR s.strategy=%s)
+            AND (
+                 %s=''
+                 OR (
+                    CASE
+                      WHEN upper(s.side) IN ('LONG','BUY') THEN 'LONG'
+                      ELSE 'SHORT'
+                    END
+                 )=%s
+            )
             AND coalesce(s.ts,s.created_at) IS NOT NULL
             AND s.entry_price IS NOT NULL AND s.entry_price>0
           ORDER BY coalesce(s.ts,s.created_at),s.id
-        """, (list(SUPPORTED),))
+        """, (
+            list(SUPPORTED),
+            TARGET_SYMBOL,
+            TARGET_SYMBOL,
+            TARGET_STRATEGY,
+            TARGET_STRATEGY,
+            TARGET_SIDE,
+            TARGET_SIDE,
+        ))
         groups = defaultdict(list)
         independent_signals = set()
         for trade in cur.fetchall():
@@ -398,29 +449,178 @@ def main() -> int:
             oos_ids = ({int(bundle[0]["id"]) for bundle in split.test} if split else set())
             candidate_results = []
             all_variants = default_variants(strategy) + expert_shadow_variants(strategy)
+
+            variant_budget_raw = os.getenv(
+                "EDGE_SEARCH_TARGET_VARIANT_BUDGET", ""
+            ).strip()
+
+            variant_budget = None
+
+            if variant_budget_raw:
+                variant_budget = int(variant_budget_raw)
+
+                if variant_budget <= 0:
+                    raise RuntimeError(
+                        "EDGE_SEARCH_TARGET_VARIANT_BUDGET_INVALID"
+                    )
+
+                # variant_budget ограничивает ширину candidate universe.
+                all_variants = all_variants[:variant_budget]
+
+            cycle_budget_raw = os.getenv(
+                "EDGE_SEARCH_TARGET_CYCLE_BUDGET", ""
+            ).strip()
+
+            cycle_budget = None
+
+            if cycle_budget_raw:
+                cycle_budget = int(cycle_budget_raw)
+
+                if cycle_budget <= 0:
+                    raise RuntimeError(
+                        "EDGE_SEARCH_TARGET_CYCLE_BUDGET_INVALID"
+                    )
+
+            if variant_budget is not None:
+                if cycle_budget is None:
+                    # Legacy V1: targeted cycle структурно потребляет
+                    # одного challenger.
+                    cycle_budget = 1
+
+                if cycle_budget > variant_budget:
+                    raise RuntimeError(
+                        "EDGE_SEARCH_TARGET_CYCLE_BUDGET_EXCEEDS_VARIANT_BUDGET"
+                    )
+
+            elif cycle_budget is not None:
+                raise RuntimeError(
+                    "EDGE_SEARCH_TARGET_CYCLE_BUDGET_REQUIRES_VARIANT_BUDGET"
+                )
             # Evaluate one frozen challenger, not the whole grid every cycle.
             # Keep an in-flight candidate stable; after an explicit expensive
             # failure rotate deterministically to another pre-registered arm.
-            cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
-                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
-                  AND workflow_stage IN ('SHADOW_ACCUMULATION','V5_OOS_COLLECTING','V5_OOS_PASS',
-                    'PAPER_MINIMAL_ACTIVE','PAPER_MONITOR','PAPER_CONTINUE')
-                ORDER BY first_entered_at LIMIT 1""", (strategy,group,side))
-            frozen_pool_row = cur.fetchone()
-            by_variant_code = {variant.code: variant for variant in all_variants}
-            frozen_code = str(frozen_pool_row["candidate_code"]) if frozen_pool_row else ""
-            if frozen_code in by_variant_code:
-                variants = (by_variant_code[frozen_code],)
+            if TARGETED_RESEARCH_ONLY:
+                # Frozen targeted methodology V1 поддерживает ровно
+                # одного challenger за один cycle.
+                if cycle_budget is not None and cycle_budget != 1:
+                    raise RuntimeError(
+                        "TARGETED_RESEARCH_CYCLE_BUDGET_UNSUPPORTED"
+                    )
+
+                # Targeted research сохраняет одного активного challenger,
+                # но не должен повторно выбирать terminal candidate.
+                by_variant_code = {
+                    variant.code: variant
+                    for variant in all_variants
+                }
+
+                cur.execute(
+                    """SELECT candidate_code
+                       FROM analytics.entry_exit_promotion_workflow_v1
+                       WHERE strategy_code=%s
+                         AND symbol_group=%s
+                         AND side_code=%s
+                         AND workflow_stage IN (
+                           'SHADOW_ACCUMULATION',
+                           'V5_OOS_COLLECTING',
+                           'V5_OOS_PASS',
+                           'PAPER_MINIMAL_ACTIVE',
+                           'PAPER_MONITOR',
+                           'PAPER_CONTINUE'
+                         )
+                       ORDER BY first_entered_at,candidate_code
+                       LIMIT 1""",
+                    (strategy, group, side),
+                )
+
+                active_row = cur.fetchone()
+                active_code = (
+                    str(active_row["candidate_code"])
+                    if active_row
+                    else ""
+                )
+
+                if active_code in by_variant_code:
+                    variants = (
+                        by_variant_code[active_code],
+                    )
+                else:
+                    cur.execute(
+                        """SELECT candidate_code
+                           FROM analytics.entry_exit_promotion_workflow_v1
+                           WHERE strategy_code=%s
+                             AND symbol_group=%s
+                             AND side_code=%s
+                             AND workflow_stage IN (
+                               'REJECTED',
+                               'ROLLED_BACK',
+                               'EXPENSIVE_GATES_FAILED'
+                             )""",
+                        (strategy, group, side),
+                    )
+
+                    terminal_codes = {
+                        str(row["candidate_code"])
+                        for row in cur.fetchall()
+                    }
+
+                    available = [
+                        variant
+                        for variant in all_variants
+                        if variant.code not in terminal_codes
+                    ]
+
+                    if not available:
+                        raise RuntimeError(
+                            "TARGETED_RESEARCH_NO_NON_TERMINAL_CANDIDATE"
+                        )
+
+                    digest = hashlib.sha256(
+                        (
+                            f"{strategy}|{TARGET_SYMBOL}|{side}|"
+                            "TARGETED_ROTATION_POLICY_V1"
+                        ).encode()
+                    ).digest()
+
+                    variants = (
+                        available[
+                            int.from_bytes(
+                                digest[:4],
+                                "big",
+                            ) % len(available)
+                        ],
+                    )
             else:
                 cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
                     WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
-                      AND workflow_stage='EXPENSIVE_GATES_FAILED'""", (strategy,group,side))
-                failed_codes = {str(row["candidate_code"]) for row in cur.fetchall()}
-                available = [variant for variant in all_variants if variant.code not in failed_codes]
-                if not available:
-                    available = list(all_variants)
-                digest = hashlib.sha256(f"{strategy}|{group}|{side}".encode()).digest()
-                variants = (available[int.from_bytes(digest[:4], "big") % len(available)],)
+                      AND workflow_stage IN ('SHADOW_ACCUMULATION','V5_OOS_COLLECTING','V5_OOS_PASS',
+                        'PAPER_MINIMAL_ACTIVE','PAPER_MONITOR','PAPER_CONTINUE')
+                    ORDER BY first_entered_at LIMIT 1""", (strategy,group,side))
+                frozen_pool_row = cur.fetchone()
+                by_variant_code = {variant.code: variant for variant in all_variants}
+                frozen_code = str(frozen_pool_row["candidate_code"]) if frozen_pool_row else ""
+                if frozen_code in by_variant_code:
+                    variants = (by_variant_code[frozen_code],)
+                else:
+                    cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
+                        WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                          AND workflow_stage='EXPENSIVE_GATES_FAILED'""", (strategy,group,side))
+                    failed_codes = {str(row["candidate_code"]) for row in cur.fetchall()}
+                    available = [
+                        variant
+                        for variant in all_variants
+                        if variant.code not in failed_codes
+                    ]
+                    if not available:
+                        available = list(all_variants)
+                    digest = hashlib.sha256(
+                        f"{strategy}|{group}|{side}".encode()
+                    ).digest()
+                    variants = (
+                        available[
+                            int.from_bytes(digest[:4], "big") % len(available)
+                        ],
+                    )
             for variant in variants:
                 rows = []
                 for trade,atr,bars,economics,horizon_complete,entry_context in trades:
@@ -627,17 +827,18 @@ def main() -> int:
                     ids = list(oos_ids)
                     cur.execute("""UPDATE analytics.entry_exit_signal_shadow_pair_v2 SET is_oos=true
                                    WHERE candidate_code=%s AND source_signal_id=ANY(%s)""", (variant.code,ids))
-                cur.execute("""INSERT INTO analytics.entry_exit_recommendation_v1
-                  (strategy_code,symbol_group,side_code,candidate_code,recommendation_status,pairs,oos_pairs,
-                   entry_mode,stop_atr,take_atr,trail_after_r,trail_atr,metrics)
-                  VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
-                  ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
-                   recommendation_status=excluded.recommendation_status,pairs=excluded.pairs,oos_pairs=excluded.oos_pairs,
-                   metrics=excluded.metrics,generated_at=clock_timestamp()""",
-                  (strategy,group,side,variant.code,metrics["status"],metrics["pairs"],
-                   int(metrics.get("oos_pairs") or 0),
-                   variant.entry_mode,variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
-                   json.dumps(metrics)))
+                if not TARGETED_RESEARCH_ONLY:
+                    cur.execute("""INSERT INTO analytics.entry_exit_recommendation_v1
+                      (strategy_code,symbol_group,side_code,candidate_code,recommendation_status,pairs,oos_pairs,
+                       entry_mode,stop_atr,take_atr,trail_after_r,trail_atr,metrics)
+                      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                      ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
+                       recommendation_status=excluded.recommendation_status,pairs=excluded.pairs,oos_pairs=excluded.oos_pairs,
+                       metrics=excluded.metrics,generated_at=clock_timestamp()""",
+                      (strategy,group,side,variant.code,metrics["status"],metrics["pairs"],
+                       int(metrics.get("oos_pairs") or 0),
+                       variant.entry_mode,variant.stop_atr,variant.take_atr,variant.trail_after_r,variant.trail_atr,
+                       json.dumps(metrics)))
                 print("ENTRY_EXIT_SHADOW",strategy,group,side,variant.code,json.dumps(metrics,sort_keys=True))
 
             metrics_by_code = {variant.code: metrics for variant, metrics, _ in candidate_results}
@@ -663,16 +864,24 @@ def main() -> int:
                 float(item[1].get("shadow_oos_r") or -999),
                 float(item[1].get("shadow_expectancy_r") or -999),
                 -float(item[1].get("shadow_drawdown_r") or 999)), reverse=True)
-            cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
-                WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
-                  AND admission_id IS NOT NULL
-                  AND workflow_stage IN ('V5_OOS_COLLECTING','V5_OOS_PASS','PAPER_MINIMAL_ACTIVE',
-                                         'PAPER_MONITOR','PAPER_CONTINUE')
-                ORDER BY first_entered_at LIMIT 1""", (strategy,group,side))
-            frozen_existing = cur.fetchone()
-            freeze_candidate_code = (str(frozen_existing["candidate_code"])
-                                     if frozen_existing else
-                                     freeze_eligible[0][0].code if freeze_eligible else None)
+            if TARGETED_RESEARCH_ONLY:
+                frozen_existing = None
+            else:
+                cur.execute("""SELECT candidate_code FROM analytics.entry_exit_promotion_workflow_v1
+                    WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                      AND admission_id IS NOT NULL
+                      AND workflow_stage IN ('V5_OOS_COLLECTING','V5_OOS_PASS','PAPER_MINIMAL_ACTIVE',
+                                             'PAPER_MONITOR','PAPER_CONTINUE')
+                    ORDER BY first_entered_at LIMIT 1""", (strategy,group,side))
+                frozen_existing = cur.fetchone()
+
+            freeze_candidate_code = (
+                str(frozen_existing["candidate_code"])
+                if frozen_existing
+                else freeze_eligible[0][0].code
+                if freeze_eligible
+                else None
+            )
             # Keep one active research challenger per strategy/instrument/side.
             # All variants remain in the recommendation table for audit, but
             # only this candidate is allowed to consume the expensive/OOS
@@ -704,7 +913,7 @@ def main() -> int:
                 futility_rejected = metrics.get("futility_gate", {}).get("verdict") == "REJECT"
                 selected_for_frozen_oos = variant.code == freeze_candidate_code
                 selected_for_shadow_funnel = variant.code == shadow_funnel_code
-                if selected_for_frozen_oos:
+                if selected_for_frozen_oos and not TARGETED_RESEARCH_ONLY:
                     cur.execute("""SELECT admission_id,oos_run_id FROM
                         analytics.entry_exit_promotion_workflow_v1
                         WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
@@ -804,43 +1013,76 @@ def main() -> int:
                 metrics["promotion_workflow"] = workflow
                 metrics["status"] = ("READY_FOR_PAPER_CONFIRMATION"
                                      if workflow_stage == "V5_OOS_PASS" else "KEEP_SHADOW")
-                cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
-                               SET recommendation_status=%s,metrics=%s::jsonb,generated_at=clock_timestamp()
-                               WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
-                                 AND candidate_code=%s""",
-                            (metrics["status"],json.dumps(metrics),strategy,group,side,variant.code))
-                cur.execute("""INSERT INTO analytics.entry_exit_promotion_workflow_v1(
-                    strategy_code,symbol_group,side_code,candidate_code,workflow_stage,
-                    statistical_verdict,expensive_gates_pass,v5_oos_pass,paper_risk_fraction,
-                    evidence,admission_id,oos_run_id,first_entered_at,last_transition_at)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,
-                           clock_timestamp(),clock_timestamp())
-                    ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
-                      workflow_stage=excluded.workflow_stage,
-                      statistical_verdict=excluded.statistical_verdict,
-                      expensive_gates_pass=excluded.expensive_gates_pass,
-                      v5_oos_pass=excluded.v5_oos_pass,
-                      paper_risk_fraction=excluded.paper_risk_fraction,
-                      evidence=excluded.evidence,
-                      admission_id=coalesce(excluded.admission_id,
-                        analytics.entry_exit_promotion_workflow_v1.admission_id),
-                      oos_run_id=coalesce(excluded.oos_run_id,
-                        analytics.entry_exit_promotion_workflow_v1.oos_run_id),
-                      first_entered_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
-                        IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
-                        ELSE analytics.entry_exit_promotion_workflow_v1.first_entered_at END,
-                      last_transition_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
-                        IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
-                        ELSE analytics.entry_exit_promotion_workflow_v1.last_transition_at END,
-                      updated_at=clock_timestamp()""",
-                    (strategy,group,side,variant.code,
-                     workflow.get("stage", "SHADOW_ACCUMULATION"),
-                     metrics.get("statistical_gate", {}).get("verdict", "ACCUMULATE"),
-                     bool(workflow.get("expensive_gates_pass")),
-                     bool(workflow.get("v5_oos_pass")),
-                     float(workflow.get("paper_risk_fraction") or 0.25),json.dumps(metrics),
-                     admission_id,oos_run_id))
+                if not TARGETED_RESEARCH_ONLY:
+                    cur.execute("""UPDATE analytics.entry_exit_recommendation_v1
+                                   SET recommendation_status=%s,metrics=%s::jsonb,generated_at=clock_timestamp()
+                                   WHERE strategy_code=%s AND symbol_group=%s AND side_code=%s
+                                     AND candidate_code=%s""",
+                                (metrics["status"],json.dumps(metrics),strategy,group,side,variant.code))
+                    cur.execute("""INSERT INTO analytics.entry_exit_promotion_workflow_v1(
+                        strategy_code,symbol_group,side_code,candidate_code,workflow_stage,
+                        statistical_verdict,expensive_gates_pass,v5_oos_pass,paper_risk_fraction,
+                        evidence,admission_id,oos_run_id,first_entered_at,last_transition_at)
+                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,
+                               clock_timestamp(),clock_timestamp())
+                        ON CONFLICT(strategy_code,symbol_group,side_code,candidate_code) DO UPDATE SET
+                          workflow_stage=excluded.workflow_stage,
+                          statistical_verdict=excluded.statistical_verdict,
+                          expensive_gates_pass=excluded.expensive_gates_pass,
+                          v5_oos_pass=excluded.v5_oos_pass,
+                          paper_risk_fraction=excluded.paper_risk_fraction,
+                          evidence=excluded.evidence,
+                          admission_id=coalesce(excluded.admission_id,
+                            analytics.entry_exit_promotion_workflow_v1.admission_id),
+                          oos_run_id=coalesce(excluded.oos_run_id,
+                            analytics.entry_exit_promotion_workflow_v1.oos_run_id),
+                          first_entered_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
+                            IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
+                            ELSE analytics.entry_exit_promotion_workflow_v1.first_entered_at END,
+                          last_transition_at=CASE WHEN analytics.entry_exit_promotion_workflow_v1.workflow_stage
+                            IS DISTINCT FROM excluded.workflow_stage THEN clock_timestamp()
+                            ELSE analytics.entry_exit_promotion_workflow_v1.last_transition_at END,
+                          updated_at=clock_timestamp()""",
+                        (strategy,group,side,variant.code,
+                         workflow.get("stage", "SHADOW_ACCUMULATION"),
+                         metrics.get("statistical_gate", {}).get("verdict", "ACCUMULATE"),
+                         bool(workflow.get("expensive_gates_pass")),
+                         bool(workflow.get("v5_oos_pass")),
+                         float(workflow.get("paper_risk_fraction") or 0.25),json.dumps(metrics),
+                         admission_id,oos_run_id))
                 family_rows[(research_family(strategy),side,variant.code)].extend(evaluation_rows)
+
+            if TARGETED_RESEARCH_ONLY:
+                conn.commit()
+
+                print(
+                    "ENTRY_EXIT_TARGETED_RESEARCH_ONLY_SUMMARY "
+                    f"symbol={TARGET_SYMBOL} "
+                    f"strategy={TARGET_STRATEGY} "
+                    f"side={TARGET_SIDE} "
+                    f"candidate_results={len(candidate_results)}"
+                )
+
+                print("physical_contract_isolated=1")
+                print("safe_evidence_committed=1")
+                print("targeted_unsafe_write_tables_executed=0")
+                print("global_control_mutation_executed=0")
+                print("recommendation_changed=0")
+                print("promotion_workflow_changed=0")
+                print("runtime_profile_changed=0")
+                print("champion_challenger_changed=0")
+                print("family_evidence_changed=0")
+                print("execution_changed=0")
+                print("orders_changed=0")
+                print("fills_changed=0")
+                print("micro_live_allowed=0")
+
+                print(
+                    "VERDICT="
+                    "ENTRY_EXIT_TARGETED_RESEARCH_ONLY_V1_READY"
+                )
+
+                return 0
 
             cur.execute("""SELECT c.*,p.candidate_code AS active_candidate_code,p.profile_id AS active_profile_id,
                                   p.activated_at AS active_activated_at

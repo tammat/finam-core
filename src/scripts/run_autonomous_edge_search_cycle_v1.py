@@ -25,6 +25,7 @@ EXECUTORS = {
     "SYNC_ECONOMIC_HYPOTHESES": "src/scripts/sync_economic_hypothesis_algorithms_v1.py",
     "DISCOVER_REGIME": "src/scripts/build_edge_regime_hypothesis_discovery_v2.py",
     "WALKFORWARD": "src/scripts/run_checkpointed_walkforward_v4.py",
+    "TARGETED_ENTRY_EXIT_OOS_V1": "src/scripts/run_targeted_entry_exit_oos_v1.py",
     "GOVERN_EXPERIMENTS": "src/scripts/govern_research_experiments_v1.py",
     "METHODOLOGY_GATE": "src/scripts/evaluate_edge_methodology_contract_v1.py",
     "BUILD_DIAGNOSTIC_FUNNELS": "src/scripts/build_edge_diagnostic_funnels_v1.py",
@@ -250,6 +251,92 @@ def main() -> int:
         "EDGE_SEARCH_FRESHNESS_MINUTES": str(freshness_minutes),
         "EDGE_SEARCH_SCENARIO_RUN_ID": str(run_id),
     })
+
+    target_mode = os.getenv("EDGE_SEARCH_TARGET_MODE", "").strip()
+    target_family = os.getenv(
+        "EDGE_SEARCH_TARGET_RESEARCH_FAMILY", ""
+    ).strip()
+    target_symbol = os.getenv("EDGE_SEARCH_TARGET_SYMBOL", "").strip()
+    target_strategy = os.getenv(
+        "EDGE_SEARCH_TARGET_STRATEGY", ""
+    ).strip()
+    target_side = os.getenv("EDGE_SEARCH_TARGET_SIDE", "").strip().upper()
+    target_variant_budget_raw = os.getenv(
+        "EDGE_SEARCH_TARGET_VARIANT_BUDGET", ""
+    ).strip()
+    target_variant_budget = None
+    if target_variant_budget_raw:
+        target_variant_budget = int(target_variant_budget_raw)
+        if target_variant_budget <= 0:
+            raise RuntimeError("EDGE_SEARCH_TARGET_VARIANT_BUDGET_INVALID")
+
+    target_cycle_budget_raw = os.getenv(
+        "EDGE_SEARCH_TARGET_CYCLE_BUDGET", ""
+    ).strip()
+    target_cycle_budget = None
+
+    if target_cycle_budget_raw:
+        target_cycle_budget = int(
+            target_cycle_budget_raw
+        )
+
+        if target_cycle_budget <= 0:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_CYCLE_BUDGET_INVALID"
+            )
+
+    if target_variant_budget is not None:
+        if target_cycle_budget is None:
+            # Legacy/direct V1 compatibility.
+            target_cycle_budget = 1
+
+        if target_cycle_budget > target_variant_budget:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_CYCLE_BUDGET_EXCEEDS_VARIANT_BUDGET"
+            )
+    elif target_cycle_budget is not None:
+        raise RuntimeError(
+            "EDGE_SEARCH_TARGET_CYCLE_BUDGET_REQUIRES_VARIANT_BUDGET"
+        )
+
+    targeted_executor_code = None
+
+    if target_mode:
+        if target_mode != "TARGETED_V1":
+            raise RuntimeError("EDGE_SEARCH_TARGET_MODE_UNSUPPORTED")
+
+        mapping = {
+            "EXIT_OOS": "TARGETED_ENTRY_EXIT_OOS_V1",
+            "ECONOMIC_OOS": "WALKFORWARD",
+        }
+
+        targeted_executor_code = mapping.get(target_family)
+
+        if targeted_executor_code is None:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_RESEARCH_FAMILY_UNRESOLVED"
+            )
+
+        if not target_symbol or "@" not in target_symbol:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_PHYSICAL_SYMBOL_REQUIRED"
+            )
+
+        if not target_strategy:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_STRATEGY_REQUIRED"
+            )
+
+        if target_side not in {"LONG", "SHORT"}:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_SIDE_INVALID"
+            )
+
+        if targeted_executor_code not in EXECUTORS:
+            raise RuntimeError(
+                "EDGE_SEARCH_TARGET_EXECUTOR_NOT_REGISTERED"
+            )
+
     with psycopg2.connect("postgresql:///finam_core") as lock_connection:
         with lock_connection.cursor() as cursor:
             if request_id:
@@ -338,6 +425,51 @@ def main() -> int:
                     ) VALUES (%s,'RUNNING','STARTING',0,%s,%s,'EDGE_SEARCH_STARTED')
                 """, (str(cycle_id),freshness_minutes,watermark))
                 scenario = load_scenario(status_connection)
+
+                if targeted_executor_code is not None:
+                    scenario = {
+                        **scenario,
+                        "steps": [
+                            {
+                                "step_order": 1,
+                                "executor_code": targeted_executor_code,
+                                "timeout_seconds": 10800,
+                            }
+                        ],
+                    }
+
+                    print(
+                        "TARGETED_EDGE_SEARCH_PLAN "
+                        f"family={target_family} "
+                        f"symbol={target_symbol} "
+                        f"strategy={target_strategy} "
+                        f"side={target_side} "
+                        f"executor={targeted_executor_code}"
+                    )
+
+                    if (
+                        os.getenv(
+                            "EDGE_SEARCH_TARGET_DISPATCH_DRY_RUN",
+                            "0",
+                        )
+                        == "1"
+                    ):
+                        print(
+                            "TARGETED_EDGE_SEARCH_DRY_RUN "
+                            f"executor={targeted_executor_code} "
+                            f"steps={len(scenario['steps'])}"
+                        )
+                        print("executor_process_started=0")
+                        print("queue_writes_performed=0")
+                        print("execution_changed=0")
+                        print("orders_changed=0")
+                        print("fills_changed=0")
+                        print("micro_live_allowed=0")
+                        print(
+                            "VERDICT="
+                            "EDGE_SEARCH_TARGETED_DISPATCH_DRY_RUN_V1_READY"
+                        )
+                        return 0
                 status_cursor.execute("""
                     INSERT INTO analytics.edge_search_scenario_run_v1
                       (run_id,cycle_id,scenario_code,status_code,config_snapshot,process_id)
@@ -358,6 +490,16 @@ def main() -> int:
                       (str(step_run_id),str(run_id),step_config["step_order"],executor_code))
             record_status(cycle_id,current_step=executor_code,progress_pct=int((step_index-1)*100/len(steps)))
             timed_out = False
+            if target_variant_budget is not None:
+                env["EDGE_SEARCH_TARGET_VARIANT_BUDGET"] = str(
+                    target_variant_budget
+                )
+
+                if target_cycle_budget is not None:
+                    env["EDGE_SEARCH_TARGET_CYCLE_BUDGET"] = str(
+                        target_cycle_budget
+                    )
+
             process = subprocess.Popen(
                 (str(PYTHON), step), cwd=ROOT, env=env,
                 text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -509,11 +651,24 @@ def main() -> int:
                     markets_evaluated,combinations_evaluated,passes,technical_step=executor_code,
                 )
                 return 2
-    outcome = "NO_CURRENT_MARKETS" if markets_evaluated == 0 else ("PASS_FOUND" if passes else "NO_PASS")
+    if targeted_executor_code is not None:
+        outcome = "TARGETED_RESEARCH_COMPLETED"
+    else:
+        outcome = (
+            "NO_CURRENT_MARKETS"
+            if markets_evaluated == 0
+            else ("PASS_FOUND" if passes else "NO_PASS")
+        )
+
     reason = {
-        "NO_CURRENT_MARKETS": "EDGE_SEARCH_NO_CURRENT_MARKETS",
-        "PASS_FOUND": "EDGE_SEARCH_OOS_PASS_FOUND",
-        "NO_PASS": "EDGE_SEARCH_COMPLETED_WITHOUT_PASS",
+        "TARGETED_RESEARCH_COMPLETED":
+            "EDGE_SEARCH_TARGETED_RESEARCH_COMPLETED",
+        "NO_CURRENT_MARKETS":
+            "EDGE_SEARCH_NO_CURRENT_MARKETS",
+        "PASS_FOUND":
+            "EDGE_SEARCH_OOS_PASS_FOUND",
+        "NO_PASS":
+            "EDGE_SEARCH_COMPLETED_WITHOUT_PASS",
     }[outcome]
     record_status(
         cycle_id,status_code=outcome,current_step="COMPLETE",progress_pct=100,

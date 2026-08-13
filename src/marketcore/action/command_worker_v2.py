@@ -102,13 +102,15 @@ class GovernedCommandWorkerV2:
             with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute(
                     """
-                    SELECT request_id,action_id,request_kind,command_code,actor_id,target_id,process_id
-                    FROM marketcore_action.command_request_v2
+                    SELECT q.request_id,q.action_id,q.request_kind,q.command_code,q.actor_id,q.target_id,q.process_id,p.variant_budget AS edge_search_variant_budget,p.cycle_budget AS edge_search_cycle_budget
+                    FROM marketcore_action.command_request_v2 q
+LEFT JOIN marketcore_action.edge_search_request_parameter_v1 p
+  ON p.request_id=q.request_id
                     WHERE status='PENDING'
-                      AND (%s IS NULL OR request_id=%s)
-                      AND (%s IS NULL OR request_kind=%s)
+                      AND (%s IS NULL OR q.request_id=%s)
+                      AND (%s IS NULL OR q.request_kind=%s)
                     ORDER BY priority,requested_at
-                    FOR UPDATE SKIP LOCKED LIMIT 1
+                    FOR UPDATE OF q SKIP LOCKED LIMIT 1
                     """, (request_id, request_id, request_kind, request_kind),
                 )
                 row = cursor.fetchone()
@@ -149,6 +151,79 @@ class GovernedCommandWorkerV2:
                 os.environ["EDGE_SEARCH_FORCE"] = (
                     "0" if row["actor_id"] == "system.scheduler" else "1"
                 )
+
+                raw_target = str(row["target_id"] or "").strip()
+                if raw_target.startswith("TARGETED_V1|"):
+                    parts = [part.strip() for part in raw_target.split("|")]
+
+                    if len(parts) != 5:
+                        raise ValueError(
+                            "TARGETED_EDGE_SEARCH_TARGET_INVALID_PART_COUNT"
+                        )
+
+                    _, research_family, symbol, strategy, side = parts
+                    side = side.upper()
+
+                    if research_family not in {"EXIT_OOS", "ECONOMIC_OOS"}:
+                        raise ValueError(
+                            "TARGETED_EDGE_SEARCH_FAMILY_INVALID"
+                        )
+
+                    if not symbol or "@" not in symbol:
+                        raise ValueError(
+                            "TARGETED_EDGE_SEARCH_PHYSICAL_SYMBOL_REQUIRED"
+                        )
+
+                    if not strategy:
+                        raise ValueError(
+                            "TARGETED_EDGE_SEARCH_STRATEGY_REQUIRED"
+                        )
+
+                    if side not in {"LONG", "SHORT"}:
+                        raise ValueError(
+                            "TARGETED_EDGE_SEARCH_SIDE_INVALID"
+                        )
+
+                    os.environ["EDGE_SEARCH_TARGET_MODE"] = "TARGETED_V1"
+                    os.environ[
+                        "EDGE_SEARCH_TARGET_RESEARCH_FAMILY"
+                    ] = research_family
+                    os.environ["EDGE_SEARCH_TARGET_SYMBOL"] = symbol
+                    os.environ["EDGE_SEARCH_TARGET_STRATEGY"] = strategy
+                    os.environ["EDGE_SEARCH_TARGET_SIDE"] = side
+                    variant_budget = row.get("edge_search_variant_budget")
+                    cycle_budget = row.get("edge_search_cycle_budget")
+                    if variant_budget is not None:
+                        variant_budget = int(variant_budget)
+
+                        if variant_budget <= 0:
+                            raise RuntimeError(
+                                "EDGE_SEARCH_TARGET_VARIANT_BUDGET_INVALID"
+                            )
+
+                        os.environ["EDGE_SEARCH_TARGET_VARIANT_BUDGET"] = (
+                            str(variant_budget)
+                        )
+
+                        resolved_cycle_budget = (
+                            int(cycle_budget)
+                            if cycle_budget is not None
+                            else 1
+                        )
+
+                        if resolved_cycle_budget <= 0:
+                            raise RuntimeError(
+                                "EDGE_SEARCH_TARGET_CYCLE_BUDGET_INVALID"
+                            )
+
+                        if resolved_cycle_budget > variant_budget:
+                            raise RuntimeError(
+                                "EDGE_SEARCH_TARGET_CYCLE_BUDGET_EXCEEDS_VARIANT_BUDGET"
+                            )
+
+                        os.environ["EDGE_SEARCH_TARGET_CYCLE_BUDGET"] = (
+                            str(resolved_cycle_budget)
+                        )
             if row["process_id"] is not None:
                 os.environ["MARKETCORE_PROCESS_ID"] = str(row["process_id"])
             result = self._executor.execute(command)
@@ -159,6 +234,17 @@ class GovernedCommandWorkerV2:
             if row["request_kind"] == "EDGE_SEARCH_RUN":
                 os.environ.pop("EDGE_SEARCH_REQUEST_ID", None)
                 os.environ.pop("EDGE_SEARCH_FORCE", None)
+                os.environ.pop("EDGE_SEARCH_TARGET_MODE", None)
+                os.environ.pop("EDGE_SEARCH_TARGET_RESEARCH_FAMILY", None)
+                os.environ.pop("EDGE_SEARCH_TARGET_SYMBOL", None)
+                os.environ.pop("EDGE_SEARCH_TARGET_STRATEGY", None)
+                os.environ.pop("EDGE_SEARCH_TARGET_SIDE", None)
+                os.environ.pop(
+                    "EDGE_SEARCH_TARGET_VARIANT_BUDGET", None
+                )
+                os.environ.pop(
+                    "EDGE_SEARCH_TARGET_CYCLE_BUDGET", None
+                )
             os.environ.pop("MARKETCORE_PROCESS_ID", None)
         return self._finish(row, True, result, None)
 
@@ -440,10 +526,10 @@ class GovernedCommandWorkerV2:
                         """
                         INSERT INTO marketcore_action.command_request_v2
                           (request_id,action_id,request_kind,command_code,actor_id,
-                           target_id,status,requested_at,process_id)
+                           target_id,status,requested_at)
                         VALUES
                           (%s,%s,'EDGE_SEARCH_RUN',%s,%s,%s,'PENDING',
-                           clock_timestamp(),%s)
+                           clock_timestamp())
                         ON CONFLICT(request_id) DO NOTHING
                         """,
                         (
@@ -452,7 +538,6 @@ class GovernedCommandWorkerV2:
                             row["command_code"],
                             row["actor_id"],
                             row["target_id"],
-                            row.get("process_id"),
                         ),
                     )
 
